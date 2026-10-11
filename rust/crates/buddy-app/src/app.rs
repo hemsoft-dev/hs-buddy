@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use buddy_core::config::DisplayRect;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::{
     App, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled, Window, div,
@@ -11,7 +12,7 @@ use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
-use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
+use crate::window_persistence::{self, Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
 
 gpui_kit::actions!(
@@ -132,6 +133,7 @@ impl BuddyApp {
         window.is_visible().then(|| Placement {
             bounds: window.window_bounds(),
             is_maximized: window.is_maximized(),
+            is_full_screen: window.is_fullscreen(),
             display: window.display(cx).map(|display| display.bounds()),
         })
     }
@@ -146,10 +148,37 @@ impl BuddyApp {
         };
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
-            this.update(cx, |this, _| this.window_state.save_if_current(generation))
-                .ok();
+            this.update(cx, |this, cx| {
+                this.window_state.save_if_current(generation);
+                this.release_electron_display(cx);
+            })
+            .ok();
         })
         .detach();
+    }
+
+    /// Electron moves its window back onto the display in `ui.displayId`, so
+    /// once the native window sits on another display, clear that id;
+    /// Electron then restores `window-state.json`, which it still checks
+    /// against the connected displays. Electron's ids are not GPUI's, so
+    /// the displays are compared by their bounds.
+    fn release_electron_display(&self, cx: &mut App) {
+        let ui = &Settings::global(cx).config.ui;
+        let current = self
+            .window_state
+            .latest()
+            .and_then(|state| state.display_bounds);
+        let moved = current.is_some_and(|current| {
+            window_persistence::names_another_display(ui.display_bounds, current)
+        });
+        if ui.display_id == 0 || !moved {
+            return;
+        }
+        Settings::update(cx, |config| {
+            config.ui.display_id = 0;
+            config.ui.display_bounds = DisplayRect::default();
+            config.ui.display_work_area = DisplayRect::default();
+        });
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -174,6 +203,7 @@ impl BuddyApp {
                 this.window_state.record(placement);
             }
             this.window_state.flush();
+            this.release_electron_display(cx);
             std::future::ready(())
         })
         .detach();

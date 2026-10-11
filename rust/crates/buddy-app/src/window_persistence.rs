@@ -22,6 +22,8 @@ pub struct Placement {
     /// macOS reports a zoomed window as `Windowed`, so the variant alone
     /// does not tell.
     pub is_maximized: bool,
+    /// X11 never reports `Fullscreen` bounds.
+    pub is_full_screen: bool,
     pub display: Option<Bounds<Pixels>>,
 }
 
@@ -77,6 +79,11 @@ impl WindowPersistence {
         Some(self.generation)
     }
 
+    /// The placement most recently recorded.
+    pub fn latest(&self) -> Option<&WindowState> {
+        self.latest.as_ref()
+    }
+
     /// Write the placement unless a later change superseded `generation`
     /// (that change schedules its own save).
     pub fn save_if_current(&mut self, generation: u64) {
@@ -102,22 +109,29 @@ impl WindowPersistence {
 }
 
 /// The state to save for `placement`. Like `electron-window-state`, it keeps
-/// the restore rectangle of a maximized or full screen window: the reported
-/// one where the backend has it (`reports_restore_bounds`, and full screen
-/// everywhere), else the last `windowed` rectangle.
+/// the restore rectangle of a maximized or full screen window, and keeps a
+/// window maximized underneath full screen marked maximized. The reported
+/// rectangle is used where it is a restore rectangle, else the last
+/// `windowed` one.
 fn capture(
     placement: Placement,
     windowed: Option<DisplayRect>,
     reports_restore_bounds: bool,
 ) -> WindowState {
-    let (reported, is_maximized, is_full_screen) = match placement.bounds {
-        WindowBounds::Windowed(bounds) => (bounds, placement.is_maximized, false),
-        WindowBounds::Maximized(bounds) => (bounds, true, false),
-        WindowBounds::Fullscreen(bounds) => (bounds, false, true),
+    let is_maximized =
+        placement.is_maximized || matches!(placement.bounds, WindowBounds::Maximized(_));
+    let is_full_screen =
+        placement.is_full_screen || matches!(placement.bounds, WindowBounds::Fullscreen(_));
+    let reported_is_restore = match placement.bounds {
+        WindowBounds::Windowed(_) => false,
+        WindowBounds::Maximized(_) => reports_restore_bounds,
+        // The rectangle before full screen, which on macOS and X11 is the
+        // maximized one when the window was maximized.
+        WindowBounds::Fullscreen(_) => reports_restore_bounds || !is_maximized,
     };
     let rect = match windowed {
-        Some(windowed) if is_maximized && !reports_restore_bounds => windowed,
-        _ => rect(reported),
+        Some(windowed) if (is_maximized || is_full_screen) && !reported_is_restore => windowed,
+        _ => rect(placement.bounds.get_bounds()),
     };
     WindowState {
         x: rect.x,
@@ -128,6 +142,16 @@ fn capture(
         is_full_screen,
         display_bounds: placement.display.map(self::rect),
     }
+}
+
+/// Whether Electron's saved display (`ui.displayId`, described by
+/// `electron_display`) is not the one the window is on now. Electron moves
+/// its window back onto that display, so the id must go once the native
+/// window has left it. Both apps measure displays in logical pixels;
+/// rounding absorbs fractional scale factors.
+pub fn names_another_display(electron_display: DisplayRect, current: DisplayRect) -> bool {
+    let round = |r: DisplayRect| [r.x, r.y, r.width, r.height].map(|value| value.round() as i64);
+    round(electron_display) != round(current)
 }
 
 fn restore_rect(state: &WindowState) -> DisplayRect {
@@ -164,8 +188,69 @@ mod tests {
         Placement {
             bounds,
             is_maximized,
+            is_full_screen: false,
             display: Some(self::bounds(0.0, 0.0, 1920.0, 1080.0)),
         }
+    }
+
+    const WINDOWED: DisplayRect = DisplayRect {
+        x: 120.0,
+        y: 90.0,
+        width: 1000.0,
+        height: 700.0,
+    };
+
+    #[test]
+    fn full_screen_over_a_maximized_window_stays_maximized() {
+        let screen = bounds(0.0, 0.0, 1920.0, 1080.0);
+        let zoomed = bounds(0.0, 25.0, 1920.0, 1030.0);
+        // Windows: the reported rectangle is the normal one.
+        let windows = capture(
+            placement(
+                WindowBounds::Fullscreen(bounds(120.0, 90.0, 1000.0, 700.0)),
+                true,
+            ),
+            None,
+            true,
+        );
+        // macOS: the rectangle before full screen is the zoomed one.
+        let mac = capture(
+            placement(WindowBounds::Fullscreen(zoomed), true),
+            Some(WINDOWED),
+            false,
+        );
+        // X11 reports full screen only through `is_fullscreen`.
+        let x11 = capture(
+            Placement {
+                is_full_screen: true,
+                ..placement(WindowBounds::Windowed(screen), false)
+            },
+            Some(WINDOWED),
+            false,
+        );
+        for state in [&windows, &mac] {
+            assert!(state.is_maximized && state.is_full_screen);
+            assert_eq!(rect_of(state), (120.0, 90.0, 1000.0, 700.0));
+        }
+        assert!(x11.is_full_screen && !x11.is_maximized);
+        assert_eq!(rect_of(&x11), (120.0, 90.0, 1000.0, 700.0));
+    }
+
+    #[test]
+    fn electron_display_is_released_only_for_another_display() {
+        let display = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1706.67,
+            height: 960.0,
+        };
+        let same = DisplayRect {
+            width: 1707.0,
+            ..display
+        };
+        let other = DisplayRect { x: 1707.0, ..same };
+        assert!(!names_another_display(display, same));
+        assert!(names_another_display(display, other));
     }
 
     fn rect_of(state: &WindowState) -> (f64, f64, f64, f64) {
@@ -201,12 +286,7 @@ mod tests {
 
     #[test]
     fn maximized_without_a_restore_rectangle_keeps_the_last_windowed_one() {
-        let windowed = Some(DisplayRect {
-            x: 120.0,
-            y: 90.0,
-            width: 1000.0,
-            height: 700.0,
-        });
+        let windowed = Some(WINDOWED);
         let zoomed = bounds(0.0, 25.0, 1920.0, 1030.0);
         // macOS: a zoomed window is reported as `Windowed` at full size.
         let mac = capture(
