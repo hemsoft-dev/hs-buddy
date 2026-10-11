@@ -149,8 +149,9 @@ impl BuddyApp {
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SAVE_DELAY).await;
             this.update(cx, |this, cx| {
-                this.window_state.save_if_current(generation);
-                this.release_electron_display(cx);
+                if this.window_state.save_if_current(generation) {
+                    this.release_electron_display(cx);
+                }
             })
             .ok();
         })
@@ -158,10 +159,11 @@ impl BuddyApp {
     }
 
     /// Electron moves its window back onto the display in `ui.displayId`, so
-    /// once the native window sits on another display, clear that id;
+    /// once the saved native window sits on another display, clear that id;
     /// Electron then restores `window-state.json`, which it still checks
-    /// against the connected displays. Electron's ids are not GPUI's, so
-    /// the displays are compared by their bounds.
+    /// against the connected displays. Call only after that file holds the
+    /// latest placement. Electron's ids are not GPUI's, so the displays are
+    /// compared by their bounds.
     fn release_electron_display(&self, cx: &mut App) {
         let ui = &Settings::global(cx).config.ui;
         let current = self
@@ -169,7 +171,7 @@ impl BuddyApp {
             .latest()
             .and_then(|state| state.display_bounds);
         let moved = current.is_some_and(|current| {
-            window_persistence::names_another_display(ui.display_bounds, current)
+            window_persistence::different_displays(ui.display_bounds, current)
         });
         if ui.display_id == 0 || !moved {
             return;
@@ -202,8 +204,9 @@ impl BuddyApp {
             {
                 this.window_state.record(placement);
             }
-            this.window_state.flush();
-            this.release_electron_display(cx);
+            if this.window_state.flush() {
+                this.release_electron_display(cx);
+            }
             std::future::ready(())
         })
         .detach();
