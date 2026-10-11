@@ -30,8 +30,10 @@ use gpui_kit::component::WindowExt as _;
 
 /// Reuse the geometry saved in `window-state.json` (by this app or Electron)
 /// when it still lands on a connected display; otherwise center a
-/// default-sized window.
-fn initial_window_bounds(cx: &App) -> WindowBounds {
+/// default-sized window. The flag asks for full screen once the window is
+/// shown: a window that was maximized underneath full screen opens
+/// maximized first, so leaving full screen returns to maximized.
+fn initial_window_bounds(cx: &App) -> (WindowBounds, bool) {
     let area = |display: &std::rc::Rc<dyn gpui_kit::PlatformDisplay>| DisplayArea {
         bounds: display.bounds(),
         work_area: display.visible_bounds(),
@@ -49,7 +51,7 @@ fn initial_window_bounds(cx: &App) -> WindowBounds {
         };
         let placed = resolve_window_bounds(default, &[], primary.as_ref())
             .unwrap_or_else(|| Bounds::centered(None, default_size, cx));
-        WindowBounds::Windowed(placed)
+        (WindowBounds::Windowed(placed), false)
     };
     let Some(state) = WindowState::load() else {
         return fallback();
@@ -63,12 +65,10 @@ fn initial_window_bounds(cx: &App) -> WindowBounds {
     let Some(bounds) = resolve_window_bounds(saved, &displays, primary.as_ref()) else {
         return fallback();
     };
-    if state.is_full_screen {
-        WindowBounds::Fullscreen(bounds)
-    } else if state.is_maximized {
-        WindowBounds::Maximized(bounds)
-    } else {
-        WindowBounds::Windowed(bounds)
+    match (state.is_maximized, state.is_full_screen) {
+        (true, full_screen) => (WindowBounds::Maximized(bounds), full_screen),
+        (false, true) => (WindowBounds::Fullscreen(bounds), false),
+        (false, false) => (WindowBounds::Windowed(bounds), false),
     }
 }
 
@@ -136,8 +136,9 @@ fn main() {
             })
             .detach();
 
+            let (window_bounds, enter_full_screen) = initial_window_bounds(cx);
             let options = WindowOptions {
-                window_bounds: Some(initial_window_bounds(cx)),
+                window_bounds: Some(window_bounds),
                 window_min_size: Some(size(px(800.0), px(600.0))),
                 window_decorations: Some(WindowDecorations::Client),
                 app_id: Some("com.hemsoft.buddy".into()),
@@ -159,6 +160,9 @@ fn main() {
                     cx.quit();
                     false
                 });
+                if enter_full_screen {
+                    window.on_next_frame(|window, _| window.toggle_fullscreen());
+                }
                 cx.new(|cx| BuddyApp::new(window, cx))
             })
             .expect("failed to open the Buddy window");
