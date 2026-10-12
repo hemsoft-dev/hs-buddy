@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1320] - 2026-10-12
+## [0.1.1321] - 2026-10-12
 
 ### Fixed
 
-- Preserve placement and layout through display changes (#800, #802)
+- Qualify placement regressions on all platforms (#800, #802)
 
 ## [0.1.1314] - 2026-10-12
 

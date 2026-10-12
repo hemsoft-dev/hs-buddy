@@ -101,37 +101,6 @@ fn geometry_matches_monitor(
         && r.y + r.height <= d.y + d.height + 64.0
 }
 
-#[cfg(test)]
-mod geometry_tests {
-    use super::*;
-
-    #[test]
-    fn exact_geometry_requires_the_current_display_scale() {
-        let display = DisplayRect {
-            x: 0.0,
-            y: 0.0,
-            width: 1920.0,
-            height: 1080.0,
-        };
-        let window = DisplayRect {
-            x: 120.0,
-            y: 90.0,
-            width: 1000.0,
-            height: 700.0,
-        };
-        let geometry = NativeWindowGeometry {
-            logical: window,
-            physical: window,
-            display_bounds: display,
-            physical_display_bounds: display,
-        };
-        let monitor = crate::windows_coordinates::Monitor::new(1, display, display, 1.0);
-        assert!(geometry_matches_monitor(geometry, monitor));
-        let scaled = crate::windows_coordinates::Monitor::new(1, display, display, 1.5);
-        assert!(!geometry_matches_monitor(geometry, scaled));
-    }
-}
-
 /// Skip minimized windows, including X11 windows still mapped by the WM.
 pub fn can_capture(window: &Window) -> bool {
     if !window.is_visible() {
@@ -594,5 +563,36 @@ mod windows {
                 assert_eq!(values(translate(captured, -dx, -dy)), values(workspace));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+
+    #[test]
+    fn exact_geometry_requires_the_current_display_scale() {
+        let display = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let window = DisplayRect {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+        };
+        let geometry = NativeWindowGeometry {
+            logical: window,
+            physical: window,
+            display_bounds: display,
+            physical_display_bounds: display,
+        };
+        let monitor = crate::windows_coordinates::Monitor::new(1, display, display, 1.0);
+        assert!(geometry_matches_monitor(geometry, monitor));
+        let scaled = crate::windows_coordinates::Monitor::new(1, display, display, 1.5);
+        assert!(!geometry_matches_monitor(geometry, scaled));
     }
 }
