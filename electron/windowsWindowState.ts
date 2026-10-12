@@ -19,7 +19,8 @@ type Geometry = {
   physicalDisplayBounds: Rectangle
 }
 type NativeSnapshot = { physical: Rectangle; physicalDisplayBounds: Rectangle }
-const require = createRequire(import.meta.url)
+// `require` is reserved by the Electron bundle's injected CJS shim.
+const windowsRequire = createRequire(import.meta.url)
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -57,7 +58,8 @@ function readState(file: string): Record<string, unknown> | undefined {
 }
 
 function geometry(state: Record<string, unknown> | undefined): Geometry | undefined {
-  const value = state?.nativeGeometry
+  if (!state) return undefined
+  const value = state.nativeGeometry
   if (!object(value)) return undefined
   const parsed = ['logical', 'physical', 'displayBounds', 'physicalDisplayBounds'].map(key =>
     rectangle(value[key])
@@ -70,7 +72,7 @@ function geometry(state: Record<string, unknown> | undefined): Geometry | undefi
     Rectangle,
   ]
   const saved = rectangle(state)
-  const display = rectangle(state?.displayBounds)
+  const display = rectangle(state.displayBounds)
   if (!saved || !display) return undefined
   if (!equal(logical, saved) || !equal(displayBounds, display)) return undefined
   if (![physical, physicalDisplayBounds].every(rect => Object.values(rect).every(Number.isInteger)))
@@ -106,7 +108,7 @@ function restorable(
 }
 
 function nativeWindows() {
-  const koffi = require('koffi') as typeof import('koffi')
+  const koffi = windowsRequire('koffi') as typeof import('koffi')
   const library = koffi.load('user32.dll')
   const getRect = library.func('int __stdcall GetWindowRect(uintptr_t hwnd, void *rect)') as (
     handle: bigint | number,

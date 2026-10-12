@@ -31,6 +31,8 @@ const requireShim = [
   'const require = __createRequire(import.meta.url);',
 ].join('\n')
 
+export const electronRequireShimOutput = { postBanner: requireShim }
+
 // Keep splittable Electron chunks below Vite's default 500 kB budget. Shiki
 // ships a few individual grammar modules that are larger than that threshold,
 // so the renderer warning limit sits just above the largest grammar.
@@ -172,7 +174,9 @@ export default defineConfig(({ mode }) => {
                       // OTel SDK packages are dev-only (Aspire) and load at runtime.
                       external: [...electronNativeExternals, ...otelExternals],
                       output: {
-                        banner: requireShim,
+                        // Keep the shim's bindings outside minification: a banner
+                        // can reuse a minified name already declared by the chunk.
+                        ...electronRequireShimOutput,
                         codeSplitting: codeSplittingGroups(/[\\/](?:electron|shared)[\\/]/),
                       },
                     },

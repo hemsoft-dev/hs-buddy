@@ -202,7 +202,9 @@ impl BuddyApp {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let dashboard = cx.new(|cx| DashboardView::new(window, cx));
+        let saved = Settings::global(cx).config.native.active_section.clone();
+        let section = saved.as_deref().and_then(Section::from_id);
+        let dashboard = cx.new(|cx| DashboardView::new(window, cx, section.is_none()));
         cx.subscribe(&dashboard, |this, _, event, cx| {
             let DashboardEvent::Navigate(section) = event;
             this.set_section(Some(*section), cx);
@@ -266,16 +268,11 @@ impl BuddyApp {
         .detach();
 
         let mut this = Self {
-            active_section: None,
+            active_section: section,
             active_account: None,
             dashboard,
             window_state: WindowPersistence::new(),
         };
-        let saved = Settings::global(cx).config.native.active_section.clone();
-        let section = saved.as_deref().and_then(Section::from_id);
-        if section.is_some() {
-            this.show_section(section, cx);
-        }
         this.window_bounds_changed(window, cx);
         this
     }

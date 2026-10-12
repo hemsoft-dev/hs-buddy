@@ -5,12 +5,18 @@ use buddy_core::config::{DisplayRect, NativeWindowGeometry, WindowState};
 use gpui_kit::{App, Bounds, DisplayId, Pixels, PlatformDisplay, Window};
 
 pub fn display_area(display: &dyn PlatformDisplay, cx: &App) -> DisplayArea {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = cx;
+        macos::display_area(display)
+    }
     #[cfg(windows)]
     if let Some(area) = windows::display_area(display.id(), cx) {
         return area;
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = cx;
+    #[cfg(not(target_os = "macos"))]
     DisplayArea {
         bounds: display.bounds(),
         work_area: display.visible_bounds(),
@@ -120,21 +126,36 @@ pub fn can_capture(window: &Window) -> bool {
 #[cfg(target_os = "linux")]
 fn x11_is_hidden(id: u32) -> Result<bool, Box<dyn std::error::Error>> {
     use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
-    let (connection, _) = x11rb::connect(None)?;
-    let state = connection
-        .intern_atom(false, b"_NET_WM_STATE")?
-        .reply()?
-        .atom;
-    let hidden = connection
-        .intern_atom(false, b"_NET_WM_STATE_HIDDEN")?
-        .reply()?
-        .atom;
-    let reply = connection
-        .get_property(false, id, state, AtomEnum::ATOM, 0, u32::MAX)?
-        .reply()?;
-    Ok(reply
-        .value32()
-        .is_some_and(|mut values| values.any(|value| value == hidden)))
+    type Query = (x11rb::rust_connection::RustConnection, u32, u32);
+    thread_local! {
+        static QUERY: std::cell::OnceCell<Result<Query, String>> = const { std::cell::OnceCell::new() };
+    }
+    // Bounds notifications share one connection and intern each atom once.
+    // Only the window's property changes during a move/resize operation.
+    QUERY.with(|cached| {
+        let query = cached.get_or_init(|| {
+            let connect = || -> Result<Query, Box<dyn std::error::Error>> {
+                let (connection, _) = x11rb::connect(None)?;
+                let state = connection
+                    .intern_atom(false, b"_NET_WM_STATE")?
+                    .reply()?
+                    .atom;
+                let hidden = connection
+                    .intern_atom(false, b"_NET_WM_STATE_HIDDEN")?
+                    .reply()?
+                    .atom;
+                Ok((connection, state, hidden))
+            };
+            connect().map_err(|err| err.to_string())
+        });
+        let (connection, state, hidden) = query.as_ref().map_err(|err| err.clone())?;
+        let reply = connection
+            .get_property(false, id, *state, AtomEnum::ATOM, 0, u32::MAX)?
+            .reply()?;
+        Ok(reply
+            .value32()
+            .is_some_and(|mut values| values.any(|value| value == *hidden)))
+    })
 }
 
 /// Windows exposes outer restore bounds in workspace coordinates. Electron
@@ -145,10 +166,57 @@ pub fn restore_bounds(window: &Window, cx: &App) -> Option<Bounds<Pixels>> {
     {
         windows::restore_bounds(window, cx)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let mut bounds = window.window_bounds().get_bounds();
+        let display = window.display(cx)?;
+        bounds.origin += display_area(display.as_ref(), cx).bounds.origin;
+        Some(bounds)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = cx;
         Some(window.window_bounds().get_bounds())
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::*;
+    use gpui_kit::{point, px, size};
+
+    #[repr(C)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    struct Size {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    struct Rect {
+        origin: Point,
+        size: Size,
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGDisplayBounds(display: u32) -> Rect;
+    }
+
+    pub(super) fn display_area(display: &dyn PlatformDisplay) -> DisplayArea {
+        // GPUI deliberately zeroes this origin. Electron uses the original
+        // CoreGraphics top-left global coordinates instead.
+        let rect = unsafe { CGDisplayBounds(display.id().0 as u32) };
+        let origin = point(px(rect.origin.x as f32), px(rect.origin.y as f32));
+        let bounds = Bounds {
+            origin,
+            size: size(px(rect.size.width as f32), px(rect.size.height as f32)),
+        };
+        let mut work_area = display.visible_bounds();
+        work_area.origin += origin;
+        DisplayArea { bounds, work_area }
     }
 }
 

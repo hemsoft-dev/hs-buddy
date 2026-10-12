@@ -69,8 +69,28 @@ fn resolve_saved_placement(
         .iter()
         .map(|display| display.uuid.clone())
         .collect();
+    let uuid = saved_display_index(state.native_display_uuid.as_deref(), &uuids);
+    let matching = |index: usize| {
+        let bounds = displays[index].area.bounds;
+        let Some(saved) = state.display_bounds else {
+            return false;
+        };
+        saved.x == f64::from(f32::from(bounds.origin.x))
+            && saved.y == f64::from(f32::from(bounds.origin.y))
+            && saved.width == f64::from(f32::from(bounds.size.width))
+            && saved.height == f64::from(f32::from(bounds.size.height))
+    };
+    let canonical = displays
+        .iter()
+        .enumerate()
+        .find_map(|(index, _)| matching(index).then_some(index));
     let selected = if screen_local {
-        saved_display_index(state.native_display_uuid.as_deref(), &uuids).or(primary)
+        // Electron updates global display bounds but retains unknown fields.
+        // A UUID whose bounds no longer match must not override its new display.
+        uuid.filter(|&index| matching(index))
+            .or(canonical)
+            .or(uuid)
+            .or(primary)
     } else {
         None
     };
@@ -81,13 +101,38 @@ fn resolve_saved_placement(
     } else {
         &all
     };
-    let saved = Bounds {
+    let mut saved = Bounds {
         origin: point(px(state.x as f32), px(state.y as f32)),
         size: size(px(state.width as f32), px(state.height as f32)),
     };
+    if screen_local
+        && canonical.is_none()
+        && let Some(index) = uuid
+    {
+        // Compatibility with the unreleased native screen-local format.
+        saved.origin += displays[index].area.bounds.origin;
+    }
     let primary_area = primary.map(|index| displays[index].area);
-    let bounds = resolve_window_bounds(saved, candidates, primary_area.as_ref())?;
-    Some((bounds, selected.map(|index| displays[index].id)))
+    let mut bounds = resolve_window_bounds(saved, candidates, primary_area.as_ref())?;
+    if screen_local {
+        let contains = |index: usize| {
+            let area = displays[index].area.bounds;
+            bounds.origin.x >= area.origin.x
+                && bounds.origin.y >= area.origin.y
+                && bounds.origin.x + bounds.size.width <= area.origin.x + area.size.width
+                && bounds.origin.y + bounds.size.height <= area.origin.y + area.size.height
+        };
+        let actual = selected.filter(|&index| contains(index)).or_else(|| {
+            displays
+                .iter()
+                .enumerate()
+                .find_map(|(index, _)| contains(index).then_some(index))
+        });
+        let index = actual?;
+        bounds.origin -= displays[index].area.bounds.origin;
+        return Some((bounds, Some(displays[index].id)));
+    }
+    Some((bounds, None))
 }
 
 fn native_window_options(placement: &InitialPlacement) -> WindowOptions {
@@ -317,6 +362,36 @@ mod placement_tests {
         let actual = options.window_bounds.unwrap().get_bounds();
         assert_eq!(actual.origin, point(px(120.0), px(90.0)));
         assert_eq!(actual.size, size(px(1000.0), px(700.0)));
+    }
+
+    #[test]
+    fn electron_macos_global_bounds_select_display_and_ignore_stale_uuid() {
+        let mut secondary = display(2, "secondary");
+        secondary.area.bounds.origin = point(px(1920.0), px(-240.0));
+        secondary.area.work_area.origin = secondary.area.bounds.origin;
+        let displays = [display(1, "primary"), secondary];
+        for uuid in [None, Some("primary"), Some("secondary")] {
+            let state = WindowState {
+                x: 2040.0,
+                y: -150.0,
+                width: 1000.0,
+                height: 700.0,
+                display_bounds: Some(DisplayRect {
+                    x: 1920.0,
+                    y: -240.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                }),
+                native_display_uuid: uuid.map(str::to_string),
+                ..WindowState::default()
+            };
+            let options = startup_options(&state, &displays);
+            assert_eq!(options.display_id, Some(DisplayId::new(2)));
+            assert_eq!(
+                options.window_bounds.unwrap().get_bounds().origin,
+                point(px(120.0), px(90.0))
+            );
+        }
     }
 
     #[test]

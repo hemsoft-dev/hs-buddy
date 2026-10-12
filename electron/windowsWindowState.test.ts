@@ -171,6 +171,18 @@ describe('stale and corrupt Windows placement', () => {
     bind({ x: 500 })
     expect(ffi.setPosition).not.toHaveBeenCalled()
   })
+  it.each([
+    { width: 0 },
+    { displayBounds: null },
+    { nativeGeometry: { ...bridge, logical: null } },
+    { nativeGeometry: { ...bridge, physicalDisplayBounds: { ...display, x: 0.5 } } },
+  ])('keeps the manager placement when any saved signature is invalid %j', change => {
+    save(saved(change))
+    const manage = vi.fn()
+    bind(logical, manage)
+    expect(manage).toHaveBeenCalledOnce()
+    expect(ffi.setPosition).not.toHaveBeenCalled()
+  })
   it('honors a changed resolved display choice or disconnected display', () => {
     save(saved())
     bind({ x: 600 })

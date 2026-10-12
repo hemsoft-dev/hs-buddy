@@ -187,6 +187,7 @@ pub struct DashboardView {
     failed_symbols: Vec<String>,
     /// The dashboard is the shown section; refreshes pause while it is not.
     active: bool,
+    started: bool,
     finance_error: Option<String>,
     finance_refresh: RefreshState,
     /// Inputs the last loads used, so a Settings change (Reload or an
@@ -200,7 +201,7 @@ pub struct DashboardView {
 impl EventEmitter<DashboardEvent> for DashboardView {}
 
 impl DashboardView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>, active: bool) -> Self {
         let weather_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("City, state or zip code…"));
         let finance_add = cx
@@ -269,7 +270,8 @@ impl DashboardView {
             pollen_error: None,
             quotes: Vec::new(),
             failed_symbols: Vec::new(),
-            active: true,
+            active,
+            started: false,
             finance_error: None,
             finance_refresh: RefreshState::new(interval_for(
                 &intervals,
@@ -282,17 +284,26 @@ impl DashboardView {
             _subscriptions: subscriptions,
         };
 
-        // Only visible cards fetch; hidden ones start when they are shown.
-        this.restore_weather_location(cx);
-        if this.card_visible(CardId::Finance, cx) {
-            this.load_finance(cx);
+        if active {
+            this.start_visible_work(cx);
         }
-        if this.card_visible(CardId::CommandCenter, cx) {
-            this.load_copilot(cx);
-        }
-        this.start_convex(cx);
         this.start_ticker(cx);
         this
+    }
+
+    fn start_visible_work(&mut self, cx: &mut Context<Self>) {
+        if self.started {
+            return;
+        }
+        self.started = true;
+        self.restore_weather_location(cx);
+        if self.card_visible(CardId::Finance, cx) {
+            self.load_finance(cx);
+        }
+        if self.card_visible(CardId::CommandCenter, cx) {
+            self.load_copilot(cx);
+        }
+        self.start_convex(cx);
     }
 
     fn card_visible(&self, card: CardId, cx: &App) -> bool {
@@ -330,6 +341,7 @@ impl DashboardView {
     /// save picked up): re-run only the loads whose inputs differ.
     fn settings_changed(&mut self, cx: &mut Context<Self>) {
         let config = Settings::global(cx).config.clone();
+        self.expanded = initial_expansion(&config.native.expanded_cards);
         // `native.autoRefresh` may have changed on disk (Reload Configuration).
         self.weather_refresh.interval_minutes = interval_for(
             &config.native.auto_refresh,
@@ -341,6 +353,10 @@ impl DashboardView {
             CardId::Finance,
             FINANCE_DEFAULT_INTERVAL_MINUTES,
         );
+        if !self.active {
+            cx.notify();
+            return;
+        }
         let weather_visible = config.is_dashboard_card_visible(CardId::Weather.key());
         let finance_visible = config.is_dashboard_card_visible(CardId::Finance.key());
         if finance_visible
@@ -872,6 +888,8 @@ impl DashboardView {
         }
         self.active = active;
         if active {
+            self.start_visible_work(cx);
+            self.settings_changed(cx);
             self.tick(cx);
             cx.notify();
         }
@@ -1323,6 +1341,48 @@ mod tests {
         assert_eq!(expanded.get(&CardId::Finance), Some(&true));
         assert_eq!(expanded.get(&CardId::CommandCenter), None);
         assert_eq!(expanded.len(), 2);
+    }
+
+    #[gpui_kit::test]
+    fn hidden_dashboard_defers_io_and_applies_reloaded_card_state(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::AppContext as _;
+        let dashboard = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.native.expanded_cards.insert("weather".into(), false);
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            let mut dashboard = None;
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let entity = cx.new(|cx| DashboardView::new(window, cx, false));
+                dashboard = Some(entity.clone());
+                entity
+            })
+            .expect("open dashboard test window");
+            let dashboard = dashboard.unwrap();
+            assert!(!dashboard.read(cx).started);
+            assert!(!dashboard.read(cx).restore_pending);
+            assert!(!dashboard.read(cx).is_expanded(CardId::Weather));
+            dashboard
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let mut reloaded = Settings::global(cx).config.clone();
+            reloaded.native.expanded_cards.remove("weather");
+            reloaded
+                .native
+                .expanded_cards
+                .insert("finance".into(), false);
+            Settings::replace(cx, reloaded);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(dashboard.read(cx).is_expanded(CardId::Weather));
+            assert!(!dashboard.read(cx).is_expanded(CardId::Finance));
+            assert!(!dashboard.read(cx).started);
+        });
     }
 
     #[test]
