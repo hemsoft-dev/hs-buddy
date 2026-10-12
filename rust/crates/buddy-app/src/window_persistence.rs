@@ -115,6 +115,7 @@ impl WindowPersistence {
     }
 
     /// The placement most recently recorded.
+    #[cfg(test)]
     pub fn latest(&self) -> Option<&WindowState> {
         self.latest.as_ref()
     }

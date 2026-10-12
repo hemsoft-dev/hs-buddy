@@ -76,20 +76,59 @@ pub fn physical_bounds_for_state(
         let actual = windows::rect(resolved);
         let round = |r: DisplayRect| [r.x, r.y, r.width, r.height].map(f64::round);
         let monitor = windows::matching_monitor(resolved, cx)?;
-        let r = geometry.physical;
-        let d = monitor.physical;
-        (round(actual) == round(geometry.logical)
-            && d == geometry.physical_display_bounds
-            && r.x >= d.x - 64.0
-            && r.y >= d.y - 64.0
-            && r.x + r.width <= d.x + d.width + 64.0
-            && r.y + r.height <= d.y + d.height + 64.0)
-            .then_some(r)
+        (round(actual) == round(geometry.logical) && geometry_matches_monitor(geometry, monitor))
+            .then_some(geometry.physical)
     }
     #[cfg(not(windows))]
     {
         let _ = (state, resolved, cx);
         None
+    }
+}
+
+#[cfg(any(windows, test))]
+fn geometry_matches_monitor(
+    geometry: NativeWindowGeometry,
+    monitor: crate::windows_coordinates::Monitor,
+) -> bool {
+    let r = geometry.physical;
+    let d = monitor.physical;
+    d == geometry.physical_display_bounds
+        && monitor.dip == geometry.display_bounds
+        && r.x >= d.x - 64.0
+        && r.y >= d.y - 64.0
+        && r.x + r.width <= d.x + d.width + 64.0
+        && r.y + r.height <= d.y + d.height + 64.0
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+
+    #[test]
+    fn exact_geometry_requires_the_current_display_scale() {
+        let display = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let window = DisplayRect {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+        };
+        let geometry = NativeWindowGeometry {
+            logical: window,
+            physical: window,
+            display_bounds: display,
+            physical_display_bounds: display,
+        };
+        let monitor = crate::windows_coordinates::Monitor::new(1, display, display, 1.0);
+        assert!(geometry_matches_monitor(geometry, monitor));
+        let scaled = crate::windows_coordinates::Monitor::new(1, display, display, 1.5);
+        assert!(!geometry_matches_monitor(geometry, scaled));
     }
 }
 

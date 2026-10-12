@@ -142,6 +142,8 @@ pub struct DashboardView {
     weather_search: Entity<InputState>,
     finance_add: Entity<InputState>,
     expanded: HashMap<CardId, bool>,
+    /// Unsaved toggles survive subsequent global configuration notifications.
+    unsaved_expansion: HashMap<CardId, bool>,
     pollen_detail_open: bool,
     session_start: Instant,
     stats: Option<BuddyStats>,
@@ -236,6 +238,7 @@ impl DashboardView {
             weather_search,
             finance_add,
             expanded,
+            unsaved_expansion: HashMap::new(),
             pollen_detail_open: false,
             session_start: Instant::now(),
             stats: None,
@@ -342,6 +345,10 @@ impl DashboardView {
     fn settings_changed(&mut self, cx: &mut Context<Self>) {
         let config = Settings::global(cx).config.clone();
         self.expanded = initial_expansion(&config.native.expanded_cards);
+        self.unsaved_expansion.retain(|card, expanded| {
+            config.native.expanded_cards.get(card.key()) != Some(expanded)
+        });
+        self.expanded.extend(&self.unsaved_expansion);
         // `native.autoRefresh` may have changed on disk (Reload Configuration).
         self.weather_refresh.interval_minutes = interval_for(
             &config.native.auto_refresh,
@@ -758,11 +765,27 @@ impl DashboardView {
     /// Flip a card open or closed and remember it for the next launch. A
     /// failed save (logged) still flips the card for this session.
     pub fn toggle_expanded(&mut self, card: CardId, cx: &mut Context<Self>) {
+        self.toggle_expanded_with(card, cx, |cx, card, next| {
+            Settings::update(cx, |config| {
+                config.set_dashboard_card_expanded(card.key(), next)
+            })
+        });
+    }
+
+    fn toggle_expanded_with(
+        &mut self,
+        card: CardId,
+        cx: &mut Context<Self>,
+        save: impl FnOnce(&mut gpui_kit::App, CardId, bool) -> bool,
+    ) {
         let next = !self.is_expanded(card);
         self.expanded.insert(card, next);
-        Settings::update(cx, |config| {
-            config.set_dashboard_card_expanded(card.key(), next)
-        });
+        let saved = save(cx, card, next);
+        if saved {
+            self.unsaved_expansion.remove(&card);
+        } else {
+            self.unsaved_expansion.insert(card, next);
+        }
         cx.notify();
     }
 
@@ -1390,6 +1413,51 @@ mod tests {
         assert_eq!((at(100.0).narrow, at(100.0).two_columns), (false, true));
         assert_eq!((at(150.0).narrow, at(150.0).two_columns), (false, false));
         assert_eq!((at(200.0).narrow, at(200.0).two_columns), (true, false));
+    }
+
+    #[gpui_kit::test]
+    fn failed_card_save_survives_the_disk_resync_notification(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::AppContext as _;
+        let root = std::env::temp_dir().join(format!("buddy-card-failure-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.json");
+        let config = buddy_core::config::AppConfig::default();
+        std::fs::write(&path, "{}").unwrap();
+        let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        // A directory at the staging-file path causes an actual private write failure.
+        std::fs::create_dir(&temporary).unwrap();
+        let dashboard = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            let mut entity = None;
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
+                entity = Some(dashboard.clone());
+                dashboard
+            })
+            .unwrap();
+            entity.unwrap()
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            dashboard.update(cx, |dashboard, cx| {
+                dashboard.toggle_expanded_with(CardId::Weather, cx, |cx, card, next| {
+                    let saved = Settings::update_at(cx, &path, |config| {
+                        config.set_dashboard_card_expanded(card.key(), next)
+                    });
+                    assert!(!saved);
+                    saved
+                });
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(!dashboard.read(cx).is_expanded(CardId::Weather));
+            assert!(Settings::global(cx).config.native.expanded_cards.is_empty());
+        });
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

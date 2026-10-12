@@ -13,7 +13,7 @@ use crate::platform_placement;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
-use crate::window_persistence::{self, Placement, SAVE_DELAY, WindowPersistence};
+use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
 
 gpui_kit::actions!(
@@ -176,22 +176,12 @@ impl BuddyApp {
         .detach();
     }
 
-    /// Electron moves its window back onto the display in `ui.displayId`, so
-    /// once the saved native window sits on another display, clear that id;
-    /// Electron then restores `window-state.json`, which it still checks
-    /// against the connected displays. Call only after that file holds the
-    /// latest placement. Electron's ids are not GPUI's, so the displays are
-    /// compared by their bounds.
+    /// Release Electron's display selection after saving native placement.
+    /// GPUI cannot validate Electron's ids, even when display bounds match:
+    /// a replacement monitor can occupy those bounds with a different id.
     fn release_electron_display(&self, cx: &mut App) {
         let ui = &Settings::global(cx).config.ui;
-        let current = self
-            .window_state
-            .latest()
-            .and_then(|state| state.display_bounds);
-        let moved = current.is_some_and(|current| {
-            window_persistence::different_displays(ui.display_bounds, current)
-        });
-        if ui.display_id == 0 || !moved {
+        if ui.display_id == 0 {
             return;
         }
         Settings::update(cx, |config| {
@@ -199,6 +189,17 @@ impl BuddyApp {
             config.ui.display_bounds = DisplayRect::default();
             config.ui.display_work_area = DisplayRect::default();
         });
+    }
+
+    fn observe_settings(cx: &mut Context<Self>) {
+        cx.observe_global::<Settings>(|this, cx| {
+            let saved = &Settings::global(cx).config.native.active_section;
+            let section = saved.as_deref().and_then(Section::from_id);
+            if this.active_section != section {
+                this.show_section(section, cx);
+            }
+        })
+        .detach();
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -210,6 +211,8 @@ impl BuddyApp {
             this.set_section(Some(*section), cx);
         })
         .detach();
+
+        Self::observe_settings(cx);
 
         cx.observe_window_bounds(window, |this, window, cx| {
             this.window_bounds_changed(window, cx)
@@ -337,5 +340,43 @@ mod tests {
         }
         assert_eq!(Section::from_id("dashboard"), None);
         assert_eq!(Section::from_id("retired-section"), None);
+    }
+
+    #[gpui_kit::test]
+    fn reloaded_section_updates_the_shell_without_starting_hidden_dashboard_io(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let shell = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.native.active_section = Some("github".into());
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            let mut entity = None;
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
+                let shell = cx.new(|cx| {
+                    BuddyApp::observe_settings(cx);
+                    BuddyApp {
+                        active_section: Some(Section::GitHub),
+                        active_account: None,
+                        dashboard,
+                        window_state: WindowPersistence::new(),
+                    }
+                });
+                entity = Some(shell.clone());
+                shell
+            })
+            .unwrap();
+            entity.unwrap()
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.native.active_section = Some("terminal".into());
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| assert_eq!(shell.read(cx).active_section, Some(Section::Terminal)));
     }
 }

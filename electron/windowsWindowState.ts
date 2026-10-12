@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import type { Rectangle } from 'electron'
+import { screen, type Rectangle } from 'electron'
 
 type InitialBounds = Partial<Rectangle> & Pick<Rectangle, 'width' | 'height'>
 type Window = {
@@ -18,7 +18,11 @@ type Geometry = {
   displayBounds: Rectangle
   physicalDisplayBounds: Rectangle
 }
-type NativeSnapshot = { physical: Rectangle; physicalDisplayBounds: Rectangle }
+type NativeSnapshot = {
+  physical: Rectangle
+  physicalDisplayBounds: Rectangle
+  displayBounds: Rectangle
+}
 // `require` is reserved by the Electron bundle's injected CJS shim.
 const windowsRequire = createRequire(import.meta.url)
 
@@ -101,6 +105,7 @@ function restorable(
   if (!saved || !requested || !current) return undefined
   if (
     !equal(saved.logical, requested) ||
+    !equal(saved.displayBounds, current.displayBounds) ||
     !equal(saved.physicalDisplayBounds, current.physicalDisplayBounds)
   )
     return undefined
@@ -153,13 +158,44 @@ function nativeWindows() {
       if (!monitor || !getRect(hwnd, windowRect) || !getInfo(monitor, monitorInfo)) return undefined
       const physical = rectangle(rect(windowRect, 0))
       const physicalDisplayBounds = rectangle(rect(monitorInfo, 4))
-      return physical && physicalDisplayBounds ? { physical, physicalDisplayBounds } : undefined
+      const displayBounds = rectangle(screen.getDisplayMatching(window.getBounds()).bounds)
+      return physical && physicalDisplayBounds && displayBounds
+        ? { physical, physicalDisplayBounds, displayBounds }
+        : undefined
     },
     restore(window: Window, bounds: Rectangle): boolean {
       return (
         setPosition(handle(window), 0, bounds.x, bounds.y, bounds.width, bounds.height, 0x14) !== 0
       )
     },
+  }
+}
+
+function relocate(bounds: Rectangle, from: Rectangle, to: Rectangle): Rectangle {
+  const width = Math.min(bounds.width, to.width)
+  const height = Math.min(bounds.height, to.height)
+  return {
+    x: Math.min(to.x + to.width - width, Math.max(to.x, to.x + bounds.x - from.x)),
+    y: Math.min(to.y + to.height - height, Math.max(to.y, to.y + bounds.y - from.y)),
+    width,
+    height,
+  }
+}
+
+function attachGeometry(
+  state: Record<string, unknown>,
+  logical: Rectangle,
+  display: Rectangle,
+  latest: NativeSnapshot & { logical: Rectangle }
+): void {
+  if (equal(display, latest.displayBounds)) {
+    state.nativeGeometry = { ...latest, logical }
+  } else {
+    // The legacy manager keeps A's normal bounds when a maximized window moves
+    // to B. Keep its mode flags, relocate the normal DIPs, and discard A's exact
+    // pixels. A normal-window capture on B supplies precise metadata next time.
+    Object.assign(state, relocate(logical, latest.displayBounds, display))
+    delete state.nativeGeometry
   }
 }
 
@@ -221,7 +257,7 @@ export function manageWindowsWindowState(
     const logical = rectangle(state)
     const display = rectangle(state?.displayBounds)
     if (!state || !logical || !display || !latest || !equal(logical, latest.logical)) return
-    state.nativeGeometry = { ...latest, logical, displayBounds: display }
+    attachGeometry(state, logical, display, latest)
     const temporary = `${file}.${process.pid}.native.tmp`
     try {
       writeFileSync(temporary, JSON.stringify(state), { encoding: 'utf8', mode: 0o600 })

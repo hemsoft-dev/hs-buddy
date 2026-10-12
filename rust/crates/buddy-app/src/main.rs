@@ -109,8 +109,12 @@ fn resolve_saved_placement(
         && canonical.is_none()
         && let Some(index) = uuid
     {
-        // Compatibility with the unreleased native screen-local format.
-        saved.origin += displays[index].area.bounds.origin;
+        // Current records are global; retain their offset when a monitor moves.
+        // Only records without display metadata use the legacy local format.
+        let old_origin = state.display_bounds.map_or(point(px(0.0), px(0.0)), |old| {
+            point(px(old.x as f32), px(old.y as f32))
+        });
+        saved.origin += displays[index].area.bounds.origin - old_origin;
     }
     let primary_area = primary.map(|index| displays[index].area);
     let mut bounds = resolve_window_bounds(saved, candidates, primary_area.as_ref())?;
@@ -409,6 +413,33 @@ mod placement_tests {
         assert_eq!(
             options.window_bounds.unwrap().get_bounds().origin,
             point(px(460.0), px(190.0))
+        );
+    }
+
+    #[test]
+    fn macos_global_record_retains_offset_when_secondary_moves_to_the_left() {
+        let mut secondary = display(2, "secondary");
+        secondary.area.bounds.origin = point(px(-1920.0), px(-240.0));
+        secondary.area.work_area.origin = secondary.area.bounds.origin;
+        let state = WindowState {
+            x: 2040.0,
+            y: -150.0,
+            width: 1000.0,
+            height: 700.0,
+            display_bounds: Some(buddy_core::config::DisplayRect {
+                x: 1920.0,
+                y: -240.0,
+                width: 1920.0,
+                height: 1080.0,
+            }),
+            native_display_uuid: Some("secondary".into()),
+            ..WindowState::default()
+        };
+        let options = startup_options(&state, &[display(1, "primary"), secondary]);
+        assert_eq!(options.display_id, Some(DisplayId::new(2)));
+        assert_eq!(
+            options.window_bounds.unwrap().get_bounds().origin,
+            point(px(120.0), px(90.0))
         );
     }
 

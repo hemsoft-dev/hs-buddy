@@ -12,7 +12,9 @@ const ffi = vi.hoisted(() => ({
   setPosition: vi.fn(),
   load: vi.fn(),
   require: vi.fn(),
+  display: vi.fn(),
 }))
+vi.mock('electron', () => ({ screen: { getDisplayMatching: ffi.display } }))
 vi.mock('node:module', () => ({ createRequire: () => ffi.require }))
 vi.mock('node:fs', async importOriginal => ({
   ...(await importOriginal<typeof import('node:fs')>()),
@@ -27,6 +29,7 @@ let directory: string
 let file: string
 let current: Rectangle
 let currentDisplay: Rectangle
+let logicalDisplay: Rectangle
 let bounds: Rectangle
 let handle: Buffer
 let mode: 'normal' | 'maximized' | 'minimized' | 'fullScreen'
@@ -82,12 +85,14 @@ beforeEach(() => {
   file = path.join(directory, 'window-state.json')
   current = { ...physical }
   currentDisplay = { ...display }
+  logicalDisplay = { ...display }
   bounds = { ...logical }
   mode = 'normal'
   events = new Map()
   handle = Buffer.alloc(8)
   handle.writeBigUInt64LE(123n)
   ffi.getMonitor.mockReturnValue(456n)
+  ffi.display.mockImplementation(() => ({ bounds: logicalDisplay }))
   ffi.getRect.mockImplementation((_: unknown, output: Buffer) => {
     writeRect(output, 0, current)
     return 1
@@ -158,6 +163,12 @@ describe('precise Windows restoration', () => {
 })
 
 describe('stale and corrupt Windows placement', () => {
+  it('refuses exact pixels after a DPI change with unchanged physical resolution', () => {
+    save(saved())
+    logicalDisplay = { ...display, width: 2294, height: 960 }
+    bind()
+    expect(ffi.setPosition).not.toHaveBeenCalled()
+  })
   it.each([null, false, 0, '', [], {}, { nativeGeometry: null }])(
     'ignores malformed or absent records %j',
     value => {
@@ -203,6 +214,66 @@ describe('stale and corrupt Windows placement', () => {
     save(saved({ nativeGeometry: { ...bridge, ...change } }))
     bind()
     expect(ffi.setPosition).not.toHaveBeenCalled()
+  })
+})
+
+describe('maximized Windows display handoff', () => {
+  it.each([
+    { x: 3440, y: 0, width: 2195, height: 1235 },
+    { x: -1920, y: -240, width: 1920, height: 1080 },
+    { x: 0, y: -900, width: 1200, height: 900 },
+  ])('relocates retained normal bounds after a maximized move to %j', destination => {
+    const manage = vi.fn(() =>
+      fixture().on('closed', () =>
+        save(
+          saved({
+            nativeGeometry: undefined,
+            displayBounds: destination,
+            isMaximized: true,
+          })
+        )
+      )
+    )
+    bind(logical, manage)
+    mode = 'maximized'
+    logicalDisplay = destination
+    bounds = destination
+    fire('move')
+    fire('close')
+    fire('closed')
+    const disk = JSON.parse(readFileSync(file, 'utf8'))
+    expect(disk.x).toBe(
+      destination.x +
+        Math.min(logical.x, destination.width - Math.min(logical.width, destination.width))
+    )
+    expect(disk.y).toBe(
+      destination.y +
+        Math.min(logical.y, destination.height - Math.min(logical.height, destination.height))
+    )
+    expect(disk.width).toBe(Math.min(logical.width, destination.width))
+    expect(disk.height).toBe(Math.min(logical.height, destination.height))
+    expect(disk.isMaximized).toBe(true)
+    expect(disk.retained).toBe('keep')
+    expect(disk.nativeGeometry).toBeUndefined()
+    expect(manage).toHaveBeenCalledOnce()
+  })
+  it('does not relocate a core rectangle replaced by another writer', () => {
+    const destination = { x: 3440, y: 0, width: 2195, height: 1235 }
+    bind(logical, () =>
+      fixture().on('closed', () =>
+        save(
+          saved({
+            x: 3500,
+            displayBounds: destination,
+            nativeGeometry: undefined,
+          })
+        )
+      )
+    )
+    fire('closed')
+    const disk = JSON.parse(readFileSync(file, 'utf8'))
+    expect(disk.x).toBe(3500)
+    expect(disk.nativeGeometry).toBeUndefined()
   })
 })
 
