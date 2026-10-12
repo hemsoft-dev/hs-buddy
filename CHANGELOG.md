@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1314] - 2026-10-12
+## [0.1.1315] - 2026-10-12
 
 ### Fixed
 
-- Persist interoperable native window placement (#800, #802)
+- Preserve exact window placement across native and Electron (#800, #802)
 
 ## [0.1.1313] - 2026-10-10
 

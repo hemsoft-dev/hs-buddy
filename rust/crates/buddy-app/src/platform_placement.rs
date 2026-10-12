@@ -1,6 +1,91 @@
 //! Native placement details that GPUI's portable bounds do not expose.
 
-use gpui_kit::{Bounds, Pixels, Window};
+use crate::window_geometry::DisplayArea;
+use buddy_core::config::{DisplayRect, NativeWindowGeometry, WindowState};
+use gpui_kit::{App, Bounds, DisplayId, Pixels, PlatformDisplay, Window};
+
+pub fn display_area(display: &dyn PlatformDisplay, cx: &App) -> DisplayArea {
+    #[cfg(windows)]
+    if let Some(area) = windows::display_area(display.id(), cx) {
+        return area;
+    }
+    #[cfg(not(windows))]
+    let _ = cx;
+    DisplayArea {
+        bounds: display.bounds(),
+        work_area: display.visible_bounds(),
+    }
+}
+
+pub fn display_for_bounds(bounds: Bounds<Pixels>, cx: &App) -> Option<DisplayId> {
+    #[cfg(windows)]
+    {
+        windows::matching_monitor(bounds, cx).map(|m| DisplayId::new(m.id))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (bounds, cx);
+        None
+    }
+}
+
+pub fn bounds_for_gpui(bounds: Bounds<Pixels>, cx: &App) -> Bounds<Pixels> {
+    #[cfg(windows)]
+    if let Some(monitor) = windows::matching_monitor(bounds, cx) {
+        let mut physical = monitor.to_physical(windows::rect(bounds));
+        physical.x /= monitor.scale;
+        physical.y /= monitor.scale;
+        physical.width /= monitor.scale;
+        physical.height /= monitor.scale;
+        return windows::bounds(physical);
+    }
+    #[cfg(not(windows))]
+    let _ = cx;
+    bounds
+}
+
+pub fn native_geometry(window: &Window, cx: &App) -> Option<NativeWindowGeometry> {
+    #[cfg(windows)]
+    {
+        windows::native_geometry(window, cx)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, cx);
+        None
+    }
+}
+
+pub fn physical_bounds_for_state(
+    state: &WindowState,
+    resolved: Bounds<Pixels>,
+    cx: &App,
+) -> Option<DisplayRect> {
+    #[cfg(windows)]
+    {
+        let geometry = state.native_geometry?;
+        if !geometry.matches(state) {
+            return None;
+        }
+        let actual = windows::rect(resolved);
+        let round = |r: DisplayRect| [r.x, r.y, r.width, r.height].map(f64::round);
+        let monitor = windows::matching_monitor(resolved, cx)?;
+        let r = geometry.physical;
+        let d = monitor.physical;
+        (round(actual) == round(geometry.logical)
+            && d == geometry.physical_display_bounds
+            && r.x >= d.x - 64.0
+            && r.y >= d.y - 64.0
+            && r.x + r.width <= d.x + d.width + 64.0
+            && r.y + r.height <= d.y + d.height + 64.0)
+            .then_some(r)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (state, resolved, cx);
+        None
+    }
+}
 
 /// Skip minimized windows, including X11 windows still mapped by the WM.
 pub fn can_capture(window: &Window) -> bool {
@@ -55,13 +140,14 @@ fn x11_is_hidden(id: u32) -> Result<bool, Box<dyn std::error::Error>> {
 /// Windows exposes outer restore bounds in workspace coordinates. Electron
 /// stores outer screen DIPs. Read the OS rectangle instead of GPUI's client
 /// rectangle, accounting for a taskbar on the top or left of the monitor.
-pub fn restore_bounds(window: &Window) -> Option<Bounds<Pixels>> {
+pub fn restore_bounds(window: &Window, cx: &App) -> Option<Bounds<Pixels>> {
     #[cfg(windows)]
     {
-        windows::restore_bounds(window)
+        windows::restore_bounds(window, cx)
     }
     #[cfg(not(windows))]
     {
+        let _ = cx;
         Some(window.window_bounds().get_bounds())
     }
 }
@@ -69,18 +155,24 @@ pub fn restore_bounds(window: &Window) -> Option<Bounds<Pixels>> {
 /// Apply Electron's exact outer rectangle after GPUI creates its client-sized
 /// window. This uses OS placement APIs so private GPUI frame metrics never
 /// need to be duplicated.
-pub fn apply_restore_bounds(window: &Window, bounds: Bounds<Pixels>) {
+pub fn apply_restore_bounds(
+    window: &Window,
+    bounds: Bounds<Pixels>,
+    cx: &App,
+    physical: Option<DisplayRect>,
+) {
     #[cfg(windows)]
-    if let Err(err) = windows::apply_restore_bounds(window, bounds) {
+    if let Err(err) = windows::apply_restore_bounds(window, bounds, cx, physical) {
         log::warn!("could not restore outer window rectangle: {err}");
     }
     #[cfg(not(windows))]
-    let _ = (window, bounds);
+    let _ = (window, bounds, cx, physical);
 }
 
 #[cfg(windows)]
 mod windows {
     use super::*;
+    use crate::windows_coordinates::{self, Monitor};
     use gpui_kit::{point, px, size};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::{
@@ -88,11 +180,98 @@ mod windows {
         Graphics::Gdi::{
             GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
         },
+        UI::HiDpi::{GetDpiForMonitor, GetSystemMetricsForDpi, MDT_EFFECTIVE_DPI},
         UI::WindowsAndMessaging::{
-            GetWindowPlacement, GetWindowRect, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPlacement,
-            SetWindowPos, WINDOWPLACEMENT,
+            GetWindowPlacement, GetWindowRect, SM_CXPADDEDBORDER, SM_CXSIZEFRAME, SM_CYSIZEFRAME,
+            SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPlacement, SetWindowPos, WINDOWPLACEMENT,
         },
     };
+
+    pub fn rect(bounds: Bounds<Pixels>) -> DisplayRect {
+        DisplayRect {
+            x: f32::from(bounds.origin.x).into(),
+            y: f32::from(bounds.origin.y).into(),
+            width: f32::from(bounds.size.width).into(),
+            height: f32::from(bounds.size.height).into(),
+        }
+    }
+
+    pub fn bounds(rect: DisplayRect) -> Bounds<Pixels> {
+        Bounds {
+            origin: point(px(rect.x as f32), px(rect.y as f32)),
+            size: size(px(rect.width as f32), px(rect.height as f32)),
+        }
+    }
+
+    fn physical_rect(rect: RECT) -> DisplayRect {
+        DisplayRect {
+            x: rect.left.into(),
+            y: rect.top.into(),
+            width: (rect.right - rect.left).into(),
+            height: (rect.bottom - rect.top).into(),
+        }
+    }
+
+    fn monitors(cx: &App) -> Vec<Monitor> {
+        let mut monitors: Vec<_> = cx
+            .displays()
+            .iter()
+            .filter_map(|display| {
+                let id = u64::from(display.id());
+                let handle = id as windows_sys::Win32::Graphics::Gdi::HMONITOR;
+                // GPUI Kit 0.7.1 uses the HMONITOR as its Windows DisplayId.
+                // SAFETY: current connected handles and initialized OS outputs.
+                unsafe {
+                    let mut info = MONITORINFO {
+                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                        ..std::mem::zeroed()
+                    };
+                    let (mut x, mut y) = (0, 0);
+                    if GetMonitorInfoW(handle, &mut info) == 0
+                        || GetDpiForMonitor(handle, MDT_EFFECTIVE_DPI, &mut x, &mut y) < 0
+                        || x == 0
+                    {
+                        return None;
+                    }
+                    Some(Monitor::new(
+                        id,
+                        physical_rect(info.rcMonitor),
+                        physical_rect(info.rcWork),
+                        f64::from(x) / 96.0,
+                    ))
+                }
+            })
+            .collect();
+        windows_coordinates::layout(&mut monitors);
+        monitors
+    }
+
+    pub fn matching_monitor(bounds: Bounds<Pixels>, cx: &App) -> Option<Monitor> {
+        windows_coordinates::matching(&monitors(cx), rect(bounds))
+    }
+
+    pub fn display_area(id: DisplayId, cx: &App) -> Option<DisplayArea> {
+        let monitor = monitors(cx).into_iter().find(|m| m.id == u64::from(id))?;
+        Some(DisplayArea {
+            bounds: bounds(monitor.dip),
+            work_area: bounds(monitor.dip_work()),
+        })
+    }
+
+    // BrowserWindow's frameless Windows bounds exclude the invisible resize
+    // frame on the left, right and bottom. GetWindowRect includes it. Keep
+    // that convention separate from GPUI's own client-area frame metrics.
+    fn electron_frame(scale: f64) -> (f64, f64) {
+        let dpi = (scale * 96.0).round() as u32;
+        // SAFETY: reading system metrics for a verified monitor DPI.
+        unsafe {
+            let padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            (
+                (f64::from(GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + padding) / scale).floor(),
+                (f64::from(GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + padding) / scale).floor(),
+            )
+        }
+    }
 
     fn hwnd(window: &Window) -> Option<HWND> {
         match HasWindowHandle::window_handle(window).ok()?.as_raw() {
@@ -126,9 +305,11 @@ mod windows {
         }
     }
 
-    pub fn restore_bounds(window: &Window) -> Option<Bounds<Pixels>> {
+    fn restore_rect(window: &Window, cx: &App) -> Option<(Monitor, DisplayRect)> {
         let hwnd = hwnd(window)?;
-        let scale = window.scale_factor();
+        // SAFETY: the live window owns this monitor handle.
+        let handle = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+        let monitor = monitors(cx).into_iter().find(|m| m.id == handle as u64)?;
         let rect = unsafe {
             // SAFETY: live HWND and initialized output buffers.
             let mut rect: RECT = std::mem::zeroed();
@@ -148,24 +329,59 @@ mod windows {
             }
             rect
         };
-        Some(Bounds {
-            origin: point(px(rect.left as f32 / scale), px(rect.top as f32 / scale)),
-            size: size(
-                px((rect.right - rect.left) as f32 / scale),
-                px((rect.bottom - rect.top) as f32 / scale),
-            ),
+        Some((monitor, physical_rect(rect)))
+    }
+
+    pub fn restore_bounds(window: &Window, cx: &App) -> Option<Bounds<Pixels>> {
+        let (monitor, physical) = restore_rect(window, cx)?;
+        let mut logical = monitor.to_dip(physical);
+        let (horizontal, bottom) = electron_frame(monitor.scale);
+        logical.x = logical.x.floor() + horizontal;
+        logical.y = logical.y.floor();
+        logical.width = ((physical.x + physical.width) / monitor.scale).ceil()
+            - (physical.x / monitor.scale).floor()
+            - 2.0 * horizontal;
+        logical.height = ((physical.y + physical.height) / monitor.scale).ceil()
+            - (physical.y / monitor.scale).floor()
+            - bottom;
+        Some(bounds(logical))
+    }
+
+    pub fn native_geometry(window: &Window, cx: &App) -> Option<NativeWindowGeometry> {
+        let (monitor, physical) = restore_rect(window, cx)?;
+        let mut logical = rect(restore_bounds(window, cx)?);
+        logical.x = logical.x.round();
+        logical.y = logical.y.round();
+        logical.width = logical.width.round();
+        logical.height = logical.height.round();
+        Some(NativeWindowGeometry {
+            logical,
+            physical,
+            display_bounds: monitor.dip,
+            physical_display_bounds: monitor.physical,
         })
     }
 
-    pub fn apply_restore_bounds(window: &Window, bounds: Bounds<Pixels>) -> std::io::Result<()> {
+    pub fn apply_restore_bounds(
+        window: &Window,
+        saved: Bounds<Pixels>,
+        cx: &App,
+        exact_physical: Option<DisplayRect>,
+    ) -> std::io::Result<()> {
         let hwnd = hwnd(window).ok_or_else(|| std::io::Error::other("no Win32 window handle"))?;
-        let scale = window.scale_factor();
-        let physical = |value: Pixels| (f32::from(value) * scale).round() as i32;
+        let monitor = matching_monitor(saved, cx)
+            .ok_or_else(|| std::io::Error::other("saved display is unavailable"))?;
+        let mut logical = rect(saved);
+        let (horizontal, bottom) = electron_frame(monitor.scale);
+        logical.x -= horizontal;
+        logical.width += 2.0 * horizontal;
+        logical.height += bottom;
+        let physical = exact_physical.unwrap_or_else(|| monitor.to_physical(logical));
         let rect = RECT {
-            left: physical(bounds.origin.x),
-            top: physical(bounds.origin.y),
-            right: physical(bounds.origin.x) + physical(bounds.size.width),
-            bottom: physical(bounds.origin.y) + physical(bounds.size.height),
+            left: physical.x.round() as i32,
+            top: physical.y.round() as i32,
+            right: physical.x.round() as i32 + physical.width.round() as i32,
+            bottom: physical.y.round() as i32 + physical.height.round() as i32,
         };
         // SAFETY: live HWND, initialized placement and no retained pointers.
         let success = unsafe {

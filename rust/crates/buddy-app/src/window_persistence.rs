@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use buddy_core::config::{DisplayRect, WindowState};
+use buddy_core::config::{DisplayRect, NativeWindowGeometry, WindowState};
 use gpui_kit::{Bounds, Pixels, WindowBounds};
 
 /// How long the window must stay put before a move or resize is written, so
@@ -26,6 +26,7 @@ pub struct Placement {
     pub is_full_screen: bool,
     pub display: Option<Bounds<Pixels>>,
     pub native_display_uuid: Option<String>,
+    pub native_geometry: Option<NativeWindowGeometry>,
 }
 
 /// A rectangle the window had while neither maximized nor full screen, and
@@ -34,6 +35,7 @@ pub struct Placement {
 struct Windowed {
     rect: DisplayRect,
     display: Option<DisplayRect>,
+    native_geometry: Option<NativeWindowGeometry>,
 }
 
 /// What some backends stop reporting once the window is maximized or full
@@ -75,6 +77,7 @@ impl WindowPersistence {
                 windowed: Some(Windowed {
                     rect: restore_rect(&state),
                     display: state.display_bounds,
+                    native_geometry: state.native_geometry,
                 }),
                 maximized: state.is_maximized,
             })
@@ -100,6 +103,7 @@ impl WindowPersistence {
             self.remembered.windowed = Some(Windowed {
                 rect: restore_rect(&state),
                 display: state.display_bounds,
+                native_geometry: state.native_geometry,
             });
         }
         if self.latest.as_ref() == Some(&state) {
@@ -168,13 +172,16 @@ fn capture(
         WindowBounds::Fullscreen(_) => !reports_restore_bounds && !is_maximized,
     };
     let display = placement.display.map(rect);
-    let rect = match remembered.windowed {
+    let (rect, native_geometry) = match remembered.windowed {
         Some(windowed) if (is_maximized || is_full_screen) && !reported_is_restore => {
-            relocate(windowed, display)
+            (relocate(windowed, display), windowed.native_geometry)
         }
-        _ => rect(placement.bounds.get_bounds()),
+        _ => (
+            rect(placement.bounds.get_bounds()),
+            placement.native_geometry,
+        ),
     };
-    WindowState {
+    let mut state = WindowState {
         x: rect.x,
         y: rect.y,
         width: rect.width,
@@ -183,7 +190,12 @@ fn capture(
         is_full_screen,
         display_bounds: display,
         native_display_uuid: placement.native_display_uuid,
-    }
+        native_geometry,
+    };
+    state.native_geometry = state
+        .native_geometry
+        .filter(|geometry| geometry.matches(&state));
+    state
 }
 
 /// `windowed`'s rectangle at the same offset on `display`, when the window
@@ -244,6 +256,7 @@ mod tests {
             is_full_screen: false,
             display: Some(self::bounds(0.0, 0.0, 1920.0, 1080.0)),
             native_display_uuid: None,
+            native_geometry: None,
         }
     }
 
@@ -263,6 +276,7 @@ mod tests {
                 height: 700.0,
             },
             display: Some(PRIMARY),
+            native_geometry: None,
         }),
         maximized: false,
     };
@@ -420,6 +434,7 @@ mod tests {
             is_full_screen: true,
             display_bounds: Some(PRIMARY),
             native_display_uuid: None,
+            native_geometry: None,
         };
         saved.save_to(&path).unwrap();
         let persistence = WindowPersistence::at(Some(path));

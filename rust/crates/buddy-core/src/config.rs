@@ -276,6 +276,50 @@ pub struct WindowState {
     /// so the rectangle alone cannot identify the saved display.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_display_uuid: Option<String>,
+    /// Precise Windows placement, tied to the accompanying Electron fields.
+    /// Integer DIPs alone lose physical pixels at fractional display scales.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_geometry: Option<NativeWindowGeometry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeWindowGeometry {
+    pub logical: DisplayRect,
+    pub physical: DisplayRect,
+    pub display_bounds: DisplayRect,
+    pub physical_display_bounds: DisplayRect,
+}
+
+impl NativeWindowGeometry {
+    pub fn matches(&self, state: &WindowState) -> bool {
+        let valid = |rect: DisplayRect| {
+            [rect.x, rect.y, rect.width, rect.height]
+                .iter()
+                .all(|value| value.is_finite())
+                && rect.width > 0.0
+                && rect.height > 0.0
+                && [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height]
+                    .iter()
+                    .all(|value| value.abs() < i32::MAX as f64)
+        };
+        let rounded = |rect: DisplayRect| [rect.x, rect.y, rect.width, rect.height].map(f64::round);
+        let physical = |rect: DisplayRect| {
+            valid(rect)
+                && [rect.x, rect.y, rect.width, rect.height]
+                    .iter()
+                    .all(|value| value.fract() == 0.0)
+        };
+        valid(self.logical)
+            && physical(self.physical)
+            && valid(self.display_bounds)
+            && physical(self.physical_display_bounds)
+            && rounded(self.logical)
+                == [state.x, state.y, state.width, state.height].map(f64::round)
+            && state
+                .display_bounds
+                .is_some_and(|display| rounded(display) == rounded(self.display_bounds))
+    }
 }
 
 impl WindowState {
@@ -881,6 +925,7 @@ mod tests {
                     is_full_screen,
                     display_bounds: display,
                     native_display_uuid: Some("saved-display-uuid".into()),
+                    native_geometry: None,
                 }
             });
         let loaded: Vec<_> = states
@@ -894,6 +939,71 @@ mod tests {
         for (state, loaded) in states.iter().zip(loaded) {
             assert_eq!(loaded.as_ref(), Some(state));
         }
+    }
+
+    #[test]
+    fn physical_placement_round_trips_and_rejects_stale_or_invalid_metadata() {
+        let logical = DisplayRect {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+        };
+        let display = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let geometry = NativeWindowGeometry {
+            logical,
+            physical: DisplayRect {
+                x: 180.0,
+                y: 135.0,
+                width: 1500.0,
+                height: 1050.0,
+            },
+            display_bounds: display,
+            physical_display_bounds: DisplayRect {
+                width: 2880.0,
+                height: 1620.0,
+                ..display
+            },
+        };
+        let state = WindowState {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+            display_bounds: Some(display),
+            native_geometry: Some(geometry),
+            ..WindowState::default()
+        };
+        let dir = temp_dir("physical-placement");
+        let path = dir.join("window-state.json");
+        state.save_to(&path).unwrap();
+        let loaded = WindowState::load_from(&path).unwrap();
+        assert_eq!(loaded, state);
+        assert!(geometry.matches(&loaded));
+        assert!(!geometry.matches(&WindowState {
+            x: 121.0,
+            ..loaded.clone()
+        }));
+        assert!(!geometry.matches(&WindowState {
+            display_bounds: None,
+            ..loaded.clone()
+        }));
+        for bad in [0.5, f64::NAN, i32::MAX as f64] {
+            let invalid = NativeWindowGeometry {
+                physical: DisplayRect {
+                    x: bad,
+                    ..geometry.physical
+                },
+                ..geometry
+            };
+            assert!(!invalid.matches(&loaded));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -914,6 +1024,7 @@ mod tests {
                 height: 1080.0,
             }),
             native_display_uuid: None,
+            native_geometry: None,
         };
         state.save_to(&path).unwrap();
         let body = std::fs::read_to_string(&path).unwrap();

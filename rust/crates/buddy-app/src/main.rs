@@ -13,9 +13,11 @@ mod shell;
 mod theme;
 mod window_geometry;
 mod window_persistence;
+#[cfg(any(windows, test))]
+mod windows_coordinates;
 mod zoom;
 
-use buddy_core::config::{AppConfig, WindowState};
+use buddy_core::config::{AppConfig, DisplayRect, WindowState};
 use gpui_kit::component::TitleBar;
 use gpui_kit::{
     App, AppContext as _, Bounds, DisplayId, KeyBinding, Pixels, TitlebarOptions, WindowBounds,
@@ -39,6 +41,7 @@ struct InitialPlacement {
     enter_full_screen: bool,
     display_id: Option<DisplayId>,
     restore_outer: Option<Bounds<Pixels>>,
+    restore_physical: Option<DisplayRect>,
 }
 
 /// Match stable IDs instead of rectangles: macOS screens can have identical
@@ -50,13 +53,71 @@ fn saved_display_index(saved: Option<&str>, connected: &[Option<String>]) -> Opt
         .position(|uuid| uuid.as_deref() == Some(saved))
 }
 
+struct SavedDisplay {
+    id: DisplayId,
+    uuid: Option<String>,
+    area: DisplayArea,
+}
+
+fn resolve_saved_placement(
+    state: &WindowState,
+    displays: &[SavedDisplay],
+    primary: Option<usize>,
+    screen_local: bool,
+) -> Option<(Bounds<Pixels>, Option<DisplayId>)> {
+    let uuids: Vec<_> = displays
+        .iter()
+        .map(|display| display.uuid.clone())
+        .collect();
+    let selected = if screen_local {
+        saved_display_index(state.native_display_uuid.as_deref(), &uuids).or(primary)
+    } else {
+        None
+    };
+    let selected_area = selected.map(|index| displays[index].area);
+    let all: Vec<_> = displays.iter().map(|display| display.area).collect();
+    let candidates = if screen_local {
+        selected_area.as_slice()
+    } else {
+        &all
+    };
+    let saved = Bounds {
+        origin: point(px(state.x as f32), px(state.y as f32)),
+        size: size(px(state.width as f32), px(state.height as f32)),
+    };
+    let primary_area = primary.map(|index| displays[index].area);
+    let bounds = resolve_window_bounds(saved, candidates, primary_area.as_ref())?;
+    Some((bounds, selected.map(|index| displays[index].id)))
+}
+
+fn native_window_options(placement: &InitialPlacement) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(placement.bounds),
+        display_id: placement.display_id,
+        window_min_size: Some(size(px(800.0), px(600.0))),
+        window_decorations: Some(WindowDecorations::Client),
+        app_id: Some("com.hemsoft.buddy".into()),
+        titlebar: Some(TitlebarOptions {
+            title: Some("Buddy".into()),
+            ..TitleBar::title_bar_options()
+        }),
+        ..TitleBar::window_options()
+    }
+}
+
 fn initial_window_bounds(cx: &App) -> InitialPlacement {
-    let area = |display: &std::rc::Rc<dyn gpui_kit::PlatformDisplay>| DisplayArea {
-        bounds: display.bounds(),
-        work_area: display.visible_bounds(),
+    let area = |display: &std::rc::Rc<dyn gpui_kit::PlatformDisplay>| {
+        platform_placement::display_area(display.as_ref(), cx)
     };
     let connected = cx.displays();
-    let displays: Vec<DisplayArea> = connected.iter().map(area).collect();
+    let displays: Vec<SavedDisplay> = connected
+        .iter()
+        .map(|display| SavedDisplay {
+            id: display.id(),
+            uuid: display.uuid().ok().map(|id| id.to_string()),
+            area: area(display),
+        })
+        .collect();
     let primary = cx.primary_display().map(|display| area(&display));
     let default_size = size(px(1280.0), px(820.0));
     // First launch (or an unusable saved state): the default size fitted to
@@ -74,38 +135,25 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
             enter_full_screen: false,
             display_id: cx.primary_display().map(|display| display.id()),
             restore_outer: None,
+            restore_physical: None,
         }
     };
     let Some(state) = WindowState::load() else {
         return fallback();
     };
-    let saved: Bounds<Pixels> = Bounds {
-        origin: point(px(state.x as f32), px(state.y as f32)),
-        size: size(px(state.width as f32), px(state.height as f32)),
-    };
     // Displays may have moved or shrunk since the state was written: fit the
     // window to the matching display's work area (`resolveWindowBounds`).
-    let uuids: Vec<_> = connected
-        .iter()
-        .map(|display| display.uuid().ok().map(|id| id.to_string()))
-        .collect();
-    let saved_display = saved_display_index(state.native_display_uuid.as_deref(), &uuids)
-        .map(|index| &connected[index]);
     // macOS rectangles are screen-local, and all screens have origin zero.
     // A disconnected saved UUID must resolve against the primary display,
     // rather than arbitrarily matching another screen with the same size.
-    let selected = if cfg!(target_os = "macos") {
-        saved_display.cloned().or_else(|| cx.primary_display())
-    } else {
-        saved_display.cloned()
-    };
-    let selected_area = selected.as_ref().map(area);
-    let candidates: &[DisplayArea] = if cfg!(target_os = "macos") {
-        selected_area.as_slice()
-    } else {
-        &displays
-    };
-    let Some(bounds) = resolve_window_bounds(saved, candidates, primary.as_ref()) else {
+    let primary_index = cx.primary_display().and_then(|primary| {
+        displays
+            .iter()
+            .position(|display| display.id == primary.id())
+    });
+    let Some((bounds, selected_id)) =
+        resolve_saved_placement(&state, &displays, primary_index, cfg!(target_os = "macos"))
+    else {
         return fallback();
     };
     let (window_bounds, enter_full_screen) = match (state.is_maximized, state.is_full_screen) {
@@ -114,11 +162,19 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
         (false, true) => (WindowBounds::Fullscreen(bounds), false),
         (false, false) => (WindowBounds::Windowed(bounds), false),
     };
+    let display_id = platform_placement::display_for_bounds(bounds, cx).or(selected_id);
+    let gpui_bounds = platform_placement::bounds_for_gpui(bounds, cx);
+    let window_bounds = match window_bounds {
+        WindowBounds::Windowed(_) => WindowBounds::Windowed(gpui_bounds),
+        WindowBounds::Maximized(_) => WindowBounds::Maximized(gpui_bounds),
+        WindowBounds::Fullscreen(_) => WindowBounds::Fullscreen(gpui_bounds),
+    };
     InitialPlacement {
         bounds: window_bounds,
         enter_full_screen,
-        display_id: selected.map(|display| display.id()),
+        display_id,
         restore_outer: cfg!(windows).then_some(bounds),
+        restore_physical: platform_placement::physical_bounds_for_state(&state, bounds, cx),
     }
 }
 
@@ -187,22 +243,11 @@ fn main() {
             .detach();
 
             let placement = initial_window_bounds(cx);
-            let options = WindowOptions {
-                window_bounds: Some(placement.bounds),
-                display_id: placement.display_id,
-                window_min_size: Some(size(px(800.0), px(600.0))),
-                window_decorations: Some(WindowDecorations::Client),
-                app_id: Some("com.hemsoft.buddy".into()),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Buddy".into()),
-                    ..TitleBar::title_bar_options()
-                }),
-                ..TitleBar::window_options()
-            };
+            let options = native_window_options(&placement);
 
             gpui_kit::open_window(options, cx, |window, cx| {
                 if let Some(bounds) = placement.restore_outer {
-                    platform_placement::apply_restore_bounds(window, bounds);
+                    platform_placement::apply_restore_bounds(window, bounds, cx, placement.restore_physical);
                 }
                 // Closing the only window quits the app, so quit while the
                 // window still exists instead of letting the OS destroy it
@@ -227,6 +272,70 @@ fn main() {
 #[cfg(test)]
 mod placement_tests {
     use super::*;
+
+    fn display(id: u64, uuid: &str) -> SavedDisplay {
+        let bounds = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(1920.0), px(1080.0)),
+        };
+        SavedDisplay {
+            id: DisplayId::new(id),
+            uuid: Some(uuid.into()),
+            area: DisplayArea {
+                bounds,
+                work_area: Bounds {
+                    origin: point(px(0.0), px(25.0)),
+                    size: size(px(1920.0), px(1030.0)),
+                },
+            },
+        }
+    }
+
+    fn startup_options(state: &WindowState, displays: &[SavedDisplay]) -> WindowOptions {
+        let (bounds, id) = resolve_saved_placement(state, displays, Some(0), true).unwrap();
+        native_window_options(&InitialPlacement {
+            bounds: WindowBounds::Windowed(bounds),
+            enter_full_screen: false,
+            display_id: id,
+            restore_outer: None,
+            restore_physical: None,
+        })
+    }
+
+    #[test]
+    fn macos_startup_options_restore_secondary_display_with_identical_local_bounds() {
+        let state = WindowState {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+            native_display_uuid: Some("secondary".into()),
+            ..WindowState::default()
+        };
+        let options = startup_options(&state, &[display(1, "primary"), display(2, "secondary")]);
+        assert_eq!(options.display_id, Some(DisplayId::new(2)));
+        let actual = options.window_bounds.unwrap().get_bounds();
+        assert_eq!(actual.origin, point(px(120.0), px(90.0)));
+        assert_eq!(actual.size, size(px(1000.0), px(700.0)));
+    }
+
+    #[test]
+    fn disconnected_saved_uuid_and_offscreen_position_resolve_to_primary_options() {
+        let state = WindowState {
+            x: 20000.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+            native_display_uuid: Some("disconnected".into()),
+            ..WindowState::default()
+        };
+        let options = startup_options(&state, &[display(1, "primary")]);
+        assert_eq!(options.display_id, Some(DisplayId::new(1)));
+        assert_eq!(
+            options.window_bounds.unwrap().get_bounds().origin,
+            point(px(460.0), px(190.0))
+        );
+    }
 
     #[test]
     fn secondary_display_is_matched_by_uuid_not_enumeration_order() {

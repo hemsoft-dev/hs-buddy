@@ -322,8 +322,9 @@ describe('configLock recovery', () => {
   useTempConfig()
 
   it('honours the deadline when the lock path cannot be observed', () => {
-    // A dangling symlink: mkdir says it exists, stat cannot follow it.
-    symlinkSync(join(dir, 'gone'), lockDir)
+    // A dangling directory link: mkdir says it exists, stat cannot follow it.
+    // A Windows junction exercises the same path without symlink privileges.
+    symlinkSync(join(dir, 'gone'), lockDir, process.platform === 'win32' ? 'junction' : 'dir')
     let mono = 0
     const sleep = vi.fn((ms: number) => {
       mono += ms
@@ -338,6 +339,7 @@ describe('configLock recovery', () => {
     expect(handle).toBeNull()
     expect(sleep).toHaveBeenCalled()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('busy for 40ms'))
+    expect(existsSync(join(dir, 'gone'))).toBe(false)
   })
 
   it('repeats an idempotent write when the lock was lost during it', () => {

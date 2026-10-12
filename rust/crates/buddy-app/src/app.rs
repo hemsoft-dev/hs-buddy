@@ -135,7 +135,7 @@ impl BuddyApp {
             return None;
         }
         let reported = window.window_bounds();
-        let outer = platform_placement::restore_bounds(window)?;
+        let outer = platform_placement::restore_bounds(window, cx)?;
         let bounds = match reported {
             gpui_kit::WindowBounds::Windowed(_) => gpui_kit::WindowBounds::Windowed(outer),
             gpui_kit::WindowBounds::Maximized(_) => gpui_kit::WindowBounds::Maximized(outer),
@@ -144,13 +144,15 @@ impl BuddyApp {
         let display = window.display(cx);
         Some(Placement {
             bounds,
+            native_geometry: platform_placement::native_geometry(window, cx),
             is_maximized: window.is_maximized(),
             is_full_screen: window.is_fullscreen(),
             native_display_uuid: display
                 .as_ref()
                 .and_then(|display| display.uuid().ok())
                 .map(|id| id.to_string()),
-            display: display.map(|display| display.bounds()),
+            display: display
+                .map(|display| platform_placement::display_area(display.as_ref(), cx).bounds),
         })
     }
 
