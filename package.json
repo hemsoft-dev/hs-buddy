@@ -151,7 +151,7 @@
     "eslint-plugin-sonarjs": "^4.1.0",
     "eslint-plugin-unicorn": "^74.0.0",
     "globals": "^17.7.0",
-    "happy-dom": "^20.10.6",
+    "happy-dom": "^20.14.6",
     "husky": "^9.1.7",
     "istanbul-lib-instrument": "6.0.3",
     "knip": "^6.24.0",
