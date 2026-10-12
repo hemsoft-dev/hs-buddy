@@ -27,8 +27,9 @@ const otelExternals = [
 // CJS dependencies bundled into the ESM main process lose access to `require`.
 // Inject a Node.js-native require via createRequire so Rolldown's __require shim works.
 const requireShim = [
-  "import { createRequire as __createRequire } from 'node:module';",
-  'const require = __createRequire(import.meta.url);',
+  // postBanner is deliberately not minified; keep this tiny shim compact.
+  "import{createRequire as __r}from'module';",
+  'const require=__r(import.meta.url);',
 ].join('\n')
 
 export const electronRequireShimOutput = { postBanner: requireShim }

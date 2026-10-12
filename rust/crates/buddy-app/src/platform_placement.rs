@@ -208,7 +208,7 @@ mod macos {
     pub(super) fn display_area(display: &dyn PlatformDisplay) -> DisplayArea {
         // GPUI deliberately zeroes this origin. Electron uses the original
         // CoreGraphics top-left global coordinates instead.
-        let rect = unsafe { CGDisplayBounds(display.id().0 as u32) };
+        let rect = unsafe { CGDisplayBounds(u64::from(display.id()) as u32) };
         let origin = point(px(rect.origin.x as f32), px(rect.origin.y as f32));
         let bounds = Bounds {
             origin,
