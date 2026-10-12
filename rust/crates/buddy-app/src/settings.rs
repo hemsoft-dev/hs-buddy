@@ -28,7 +28,6 @@ impl Settings {
     /// and the save; the save is refused when the file changed meanwhile and
     /// the edit is applied again to the newer content (a few attempts).
     pub fn update(cx: &mut App, edit: impl Fn(&mut AppConfig)) -> bool {
-        const ATTEMPTS: usize = 3;
         // Serialize the whole read-modify-write against Electron, which takes
         // the same `config.json.lock`; the stamp check below stays as the
         // guard for a writer that does not (see electron/configLock.ts).
@@ -41,9 +40,18 @@ impl Settings {
                 return false;
             }
         };
-        let mut lock = acquire_lock(&path);
+        Self::update_at(cx, &path, edit)
+    }
+
+    pub(crate) fn update_at(
+        cx: &mut App,
+        path: &std::path::Path,
+        edit: impl Fn(&mut AppConfig),
+    ) -> bool {
+        const ATTEMPTS: usize = 3;
+        let mut lock = acquire_lock(path);
         for attempt in 1..=ATTEMPTS {
-            let (mut fresh, stamp) = match AppConfig::load_with_stamp_from(&path) {
+            let (mut fresh, stamp) = match AppConfig::load_with_stamp_from(path) {
                 Ok(loaded) => loaded,
                 Err(err) => {
                     log::warn!("not saving: configuration could not be reloaded ({err})");
@@ -57,10 +65,10 @@ impl Settings {
                 // Take the lock again (the old guard leaves theirs alone) and
                 // start over from a fresh read.
                 log::warn!("config lock was taken over while editing; re-acquiring");
-                lock = acquire_lock(&path);
+                lock = acquire_lock(path);
                 continue;
             }
-            match fresh.save_if_unchanged_at(&path, &stamp) {
+            match fresh.save_if_unchanged_at(path, &stamp) {
                 Ok(true) => {
                     Self::install(cx, fresh);
                     return true;
@@ -70,12 +78,12 @@ impl Settings {
                 }
                 Ok(false) => {
                     log::warn!("configuration kept changing on disk; edit not saved");
-                    Self::resync(cx, &path);
+                    Self::resync(cx, path);
                     return false;
                 }
                 Err(err) => {
                     log::warn!("could not save configuration: {err}");
-                    Self::resync(cx, &path);
+                    Self::resync(cx, path);
                     return false;
                 }
             }
@@ -83,7 +91,7 @@ impl Settings {
         // Every attempt was spent (conflicts, or ownership lost on the last
         // one): the file may have changed meanwhile, so follow the disk.
         log::warn!("configuration kept changing or the lock kept moving; edit not saved");
-        Self::resync(cx, &path);
+        Self::resync(cx, path);
         false
     }
 

@@ -2,14 +2,18 @@
 
 use std::time::Duration;
 
+use buddy_core::config::DisplayRect;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::{
     App, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled, Window, div,
 };
 
 use crate::dashboard::{DashboardEvent, DashboardView};
+use crate::platform_placement;
 use crate::runtime::Runtime;
+use crate::settings::Settings;
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
+use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
 
 gpui_kit::actions!(
@@ -42,6 +46,25 @@ pub enum Section {
 }
 
 impl Section {
+    pub const ALL: [Section; 11] = [
+        Section::GitHub,
+        Section::Terminal,
+        Section::Tasks,
+        Section::Insights,
+        Section::Automation,
+        Section::Ralph,
+        Section::Crew,
+        Section::Tempo,
+        Section::Bookmarks,
+        Section::Copilot,
+        Section::Settings,
+    ];
+
+    /// The section with this `id`, if it is still one of ours.
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|section| section.id() == id)
+    }
+
     pub fn id(self) -> &'static str {
         match self {
             Section::GitHub => "github",
@@ -81,12 +104,22 @@ pub struct BuddyApp {
     /// The account the `gh` CLI is currently using, once resolved.
     pub active_account: Option<String>,
     dashboard: Entity<DashboardView>,
+    window_state: WindowPersistence,
 }
 
 impl BuddyApp {
-    /// Show a section (`None` is the dashboard); the dashboard pauses its
-    /// refreshes while hidden.
+    /// Show a section (`None` is the dashboard) and remember it for the next
+    /// launch; the dashboard pauses its refreshes while hidden.
     pub fn set_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        if self.active_section != section {
+            Settings::update(cx, |config| {
+                config.native.active_section = section.map(|section| section.id().to_string())
+            });
+        }
+        self.show_section(section, cx);
+    }
+
+    fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
         self.active_section = section;
         self.dashboard.update(cx, |dashboard, cx| {
             dashboard.set_active(section.is_none(), cx)
@@ -94,11 +127,110 @@ impl BuddyApp {
         cx.notify();
     }
 
+    /// The window's placement, or `None` while it is minimized: Windows then
+    /// reports the restore rectangle as windowed, which would forget that
+    /// the window was maximized.
+    fn window_placement(window: &Window, cx: &App) -> Option<Placement> {
+        if !platform_placement::can_capture(window) {
+            return None;
+        }
+        let reported = window.window_bounds();
+        let outer = platform_placement::restore_bounds(window, cx)?;
+        let bounds = match reported {
+            gpui_kit::WindowBounds::Windowed(_) => gpui_kit::WindowBounds::Windowed(outer),
+            gpui_kit::WindowBounds::Maximized(_) => gpui_kit::WindowBounds::Maximized(outer),
+            gpui_kit::WindowBounds::Fullscreen(_) => gpui_kit::WindowBounds::Fullscreen(outer),
+        };
+        let display = window.display(cx);
+        Some(Placement {
+            bounds,
+            native_geometry: platform_placement::native_geometry(window, cx),
+            is_maximized: window.is_maximized(),
+            is_full_screen: window.is_fullscreen(),
+            native_display_uuid: display
+                .as_ref()
+                .and_then(|display| display.uuid().ok())
+                .map(|id| id.to_string()),
+            display: display
+                .map(|display| platform_placement::display_area(display.as_ref(), cx).bounds),
+        })
+    }
+
+    /// Save a move or resize once the window has stayed put for
+    /// [`SAVE_DELAY`], so the placement survives the process being killed.
+    fn window_bounds_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(generation) = Self::window_placement(window, cx)
+            .and_then(|placement| self.window_state.record(placement))
+        else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SAVE_DELAY).await;
+            this.update(cx, |this, cx| {
+                if this.window_state.save_if_current(generation) {
+                    this.release_electron_display(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Release Electron's display selection after saving native placement.
+    /// GPUI cannot validate Electron's ids, even when display bounds match:
+    /// a replacement monitor can occupy those bounds with a different id.
+    fn release_electron_display(&self, cx: &mut App) {
+        let ui = &Settings::global(cx).config.ui;
+        if ui.display_id == 0 {
+            return;
+        }
+        Settings::update(cx, |config| {
+            config.ui.display_id = 0;
+            config.ui.display_bounds = DisplayRect::default();
+            config.ui.display_work_area = DisplayRect::default();
+        });
+    }
+
+    fn observe_settings(cx: &mut Context<Self>) {
+        cx.observe_global::<Settings>(|this, cx| {
+            let saved = &Settings::global(cx).config.native.active_section;
+            let section = saved.as_deref().and_then(Section::from_id);
+            if this.active_section != section {
+                this.show_section(section, cx);
+            }
+        })
+        .detach();
+    }
+
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let dashboard = cx.new(|cx| DashboardView::new(window, cx));
+        let saved = Settings::global(cx).config.native.active_section.clone();
+        let section = saved.as_deref().and_then(Section::from_id);
+        let dashboard = cx.new(|cx| DashboardView::new(window, cx, section.is_none()));
         cx.subscribe(&dashboard, |this, _, event, cx| {
             let DashboardEvent::Navigate(section) = event;
             this.set_section(Some(*section), cx);
+        })
+        .detach();
+
+        Self::observe_settings(cx);
+
+        cx.observe_window_bounds(window, |this, window, cx| {
+            this.window_bounds_changed(window, cx)
+        })
+        .detach();
+        // Quitting (title-bar close, File → Exit, Ctrl+Q) writes the final
+        // placement at once; quit handlers run while the window still exists.
+        let handle = window.window_handle();
+        cx.on_app_quit(move |this, cx| {
+            if let Ok(Some(placement)) =
+                handle.update(cx, |_, window, cx| Self::window_placement(window, cx))
+            {
+                this.window_state.record(placement);
+            }
+            if this.window_state.flush() {
+                this.release_electron_display(cx);
+            }
+            std::future::ready(())
         })
         .detach();
 
@@ -138,11 +270,14 @@ impl BuddyApp {
         })
         .detach();
 
-        Self {
-            active_section: None,
+        let mut this = Self {
+            active_section: section,
             active_account: None,
             dashboard,
-        }
+            window_state: WindowPersistence::new(),
+        };
+        this.window_bounds_changed(window, cx);
+        this
     }
 
     fn render_content(&self, cx: &App) -> impl IntoElement + use<> {
@@ -191,5 +326,57 @@ impl Render for BuddyApp {
             )
             .child(status_bar::render(self, cx))
             .child(zoom::wheel_listener())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_section_id_maps_back_to_its_section() {
+        for section in Section::ALL {
+            assert_eq!(Section::from_id(section.id()), Some(section));
+        }
+        assert_eq!(Section::from_id("dashboard"), None);
+        assert_eq!(Section::from_id("retired-section"), None);
+    }
+
+    #[gpui_kit::test]
+    fn reloaded_section_updates_the_shell_without_starting_hidden_dashboard_io(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let shell = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.native.active_section = Some("github".into());
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            let mut entity = None;
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
+                let shell = cx.new(|cx| {
+                    BuddyApp::observe_settings(cx);
+                    BuddyApp {
+                        active_section: Some(Section::GitHub),
+                        active_account: None,
+                        dashboard,
+                        window_state: WindowPersistence::new(),
+                    }
+                });
+                entity = Some(shell.clone());
+                shell
+            })
+            .unwrap();
+            entity.unwrap()
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.native.active_section = Some("terminal".into());
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| assert_eq!(shell.read(cx).active_section, Some(Section::Terminal)));
     }
 }

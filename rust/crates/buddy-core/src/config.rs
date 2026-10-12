@@ -215,6 +215,14 @@ impl Default for FinanceConfig {
 pub struct NativeConfig {
     /// Auto-refresh interval in minutes per dashboard card id; 0 is off.
     pub auto_refresh: BTreeMap<String, u32>,
+    /// Dashboard card expand/collapse state keyed by card id; missing means
+    /// expanded (Electron keeps this per card in `localStorage`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub expanded_cards: BTreeMap<String, bool>,
+    /// Activity-bar section id open when the app last changed section;
+    /// `None` is the dashboard.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_section: Option<String>,
     /// Keys a newer native build may add; preserved like every other section.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -222,7 +230,10 @@ pub struct NativeConfig {
 
 impl NativeConfig {
     fn is_default(&self) -> bool {
-        self.auto_refresh.is_empty() && self.extra.is_empty()
+        self.auto_refresh.is_empty()
+            && self.expanded_cards.is_empty()
+            && self.active_section.is_none()
+            && self.extra.is_empty()
     }
 }
 
@@ -242,7 +253,11 @@ pub struct AppConfig {
 }
 
 /// Window geometry persisted by Electron's `electron-window-state` in
-/// `window-state.json` next to `config.json`.
+/// `window-state.json` next to `config.json`. Both apps read and write it, so
+/// either one restores the window the other saved last.
+///
+/// `x`, `y`, `width` and `height` are the normal (restored) rectangle even
+/// while the window is maximized or full screen.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WindowState {
@@ -252,12 +267,75 @@ pub struct WindowState {
     pub height: f64,
     pub is_maximized: bool,
     pub is_full_screen: bool,
+    /// Bounds of the display the window was on. `electron-window-state`
+    /// resets to its default placement when the rectangle no longer fits a
+    /// connected display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_bounds: Option<DisplayRect>,
+    /// GPUI's stable display UUID. macOS bounds are relative to each screen,
+    /// so the rectangle alone cannot identify the saved display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_display_uuid: Option<String>,
+    /// Precise Windows placement, tied to the accompanying Electron fields.
+    /// Integer DIPs alone lose physical pixels at fractional display scales.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_geometry: Option<NativeWindowGeometry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeWindowGeometry {
+    pub logical: DisplayRect,
+    pub physical: DisplayRect,
+    pub display_bounds: DisplayRect,
+    pub physical_display_bounds: DisplayRect,
+}
+
+impl NativeWindowGeometry {
+    pub fn matches(&self, state: &WindowState) -> bool {
+        let valid = |rect: DisplayRect| {
+            [rect.x, rect.y, rect.width, rect.height]
+                .iter()
+                .all(|value| value.is_finite())
+                && rect.width > 0.0
+                && rect.height > 0.0
+                && [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height]
+                    .iter()
+                    .all(|value| value.abs() < i32::MAX as f64)
+        };
+        let rounded = |rect: DisplayRect| [rect.x, rect.y, rect.width, rect.height].map(f64::round);
+        let physical = |rect: DisplayRect| {
+            valid(rect)
+                && [rect.x, rect.y, rect.width, rect.height]
+                    .iter()
+                    .all(|value| value.fract() == 0.0)
+        };
+        valid(self.logical)
+            && physical(self.physical)
+            && valid(self.display_bounds)
+            && physical(self.physical_display_bounds)
+            && rounded(self.logical)
+                == [state.x, state.y, state.width, state.height].map(f64::round)
+            && state
+                .display_bounds
+                .is_some_and(|display| rounded(display) == rounded(self.display_bounds))
+    }
 }
 
 impl WindowState {
+    /// `window-state.json` next to the resolved `config.json`.
+    pub fn path() -> Result<PathBuf, ConfigError> {
+        Ok(config_path()?.with_file_name("window-state.json"))
+    }
+
     /// Load the saved geometry when it exists and describes a usable window.
     pub fn load() -> Option<Self> {
-        let path = config_path().ok()?.with_file_name("window-state.json");
+        Self::load_from(&Self::path().ok()?)
+    }
+
+    /// [`load`](Self::load) from `path`. A missing, unreadable or corrupt
+    /// file yields `None` so the caller falls back to its default placement.
+    pub fn load_from(path: &Path) -> Option<Self> {
         let body = std::fs::read_to_string(path).ok()?;
         let state: Self = serde_json::from_str(strip_bom(&body)).ok()?;
         (state.width >= 200.0
@@ -265,6 +343,35 @@ impl WindowState {
             && state.x.is_finite()
             && state.y.is_finite())
         .then_some(state)
+    }
+
+    /// Write the state atomically (temp file + rename). The rectangle is
+    /// rounded: `electron-window-state` ignores bounds that are not integers.
+    pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {
+        let rounded = Self {
+            x: self.x.round(),
+            y: self.y.round(),
+            width: self.width.round(),
+            height: self.height.round(),
+            display_bounds: self.display_bounds.map(|display| DisplayRect {
+                x: display.x.round(),
+                y: display.y.round(),
+                width: display.width.round(),
+                height: display.height.round(),
+            }),
+            ..self.clone()
+        };
+        let body = serde_json::to_string(&rounded).expect("WindowState is always serializable");
+        let write = |source| ConfigError::Write {
+            path: path.to_path_buf(),
+            source,
+        };
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent).map_err(write)?;
+        }
+        let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        write_private(&tmp, &body).map_err(write)?;
+        replace_with(&tmp, path).map_err(write)
     }
 }
 
@@ -350,6 +457,29 @@ fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
     let mut file = options.open(path)?;
     file.write_all(body.as_bytes())?;
     file.sync_all()
+}
+
+/// Move `tmp` over `path`. `rename` replaces an existing destination on
+/// every supported platform (Windows uses MOVEFILE_REPLACE_EXISTING). A
+/// reader holding the file open without share-delete makes it fail on
+/// Windows, usually briefly, so retry; if it keeps failing, `tmp` is removed
+/// and the error returned rather than rewriting `path` in place, which would
+/// expose a partial document to Electron's watcher.
+fn replace_with(tmp: &Path, path: &Path) -> std::io::Result<()> {
+    let mut attempts = 0;
+    loop {
+        match std::fs::rename(tmp, path) {
+            Ok(()) => return Ok(()),
+            Err(_) if attempts < 10 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = std::fs::remove_file(tmp);
+                return Err(err);
+            }
+        }
+    }
 }
 
 fn platform_config_root() -> Option<PathBuf> {
@@ -513,26 +643,8 @@ impl AppConfig {
             }
             return Ok(false);
         }
-        // `rename` replaces an existing destination on every supported platform
-        // (Windows uses MOVEFILE_REPLACE_EXISTING). A reader holding the file
-        // open without share-delete makes it fail on Windows, usually briefly,
-        // so retry; if it keeps failing the save is reported as failed rather
-        // than rewritten in place, which would expose a partial document to
-        // Electron's watcher.
-        let mut attempts = 0;
-        loop {
-            match std::fs::rename(&tmp, &path) {
-                Ok(()) => return Ok(true),
-                Err(_) if attempts < 10 => {
-                    attempts += 1;
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                }
-                Err(err) => {
-                    let _ = std::fs::remove_file(&tmp);
-                    return Err(write(err));
-                }
-            }
-        }
+        replace_with(&tmp, &path).map_err(write)?;
+        Ok(true)
     }
 
     /// Older Electron builds stored the weather location in plaintext under
@@ -587,6 +699,21 @@ impl AppConfig {
 
     pub fn set_dashboard_card_visible(&mut self, card_id: &str, visible: bool) {
         self.ui.dashboard_cards.insert(card_id.to_string(), visible);
+    }
+
+    /// Dashboard card expansion: a card is expanded unless explicitly `false`.
+    pub fn is_dashboard_card_expanded(&self, card_id: &str) -> bool {
+        self.native
+            .expanded_cards
+            .get(card_id)
+            .copied()
+            .unwrap_or(true)
+    }
+
+    pub fn set_dashboard_card_expanded(&mut self, card_id: &str, expanded: bool) {
+        self.native
+            .expanded_cards
+            .insert(card_id.to_string(), expanded);
     }
 }
 
@@ -741,6 +868,204 @@ mod tests {
             (445.0, 63.0, 2629.0, 1246.0)
         );
         assert!(!state.is_maximized);
+        assert_eq!(
+            state.display_bounds,
+            Some(DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: 3440.0,
+                height: 1440.0
+            })
+        );
+    }
+
+    #[test]
+    fn card_expansion_and_active_section_round_trip() {
+        let mut config = AppConfig::default();
+        assert!(config.is_dashboard_card_expanded("weather"));
+        config.set_dashboard_card_expanded("weather", false);
+        config.set_dashboard_card_expanded("finance", true);
+        config.native.active_section = Some("github".into());
+        let json = serde_json::to_string(&config).unwrap();
+        let back = AppConfig::from_json(&json).unwrap();
+        assert!(!back.is_dashboard_card_expanded("weather"));
+        assert!(back.is_dashboard_card_expanded("finance"));
+        assert!(back.is_dashboard_card_expanded("command-center"));
+        assert_eq!(back.native.active_section.as_deref(), Some("github"));
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["native"]["expandedCards"]["weather"], false);
+        assert_eq!(value["native"]["activeSection"], "github");
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("buddy-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn window_state_round_trips_normal_maximized_and_full_screen() {
+        let dir = temp_dir("window-state-round-trip");
+        let path = dir.join("window-state.json");
+        let display = Some(DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        });
+        let states =
+            [(false, false), (true, false), (false, true)].map(|(is_maximized, is_full_screen)| {
+                WindowState {
+                    x: 120.0,
+                    y: 90.0,
+                    width: 1000.0,
+                    height: 700.0,
+                    is_maximized,
+                    is_full_screen,
+                    display_bounds: display,
+                    native_display_uuid: Some("saved-display-uuid".into()),
+                    native_geometry: None,
+                }
+            });
+        let loaded: Vec<_> = states
+            .iter()
+            .map(|state| {
+                state.save_to(&path).unwrap();
+                WindowState::load_from(&path)
+            })
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        for (state, loaded) in states.iter().zip(loaded) {
+            assert_eq!(loaded.as_ref(), Some(state));
+        }
+    }
+
+    #[test]
+    fn physical_placement_round_trips_and_rejects_stale_or_invalid_metadata() {
+        let logical = DisplayRect {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+        };
+        let display = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let geometry = NativeWindowGeometry {
+            logical,
+            physical: DisplayRect {
+                x: 180.0,
+                y: 135.0,
+                width: 1500.0,
+                height: 1050.0,
+            },
+            display_bounds: display,
+            physical_display_bounds: DisplayRect {
+                width: 2880.0,
+                height: 1620.0,
+                ..display
+            },
+        };
+        let state = WindowState {
+            x: 120.0,
+            y: 90.0,
+            width: 1000.0,
+            height: 700.0,
+            display_bounds: Some(display),
+            native_geometry: Some(geometry),
+            ..WindowState::default()
+        };
+        let dir = temp_dir("physical-placement");
+        let path = dir.join("window-state.json");
+        state.save_to(&path).unwrap();
+        let loaded = WindowState::load_from(&path).unwrap();
+        assert_eq!(loaded, state);
+        assert!(geometry.matches(&loaded));
+        assert!(!geometry.matches(&WindowState {
+            x: 121.0,
+            ..loaded.clone()
+        }));
+        assert!(!geometry.matches(&WindowState {
+            display_bounds: None,
+            ..loaded.clone()
+        }));
+        for bad in [0.5, f64::NAN, i32::MAX as f64] {
+            let invalid = NativeWindowGeometry {
+                physical: DisplayRect {
+                    x: bad,
+                    ..geometry.physical
+                },
+                ..geometry
+            };
+            assert!(!invalid.matches(&loaded));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn window_state_is_written_in_the_electron_format() {
+        let dir = temp_dir("window-state-format");
+        let path = dir.join("window-state.json");
+        let state = WindowState {
+            x: -1919.6,
+            y: 90.4,
+            width: 1000.25,
+            height: 700.0,
+            is_maximized: true,
+            is_full_screen: false,
+            display_bounds: Some(DisplayRect {
+                x: -1920.0,
+                y: 0.0,
+                width: 1920.0,
+                height: 1080.0,
+            }),
+            native_display_uuid: None,
+            native_geometry: None,
+        };
+        state.save_to(&path).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        let leftovers = std::fs::read_dir(&dir).unwrap().count();
+        let _ = std::fs::remove_dir_all(&dir);
+        let value: Value = serde_json::from_str(&body).unwrap();
+        // electron-window-state requires integers (`Number.isInteger`).
+        assert_eq!(value["x"].as_f64(), Some(-1920.0));
+        assert_eq!(value["y"].as_f64(), Some(90.0));
+        assert_eq!(value["width"].as_f64(), Some(1000.0));
+        assert_eq!(value["height"].as_f64(), Some(700.0));
+        assert_eq!(value["isMaximized"], true);
+        assert_eq!(value["isFullScreen"], false);
+        assert_eq!(value["displayBounds"]["x"].as_f64(), Some(-1920.0));
+        assert_eq!(value["displayBounds"]["width"].as_f64(), Some(1920.0));
+        assert_eq!(leftovers, 1, "the temp file is renamed into place");
+    }
+
+    #[test]
+    fn corrupt_or_missing_window_state_falls_back_and_is_rewritten() {
+        let dir = temp_dir("window-state-corrupt");
+        let path = dir.join("window-state.json");
+        let missing = WindowState::load_from(&path);
+        std::fs::write(&path, "{ not json").unwrap();
+        let corrupt = WindowState::load_from(&path);
+        std::fs::write(&path, r#"{"x":0,"y":0,"width":50,"height":50}"#).unwrap();
+        let too_small = WindowState::load_from(&path);
+        let state = WindowState {
+            x: 10.0,
+            y: 20.0,
+            width: 800.0,
+            height: 600.0,
+            ..WindowState::default()
+        };
+        state.save_to(&path).unwrap();
+        let rewritten = WindowState::load_from(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(missing.is_none());
+        assert!(corrupt.is_none());
+        assert!(too_small.is_none());
+        assert_eq!(rewritten, Some(state));
     }
 
     #[test]

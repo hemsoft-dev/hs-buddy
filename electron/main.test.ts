@@ -52,6 +52,7 @@ vi.mock('electron', () => ({
     quit: vi.fn(),
     getVersion: vi.fn(() => '1.0.0-test'),
     setAppUserModelId: vi.fn(),
+    getPath: vi.fn(() => '/mock/userData'),
     commandLine: { appendSwitch: vi.fn() },
   },
   BrowserWindow: Object.assign(
@@ -89,6 +90,12 @@ vi.mock('node:url', () => ({
 
 vi.mock('electron-window-state', () => ({
   default: vi.fn(() => ({ x: 100, y: 100, width: 1400, height: 900, manage: vi.fn() })),
+}))
+
+vi.mock('./windowsWindowState', () => ({
+  manageWindowsWindowState: vi.fn(
+    (_window: unknown, _directory: string, _initial: unknown, manage: () => void) => manage()
+  ),
 }))
 
 vi.mock('./telemetry', () => ({
@@ -164,6 +171,7 @@ describe('main process lifecycle', () => {
     const { configManager } = await import('./config')
     const { bindWindowBehavior } = await import('./menu')
     const { initRalphService } = await import('./services/ralphService')
+    const { manageWindowsWindowState } = await import('./windowsWindowState')
 
     // Invoke the whenReady callback to exercise the boot path
     expect(whenReadyCb).not.toBeNull()
@@ -178,6 +186,12 @@ describe('main process lifecycle', () => {
     expect(bindWindowBehavior).toHaveBeenCalledWith(mockWin)
     expect(registerAllHandlers).toHaveBeenCalled()
     expect(initRalphService).toHaveBeenCalled()
+    expect(manageWindowsWindowState).toHaveBeenLastCalledWith(
+      mockWin,
+      '/mock/userData',
+      { x: undefined, y: undefined, width: 1400, height: 900 },
+      expect.any(Function)
+    )
 
     await vi.waitFor(() => {
       expect(mockDispatcher.start).toHaveBeenCalledOnce()

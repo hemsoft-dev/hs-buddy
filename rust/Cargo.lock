@@ -787,10 +787,12 @@ dependencies = [
  "futures",
  "gpui-kit",
  "log",
+ "raw-window-handle",
  "reqwest",
  "serde_json",
  "tokio",
  "windows-sys 0.61.2",
+ "x11rb",
 ]
 
 [[package]]

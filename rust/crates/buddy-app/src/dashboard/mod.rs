@@ -49,6 +49,15 @@ pub enum DashboardEvent {
     Navigate(Section),
 }
 
+/// Card expansion saved by an earlier run (`native.expandedCards`); cards
+/// without an entry start expanded.
+fn initial_expansion(saved: &BTreeMap<String, bool>) -> HashMap<CardId, bool> {
+    DASHBOARD_CARDS
+        .into_iter()
+        .filter_map(|card| saved.get(card.key()).map(|&expanded| (card, expanded)))
+        .collect()
+}
+
 /// Persisted per-card interval when it is one of the offered options,
 /// else the card's default (an unsupported value would be scheduled but
 /// labelled "Off").
@@ -133,6 +142,8 @@ pub struct DashboardView {
     weather_search: Entity<InputState>,
     finance_add: Entity<InputState>,
     expanded: HashMap<CardId, bool>,
+    /// Unsaved toggles survive subsequent global configuration notifications.
+    unsaved_expansion: HashMap<CardId, bool>,
     pollen_detail_open: bool,
     session_start: Instant,
     stats: Option<BuddyStats>,
@@ -178,6 +189,7 @@ pub struct DashboardView {
     failed_symbols: Vec<String>,
     /// The dashboard is the shown section; refreshes pause while it is not.
     active: bool,
+    started: bool,
     finance_error: Option<String>,
     finance_refresh: RefreshState,
     /// Inputs the last loads used, so a Settings change (Reload or an
@@ -191,7 +203,7 @@ pub struct DashboardView {
 impl EventEmitter<DashboardEvent> for DashboardView {}
 
 impl DashboardView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>, active: bool) -> Self {
         let weather_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("City, state or zip code…"));
         let finance_add = cx
@@ -217,13 +229,16 @@ impl DashboardView {
             }),
         ];
 
-        let intervals = Settings::global(cx).config.native.auto_refresh.clone();
+        let config = &Settings::global(cx).config;
+        let intervals = config.native.auto_refresh.clone();
+        let expanded = initial_expansion(&config.native.expanded_cards);
         let mut this = Self {
             layout: GridLayout::for_viewport(1280.0),
             http: http::client(),
             weather_search,
             finance_add,
-            expanded: HashMap::new(),
+            expanded,
+            unsaved_expansion: HashMap::new(),
             pollen_detail_open: false,
             session_start: Instant::now(),
             stats: None,
@@ -258,7 +273,8 @@ impl DashboardView {
             pollen_error: None,
             quotes: Vec::new(),
             failed_symbols: Vec::new(),
-            active: true,
+            active,
+            started: false,
             finance_error: None,
             finance_refresh: RefreshState::new(interval_for(
                 &intervals,
@@ -271,17 +287,26 @@ impl DashboardView {
             _subscriptions: subscriptions,
         };
 
-        // Only visible cards fetch; hidden ones start when they are shown.
-        this.restore_weather_location(cx);
-        if this.card_visible(CardId::Finance, cx) {
-            this.load_finance(cx);
+        if active {
+            this.start_visible_work(cx);
         }
-        if this.card_visible(CardId::CommandCenter, cx) {
-            this.load_copilot(cx);
-        }
-        this.start_convex(cx);
         this.start_ticker(cx);
         this
+    }
+
+    fn start_visible_work(&mut self, cx: &mut Context<Self>) {
+        if self.started {
+            return;
+        }
+        self.started = true;
+        self.restore_weather_location(cx);
+        if self.card_visible(CardId::Finance, cx) {
+            self.load_finance(cx);
+        }
+        if self.card_visible(CardId::CommandCenter, cx) {
+            self.load_copilot(cx);
+        }
+        self.start_convex(cx);
     }
 
     fn card_visible(&self, card: CardId, cx: &App) -> bool {
@@ -319,6 +344,11 @@ impl DashboardView {
     /// save picked up): re-run only the loads whose inputs differ.
     fn settings_changed(&mut self, cx: &mut Context<Self>) {
         let config = Settings::global(cx).config.clone();
+        self.expanded = initial_expansion(&config.native.expanded_cards);
+        self.unsaved_expansion.retain(|card, expanded| {
+            config.native.expanded_cards.get(card.key()) != Some(expanded)
+        });
+        self.expanded.extend(&self.unsaved_expansion);
         // `native.autoRefresh` may have changed on disk (Reload Configuration).
         self.weather_refresh.interval_minutes = interval_for(
             &config.native.auto_refresh,
@@ -330,6 +360,10 @@ impl DashboardView {
             CardId::Finance,
             FINANCE_DEFAULT_INTERVAL_MINUTES,
         );
+        if !self.active {
+            cx.notify();
+            return;
+        }
         let weather_visible = config.is_dashboard_card_visible(CardId::Weather.key());
         let finance_visible = config.is_dashboard_card_visible(CardId::Finance.key());
         if finance_visible
@@ -728,9 +762,30 @@ impl DashboardView {
         self.expanded.get(&card).copied().unwrap_or(true)
     }
 
+    /// Flip a card open or closed and remember it for the next launch. A
+    /// failed save (logged) still flips the card for this session.
     pub fn toggle_expanded(&mut self, card: CardId, cx: &mut Context<Self>) {
+        self.toggle_expanded_with(card, cx, |cx, card, next| {
+            Settings::update(cx, |config| {
+                config.set_dashboard_card_expanded(card.key(), next)
+            })
+        });
+    }
+
+    fn toggle_expanded_with(
+        &mut self,
+        card: CardId,
+        cx: &mut Context<Self>,
+        save: impl FnOnce(&mut gpui_kit::App, CardId, bool) -> bool,
+    ) {
         let next = !self.is_expanded(card);
         self.expanded.insert(card, next);
+        let saved = save(cx, card, next);
+        if saved {
+            self.unsaved_expansion.remove(&card);
+        } else {
+            self.unsaved_expansion.insert(card, next);
+        }
         cx.notify();
     }
 
@@ -856,6 +911,8 @@ impl DashboardView {
         }
         self.active = active;
         if active {
+            self.start_visible_work(cx);
+            self.settings_changed(cx);
             self.tick(cx);
             cx.notify();
         }
@@ -1296,10 +1353,111 @@ mod tests {
     }
 
     #[test]
+    fn saved_card_expansion_is_restored() {
+        let saved = BTreeMap::from([
+            ("weather".to_string(), false),
+            ("finance".to_string(), true),
+            ("retired-card".to_string(), false),
+        ]);
+        let expanded = initial_expansion(&saved);
+        assert_eq!(expanded.get(&CardId::Weather), Some(&false));
+        assert_eq!(expanded.get(&CardId::Finance), Some(&true));
+        assert_eq!(expanded.get(&CardId::CommandCenter), None);
+        assert_eq!(expanded.len(), 2);
+    }
+
+    #[gpui_kit::test]
+    fn hidden_dashboard_defers_io_and_applies_reloaded_card_state(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::AppContext as _;
+        let dashboard = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.native.expanded_cards.insert("weather".into(), false);
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            let mut dashboard = None;
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let entity = cx.new(|cx| DashboardView::new(window, cx, false));
+                dashboard = Some(entity.clone());
+                entity
+            })
+            .expect("open dashboard test window");
+            let dashboard = dashboard.unwrap();
+            assert!(!dashboard.read(cx).started);
+            assert!(!dashboard.read(cx).restore_pending);
+            assert!(!dashboard.read(cx).is_expanded(CardId::Weather));
+            dashboard
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let mut reloaded = Settings::global(cx).config.clone();
+            reloaded.native.expanded_cards.remove("weather");
+            reloaded
+                .native
+                .expanded_cards
+                .insert("finance".into(), false);
+            Settings::replace(cx, reloaded);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(dashboard.read(cx).is_expanded(CardId::Weather));
+            assert!(!dashboard.read(cx).is_expanded(CardId::Finance));
+            assert!(!dashboard.read(cx).started);
+        });
+    }
+
+    #[test]
     fn breakpoints_follow_the_zoomed_width() {
         assert_eq!((at(100.0).narrow, at(100.0).two_columns), (false, true));
         assert_eq!((at(150.0).narrow, at(150.0).two_columns), (false, false));
         assert_eq!((at(200.0).narrow, at(200.0).two_columns), (true, false));
+    }
+
+    #[gpui_kit::test]
+    fn failed_card_save_survives_the_disk_resync_notification(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::AppContext as _;
+        let root = std::env::temp_dir().join(format!("buddy-card-failure-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("config.json");
+        let config = buddy_core::config::AppConfig::default();
+        std::fs::write(&path, "{}").unwrap();
+        let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        // A directory at the staging-file path causes an actual private write failure.
+        std::fs::create_dir(&temporary).unwrap();
+        let dashboard = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            let mut entity = None;
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
+                entity = Some(dashboard.clone());
+                dashboard
+            })
+            .unwrap();
+            entity.unwrap()
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            dashboard.update(cx, |dashboard, cx| {
+                dashboard.toggle_expanded_with(CardId::Weather, cx, |cx, card, next| {
+                    let saved = Settings::update_at(cx, &path, |config| {
+                        config.set_dashboard_card_expanded(card.key(), next)
+                    });
+                    assert!(!saved);
+                    saved
+                });
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(!dashboard.read(cx).is_expanded(CardId::Weather));
+            assert!(Settings::global(cx).config.native.expanded_cards.is_empty());
+        });
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

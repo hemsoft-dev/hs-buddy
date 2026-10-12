@@ -18,6 +18,7 @@ import { loadZoomLevel } from './zoom'
 import { applicationMenuTemplate, bindWindowBehavior } from './menu'
 import { registerAllHandlers } from './ipc'
 import { MainWindowLifecycle } from './windowLifecycle'
+import { manageWindowsWindowState } from './windowsWindowState'
 import { getDispatcher } from './workers/dispatcher'
 import { runOfflineSync } from './workers/offlineSync'
 import { stopSharedClient } from './services/copilotClient'
@@ -256,7 +257,14 @@ function createBrowserWindow(): BrowserWindow {
   })
 
   // Let window state manager track window state
-  mainWindowState.manage(createdWindow)
+  manageWindowsWindowState(
+    createdWindow,
+    app.getPath('userData'),
+    { x: windowX, y: windowY, width: windowWidth, height: windowHeight },
+    () => {
+      mainWindowState.manage(createdWindow)
+    }
+  )
 
   // Track which display the window is on when it moves or the user stops resizing
   const saveCurrentDisplay = () => {
