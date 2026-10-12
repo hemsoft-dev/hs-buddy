@@ -124,7 +124,7 @@ jobs:
         run: bun run react-doctor
       - name: Upload React Doctor report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: react-doctor-${{ matrix.os }}
           path: reports/react-doctor/
@@ -249,7 +249,7 @@ jobs:
 
       - name: Upload coverage reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cobertura-coverage
           path: coverage-upload/*
@@ -298,7 +298,7 @@ jobs:
 
       - name: Upload mutation report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: mutation-report
           path: reports/mutation/
@@ -438,7 +438,7 @@ jobs:
 
       - name: Upload E2E test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-test-results
           path: |
@@ -486,7 +486,7 @@ jobs:
 
       - name: Upload Electron E2E diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-e2e-results
           path: |
@@ -546,7 +546,7 @@ jobs:
 
       - name: Upload Electron memory result
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-memory-sample-${{ matrix.sample }}
           path: electron-memory-${{ matrix.sample }}.json
@@ -704,7 +704,7 @@ jobs:
 
       - name: Upload startup diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: package-smoke-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -715,7 +715,7 @@ jobs:
 
       - name: Upload failed distributable
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: failed-package-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -768,7 +768,7 @@ jobs:
 
       - name: Upload Lighthouse results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lighthouse-results
           path: .lighthouseci/
@@ -840,7 +840,7 @@ jobs:
         run: bun perf/electron-memory-aggregate.ts memory-samples electron-memory-result.json
       - name: Upload combined memory result
         if: always() && needs.memory-policy.outputs.mode == 'run'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: electron-memory-result
           path: electron-memory-result.json
@@ -877,7 +877,7 @@ jobs:
         run: bun run crap:coverage ${{ matrix.suite }}
       - name: Upload function coverage
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: crap-coverage-${{ matrix.suite }}
           path: reports/crap/
@@ -922,7 +922,7 @@ jobs:
         run: bun run crap
       - name: Upload CRAP report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: crap-report
           path: reports/crap/report.json
