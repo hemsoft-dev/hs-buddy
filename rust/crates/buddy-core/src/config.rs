@@ -272,6 +272,10 @@ pub struct WindowState {
     /// connected display.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_bounds: Option<DisplayRect>,
+    /// GPUI's stable display UUID. macOS bounds are relative to each screen,
+    /// so the rectangle alone cannot identify the saved display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_display_uuid: Option<String>,
 }
 
 impl WindowState {
@@ -876,6 +880,7 @@ mod tests {
                     is_maximized,
                     is_full_screen,
                     display_bounds: display,
+                    native_display_uuid: Some("saved-display-uuid".into()),
                 }
             });
         let loaded: Vec<_> = states
@@ -908,6 +913,7 @@ mod tests {
                 width: 1920.0,
                 height: 1080.0,
             }),
+            native_display_uuid: None,
         };
         state.save_to(&path).unwrap();
         let body = std::fs::read_to_string(&path).unwrap();

@@ -25,6 +25,7 @@ pub struct Placement {
     /// X11 never reports `Fullscreen` bounds.
     pub is_full_screen: bool,
     pub display: Option<Bounds<Pixels>>,
+    pub native_display_uuid: Option<String>,
 }
 
 /// A rectangle the window had while neither maximized nor full screen, and
@@ -164,7 +165,7 @@ fn capture(
         WindowBounds::Maximized(_) => reports_restore_bounds,
         // The rectangle before full screen, which on macOS and X11 is the
         // maximized one when the window was maximized.
-        WindowBounds::Fullscreen(_) => reports_restore_bounds || !is_maximized,
+        WindowBounds::Fullscreen(_) => !reports_restore_bounds && !is_maximized,
     };
     let display = placement.display.map(rect);
     let rect = match remembered.windowed {
@@ -181,6 +182,7 @@ fn capture(
         is_maximized,
         is_full_screen,
         display_bounds: display,
+        native_display_uuid: placement.native_display_uuid,
     }
 }
 
@@ -241,6 +243,7 @@ mod tests {
             is_maximized,
             is_full_screen: false,
             display: Some(self::bounds(0.0, 0.0, 1920.0, 1080.0)),
+            native_display_uuid: None,
         }
     }
 
@@ -416,6 +419,7 @@ mod tests {
             is_maximized: true,
             is_full_screen: true,
             display_bounds: Some(PRIMARY),
+            native_display_uuid: None,
         };
         saved.save_to(&path).unwrap();
         let persistence = WindowPersistence::at(Some(path));

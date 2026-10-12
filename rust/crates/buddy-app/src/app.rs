@@ -9,6 +9,7 @@ use gpui_kit::{
 };
 
 use crate::dashboard::{DashboardEvent, DashboardView};
+use crate::platform_placement;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
@@ -130,11 +131,26 @@ impl BuddyApp {
     /// reports the restore rectangle as windowed, which would forget that
     /// the window was maximized.
     fn window_placement(window: &Window, cx: &App) -> Option<Placement> {
-        window.is_visible().then(|| Placement {
-            bounds: window.window_bounds(),
+        if !platform_placement::can_capture(window) {
+            return None;
+        }
+        let reported = window.window_bounds();
+        let outer = platform_placement::restore_bounds(window)?;
+        let bounds = match reported {
+            gpui_kit::WindowBounds::Windowed(_) => gpui_kit::WindowBounds::Windowed(outer),
+            gpui_kit::WindowBounds::Maximized(_) => gpui_kit::WindowBounds::Maximized(outer),
+            gpui_kit::WindowBounds::Fullscreen(_) => gpui_kit::WindowBounds::Fullscreen(outer),
+        };
+        let display = window.display(cx);
+        Some(Placement {
+            bounds,
             is_maximized: window.is_maximized(),
             is_full_screen: window.is_fullscreen(),
-            display: window.display(cx).map(|display| display.bounds()),
+            native_display_uuid: display
+                .as_ref()
+                .and_then(|display| display.uuid().ok())
+                .map(|id| id.to_string()),
+            display: display.map(|display| display.bounds()),
         })
     }
 
@@ -258,6 +274,7 @@ impl BuddyApp {
         if section.is_some() {
             this.show_section(section, cx);
         }
+        this.window_bounds_changed(window, cx);
         this
     }
 
