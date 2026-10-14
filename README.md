@@ -86,6 +86,22 @@ cp .env.example .env
 bun run dev
 ```
 
+### Run on macOS
+
+With Node.js 22.12+, Bun, GitHub CLI, and Xcode Command Line Tools installed,
+run this from the repository directory:
+
+```bash
+bash ./run-mac.sh
+```
+
+The [Mac launcher](run-mac.sh) checks prerequisites, installs dependencies from
+`bun.lock`, and starts Convex and the Electron app together. It does not require
+Aspire. Choose local development if Convex prompts on the first launch. Keep the
+terminal open while using the app, and press Ctrl+C to stop.
+
+Authenticate with `gh auth login` to use the GitHub features.
+
 ### Configuration
 
 hs-buddy uses **electron-store** for persistent configuration and **GitHub CLI** for authentication:

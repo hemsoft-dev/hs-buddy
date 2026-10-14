@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1322] - 2026-10-14
+
+### Added
+
+- Add standalone macOS development launcher
+
 ## [0.1.1321] - 2026-10-12
 
 ### Fixed
