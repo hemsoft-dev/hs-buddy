@@ -65,7 +65,6 @@ export function packageConfiguration({ metadata, version, target, root, output, 
     publisher: 'HemSoft',
     authors: ['HemSoft'],
     homepage: 'https://github.com/hemsoft-dev/hs-buddy',
-    licenseFile: join(root, 'LICENSE'),
     category: 'Productivity',
     formats: [options.format],
     outDir: output,
@@ -74,9 +73,13 @@ export function packageConfiguration({ metadata, version, target, root, output, 
     binaries: [{ path: metadata.binaryName, main: true }],
     icons: [join(root, 'public', 'icon-512.png'), join(root, 'public', 'icon.ico')],
   }
+  // DMG interprets licenseFile as an interactive EULA during mounting. Keep
+  // the repository's unchanged notice in the app bundle instead.
+  if (options.platform !== 'darwin') config.licenseFile = join(root, 'LICENSE')
   if (options.platform === 'win32') {
     config.nsis = { installMode: 'currentUser', installerIcon: join(root, 'public', 'icon.ico') }
   } else if (options.platform === 'darwin') {
+    config.resources = [{ src: join(root, 'LICENSE'), target: 'LICENSE' }]
     config.macos = {
       minimumSystemVersion: metadata.minimumMacOsVersion,
       signingIdentity: '-',

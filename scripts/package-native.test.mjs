@@ -129,6 +129,20 @@ test('Mac runtime guard rejects unbundled Homebrew and rpath libraries', () => {
   assert.throws(() => verifyStandaloneMac('buddy:\n unexpected output'), /Could not inspect/)
 })
 
+test('Mac bundles the unchanged license notice without an interactive DMG agreement', t => {
+  const root = directory(t)
+  const options = { metadata, version: '0.1.1333', root, output: root, binaries: root }
+  for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
+    const config = packageConfiguration({ ...options, target })
+    assert.equal(Object.hasOwn(config, 'licenseFile'), false)
+    assert.deepEqual(config.resources, [{ src: join(root, 'LICENSE'), target: 'LICENSE' }])
+  }
+  for (const target of ['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu']) {
+    const config = packageConfiguration({ ...options, target })
+    assert.equal(config.licenseFile, join(root, 'LICENSE'))
+  }
+})
+
 test('package configuration rejects malformed policy values and missing runtime dependencies', t => {
   const root = directory(t)
   const options = {

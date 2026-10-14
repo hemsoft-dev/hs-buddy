@@ -45,6 +45,8 @@ $env:BUDDY_CONVEX_URL = 'https://YOUR-DEPLOYMENT.convex.cloud'
 ```
 
 On macOS, open the matching DMG and copy `Buddy Native.app` to Applications.
+The unchanged repository licence notice is included in the application's
+`Contents/Resources/LICENSE` file.
 For an explicit backend, run this from any directory:
 
 ```bash

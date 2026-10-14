@@ -51,6 +51,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   test "$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$app/Contents/Info.plist")" = 15.0
   icon="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIconFile' "$app/Contents/Info.plist")"
   test -s "$app/Contents/Resources/$icon" || test -s "$app/Contents/Resources/$icon.icns"
+  cmp "$script_directory/../../LICENSE" "$app/Contents/Resources/LICENSE"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
   codesign --verify --deep --strict "$app"
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
