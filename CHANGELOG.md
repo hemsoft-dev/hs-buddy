@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1330] - 2026-10-14
+
+### Fixed
+
+- Enable initial keyboard focus and exercise desktop scaling
+
 ## [0.1.1329] - 2026-10-14
 
 ### Added

@@ -32,6 +32,7 @@ public static class Drive {
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
     [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW")] public static extern IntPtr GetClassLongPtr(IntPtr h, int index);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SendMessageTimeoutW(IntPtr h, uint message, IntPtr wparam, ref RECT rect, uint flags, uint timeout, out UIntPtr result);
 
     static uint target;
     public static void Attach(IntPtr h) {
@@ -55,11 +56,49 @@ function Note($s) { if ($Log) { Add-Content $Log $s } }
 [Drive]::SetThreadDpiAwarenessContext([IntPtr](-4)) | Out-Null
 $h = [IntPtr]$Hwnd
 $recordFrame = 0
+$recorder = $null
+$recordDirectory = $null
 [Drive]::Attach($h)
 try {
     foreach ($action in $Actions.Split(',')) {
         $parts = $action.Split(':')
         switch ($parts[0]) {
+            'record-start' {
+                if ($recorder) { throw 'A recording is already active' }
+                $recordDirectory = $parts[1..($parts.Length - 1)] -join ':'
+                if (Test-Path -LiteralPath $recordDirectory) { throw 'Recording needs a fresh directory' }
+                New-Item -ItemType Directory -Path $recordDirectory | Out-Null
+                $recorder = Start-ThreadJob -ArgumentList $h,$recordDirectory -ScriptBlock {
+                    param($window,$directory)
+                    for ($frame = 0; $frame -lt 240; $frame++) {
+                        if (Test-Path -LiteralPath (Join-Path $directory 'complete')) { return }
+                        $rect = New-Object Drive+RECT
+                        if (-not [Drive]::GetWindowRect($window, [ref]$rect)) { throw 'Recording window disappeared' }
+                        $bmp = [System.Drawing.Bitmap]::new(($rect.r-$rect.l), ($rect.b-$rect.t), [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+                        try {
+                            $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+                            try {
+                                $dc = $graphics.GetHdc()
+                                try {
+                                    if (-not [Drive]::PrintWindow($window, $dc, 2)) { throw 'Recording capture failed' }
+                                } finally { $graphics.ReleaseHdc($dc) }
+                            } finally { $graphics.Dispose() }
+                            $bmp.Save((Join-Path $directory ('frame-{0:D4}.png' -f $frame)), [System.Drawing.Imaging.ImageFormat]::Png)
+                        } finally { $bmp.Dispose() }
+                        Start-Sleep -Milliseconds 250
+                    }
+                    throw 'Recording exceeded 60 seconds'
+                }
+            }
+            'record-stop' {
+                if (-not $recorder) { throw 'No recording is active' }
+                New-Item -ItemType File (Join-Path $recordDirectory 'complete') | Out-Null
+                $finished = Wait-Job $recorder -Timeout 10
+                if (-not $finished -or $recorder.State -ne 'Completed') { throw 'Recording did not complete' }
+                Receive-Job $recorder -ErrorAction Stop | Out-Null
+                Remove-Job $recorder
+                $recorder = $null
+            }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
             'ctrlkey' {
                 $vk = [int]$parts[1]
@@ -179,6 +218,22 @@ try {
                 [Drive]::SetWindowPos($h, 0, [int]$parts[1], [int]$parts[2], [int]$parts[3], [int]$parts[4], 0x14) | Out-Null
                 Start-Sleep -Milliseconds 800
             }
+            'simulated-dpi' {
+                # Exercise GPUI's actual WM_DPICHANGED path without changing
+                # the user's monitor settings. This is explicitly simulated;
+                # GetDpiForWindow still reports the real monitor's DPI.
+                $dpi = [int]$parts[1]
+                if ($dpi -notin 96, 120, 144, 192) { throw 'Unsupported test DPI' }
+                $rect = New-Object Drive+RECT
+                $rect.l = 80; $rect.t = 40
+                $rect.r = $rect.l + [int]$parts[2]
+                $rect.b = $rect.t + [int]$parts[3]
+                $result = [UIntPtr]::Zero
+                $ok = [Drive]::SendMessageTimeoutW($h, 0x2E0, [IntPtr](($dpi -shl 16) -bor $dpi), [ref]$rect, 2, 5000, [ref]$result)
+                if ($ok -eq [IntPtr]::Zero) { throw 'Simulated DPI event timed out' }
+                Start-Sleep -Milliseconds 900
+                Note "simulated WM_DPICHANGED=$dpi; actual monitor DPI=$([Drive]::GetDpiForWindow($h))"
+            }
             'maximize' { [Drive]::ShowWindow($h, 3) | Out-Null; Start-Sleep -Milliseconds 1000 }
             'minimize' { [Drive]::ShowWindow($h, 6) | Out-Null; Start-Sleep -Milliseconds 1000 }
             'restore' { [Drive]::ShowWindow($h, 9) | Out-Null; Start-Sleep -Milliseconds 1000 }
@@ -198,5 +253,11 @@ try {
         Note "done $action"
     }
 }
-finally { [Drive]::Detach() }
+finally {
+    if ($recorder) {
+        Stop-Job $recorder
+        Remove-Job $recorder -Force
+    }
+    [Drive]::Detach()
+}
 

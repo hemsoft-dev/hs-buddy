@@ -118,7 +118,14 @@ The desktop driver launches the installed executable from a directory outside
 the checkout with isolated settings, empty GitHub authentication, and dashboard
 network cards disabled. It checks both themes, resize, keyboard zoom and quit,
 saved placement after restart, disconnected-display recovery, and preservation
-of an unknown settings field. Screenshots must contain dashboard body text and
+of an unknown settings field. Tab then Enter must open the File menu before a
+mouse click. Windows also sends a simulated 96-to-144-to-96 `WM_DPICHANGED`
+sequence to the owned window and checks its rendered dashboard at 150% scale.
+The log retains the actual monitor DPI separately. macOS captures record both
+the OS window bounds and PNG pixel dimensions to identify backing scale.
+Mixed-display coordinate conversions retain their existing Rust tests.
+Physical multi-monitor hardware coverage remains distinct from these CI
+scenarios. Screenshots must contain dashboard body text and
 the current version according to OCR. A title bar or empty window fails.
 Screenshots, action logs, recordings frames, and process results are retained
 with the workflow artifact. They support the PR's separately uploaded GitHub

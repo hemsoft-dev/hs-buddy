@@ -66,19 +66,19 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends \
             xvfb xauth openbox xdotool imagemagick sway grim wtype \
-            mesa-vulkan-drivers tesseract-ocr desktop-file-utils
+            mesa-vulkan-drivers tesseract-ocr desktop-file-utils ffmpeg
 
       - name: Install macOS desktop qualification tools
         if: runner.os == 'macOS'
         run: |
-          brew install tesseract
+          brew install tesseract ffmpeg
           swiftc ../scripts/native-smoke/macos-window.swift -o "$RUNNER_TEMP/buddy-window-info"
 
       - name: Install Windows OCR
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install tesseract --yes --no-progress
+          choco install tesseract ffmpeg --yes --no-progress
           'C:\Program Files\Tesseract-OCR' | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup package driver Node.js

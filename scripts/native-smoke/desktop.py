@@ -6,6 +6,8 @@ Screenshots contain real OS window pixels; OCR must find dashboard content.
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -13,17 +15,22 @@ from pathlib import Path
 import platform
 import re
 import subprocess
+import struct
 import time
+from threading import Event
 
 
 HERE = Path(__file__).resolve().parent
 
 
 def run(*args, **kwargs):
-    return subprocess.run(
-        [str(arg) for arg in args], check=True, capture_output=True,
-        text=True, timeout=60, **kwargs,
-    ).stdout.strip()
+    try:
+        return subprocess.run(
+            [str(arg) for arg in args], check=True, capture_output=True,
+            text=True, timeout=60, **kwargs,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"{args[0]} failed with exit {error.returncode}: {error.stderr[-8000:]}") from error
 
 
 def require_dashboard(text, version):
@@ -38,6 +45,42 @@ def inspect_screenshot(path, version):
     text = run("tesseract", path, "stdout", "--psm", "11")
     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
     require_dashboard(text, version)
+
+
+def inspect_keyboard_menu(path, version):
+    inspect_screenshot(path, version)
+    text = path.with_suffix(".ocr.txt").read_text(encoding="utf-8")
+    if not re.search(r"\bexit\b", text, re.IGNORECASE):
+        raise RuntimeError("Tab and Enter did not open the File menu")
+
+
+@contextmanager
+def recording(window, directory):
+    directory.mkdir()
+    stop = Event()
+    def capture():
+        index = 0
+        while not stop.is_set():
+            window.screenshot(directory / f"frame-{index:04}.png")
+            index += 1
+            stop.wait(0.25)
+        if index < 2:
+            raise RuntimeError("Interaction recording captured fewer than two frames")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(capture)
+        try:
+            yield
+        finally:
+            stop.set()
+            future.result(timeout=15)
+
+
+def encode_recording(directory):
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-framerate", "4",
+        "-i", directory / "frames" / "frame-%04d.png",
+        "-vf", "scale=1600:1000:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1600:1000:(ow-iw)/2:(oh-ih)/2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        directory / "interaction.mp4")
 
 
 def fixture(directory, theme):
@@ -63,11 +106,17 @@ def windows(executable, directory, config, restored=False):
     actions = ["geometry", f"capture:{directory / 'dashboard.png'}"]
     if not restored:
         actions += [
+            "record-start:" + str(directory / "frames"),
+            "focus", "key:9", "key:13",
+            f"capture:{directory / 'keyboard-menu.png'}", "key:27",
             "resize:80:80:900:650", "geometry",
             f"capture:{directory / 'resized.png'}", "focus", "ctrlkey:187",
             f"capture:{directory / 'zoomed.png'}",
+            "simulated-dpi:144:1350:975",
+            f"capture:{directory / 'dpi-simulated-150-percent.png'}",
+            "simulated-dpi:96:900:650",
             f"classicon:{directory / 'registered-window-icons.png'}",
-            "record:3:" + str(directory / "frames"),
+            "record-stop",
         ]
     actions += ["ctrlkey:81"]
     run("pwsh", "-NoProfile", "-File", HERE / "windows-window.ps1",
@@ -114,15 +163,17 @@ class UnixWindow:
             run("swaymsg", f"[con_id={self.window}] floating enable, resize set {width} {height}, move position 80 80")
         time.sleep(1)
 
-    def key(self, key):
+    def key(self, key, control=True):
         if self.session == "macos":
-            run("osascript", "-e", self.apple(f'set frontmost to true\nkeystroke "{key}" using command down'))
+            command = (f'keystroke "{key}" using command down' if control else
+                       f'key code {dict(Tab=48, Return=36, Escape=53)[key]}')
+            run("osascript", "-e", self.apple(f'set frontmost to true\n{command}'))
         elif self.session == "x11":
             run("xdotool", "windowactivate", "--sync", self.window)
-            run("xdotool", "key", "--clearmodifiers", f"ctrl+{key}")
+            run("xdotool", "key", "--clearmodifiers", f"ctrl+{key}" if control else key)
         else:
             run("swaymsg", f"[con_id={self.window}] focus")
-            run("wtype", "-M", "ctrl", "-k", key, "-m", "ctrl")
+            run("wtype", *( ["-M", "ctrl", "-k", key, "-m", "ctrl"] if control else ["-k", key]))
         time.sleep(0.7)
 
     def screenshot(self, path):
@@ -130,6 +181,9 @@ class UnixWindow:
             # Capture the owned app window only. No full-monitor recording.
             window = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", self.process.pid))
             run("screencapture", "-x", "-l", window["kCGWindowNumber"], path)
+            pixels = struct.unpack(">II", path.read_bytes()[16:24])
+            window["capturePixelSize"] = pixels
+            window["capturePixelsPerWindowPoint"] = pixels[0] / window["kCGWindowBounds"]["Width"]
             path.with_suffix(".window.json").write_text(json.dumps(window), encoding="utf-8")
         elif self.session == "x11":
             run("import", "-window", self.window, path)
@@ -154,29 +208,31 @@ def unix(executable, directory, config, session, restored=False):
         try:
             window = UnixWindow(process, session)
             deadline = time.monotonic() + 45
+            last_error = None
             while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise RuntimeError(f"App exited before rendering: {process.returncode}")
                 try:
                     if window.ready():
                         break
-                except (subprocess.SubprocessError, IndexError, ValueError):
-                    pass
+                except (subprocess.SubprocessError, RuntimeError, IndexError, ValueError) as error:
+                    last_error = error
                 time.sleep(0.3)
             else:
-                raise RuntimeError("Owned Buddy window did not appear")
+                raise RuntimeError(f"Owned Buddy window did not appear: {last_error}") from last_error
             time.sleep(4)
             window.screenshot(directory / "dashboard.png")
             if not restored:
-                window.resize(900, 650)
-                window.screenshot(directory / "resized.png")
-                window.key("=" if session == "macos" else "equal")
-                window.screenshot(directory / "zoomed.png")
-                frames = directory / "frames"
-                frames.mkdir()
-                for index in range(12):
-                    window.screenshot(frames / f"frame-{index:04}.png")
-                    time.sleep(0.25)
+                with recording(window, directory / "frames"):
+                    window.key("Tab", control=False)
+                    window.key("Return", control=False)
+                    window.screenshot(directory / "keyboard-menu.png")
+                    window.key("Escape", control=False)
+                    window.resize(900, 650)
+                    window.screenshot(directory / "resized.png")
+                    window.key("=" if session == "macos" else "equal")
+                    window.screenshot(directory / "zoomed.png")
+                    time.sleep(1)
             window.key("q")
             if process.wait(timeout=20) != 0:
                 raise RuntimeError(f"App did not exit cleanly: {process.returncode}")
@@ -214,6 +270,10 @@ def main():
         drive(executable, directory, config)
         for shot in ("dashboard", "resized", "zoomed"):
             inspect_screenshot(directory / f"{shot}.png", args.version)
+        inspect_keyboard_menu(directory / "keyboard-menu.png", args.version)
+        encode_recording(directory)
+        if args.session == "windows":
+            inspect_screenshot(directory / "dpi-simulated-150-percent.png", args.version)
         zoom = json.loads((directory / "zoom-level.json").read_text(encoding="utf-8-sig"))
         if abs(zoom["zoomFactor"] - 1.1) > 0.001:
             raise RuntimeError("Keyboard zoom did not persist 110%")

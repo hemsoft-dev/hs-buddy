@@ -5,7 +5,8 @@ use std::time::Duration;
 use buddy_core::config::DisplayRect;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled, Window, div,
+    App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+    ParentElement, Render, Styled, Window, div,
 };
 
 use crate::dashboard::{DashboardEvent, DashboardView};
@@ -105,9 +106,18 @@ pub struct BuddyApp {
     pub active_account: Option<String>,
     dashboard: Entity<DashboardView>,
     window_state: WindowPersistence,
+    focus: FocusHandle,
 }
 
 impl BuddyApp {
+    fn initial_focus(window: &mut Window, cx: &mut Context<Self>) -> FocusHandle {
+        let focus = cx.focus_handle();
+        // Root's Tab binding needs a focused descendant before the first click.
+        // This handle is outside the tab order; Tab enters the first button.
+        window.focus(&focus, cx);
+        focus
+    }
+
     /// Show a section (`None` is the dashboard) and remember it for the next
     /// launch; the dashboard pauses its refreshes while hidden.
     pub fn set_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
@@ -275,6 +285,7 @@ impl BuddyApp {
             active_account: None,
             dashboard,
             window_state: WindowPersistence::new(),
+            focus: Self::initial_focus(window, cx),
         };
         this.window_bounds_changed(window, cx);
         this
@@ -303,6 +314,7 @@ impl Render for BuddyApp {
         let foreground = theme.foreground;
 
         v_flex()
+            .track_focus(&self.focus)
             .size_full()
             .font_family(font_family)
             .text_size(zpx(13.0))
@@ -362,6 +374,7 @@ mod tests {
                         active_account: None,
                         dashboard,
                         window_state: WindowPersistence::new(),
+                        focus: BuddyApp::initial_focus(window, cx),
                     }
                 });
                 entity = Some(shell.clone());
