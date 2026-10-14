@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1324] - 2026-10-14
+
+### Fixed
+
+- Update native TLS dependency for RustSec advisories (#827)
+
 ## [0.1.1323] - 2026-10-14
 
 ### Fixed
