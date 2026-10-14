@@ -5,8 +5,14 @@ set -euo pipefail
 . /etc/os-release
 [[ "$ID" == ubuntu && "$VERSION_ID" == 24.04 ]]
 export DEBIAN_FRONTEND=noninteractive
+# Node's mkdtemp build directory is 0700 and stays read-only on the host.
+# Give the container's test user a readable copy, without widening that mount.
+runtime_package=/tmp/buddy-runtime-package
+install -d -m 755 "$runtime_package"
+cp /package/build.json /package/*.deb "$runtime_package/"
+chmod 644 "$runtime_package/"*
 apt-get update
-apt-get install -y --no-install-recommends /package/*.deb
+apt-get install -y --no-install-recommends "$runtime_package/"*.deb
 executable="$(command -v buddy-native)"
 # Check ELF dependencies before GUI/OCR tools can supply an undeclared library.
 ldd "$executable" > /evidence/runtime-before-test-tools.txt
@@ -22,7 +28,7 @@ apt-get install -y --no-install-recommends \
 useradd --create-home --uid 12345 qualification
 install -d -m 700 -o qualification -g qualification /tmp/buddy-runtime
 chown qualification:qualification /evidence
-version="$(python3 -c 'import json; print(json.load(open("/package/build.json"))["version"])')"
+version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$runtime_package/build.json")"
 [[ "$(dpkg-query -W -f='${Version}' buddy-native)" == "$version" ]]
 # The GUI runs as an unprivileged user, without device mounts, host sockets,
 # or an inherited display. Root is used only for package installation above.
@@ -30,4 +36,4 @@ cd /evidence
 sudo -u qualification env \
   GITHUB_ACTIONS=true RUNNER_TEMP=/tmp/buddy-runtime \
   BUDDY_NATIVE_RUNTIME_CONTAINER=1 PYTHONDONTWRITEBYTECODE=1 \
-  dbus-run-session -- bash /source/scripts/native-smoke/install-unix.sh /package /evidence
+  dbus-run-session -- bash /source/scripts/native-smoke/install-unix.sh "$runtime_package" /evidence

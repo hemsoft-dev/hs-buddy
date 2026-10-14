@@ -8,6 +8,16 @@ fi
 package_directory="$1"
 output="$2"
 script_directory="$(cd "$(dirname "$0")" && pwd)"
+version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$package_directory/build.json")"
+python3 - "$package_directory" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+manifest = json.loads((root / 'build.json').read_text())
+assert not manifest['sourceDirty'] and manifest['profile'] == 'release', 'Expected committed release package'
+artifact = root / manifest['package']['file']
+assert artifact.parent == root, 'Invalid package filename'
+assert hashlib.sha256(artifact.read_bytes()).hexdigest() == manifest['package']['sha256'], 'Package checksum mismatch'
+PY
 if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; then
   # Build libraries must not hide missing runtime dependencies. Only this
   # evidence directory is writable from the fresh Ubuntu runtime container.
@@ -23,16 +33,6 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     ubuntu:24.04 bash /source/scripts/native-smoke/linux-runtime.sh
   exit
 fi
-version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$package_directory/build.json")"
-python3 - "$package_directory" <<'PY'
-import hashlib, json, pathlib, sys
-root = pathlib.Path(sys.argv[1])
-manifest = json.loads((root / 'build.json').read_text())
-assert not manifest['sourceDirty'] and manifest['profile'] == 'release', 'Expected committed release package'
-artifact = root / manifest['package']['file']
-assert artifact.parent == root, 'Invalid package filename'
-assert hashlib.sha256(artifact.read_bytes()).hexdigest() == manifest['package']['sha256'], 'Package checksum mismatch'
-PY
 
 if [[ "$(uname -s)" == Darwin ]]; then
   mount_point="$(mktemp -d "$RUNNER_TEMP/buddy-dmg-XXXXXX")"
