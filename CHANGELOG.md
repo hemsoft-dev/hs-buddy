@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1331] - 2026-10-14
+
+### Changed
+
+- Qualify native runtime dependencies without build tooling
+
 ## [0.1.1330] - 2026-10-14
 
 ### Fixed

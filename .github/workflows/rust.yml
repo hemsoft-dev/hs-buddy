@@ -61,13 +61,6 @@ jobs:
             libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
             libssl-dev libdbus-1-dev
 
-      - name: Install Linux desktop qualification tools
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get install -y --no-install-recommends \
-            xvfb xauth openbox xdotool imagemagick sway grim wtype \
-            mesa-vulkan-drivers tesseract-ocr desktop-file-utils ffmpeg
-
       - name: Install macOS desktop qualification tools
         if: runner.os == 'macOS'
         run: |

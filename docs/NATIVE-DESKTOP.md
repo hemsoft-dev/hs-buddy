@@ -111,8 +111,12 @@ package for local development. It cannot qualify as a committed release.
 
 The Rust workflow preserves formatting, warnings-denied Clippy, workspace
 tests, and the dependency audit. It builds and installs an NSIS package, Intel
-and ARM DMGs, and a DEB. Linux runs independent Xvfb/Openbox and headless Sway
-sessions. The Wayland child has no `DISPLAY`, so XWayland cannot pass for it.
+and ARM DMGs, and a DEB. Linux installs the DEB into a fresh Ubuntu 24.04
+container and checks ELF runtime libraries before installing any test tools.
+Build dependencies cannot satisfy that check. It then runs independent
+Xvfb/Openbox and headless Sway sessions without privileged device mounts or
+host display sockets. The Wayland child has no `DISPLAY`, so XWayland cannot
+pass for it. The artifact records the runtime image digest and package list.
 
 The desktop driver launches the installed executable from a directory outside
 the checkout with isolated settings, empty GitHub authentication, and dashboard

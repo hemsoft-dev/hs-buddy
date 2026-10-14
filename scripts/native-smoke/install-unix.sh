@@ -8,6 +8,21 @@ fi
 package_directory="$1"
 output="$2"
 script_directory="$(cd "$(dirname "$0")" && pwd)"
+if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; then
+  # Build libraries must not hide missing runtime dependencies. Only this
+  # evidence directory is writable from the fresh Ubuntu runtime container.
+  source_directory="$(cd "$script_directory/../.." && pwd)"
+  mkdir -p "$output"
+  docker pull ubuntu:24.04
+  docker image inspect ubuntu:24.04 --format '{{json .RepoDigests}}' >"$output/runtime-image.json"
+  docker run --rm \
+    --mount "type=bind,source=$source_directory,target=/source,readonly" \
+    --mount "type=bind,source=$package_directory,target=/package,readonly" \
+    --mount "type=bind,source=$output,target=/evidence" \
+    --env GITHUB_ACTIONS=true \
+    ubuntu:24.04 bash /source/scripts/native-smoke/linux-runtime.sh
+  exit
+fi
 version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$package_directory/build.json")"
 python3 - "$package_directory" <<'PY'
 import hashlib, json, pathlib, sys
@@ -40,7 +55,8 @@ if [[ "$(uname -s)" == Darwin ]]; then
   codesign --verify --deep --strict "$app"
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
 else
-  sudo apt-get install -y "$package_directory/"*.deb
+  # linux-runtime.sh installed this package before installing test tools.
+  [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]
   test "$(dpkg-query -W -f='${Version}' buddy-native)" = "$version"
   test -s /usr/share/applications/buddy-native.desktop
   desktop-file-validate /usr/share/applications/buddy-native.desktop

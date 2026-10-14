@@ -7,7 +7,11 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { URL } from 'node:url'
 import { inspectPackage, packageConfiguration, sourceSnapshot } from './package-native.mjs'
-import { verifyBinaryArchitecture, verifyStandaloneWindows } from './native-binary.mjs'
+import {
+  verifyBinaryArchitecture,
+  verifyStandaloneMac,
+  verifyStandaloneWindows,
+} from './native-binary.mjs'
 
 const metadata = JSON.parse(
   readFileSync(new URL('../rust/desktop-package.json', import.meta.url), 'utf8')
@@ -107,6 +111,22 @@ test('a staged raw binary cannot qualify as a produced installer', t => {
   assert.equal(artifact.size, 128)
   writeFileSync(join(root, 'stale-setup.exe'), pe(0x14c))
   assert.throws(() => inspectPackage(root, 'nsis'), /exactly one/)
+})
+
+test('Mac runtime guard rejects unbundled Homebrew and rpath libraries', () => {
+  const system =
+    'buddy:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)'
+  assert.deepEqual(verifyStandaloneMac(system), ['/usr/lib/libSystem.B.dylib'])
+  for (const library of ['/opt/homebrew/lib/libextra.dylib', '@rpath/libextra.dylib']) {
+    assert.throws(
+      () =>
+        verifyStandaloneMac(
+          `${system}\n\t${library} (compatibility version 1.0.0, current version 1.0.0)`
+        ),
+      /unbundled runtime libraries/
+    )
+  }
+  assert.throws(() => verifyStandaloneMac('buddy:\n unexpected output'), /Could not inspect/)
 })
 
 test('package configuration rejects malformed policy values and missing runtime dependencies', t => {

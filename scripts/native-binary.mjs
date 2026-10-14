@@ -121,3 +121,16 @@ export function verifyStandaloneWindows(bytes) {
     )
   return imports
 }
+
+export function verifyStandaloneMac(output) {
+  const lines = output.trim().split(/\r?\n/).slice(1)
+  if (!lines.length || lines.some(line => !line.includes(' (compatibility version ')))
+    throw new Error('Could not inspect macOS runtime libraries.')
+  const libraries = lines.map(line => line.trim().split(' (compatibility version ')[0])
+  const external = libraries.filter(
+    path => !path.startsWith('/System/Library/') && !path.startsWith('/usr/lib/')
+  )
+  if (external.length)
+    throw new Error(`Native Mac package has unbundled runtime libraries: ${external.join(', ')}.`)
+  return libraries
+}

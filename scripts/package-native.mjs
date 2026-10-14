@@ -14,7 +14,11 @@ import {
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { verifyBinaryArchitecture, verifyStandaloneWindows } from './native-binary.mjs'
+import {
+  verifyBinaryArchitecture,
+  verifyStandaloneMac,
+  verifyStandaloneWindows,
+} from './native-binary.mjs'
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const targets = {
@@ -210,7 +214,11 @@ export function packageNative(root = repository, development = false) {
   const executable = executables[0]
   verifyBinaryArchitecture(readFileSync(executable), target)
   const runtimeLibraries =
-    options.platform === 'win32' ? verifyStandaloneWindows(readFileSync(executable)) : []
+    options.platform === 'win32'
+      ? verifyStandaloneWindows(readFileSync(executable))
+      : options.platform === 'darwin'
+        ? verifyStandaloneMac(run('otool', ['-L', executable]))
+        : []
   const observedVersion = run(executable, ['--version'], { timeout: 10_000 }).trim()
   if (observedVersion !== `${metadata.productName} ${version}`)
     throw new Error(`Native version mismatch: ${observedVersion}.`)
