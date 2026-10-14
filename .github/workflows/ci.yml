@@ -59,8 +59,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -72,6 +71,11 @@ jobs:
 
       - name: Lint (ESLint)
         run: bun run lint
+
+      - name: Check pinned native build tooling
+        run: |
+          bun run native:toolchain
+          bun run test:native-toolchain
 
       - name: Check for unused code and dependencies
         run: bun run knip
@@ -116,8 +120,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Check React Doctor
@@ -151,8 +154,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -185,8 +187,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -194,6 +195,12 @@ jobs:
 
       - name: Run completion audio tests
         run: bun run test:completion-audio
+
+      - name: Qualify native tooling on the production Node floor
+        run: |
+          node --version
+          bun run native:toolchain
+          bun run test:native-toolchain
 
       - name: Restore pinned Node.js for renderer coverage
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -277,8 +284,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -325,8 +331,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -355,8 +360,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -385,8 +389,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -415,8 +418,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -469,8 +471,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install virtual display server
         run: sudo apt-get update && sudo apt-get install --yes xvfb
@@ -523,8 +524,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Cache Electron builder downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
@@ -574,8 +574,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -646,8 +645,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install Linux display server
         if: runner.os == 'Linux'
@@ -656,6 +654,9 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: bun install --frozen-lockfile
+
+      - name: Qualify installed native build tooling
+        run: bun run native:toolchain
 
       - name: Build application
         run: bunx vite build
@@ -745,8 +746,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -869,8 +869,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Collect original-source function coverage
@@ -905,8 +904,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Download function coverage
