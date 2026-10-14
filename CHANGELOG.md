@@ -9,11 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1322] - 2026-10-14
+## [0.1.1328] - 2026-10-14
 
 ### Added
 
 - Add standalone macOS development launcher
+
+## [0.1.1327] - 2026-10-14
+
+### Fixed
+
+- Finalize native PTY installation after dependency linking (#824)
+
+## [0.1.1326] - 2026-10-14
+
+### Fixed
+
+- Isolate native dependency caches across CI jobs (#824)
+
+## [0.1.1325] - 2026-10-14
+
+### Fixed
+
+- Isolate floor-host cache and qualify complete native tooling (#824)
+
+## [0.1.1324] - 2026-10-14
+
+### Fixed
+
+- Update native TLS dependency for RustSec advisories (#827)
+
+## [0.1.1323] - 2026-10-14
+
+### Fixed
+
+- Invoke locked node-gyp directly during native install (#824)
+
+## [0.1.1322] - 2026-10-14
+
+### Fixed
+
+- Pin native build tooling for supported Node hosts (#824)
 
 ## [0.1.1321] - 2026-10-12
 

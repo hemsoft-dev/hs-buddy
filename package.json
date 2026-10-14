@@ -1,7 +1,7 @@
 {
   "name": "@hemsoft/buddy",
   "private": true,
-  "version": "0.1.1322",
+  "version": "0.1.1328",
   "description": "Your universal productivity companion - manage skills, tasks, and workflows",
   "type": "module",
   "main": "dist-electron/main.js",
@@ -65,10 +65,13 @@
     "test:e2e:install": "npx playwright install chrome",
     "test:ipc-contracts": "vitest run src/ipc/contracts.test.ts src/ipc/contracts.registration.test.ts",
     "prepare": "husky",
+    "postinstall": "node scripts/install-native-pty.mjs",
     "crap:coverage": "bun scripts/crap-coverage.ts",
     "crap": "bun scripts/crap-report.ts",
     "crap:check": "bun run crap:coverage && bun run crap",
-    "crap:ratchet": "bun scripts/crap-report.ts --update-baseline"
+    "crap:ratchet": "bun scripts/crap-report.ts --update-baseline",
+    "native:toolchain": "node scripts/check-native-toolchain.mjs",
+    "test:native-toolchain": "node --test scripts/check-native-toolchain.test.mjs scripts/node-pty-rebuild.test.mjs"
   },
   "keywords": [
     "electron",
@@ -169,7 +172,8 @@
     "vite-plugin-electron": "^1.1.0",
     "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "5.0.3",
-    "vitest-axe": "^0.1.0"
+    "vitest-axe": "^0.1.0",
+    "node-gyp": "12.4.0"
   },
   "optionalDependencies": {
     "@github/copilot-darwin-arm64": "^1.0.95",
@@ -210,7 +214,8 @@
   },
   "patchedDependencies": {
     "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch",
-    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch"
+    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",
+    "node-pty@1.1.0": "patches/node-pty@1.1.0.patch"
   },
   "engines": {
     "node": ">=22.12.0"
