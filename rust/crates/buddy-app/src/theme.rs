@@ -80,7 +80,7 @@ impl BuddyPalette {
             accent_error: hex("#d13438"),
             accent_purple: hex("#5c2d91"),
             accent_blue: hex("#0066cc"),
-            gold: hex("#ffd700"),
+            gold: hex("#9a6700"),
             orange: hex("#ff9500"),
             gold_soft: hex("#ffb347"),
         }
@@ -229,4 +229,27 @@ fn apply_user_overrides(config: &AppConfig, palette: &mut BuddyPalette, cx: &mut
             theme.mono_font_family = family;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn light_palette_gold_meets_small_text_contrast() {
+        // The 13px dashboard subtitle uses this color on the light preset's
+        // white background. WCAG relative luminance, not HSL lightness.
+        let color = BuddyPalette::light().gold.to_rgb();
+        let linear = |channel: f32| {
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let luminance =
+            0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b);
+        let contrast = 1.05 / (luminance + 0.05);
+        assert!(contrast >= 4.5, "light subtitle contrast is {contrast}:1");
+    }
 }

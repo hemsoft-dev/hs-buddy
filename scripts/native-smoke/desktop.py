@@ -86,8 +86,18 @@ def encode_recording(directory):
 def fixture(directory, theme):
     directory.mkdir(parents=True)
     config = directory / "config.json"
+    # SettingsAppearance persists the six preset colors when changing theme.
+    # A theme name alone leaves UiConfig's dark defaults as explicit overrides.
+    # Match src/components/settings/appearanceUtils.ts rather than manufacturing
+    # a mixed light-titlebar/dark-content profile that the settings UI never emits.
+    appearance = {
+        "dark": dict(accentColor="#0e639c", fontColor="#cccccc", bgPrimary="#1e1e1e",
+                     bgSecondary="#252526", statusBarBg="#181818", statusBarFg="#9d9d9d"),
+        "light": dict(accentColor="#0078d4", fontColor="#1f1f1f", bgPrimary="#ffffff",
+                      bgSecondary="#f3f3f3", statusBarBg="#f3f3f3", statusBarFg="#616161"),
+    }[theme]
     config.write_text(json.dumps({
-        "ui": {"theme": theme, "dashboardCards": {
+        "ui": {"theme": theme, **appearance, "dashboardCards": {
             "weather": False, "workspace-pulse": False,
             "command-center": False, "finance": False,
         }},
@@ -180,7 +190,9 @@ class UnixWindow:
         if self.session == "macos":
             # Capture the owned app window only. No full-monitor recording.
             window = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", self.process.pid))
-            run("screencapture", "-x", "-l", window["kCGWindowNumber"], path)
+            # Exclude the OS shadow so PNG pixels / window points measures the
+            # backing scale, rather than accidentally counting shadow margins.
+            run("screencapture", "-x", "-o", "-l", window["kCGWindowNumber"], path)
             pixels = struct.unpack(">II", path.read_bytes()[16:24])
             window["capturePixelSize"] = pixels
             window["capturePixelsPerWindowPoint"] = pixels[0] / window["kCGWindowBounds"]["Width"]

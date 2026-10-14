@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1334] - 2026-10-14
+
+### Fixed
+
+- Qualify readable light theme desktop rendering
+
 ## [0.1.1333] - 2026-10-14
 
 ### Fixed
