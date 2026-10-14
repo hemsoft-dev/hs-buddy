@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1333] - 2026-10-14
+
+### Fixed
+
+- Show the platform quit shortcut in native menus
+
 ## [0.1.1332] - 2026-10-14
 
 ### Fixed

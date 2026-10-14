@@ -268,8 +268,7 @@ fn main() {
             zoom::init(cx);
 
             cx.bind_keys([
-                KeyBinding::new("ctrl-q", Quit, None),
-                KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("secondary-q", Quit, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
