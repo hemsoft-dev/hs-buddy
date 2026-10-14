@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1325] - 2026-10-14
+
+### Fixed
+
+- Isolate floor-host cache and qualify complete native tooling (#824)
+
 ## [0.1.1324] - 2026-10-14
 
 ### Fixed

@@ -19,8 +19,10 @@ function fixture(t, pin, version = '12.4.0', install = 'module.exports = {}') {
   )
   const tool = join(root, 'node_modules', 'node-gyp')
   mkdirSync(join(tool, 'lib'), { recursive: true })
+  mkdirSync(join(tool, 'bin'))
   writeFileSync(join(tool, 'package.json'), JSON.stringify({ version }))
   writeFileSync(join(tool, 'lib', 'install.js'), install)
+  writeFileSync(join(tool, 'bin', 'node-gyp.js'), `console.log('v${version}')`)
   return root
 }
 
@@ -59,4 +61,28 @@ test('qualifies a matching installed tool and its loadable download stack', t =>
   assert.equal(result.status, 0)
   assert.match(result.stdout, /Native build tooling: node-gyp 12\.4\.0, Node/)
   assert.equal(result.stderr, '')
+})
+
+test('missing secondary CLI tooling cannot qualify a matching metadata version', t => {
+  const root = fixture(t, '12.4.0')
+  writeFileSync(
+    join(root, 'node_modules', 'node-gyp', 'bin', 'node-gyp.js'),
+    "require('buddy-missing-native-cli-dependency')"
+  )
+  const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Cannot find module 'buddy-missing-native-cli-dependency'/)
+  assert.equal(result.stdout, '')
+})
+
+test('rejects an executable that disagrees with its installed package metadata', t => {
+  const root = fixture(t, '12.4.0')
+  writeFileSync(
+    join(root, 'node_modules', 'node-gyp', 'bin', 'node-gyp.js'),
+    "console.log('v13.1.0')"
+  )
+  const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /executable drift: expected v12\.4\.0, found v13\.1\.0/)
+  assert.equal(result.stdout, '')
 })

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import console from 'node:console'
 import process from 'node:process'
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +25,14 @@ export function checkNativeToolchain(root = process.cwd()) {
   // Load the same download stack used by rebuild, on the actual Node host.
   // --version alone does not exercise its Node API requirements.
   require('node-gyp/lib/install.js')
+  const versionOutput = execFileSync(
+    process.execPath,
+    [require.resolve('node-gyp/bin/node-gyp.js'), '--version'],
+    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+  ).trim()
+  if (versionOutput !== `v${pin}`) {
+    throw new Error(`node-gyp executable drift: expected v${pin}, found ${versionOutput}.`)
+  }
   return installed.version
 }
 
