@@ -219,11 +219,13 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
         WindowBounds::Maximized(_) => WindowBounds::Maximized(gpui_bounds),
         WindowBounds::Fullscreen(_) => WindowBounds::Fullscreen(gpui_bounds),
     };
+    let restore_native_bounds = cfg!(windows)
+        || (cfg!(target_os = "linux") && matches!(window_bounds, WindowBounds::Windowed(_)));
     InitialPlacement {
         bounds: window_bounds,
         enter_full_screen,
         display_id,
-        restore_outer: cfg!(windows).then_some(bounds),
+        restore_outer: restore_native_bounds.then_some(bounds),
         restore_physical: platform_placement::physical_bounds_for_state(&state, bounds, cx),
     }
 }

@@ -117,6 +117,8 @@ Build dependencies cannot satisfy that check. It then runs independent
 Xvfb/Openbox and headless Sway sessions without privileged device mounts or
 host display sockets. The Wayland child has no `DISPLAY`, so XWayland cannot
 pass for it. The artifact records the runtime image digest and package list.
+Wayland placement belongs to the compositor; its restart check requires saved
+size. Windows, macOS, and X11 also check the restored position.
 
 The desktop driver launches the installed executable from a directory outside
 the checkout with isolated settings, empty GitHub authentication, and dashboard

@@ -284,7 +284,9 @@ def main():
         drive(executable, restored, config, restored=True)
         inspect_screenshot(restored / "dashboard.png", args.version)
         after = json.loads((directory / "window-state.json").read_text(encoding="utf-8-sig"))
-        for key in ("x", "y", "width", "height"):
+        # Wayland's compositor chooses global placement; the app restores size.
+        geometry_keys = ("width", "height") if args.session == "wayland" else ("x", "y", "width", "height")
+        for key in geometry_keys:
             if abs(saved[key] - after[key]) > 2:
                 raise RuntimeError(f"Saved geometry changed after restart: {key}")
         # A deliberately disconnected monitor must recover to a visible window.

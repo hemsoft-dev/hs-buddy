@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1332] - 2026-10-14
+
+### Fixed
+
+- Preserve X11 placement when restoring native windows
+
 ## [0.1.1331] - 2026-10-14
 
 ### Changed
