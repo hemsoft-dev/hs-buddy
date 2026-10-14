@@ -10,6 +10,27 @@ use std::path::Path;
 
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+    let desktop_manifest = Path::new(&manifest_dir).join("../../desktop-package.json");
+    println!("cargo:rerun-if-changed={}", desktop_manifest.display());
+    let desktop: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&desktop_manifest).expect("read desktop-package.json"),
+    )
+    .expect("parse desktop-package.json");
+    let product_name = desktop["productName"]
+        .as_str()
+        .expect("desktop productName");
+    let binary_name = desktop["binaryName"].as_str().expect("desktop binaryName");
+    let identifier = desktop["identifier"].as_str().expect("desktop identifier");
+    // Wayland resolves the app icon against <app_id>.desktop. cargo-packager
+    // names that entry after the binary; other platforms use the bundle ID.
+    let app_id = if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        binary_name
+    } else {
+        identifier
+    };
+    println!("cargo:rustc-env=BUDDY_PRODUCT_NAME={product_name}");
+    println!("cargo:rustc-env=BUDDY_BINARY_NAME={binary_name}");
+    println!("cargo:rustc-env=BUDDY_APP_ID={app_id}");
     embed_windows_icon(Path::new(&manifest_dir));
     let package_json = Path::new(&manifest_dir).join("../../../package.json");
     println!("cargo:rerun-if-changed={}", package_json.display());

@@ -4,6 +4,7 @@
 
 mod app;
 mod assets;
+mod command_line;
 mod dashboard;
 mod logging;
 mod platform_placement;
@@ -145,7 +146,7 @@ fn native_window_options(placement: &InitialPlacement) -> WindowOptions {
         display_id: placement.display_id,
         window_min_size: Some(size(px(800.0), px(600.0))),
         window_decorations: Some(WindowDecorations::Client),
-        app_id: Some("com.hemsoft.buddy".into()),
+        app_id: Some(env!("BUDDY_APP_ID").into()),
         titlebar: Some(TitlebarOptions {
             title: Some("Buddy".into()),
             ..TitleBar::title_bar_options()
@@ -228,6 +229,21 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
 }
 
 fn main() {
+    match command_line::parse(std::env::args_os().skip(1)) {
+        Ok(command_line::Command::Open) => {}
+        Ok(command_line::Command::Help) => {
+            command_line::print_help();
+            return;
+        }
+        Ok(command_line::Command::Version) => {
+            println!("{} {}", env!("BUDDY_PRODUCT_NAME"), env!("BUDDY_VERSION"));
+            return;
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    }
     logging::init();
 
     let config = match AppConfig::load() {

@@ -4,16 +4,22 @@ on:
   push:
     branches: [main]
     paths:
-      - "rust/**"
-      - ".github/workflows/rust.yml"
+      - 'rust/**'
+      - '.github/workflows/rust.yml'
       # build.rs embeds the version from package.json; a release bump must
       # produce native binaries too.
-      - "package.json"
+      - 'package.json'
+      - 'scripts/package-native*'
+      - 'scripts/native-binary.mjs'
+      - 'scripts/native-smoke/**'
   pull_request:
     paths:
-      - "rust/**"
-      - ".github/workflows/rust.yml"
-      - "package.json"
+      - 'rust/**'
+      - '.github/workflows/rust.yml'
+      - 'package.json'
+      - 'scripts/package-native*'
+      - 'scripts/native-binary.mjs'
+      - 'scripts/native-smoke/**'
 
 permissions:
   contents: read
@@ -30,16 +36,20 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
+        os: [ubuntu-24.04, windows-2025, macos-15-intel, macos-15]
     env:
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: 4
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -50,6 +60,31 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
             libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
             libssl-dev libdbus-1-dev
+
+      - name: Install Linux desktop qualification tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xauth openbox xdotool imagemagick sway grim wtype \
+            mesa-vulkan-drivers tesseract-ocr desktop-file-utils
+
+      - name: Install macOS desktop qualification tools
+        if: runner.os == 'macOS'
+        run: |
+          brew install tesseract
+          swiftc ../scripts/native-smoke/macos-window.swift -o "$RUNNER_TEMP/buddy-window-info"
+
+      - name: Install Windows OCR
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install tesseract --yes --no-progress
+          'C:\Program Files\Tesseract-OCR' | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup package driver Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.12.0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable, 2026-10-07
@@ -70,6 +105,12 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Package and visual failure guards
+        working-directory: .
+        run: |
+          node --test scripts/package-native.test.mjs
+          python -m unittest discover -s scripts/native-smoke -p test_desktop.py
+
       # Advisory, license and source gate for the Rust dependency graph
       # (policy in rust/deny.toml). Once per run is enough.
       - name: Dependency audit (cargo-deny)
@@ -80,19 +121,43 @@ jobs:
           command: check
           rust-version: stable
 
-      - name: Build (release)
-        run: cargo build --release -p buddy-app
+      - name: Install pinned native packager
+        shell: bash
+        run: |
+          version="$(node -p "require('./desktop-package.json').packagerVersion")"
+          cargo install cargo-packager --version "=$version" --locked
 
-      # upload-artifact drops file modes; a tar archive keeps the executable bit.
-      - name: Package binary (Unix)
+      - name: Build native release package
+        id: package
+        working-directory: .
+        run: node scripts/package-native.mjs
+
+      - name: Install and qualify Windows package
+        if: runner.os == 'Windows'
+        working-directory: .
+        shell: pwsh
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
+        run: |
+          & scripts/native-smoke/install-windows.ps1 -PackageDirectory $env:PACKAGE_DIRECTORY -Output "$env:RUNNER_TEMP/native-evidence"
+
+      - name: Install and qualify Unix package
         if: runner.os != 'Windows'
-        # Runs in `rust/`; the archive goes to the workspace root for upload.
-        run: tar -czf "$GITHUB_WORKSPACE/buddy-${{ matrix.os }}.tar.gz" -C target/release buddy
-      - name: Upload binary
+        working-directory: .
+        shell: bash
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
+        run: bash scripts/native-smoke/install-unix.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence"
+
+      - name: Upload native packages and qualification evidence
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: buddy-${{ matrix.os }}
+          name: buddy-native-${{ matrix.os }}
           path: |
-            buddy-${{ matrix.os }}.tar.gz
-            rust/target/release/buddy.exe
-          if-no-files-found: ignore
+            release/native/**/build.json
+            release/native/**/*.exe
+            release/native/**/*.deb
+            release/native/**/*.dmg
+            ${{ runner.temp }}/native-evidence/**
+          if-no-files-found: error

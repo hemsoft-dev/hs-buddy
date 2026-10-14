@@ -45,6 +45,9 @@
 
 ### Supported desktop packages
 
+This table describes the Electron application. For the Rust/GPUI dashboard
+build, see [Buddy Native packages and qualification](docs/NATIVE-DESKTOP.md).
+
 | Operating system | Architecture        | Package        | CI qualification                                                              |
 | ---------------- | ------------------- | -------------- | ----------------------------------------------------------------------------- |
 | Windows 11       | x64                 | NSIS installer | Targets Windows 11; builds and starts on Windows Server 2025 (`windows-2025`) |
