@@ -73,6 +73,11 @@ jobs:
       - name: Lint (ESLint)
         run: bun run lint
 
+      - name: Check pinned native build tooling
+        run: |
+          bun run native:toolchain
+          bun run test:native-toolchain
+
       - name: Check for unused code and dependencies
         run: bun run knip
 
@@ -194,6 +199,12 @@ jobs:
 
       - name: Run completion audio tests
         run: bun run test:completion-audio
+
+      - name: Qualify native tooling on the production Node floor
+        run: |
+          node --version
+          bun run native:toolchain
+          bun run test:native-toolchain
 
       - name: Restore pinned Node.js for renderer coverage
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -656,6 +667,9 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: bun install --frozen-lockfile
+
+      - name: Qualify installed native build tooling
+        run: bun run native:toolchain
 
       - name: Build application
         run: bunx vite build
