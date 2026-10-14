@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1326] - 2026-10-14
+
+### Fixed
+
+- Isolate native dependency caches across CI jobs (#824)
+
 ## [0.1.1325] - 2026-10-14
 
 ### Fixed
