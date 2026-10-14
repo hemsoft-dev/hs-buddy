@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1327] - 2026-10-14
+
+### Fixed
+
+- Finalize native PTY installation after dependency linking (#824)
+
 ## [0.1.1326] - 2026-10-14
 
 ### Fixed

@@ -1,25 +1,20 @@
 diff --git a/package.json b/package.json
-index 94a2c14381727674b8964c1b50e5e47a9205ffbc..c894b252679ab4f193913275dce0773da0eda7ec 100644
+index 94a2c14381727674b8964c1b50e5e47a9205ffbc..899aada7a3578cd06c58ace09a23bc0634f050a0 100644
 --- a/package.json
 +++ b/package.json
-@@ -38,7 +38,7 @@
+@@ -38,13 +38,12 @@
      "build": "tsc -b ./src/tsconfig.json",
      "watch": "tsc -b -w ./src/tsconfig.json",
      "lint": "eslint -c .eslintrc.js --ext .ts src/",
 -    "install": "node scripts/prebuild.js || node-gyp rebuild",
-+    "install": "node scripts/prebuild.js || node scripts/rebuild.js",
-     "postinstall": "node scripts/post-install.js",
+-    "postinstall": "node scripts/post-install.js",
      "compileCommands": "node scripts/gen-compile-commands.js",
      "test": "cross-env NODE_ENV=test mocha -R spec --exit lib/*.test.js",
-diff --git a/node_modules/node-pty/scripts/rebuild.js b/scripts/rebuild.js
-new file mode 100644
-index 0000000000000000000000000000000000000000..624399d31884e505ae401d4677e54c4d371048f9
---- /dev/null
-+++ b/scripts/rebuild.js
-@@ -0,0 +1,6 @@
-+// Invoke the installed tool directly: Bun's node-gyp shim can fetch @latest.
-+const { spawnSync } = require('node:child_process');
-+const executable = require.resolve('node-gyp/bin/node-gyp.js');
-+const result = spawnSync(process.execPath, [executable, 'rebuild'], { stdio: 'inherit' });
-+if (result.error) throw result.error;
-+process.exit(result.status ?? 1);
+     "posttest": "npm run lint",
+     "prepare": "npm run build",
+-    "prepublishOnly": "npm run build"
++    "prepublishOnly": "npm run build",
++    "install": "node -e \"void 0\""
+   },
+   "dependencies": {
+     "node-addon-api": "^7.1.0"
