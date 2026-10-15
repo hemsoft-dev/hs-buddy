@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1356] - 2026-10-15
+
+### Fixed
+
+- Scope settings feedback and respect desktop fixture limits (#813)
+
 ## [0.1.1355] - 2026-10-15
 
 ### Changed

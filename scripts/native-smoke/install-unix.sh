@@ -52,7 +52,13 @@ if [[ "$(uname -s)" == Darwin ]]; then
   mount_point="$(mktemp -d "$RUNNER_TEMP/buddy-dmg-XXXXXX")"
   applications="$(mktemp -d "$RUNNER_TEMP/buddy-apps-XXXXXX")"
   mounted=false
-  cleanup() { if $mounted; then hdiutil detach "$mount_point"; fi; }
+  display_pid=''
+  cleanup() {
+    local failed=0
+    if $mounted; then hdiutil detach "$mount_point" || failed=$?; fi
+    if [[ -n "$display_pid" ]]; then kill "$display_pid" 2>/dev/null || true; wait "$display_pid" || true; fi
+    return "$failed"
+  }
   trap cleanup EXIT
   hdiutil attach "$package_directory/"*.dmg -nobrowse -readonly -mountpoint "$mount_point"
   mounted=true
@@ -68,6 +74,16 @@ if [[ "$(uname -s)" == Darwin ]]; then
   cmp "$script_directory/../../LICENSE" "$app/Contents/Resources/LICENSE"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
   codesign --verify --deep --strict "$app"
+  mkdir -p "$output"
+  export BUDDY_SETTINGS_DISPLAY_RECEIPT="$output/macos-display-fixture.json"
+  BUDDY_SETTINGS_FIXTURE=1 "$RUNNER_TEMP/buddy-window-info" --settings-display "$BUDDY_SETTINGS_DISPLAY_RECEIPT" &
+  display_pid=$!
+  for attempt in {1..100}; do
+    if [[ -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT" ]]; then break; fi
+    kill -0 "$display_pid"
+    sleep 0.1
+  done
+  test -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT"
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
 else

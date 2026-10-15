@@ -32,18 +32,45 @@ def b64(value):
     return base64.b64encode(str(value).encode()).decode()
 
 
+def planned_large_size(width, height):
+    size = (min(1200, int(width)), min(820, int(height)))
+    if size[0] < 900 or size[1] < 650:
+        raise RuntimeError("The desktop cannot fit the supported minimum window")
+    return size
+
+
+def windows_large_size():
+    import ctypes as c
+    user = c.windll.user32
+    user.SetThreadDpiAwarenessContext.argtypes = [c.c_void_p]
+    user.SetThreadDpiAwarenessContext.restype = c.c_void_p
+    previous = user.SetThreadDpiAwarenessContext(c.c_void_p(-4))
+    if not previous:
+        raise RuntimeError("Could not measure the Windows tracking limits at physical DPI")
+    try:
+        return planned_large_size(user.GetSystemMetrics(59), user.GetSystemMetrics(60))
+    finally:
+        user.SetThreadDpiAwarenessContext(previous)
+
+
 class Driver:
     def __init__(self, executable, profile, session, backend, checkout):
         self.executable, self.profile, self.session = executable, profile, session
         self.backend, self.checkout = backend, checkout
         self.config = profile / "config.json"
+        self.large_size = (1200, 820)
+        if session == "windows":
+            self.large_size = windows_large_size()
+        if session == "macos":
+            display = json.loads(Path(os.environ["BUDDY_SETTINGS_DISPLAY_RECEIPT"]).read_text())
+            self.large_size = planned_large_size(display["largeWindow"]["width"], display["largeWindow"]["height"])
         self.electron = run("bun", "-e", "console.log(require('electron'))", cwd=checkout).splitlines()[-1]
 
     def drive(self, name, actions, concurrent=False, record=False):
         directory = self.profile / name
         directory.mkdir()
         if self.session == "windows":
-            commands = ["resize:80:40:1200:820"]
+            commands = [f"resize:80:40:{self.large_size[0]}:{self.large_size[1]}"]
             if record:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
@@ -53,11 +80,14 @@ class Driver:
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
                 elif kind == "resize":
-                    commands.append(f"resize:80:40:{values[0]}:{values[1]}")
+                    size = self.large_size if values == [1200, 820] else values
+                    commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind == "sleep":
                     commands.append("sleep:" + str(int(values[0] * 1000)))
+                elif kind == "wheel":
+                    commands.append("wheel:" + str(values[0]))
                 else:
                     raise RuntimeError("Unknown settings action")
             if record:
@@ -75,6 +105,8 @@ class Driver:
         return directory
 
     def unix(self, directory, actions, concurrent, record):
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            raise RuntimeError("Unix settings input requires a disposable CI desktop")
         environment = dict(os.environ, BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
             GH_CONFIG_DIR=str(self.profile / "empty-gh"))
         for key in ("GH_TOKEN", "GITHUB_TOKEN", "ELECTRON_RUN_AS_NODE"):
@@ -99,7 +131,7 @@ class Driver:
                 else:
                     raise RuntimeError("Installed settings window did not appear")
                 time.sleep(4)
-                window.resize(1200, 820)
+                window.resize(*self.large_size)
                 if concurrent:
                     companion = subprocess.Popen([self.electron, str(self.profile)], cwd=self.profile,
                         env=environment, stdout=log, stderr=log)
@@ -113,11 +145,13 @@ class Driver:
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
-                            window.resize(*values)
+                            window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
                         elif kind == "sleep":
                             time.sleep(values[0])
+                        elif kind == "wheel":
+                            self.scroll(window, values[0])
                         else:
                             self.interact(window, directory, kind, values)
                 window.key("q")
@@ -130,6 +164,37 @@ class Driver:
                     if child is not None and child.poll() is None:
                         child.kill()
                         child.wait(timeout=10)
+
+    def scroll(self, window, delta):
+        if self.session == "x11":
+            run("xdotool", "mousemove", "--window", window.window, 600, 400)
+            run("xdotool", "click", "--repeat", max(1, abs(delta) // 120), "--delay", 50, 5 if delta < 0 else 4)
+        else:
+            # Post only to this owned process on the disposable Mac runner.
+            # https://developer.apple.com/documentation/coregraphics/cgevent/posttopid(_:)?language=objc
+            import ctypes as c
+            class Point(c.Structure):
+                _fields_ = [("x", c.c_double), ("y", c.c_double)]
+            graphics = c.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+            core = c.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+            graphics.CGEventCreateScrollWheelEvent.argtypes = [c.c_void_p, c.c_uint32, c.c_uint32, c.c_int32]
+            graphics.CGEventCreateScrollWheelEvent.restype = c.c_void_p
+            graphics.CGEventSetLocation.argtypes = [c.c_void_p, Point]
+            graphics.CGEventPostToPid.argtypes = [c.c_int32, c.c_void_p]
+            core.CFRelease.argtypes = [c.c_void_p]
+            metadata = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", window.process.pid))
+            bounds = metadata["kCGWindowBounds"]
+            for _ in range(max(1, abs(delta) // 240)):
+                event = graphics.CGEventCreateScrollWheelEvent(None, 1, 1, -10 if delta < 0 else 10)
+                if not event:
+                    raise RuntimeError("Could not create the owned scrolling event")
+                try:
+                    graphics.CGEventSetLocation(event, Point(bounds["X"] + bounds["Width"] / 2, bounds["Y"] + bounds["Height"] / 2))
+                    graphics.CGEventPostToPid(window.process.pid, event)
+                finally:
+                    core.CFRelease(event)
+                time.sleep(0.05)
+        time.sleep(0.7)
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
@@ -176,6 +241,12 @@ def verify_text(path, *markers):
             raise RuntimeError(f"Settings screenshot is missing {marker!r}")
 
 
+def verify_feedback_scope(path):
+    text = " ".join(run("tesseract", path, "stdout", "--psm", 11).casefold().split())
+    if "choose an absolute" in text:
+        raise RuntimeError("Notifications validation feedback leaked into another panel")
+
+
 def qualify(executable, output, session, checkout, backend):
     config = fixture(output, "dark")
     initial = json.loads(config.read_text())
@@ -214,7 +285,7 @@ def qualify(executable, output, session, checkout, backend):
     if saved["packageQualificationSentinel"] != {"preserve": True}:
         raise RuntimeError("Unknown shared config fields were lost")
     verify_text(appearance / "invalid-color-light.png", "six-digit hex color")
-    driver.drive("preferences", [("nav", "Pull requests"), ("click", "5"),
+    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"),
         ("click", "Automatic refresh: on"), ("capture", "pr-light"), ("nav", "Copilot"),
         ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"),
         ("field", "Model ID", "fixture-model"), ("save", "Model ID"), ("capture", "copilot-light"),
@@ -222,8 +293,11 @@ def qualify(executable, output, session, checkout, backend):
         ("field", "Notification audio file", "relative.wav"), ("save", "Notification audio file"),
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
         ("nav", "Advanced"), ("capture", "advanced-light")])
+    verify_text(preferences / "invalid-audio-light.png", "absolute")
+    for name in ("weather-status-light", "advanced-light"):
+        verify_feedback_scope(preferences / (name + ".png"))
     snapshot = backend.query("settings:get")
-    if snapshot["pr"]["refreshInterval"] != 5 or snapshot["pr"]["autoRefresh"] is not False or snapshot["copilot"]["model"] != "fixture-model":
+    if snapshot["pr"]["refreshInterval"] != 10 or snapshot["pr"]["autoRefresh"] is not False or snapshot["copilot"]["model"] != "fixture-model":
         raise RuntimeError("Synced settings did not reach Convex")
     restarted = driver.drive("restart", [("nav", "Appearance"), ("capture", "persisted-light"),
         ("resize", 900, 650), ("capture", "persisted-compact-light"), ("click", "Dark"),
@@ -231,9 +305,18 @@ def qualify(executable, output, session, checkout, backend):
         ("capture", "accounts-after-restart-dark")])
     verify_text(restarted / "persisted-light.png", "#8246af")
     verify_text(restarted / "accounts-after-restart-dark.png", "fixture-native-one", "fixture-native-two")
-    (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session,
+    font = "DejaVu Sans" if session == "x11" else "Arial"
+    mono = "DejaVu Sans Mono" if session == "x11" else "Courier New"
+    driver.drive("appearance-controls", [("nav", "Appearance"), ("wheel", -2400),
+        ("capture", "fonts-and-dashboard-dark"), ("field", "Interface font", font), ("save", "Interface font"),
+        ("field", "Monospace font", mono), ("save", "Monospace font"), ("wheel", -2400),
+        ("click", "Command Center: hidden"), ("capture", "applied-fonts-dashboard-dark")])
+    saved = json.loads(config.read_text(encoding="utf-8-sig"))
+    if saved["ui"]["fontFamily"] != font or saved["ui"]["monoFontFamily"] != mono or not saved["ui"]["dashboardCards"]["command-center"]:
+        raise RuntimeError("Font and dashboard visibility edits did not persist")
+    (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session, largeWindow=driver.large_size,
         binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "all seven panels",
-        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "light/dark", "keyboard Tab", "1200x820/900x650"]), indent=2))
+        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
 
 
 def main():

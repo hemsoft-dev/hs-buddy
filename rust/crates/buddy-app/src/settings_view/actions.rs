@@ -22,6 +22,7 @@ impl SettingsView {
         }
     }
     pub(super) fn choose_path(&mut self, field: String, directories: bool, cx: &mut Context<Self>) {
+        let origin = self.panel;
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: !directories,
             directories,
@@ -38,6 +39,7 @@ impl SettingsView {
         cx.spawn(async move |this, cx| {
             let result = rx.await;
             this.update(cx, |this, cx| {
+                let current_feedback = this.status.clone();
                 match result {
                     Ok(Ok(Some(paths))) => {
                         if let Some(path) = paths.into_iter().next() {
@@ -56,6 +58,9 @@ impl SettingsView {
                                 .into(),
                         )
                     }
+                }
+                if this.panel != origin {
+                    this.status = current_feedback;
                 }
                 cx.notify();
             })

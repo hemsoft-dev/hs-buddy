@@ -140,5 +140,10 @@ checks backend receipts, edits appearance and preferences, rejects invalid input
 and restarts the app. A headless Electron companion runs the real config module
 and `electron-store` during native saves. Its credential adapter rejects access.
 Window captures and recordings cover both themes and the two qualification sizes.
+The large fixture requests 1200 × 820 where the host supports it. Windows tracking
+limits and macOS usable display bounds are measured before choosing a smaller
+fixture; the receipt records the actual size. The Mac CI helper selects a larger
+supported display mode when available and restores it on process exit. Every
+resize must match its planned bounds; a clamped request fails qualification.
 The Ubuntu cold-runtime container remains a separate dependency-closure gate.
 Do not run the CI desktop entry point against a developer desktop or deployment.

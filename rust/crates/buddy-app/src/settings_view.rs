@@ -50,6 +50,7 @@ pub struct SettingsView {
     panel: Panel,
     fields: BTreeMap<String, Entity<InputState>>,
     status: Option<String>,
+    backend_warning: Option<String>,
     busy: bool,
     started: bool,
     must_reload: bool,
@@ -84,6 +85,7 @@ impl SettingsView {
             },
             fields: BTreeMap::new(),
             status: None,
+            backend_warning: None,
             busy: false,
             started: false,
             must_reload: false,
@@ -169,11 +171,16 @@ impl SettingsView {
         future: impl Future<Output = T> + Send + 'static,
         apply: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
     ) {
+        let origin = self.panel;
         let rx = Runtime::global(cx).spawn(future);
         cx.spawn(async move |this, cx| {
             if let Ok(value) = rx.await {
                 this.update(cx, |this, cx| {
+                    let current_feedback = this.status.clone();
                     apply(this, value, cx);
+                    if this.panel != origin {
+                        this.status = current_feedback;
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -212,9 +219,13 @@ impl SettingsView {
                     Ok(snapshot) => {
                         this.pending_snapshot = Some((snapshot, true));
                         this.must_reload = false;
+                        this.backend_warning = None;
                         this.status = Some("Settings reloaded".into());
                     }
-                    Err(error) => this.status = Some(error.to_string()),
+                    Err(error) => {
+                        this.status = None;
+                        this.backend_warning = Some(error.to_string());
+                    }
                 }
             },
         );
@@ -241,9 +252,16 @@ impl SettingsView {
                             Ok(())
                         };
                         this.status = Some(if let Err(error) = local_result {
-                            format!("Saved to Convex. Local settings need reload: {error}")
+                            let warning =
+                                format!("Saved to Convex. Local settings need reload: {error}");
+                            this.backend_warning = Some(warning.clone());
+                            warning
                         } else if receipt.snapshot.is_none() {
-                            "Saved to Convex. Reload to refresh the displayed settings.".into()
+                            let warning =
+                                "Saved to Convex. Reload to refresh the displayed settings."
+                                    .to_string();
+                            this.backend_warning = Some(warning.clone());
+                            warning
                         } else {
                             "Saved".into()
                         });
@@ -254,6 +272,9 @@ impl SettingsView {
                     }
                     Err(error) => {
                         this.must_reload = error == BackendError::UnknownSaveResult;
+                        if this.must_reload {
+                            this.backend_warning = Some(error.to_string());
+                        }
                         this.status = Some(
                             if matches!(
                                 &mirror,
@@ -267,6 +288,9 @@ impl SettingsView {
                                 error.to_string()
                             },
                         );
+                        if this.must_reload {
+                            this.status = None;
+                        }
                     }
                 }
             },
@@ -1008,7 +1032,7 @@ impl SettingsView {
 
     fn weather(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         v_flex().gap_4().child("Google Pollen API key")
-            .child(match self.pollen_configured { Some(true) => "A key is configured in OS credential storage.", Some(false) => "No key is configured.", None => "Checking secure storage…" })
+            .child(match self.pollen_configured { Some(true) => "A key is configured in OS credential storage.", Some(false) => "No key is configured.", None => "Secure storage has not confirmed a key. Check secure storage to retry." })
             .child(self.field("pollen", "New API key", |this, value, cx| this.save_key(value, cx), cx))
             .child(h_flex().gap_2().child(Button::new("clear-pollen-key").label("Clear saved key").disabled(self.busy).on_click(cx.listener(|this, _, _, cx| this.save_key(String::new(), cx))))
                 .child(Button::new("reload-pollen-status").label("Check secure storage").disabled(self.busy).on_click(cx.listener(|this, _, _, cx| this.load_key_status(cx)))))
@@ -1018,6 +1042,16 @@ impl SettingsView {
 
     pub fn deactivate(&mut self) {
         self.stop_preview();
+    }
+
+    fn select_panel(&mut self, panel: Panel) {
+        if self.panel != panel {
+            self.stop_preview();
+            self.status = None;
+        }
+        self.panel = panel;
+        self.confirm_remove = None;
+        self.confirm_reset = false;
     }
 }
 
@@ -1066,16 +1100,22 @@ impl Render for SettingsView {
                             .label(label)
                             .selected(self.panel == panel)
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                if this.panel != panel {
-                                    this.stop_preview();
-                                }
-                                this.panel = panel;
-                                this.confirm_remove = None;
+                                this.select_panel(panel);
                                 cx.notify();
                             }))
                     })),
             )
-            .children(self.status.clone().map(|status| div().child(status)))
+            .children(
+                self.backend_warning
+                    .clone()
+                    .map(|warning| div().child(warning)),
+            )
+            .children(
+                self.status
+                    .clone()
+                    .filter(|status| Some(status) != self.backend_warning.as_ref())
+                    .map(|status| div().child(status)),
+            )
             .child(
                 v_flex()
                     .id("settings-panel-content")
@@ -1104,10 +1144,26 @@ mod tests {
             cx.set_global(Settings { config });
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 cx.new(|cx| {
-                    let view = SettingsView::new(window, cx);
+                    let mut view = SettingsView::new(window, cx);
                     assert!(view.panel == Panel::Accounts);
                     assert!(view.value("pollen", cx).is_empty());
                     assert!(!view.started);
+                    view.panel = Panel::Notifications;
+                    view.status = Some("Choose an absolute audio file.".into());
+                    view.backend_warning = Some(BackendError::UnknownSaveResult.to_string());
+                    view.must_reload = true;
+                    view.confirm_reset = true;
+                    view.select_panel(Panel::Weather);
+                    assert!(view.status.is_none());
+                    assert!(!view.confirm_reset);
+                    assert!(view.must_reload);
+                    assert_eq!(
+                        view.backend_warning.as_deref(),
+                        Some(BackendError::UnknownSaveResult.to_string()).as_deref()
+                    );
+                    view.select_panel(Panel::Advanced);
+                    assert!(view.status.is_none());
+                    assert!(view.backend_warning.is_some());
                     view
                 })
             })
