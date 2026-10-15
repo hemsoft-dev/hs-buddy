@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1352] - 2026-10-15
+
+### Fixed
+
+- Qualify shared credentials in packaged and Mac fixtures (#813)
+
 ## [0.1.1351] - 2026-10-15
 
 ### Added

@@ -21,6 +21,34 @@ const executable =
 if (!existsSync(executable)) throw new Error('Build the Rust credential probe first')
 const profile = mkdtempSync(join(tmpdir(), 'buddy-credential-interop-'))
 const config = join(profile, 'config.json')
+const keychain = join(profile, 'fixture.keychain-db')
+// Public fixture password, never a user credential. This keychain exists only
+// on the disposable runner and is deleted after restoring its prior default.
+const keychainPassword = 'buddy-ci-fixture-keychain'
+let previousKeychain: string | undefined
+function security(args: string[]): string {
+  const result = spawnSync('/usr/bin/security', args, { encoding: 'utf8', timeout: 15_000 })
+  if (result.error || result.status !== 0)
+    throw new Error('Owned macOS fixture keychain operation failed')
+  return result.stdout.trim()
+}
+function grantFixtureAccess(): void {
+  if (process.platform !== 'darwin') return
+  // Unsigned fixture executables need explicit OS authorization. Scope this
+  // grant to the exact fake entry in our private keychain, never login items.
+  security([
+    'set-generic-password-partition-list',
+    '-a',
+    credentialAccountForPath(config),
+    '-s',
+    'hs-buddy-pollen-v1',
+    '-S',
+    'apple-tool:,apple:,unsigned:',
+    '-k',
+    keychainPassword,
+    keychain,
+  ])
+}
 writeFileSync(join(profile, '.buddy-credential-fixture'), 'buddy credential fixture v1')
 writeFileSync(config, JSON.stringify({ ui: { pollenApiKey: '' }, fixtureUnknown: 7 }))
 
@@ -45,6 +73,15 @@ let vault: CredentialVault | undefined
 let stage = 'create fixture entry'
 let failure: Error | undefined
 try {
+  if (process.platform === 'darwin') {
+    previousKeychain = security(['default-keychain', '-d', 'user']).replace(/^"|"$/g, '')
+    if (!isAbsolute(previousKeychain))
+      throw new Error('Could not identify the runner default keychain')
+    security(['create-keychain', '-p', keychainPassword, keychain])
+    security(['set-keychain-settings', '-lut', '3600', keychain])
+    security(['unlock-keychain', '-p', keychainPassword, keychain])
+    security(['default-keychain', '-d', 'user', '-s', keychain])
+  }
   vault = createPollenVault(config)
   requireMatch(
     probe('account') === credentialAccountForPath(config),
@@ -53,10 +90,12 @@ try {
   const ascii = 'fixture-only-pollen-ascii'
   stage = 'Node-to-Rust ASCII'
   await vault.write(ascii)
+  grantFixtureAccess()
   probe('read', ascii)
   const unicode = 'fixture-only-pollen-é-π-😀'
   stage = 'Rust-to-Node Unicode'
   probe('write', unicode)
+  grantFixtureAccess()
   requireMatch((await vault.read()) === unicode, 'Unicode Rust-to-Node password interop failed')
   stage = 'Node deletion'
   await vault.delete()
@@ -65,6 +104,7 @@ try {
   stage = 'legacy migration'
   writeFileSync(config, JSON.stringify({ ui: { pollenApiKey: legacy }, fixtureUnknown: 7 }))
   probe('read', legacy)
+  grantFixtureAccess()
   requireMatch(
     (await vault.read()) === legacy,
     'Legacy migration did not reach the shared OS entry'
@@ -79,6 +119,7 @@ try {
   )
   stage = 'clear and stale legacy rejection'
   probe('clear')
+  grantFixtureAccess()
   requireMatch((await vault.read()) === '', 'Explicit clear did not retain its safe tombstone')
   writeFileSync(config, JSON.stringify({ ui: { pollenApiKey: legacy }, fixtureUnknown: 7 }))
   probe('read-none')
@@ -100,6 +141,10 @@ try {
         result: 'passed',
         platform: process.platform,
         architecture: process.arch,
+        macosAuthorization:
+          process.platform === 'darwin'
+            ? 'explicit access to the disposable fixture entry only; product ACL unchanged'
+            : undefined,
         checks: [
           'matching profile identity',
           'Node-to-Rust ASCII',
@@ -123,6 +168,14 @@ try {
   await vault?.delete()
 } catch (_: unknown) {
   failure = new Error('Fixture credential cleanup failed; credential values are withheld.')
+}
+if (previousKeychain) {
+  try {
+    security(['default-keychain', '-d', 'user', '-s', previousKeychain])
+    if (existsSync(keychain)) security(['delete-keychain', keychain])
+  } catch (_: unknown) {
+    failure = new Error('Owned fixture keychain cleanup failed')
+  }
 }
 const child = relative(resolve(tmpdir()), resolve(profile))
 if (

@@ -20,9 +20,13 @@ import { safeStorage } from 'electron'
 const protectedPollen = vi.hoisted(() => ({
   load: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
   save: vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined),
+  legacy: null as null | { read(): string; clear(expected: string): boolean },
 }))
 vi.mock('./services/pollenCredentials', () => ({
   PollenCredentials: class {
+    constructor(_path: string, legacy: { read(): string; clear(expected: string): boolean }) {
+      protectedPollen.legacy = legacy
+    }
     load = protectedPollen.load
     save = protectedPollen.save
   },
@@ -30,71 +34,8 @@ vi.mock('./services/pollenCredentials', () => ({
 const configFixture = vi.hoisted(() => ({ initial: {} as Record<string, unknown> }))
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-vi.mock('electron-store', () => ({
-  default: class MockStore {
-    private data: Record<string, unknown> = {}
-    private listeners = new Map<string, Set<() => void>>()
-    writes: string[] = []
-    path = '/mock/config.json'
-    store = {}
-
-    constructor() {
-      this.data = structuredClone(configFixture.initial)
-      this.store = this.data
-    }
-
-    get(key: string, defaultValue?: unknown): unknown {
-      let value: unknown = this.data
-      for (const segment of key.split('.')) {
-        if (!value || typeof value !== 'object' || !(segment in value)) return defaultValue
-        value = (value as Record<string, unknown>)[segment]
-      }
-      return value
-    }
-
-    set(key: string, value: unknown): void {
-      const previous = new Map(
-        [...this.listeners.keys()].map(listenerKey => [
-          listenerKey,
-          JSON.stringify(this.get(listenerKey)),
-        ])
-      )
-      const segments = key.split('.')
-      let target = this.data
-      for (const segment of segments.slice(0, -1)) {
-        const child = target[segment]
-        if (!child || typeof child !== 'object') target[segment] = {}
-        target = target[segment] as Record<string, unknown>
-      }
-      target[segments.at(-1)!] = value
-      this.writes.push(key)
-      for (const [listenerKey, listeners] of this.listeners) {
-        if (previous.get(listenerKey) === JSON.stringify(this.get(listenerKey))) continue
-        for (const listener of listeners) listener()
-      }
-    }
-
-    onDidChange(key: string, listener: () => void): () => void {
-      const listeners = this.listeners.get(key) ?? new Set<() => void>()
-      listeners.add(listener)
-      this.listeners.set(key, listeners)
-      return () => listeners.delete(listener)
-    }
-
-    has(key: string): boolean {
-      return key in this.data
-    }
-
-    delete(key: string): void {
-      delete this.data[key]
-    }
-
-    clear(): void {
-      this.data = {}
-      this.store = this.data
-      this.writes = []
-    }
-  },
+vi.mock('electron-store', async () => ({
+  default: (await import('./__mocks__/configStore')).createConfigStoreMock(configFixture),
 }))
 
 vi.mock('../src/types/config', () => ({
@@ -532,6 +473,25 @@ describe('config', () => {
       await configManager.setPollenApiKey('new-fixture-key')
       expect(protectedPollen.save).toHaveBeenLastCalledWith('new-fixture-key')
       expect(JSON.stringify(configManager.getConfig())).not.toContain('new-fixture-key')
+    })
+
+    it('clears only an acknowledged legacy candidate and preserves neighboring fields', async () => {
+      configFixture.initial = { ui: { pollenApiKey: 'legacy-fixture', future: 7 } }
+      try {
+        vi.resetModules()
+        const manager = (await import('./config')).configManager
+        await manager.getPollenApiKey()
+        const legacy = protectedPollen.legacy!
+        expect(legacy.read()).toBe('legacy-fixture')
+        expect(legacy.clear('stale-fixture')).toBe(false)
+        expect(legacy.read()).toBe('legacy-fixture')
+        expect(legacy.clear('legacy-fixture')).toBe(true)
+        expect(legacy.read()).toBe('')
+        expect(legacy.clear('')).toBe(true)
+        expect((manager.getConfig().ui as unknown as { future: number }).future).toBe(7)
+      } finally {
+        configFixture.initial = {}
+      }
     })
 
     it('does not erase settings when secure reset fails', async () => {

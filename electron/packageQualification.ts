@@ -3,6 +3,7 @@ import { accessSync, constants } from 'node:fs'
 const PACKAGE_NATIVE_MODULES = [
   { dependency: 'node-pty', binding: 'spawn' },
   { dependency: 'koffi', binding: 'load' },
+  { dependency: '@napi-rs/keyring', binding: 'AsyncEntry' },
 ] as const
 
 export interface PackageDependencyReport {

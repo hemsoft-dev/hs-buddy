@@ -9,6 +9,7 @@ import {
 } from './packageQualification'
 
 function nativeModule(specifier: string): object {
+  if (specifier === '@napi-rs/keyring') return { AsyncEntry: vi.fn() }
   return specifier === 'node-pty' ? { spawn: vi.fn(() => ({ kill: vi.fn() })) } : { load: vi.fn() }
 }
 
@@ -28,11 +29,11 @@ describe('packaged dependency qualification', () => {
         verifyExecutable
       )
     ).toEqual({
-      nativeModules: ['node-pty', 'koffi'],
+      nativeModules: ['node-pty', 'koffi', '@napi-rs/keyring'],
       copilotPackage: '@github/copilot-darwin-arm64',
       copilotBinary: expect.stringMatching(/[\\/]package[\\/]copilot$/),
     })
-    expect(loadModule.mock.calls).toEqual([['node-pty'], ['koffi']])
+    expect(loadModule.mock.calls).toEqual([['node-pty'], ['koffi'], ['@napi-rs/keyring']])
     expect(
       (loadModule.mock.results[0].value as { spawn: ReturnType<typeof vi.fn> }).spawn
     ).toHaveBeenCalledOnce()
@@ -64,6 +65,7 @@ describe('packaged dependency qualification', () => {
     ['node-pty', null, 'spawn'],
     ['node-pty', {}, 'spawn'],
     ['koffi', {}, 'load'],
+    ['@napi-rs/keyring', {}, 'AsyncEntry'],
   ])('rejects %s without its native binding', (missingDependency, invalidModule, binding) => {
     const loadModule = (specifier: string) =>
       specifier === missingDependency ? invalidModule : nativeModule(specifier)

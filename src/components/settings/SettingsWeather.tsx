@@ -99,7 +99,7 @@ export function SettingsWeather() {
     let active = true
     window.ipcRenderer
       .invoke(IPC_INVOKE.CONFIG_GET_POLLEN_API_KEY)
-      .then((status: { configured: boolean; error?: string }) => {
+      .then((status: { configured: boolean; error?: string } | null | undefined) => {
         if (!status || typeof status.configured !== 'boolean' || status.error) {
           throw new Error('Secure credential status unavailable')
         }

@@ -9,7 +9,7 @@ import react from '@vitejs/plugin-react'
 // since they provide no-op implementations when the SDK isn't loaded.
 // Koffi must be a direct dependency so the external import remains resolvable.
 import.meta.resolve('koffi')
-export const electronNativeExternals = ['node-pty', 'koffi'] as const
+export const electronNativeExternals = ['node-pty', 'koffi', '@napi-rs/keyring'] as const
 
 const otelExternals = [
   '@opentelemetry/sdk-node',

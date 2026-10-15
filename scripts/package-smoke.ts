@@ -163,7 +163,7 @@ function validateRuntimeIdentity(result: SmokeResult, target: TargetRuntime): vo
 }
 
 function validateDependencies(result: SmokeResult, target: TargetRuntime): void {
-  for (const dependency of ['node-pty', 'koffi']) {
+  for (const dependency of ['node-pty', 'koffi', '@napi-rs/keyring']) {
     if (!result.nativeModules?.includes(dependency)) {
       throw new Error(`Packaged native module did not load: ${dependency}`)
     }
