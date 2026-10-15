@@ -31,6 +31,21 @@ impl ReviewKind {
             Self::Copilot => !body.trim().is_empty(),
         }
     }
+    fn summary_content(self, body: &str) -> &str {
+        if self == Self::Copilot {
+            return body;
+        }
+        let start = ["## Walkthrough", "## Summary by CodeRabbit"]
+            .into_iter()
+            .filter_map(|heading| body.find(heading))
+            .min()
+            .unwrap_or(0);
+        let summary = &body[start..];
+        let end = summary
+            .find("<!-- walkthrough_end -->")
+            .unwrap_or(summary.len());
+        summary[..end].trim()
+    }
 }
 #[derive(Debug, Clone)]
 pub struct ReviewWatch {
@@ -79,7 +94,7 @@ impl GitHubClient {
                 if kind.author(&comment.author) && kind.summary(&comment.body) {
                     found.record(
                         format!("comment:{}", comment.reference.id()),
-                        &(comment.updated_at, comment.body),
+                        &kind.summary_content(&comment.body),
                         comment.url,
                     );
                 }
@@ -189,5 +204,60 @@ mod tests {
         assert!(ReviewKind::CodeRabbit.summary("## Walkthrough\nFinished"));
         assert!(!ReviewKind::CodeRabbit.author("someone-else"));
         assert!(ReviewKind::Copilot.author("copilot-pull-request-reviewer[bot]"));
+        assert_eq!(ReviewKind::CodeRabbit.summary_content("## Walkthrough\nSame summary.\n<!-- walkthrough_end -->\nOld footer"),ReviewKind::CodeRabbit.summary_content("Review in progress\n## Walkthrough\nSame summary.\n<!-- walkthrough_end -->\nChanged footer"));
+    }
+
+    #[tokio::test]
+    async fn a_timestamp_only_edit_does_not_complete_a_new_review_request() {
+        use serde_json::json;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        struct EditedTimestamp(AtomicUsize);
+        impl super::super::Transport for EditedTimestamp {
+            fn request<'a>(
+                &'a self,
+                _: &'a AccountScope,
+                request: super::super::ApiRequest,
+            ) -> super::super::transport::ApiFuture<'a> {
+                Box::pin(async move {
+                    let comments = request.body.as_ref().unwrap()["query"]
+                        .as_str()
+                        .unwrap()
+                        .contains("NativePullComments");
+                    let connection = if comments {
+                        let updated = if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                            "2026-10-15T10:00:00Z"
+                        } else {
+                            "2026-10-15T10:01:00Z"
+                        };
+                        json!({"nodes":[{"id":"IC_bot","author":{"login":"coderabbitai[bot]"},"body":"## Walkthrough\nThe existing review summary.","createdAt":"2026-10-15T10:00:00Z","updatedAt":updated,"url":null,"reactionGroups":[]}],"pageInfo":{"hasNextPage":false}})
+                    } else {
+                        json!({"nodes":[],"pageInfo":{"hasNextPage":false}})
+                    };
+                    let field = if comments { "comments" } else { "reviews" };
+                    Ok(super::super::ApiResponse {
+                        status: 200,
+                        headers: Default::default(),
+                        body: json!({"data":{"repository":{"pullRequest":{field:connection}}}}),
+                    })
+                })
+            }
+        }
+        let client = super::super::GitHubClients::with_transport(Arc::new(EditedTimestamp(
+            AtomicUsize::new(0),
+        )))
+        .for_account(AccountScope::new("Second", "team").unwrap());
+        let pull = PullRef::new(
+            super::super::RepositoryRef::parse("team/private").unwrap(),
+            7,
+        )
+        .unwrap();
+        let watch = client
+            .review_checkpoint(&pull, ReviewKind::CodeRabbit)
+            .await
+            .unwrap();
+        assert_eq!(watch.poll(&client).await.unwrap(), ReviewProgress::Waiting);
     }
 }

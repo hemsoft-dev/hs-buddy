@@ -139,9 +139,12 @@ class GitHubBackend:
             return 403, dict(message="Fixture permission denied"), {}
         if route == "/graphql":
             query = body.get("query", "")
+            if "NativeViewerPulls(" in query:
+                authored = dict(pull(account), author=dict(login=account))
+                return ok(dict(data=dict(viewer=dict(login=account, pullRequests=connection([] if self.scenario == "empty" else [authored])))))
             if "NativePullRequests(" in query:
                 search = variables["query"]
-                nodes = [] if self.scenario == "empty" else [pull(account, approved="reviewed-by:" in search, merged="is:merged" in search)]
+                nodes = [] if self.scenario in ("empty", "search-degraded") else [pull(account, approved="reviewed-by:" in search, merged="is:merged" in search)]
                 more = "author:" in search and "is:open" in search and not variables.get("after") and bool(nodes)
                 if variables.get("after"):
                     nodes = [dict(pull(account, 8), title="Paginated fixture follow-up")]

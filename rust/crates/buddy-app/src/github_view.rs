@@ -56,6 +56,7 @@ pub struct GitHubView {
     pending_nudge: Option<github::nudge::PreparedNudge>,
     unknown_nudges: HashSet<String>,
     nudge_editing: bool,
+    merged_days: u32,
     review_watches: BTreeMap<String, github::ReviewWatch>,
     review_status: BTreeMap<String, String>,
     review_abort: Option<AbortHandle>,
@@ -73,6 +74,11 @@ struct LoadContext {
 
 impl GitHubView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let merged_days = Settings::global(cx)
+            .config
+            .pr
+            .recently_merged_days
+            .clamp(1.0, 3650.0) as u32;
         let filter = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Title, author, repository, or number")
         });
@@ -154,6 +160,7 @@ impl GitHubView {
             pending_nudge: None,
             unknown_nudges: HashSet::new(),
             nudge_editing: false,
+            merged_days,
             review_watches: BTreeMap::new(),
             review_status: BTreeMap::new(),
             review_abort: None,
@@ -234,6 +241,13 @@ impl GitHubView {
     }
 
     fn reconcile(&mut self, cx: &mut Context<Self>) {
+        let merged_days = Settings::global(cx)
+            .config
+            .pr
+            .recently_merged_days
+            .clamp(1.0, 3650.0) as u32;
+        let window_changed = self.merged_days != merged_days;
+        self.merged_days = merged_days;
         let accounts = &Settings::global(cx).config.github.accounts;
         let next = self
             .account
@@ -257,6 +271,17 @@ impl GitHubView {
         {
             self.change_account(next, cx);
         }
+        if window_changed && self.route == Route::Pulls(PrMode::RecentlyMerged) {
+            self.cancel_read();
+            self.pending = None;
+            self.data = None;
+            self.error = None;
+            self.selection.invalidate();
+            if self.active {
+                self.load(false, false, cx);
+            }
+        }
+        self.configure_refresh(cx);
     }
 
     fn change_account(&mut self, account: Option<AccountScope>, cx: &mut Context<Self>) {

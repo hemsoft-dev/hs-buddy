@@ -40,6 +40,18 @@ class GitHubBackendTests(unittest.TestCase):
             self.assertEqual(server.comments["fixture-two"], [])
             self.assertEqual(len([call for call in server.requests if call["method"] == "POST"]), 1)
 
+    def test_empty_search_and_viewer_fallback_are_independent_sources(self):
+        with backend.GitHubBackend() as server:
+            server.scenario = "search-degraded"
+            body = dict(query="query NativePullRequests($query:String!){search{nodes{number}}}", variables=dict(query="is:pr author:fixture-one is:open"))
+            self.assertEqual(self.request(server, "/graphql", body)[1]["data"]["search"]["nodes"], [])
+            fallback = dict(query="query NativeViewerPulls($reviewer:String!){viewer{login}}", variables=dict(reviewer="fixture-one"))
+            viewer = self.request(server, "/graphql", fallback)[1]["data"]["viewer"]
+            self.assertEqual(viewer["login"], "fixture-one")
+            self.assertEqual(viewer["pullRequests"]["nodes"][0]["author"]["login"], "fixture-one")
+            server.scenario = "empty"
+            self.assertEqual(self.request(server, "/graphql", fallback)[1]["data"]["viewer"]["pullRequests"]["nodes"], [])
+
     def test_denial_rate_limit_and_unknown_endpoints_fail_explicitly(self):
         with backend.GitHubBackend() as server:
             self.assertEqual(self.request(server, "/repos/fixture-org/denied")[0], 403)

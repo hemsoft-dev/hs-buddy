@@ -217,14 +217,20 @@ impl GitHubClient {
                 .cloned()
                 .unwrap_or(GitHubError::InvalidData));
         }
+        if mode == PrMode::MyPrs && unique.is_empty() {
+            let (pulls, truncated) = self.viewer_pulls(force).await?;
+            result.truncated |= truncated;
+            for pull in pulls {
+                unique.insert(pull.target.clone(), pull);
+            }
+        }
         result.items = unique
             .into_values()
             .filter(|pull| mode.includes_review(pull.i_approved))
             .collect();
         result.items.sort_by(|left, right| {
-            right
-                .updated_at
-                .cmp(&left.updated_at)
+            sort_date(right, mode)
+                .cmp(sort_date(left, mode))
                 .then_with(|| left.target.cmp(&right.target))
         });
         Ok(result)
@@ -242,6 +248,68 @@ impl GitHubClient {
             Some("Organization") => Ok(false),
             _ => Err(GitHubError::InvalidData),
         }
+    }
+
+    async fn viewer_pulls(&self, force: bool) -> Result<(Vec<PullSummary>, bool), GitHubError> {
+        let query = format!(
+            "query NativeViewerPulls($reviewer:String!,$after:String) {{viewer {{login pullRequests(states:[OPEN],first:20,after:$after,orderBy:{{field:UPDATED_AT,direction:DESC}}) {{pageInfo {{hasNextPage endCursor}} nodes {{...NativePullList}}}}}}}}\n{PULL_LIST_FRAGMENT}"
+        );
+        let mut cursor: Option<String> = None;
+        let mut seen = HashSet::new();
+        let mut items = Vec::new();
+        for _ in 0..MAX_SEARCH_PAGES {
+            let loaded = self
+                .request(
+                    ApiRequest::graphql(
+                        &query,
+                        json!({"reviewer":self.account.username(),"after":cursor}),
+                        false,
+                    ),
+                    force,
+                )
+                .await?;
+            let viewer = &loaded.value.body["data"]["viewer"];
+            if !text(viewer, "login")?.eq_ignore_ascii_case(self.account.username()) {
+                return Err(GitHubError::Authentication);
+            }
+            let connection = &viewer["pullRequests"];
+            for node in connection["nodes"]
+                .as_array()
+                .ok_or(GitHubError::InvalidData)?
+            {
+                let pull = PullSummary::from_graphql(node)?;
+                if pull
+                    .target
+                    .repository
+                    .owner()
+                    .eq_ignore_ascii_case(self.account.organization())
+                {
+                    if !pull.author.eq_ignore_ascii_case(self.account.username())
+                        || pull.state != "OPEN"
+                    {
+                        return Err(GitHubError::InvalidData);
+                    }
+                    items.push(pull);
+                }
+            }
+            if !connection["pageInfo"]["hasNextPage"]
+                .as_bool()
+                .ok_or(GitHubError::InvalidData)?
+            {
+                return Ok((items, false));
+            }
+            let next = connection["pageInfo"]["endCursor"]
+                .as_str()
+                .filter(|value| {
+                    !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control)
+                })
+                .ok_or(GitHubError::InvalidData)?;
+            if !seen.insert(next.to_string()) {
+                return Err(GitHubError::InvalidData);
+            }
+            cursor = Some(next.into());
+        }
+        Ok((items, true))
     }
 
     pub(crate) async fn search_pulls(
@@ -295,6 +363,14 @@ impl GitHubClient {
     }
 }
 
+fn sort_date(pull: &PullSummary, mode: PrMode) -> &str {
+    if mode == PrMode::RecentlyMerged {
+        pull.merged_at.as_deref().unwrap_or(&pull.updated_at)
+    } else {
+        &pull.updated_at
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{AccountScope, ApiResponse, GitHubClients, Transport};
@@ -303,6 +379,112 @@ mod tests {
 
     fn node(number: u64, state: &str) -> Value {
         json!({"number":number,"repository":{"nameWithOwner":"team/repo"},"title":format!("Real fixture PR {number}"),"body":"The PR body","author":{"login":"contributor"},"state":"OPEN","createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-15T00:00:00Z","mergedAt":null,"headRefName":"feature/fixture","baseRefName":"main","headRefOid":"0123456789012345678901234567890123456789","changedFiles":2,"isDraft":false,"reviewDecision":"APPROVED","latestOpinion":{"nodes":[{"state":state}]},"recentReviews":{"nodes":[{"state":"APPROVED","author":{"login":"reviewer"}},{"state":"CHANGES_REQUESTED","author":{"login":"reviewer"}}],"pageInfo":{"hasPreviousPage":false}},"reviewThreads":{"totalCount":2}})
+    }
+
+    struct ParityFixture {
+        fallback: bool,
+        wrong_viewer: bool,
+        calls: Mutex<Vec<ApiRequest>>,
+    }
+    impl Transport for ParityFixture {
+        fn request<'a>(
+            &'a self,
+            _: &'a AccountScope,
+            request: ApiRequest,
+        ) -> super::super::transport::ApiFuture<'a> {
+            Box::pin(async move {
+                self.calls.lock().unwrap().push(request.clone());
+                let body = if request.method == reqwest::Method::GET {
+                    json!({"type":"Organization"})
+                } else {
+                    let payload = request.body.as_ref().unwrap();
+                    let query = payload["query"].as_str().unwrap();
+                    if query.contains("NativeViewerPulls") {
+                        let next = !payload["variables"]["after"].is_null();
+                        let mut own = node(if next { 8 } else { 7 }, "COMMENTED");
+                        own["author"] = json!({"login":"Second"});
+                        let mut outside = own.clone();
+                        outside["number"] = json!(9);
+                        outside["repository"] = json!({"nameWithOwner":"another/private"});
+                        json!({"data":{"viewer":{"login":if self.wrong_viewer {"Other"} else {"Second"},"pullRequests":{"nodes":if next {vec![own]} else {vec![own,outside]},"pageInfo":{"hasNextPage":!next,"endCursor":if next {Value::Null} else {json!("viewer-two")}}}}}})
+                    } else {
+                        let mut older = node(7, "COMMENTED");
+                        older["state"] = json!("MERGED");
+                        older["mergedAt"] = json!("2026-10-14T12:00:00Z");
+                        older["updatedAt"] = json!("2026-10-15T23:00:00Z");
+                        let mut newer = node(8, "COMMENTED");
+                        newer["state"] = json!("MERGED");
+                        newer["mergedAt"] = json!("2026-10-15T12:00:00Z");
+                        newer["updatedAt"] = json!("2026-10-15T12:00:00Z");
+                        json!({"data":{"search":{"issueCount":if self.fallback {0} else {2},"nodes":if self.fallback {vec![]} else {vec![older,newer]},"pageInfo":{"hasNextPage":false,"endCursor":null}}}})
+                    }
+                };
+                Ok(ApiResponse {
+                    status: 200,
+                    headers: Default::default(),
+                    body,
+                })
+            })
+        }
+    }
+    #[tokio::test]
+    async fn empty_my_prs_search_falls_back_to_paginated_viewer_prs_without_other_namespaces() {
+        let transport = Arc::new(ParityFixture {
+            fallback: true,
+            wrong_viewer: false,
+            calls: Mutex::new(Vec::new()),
+        });
+        let client = GitHubClients::with_transport(transport.clone())
+            .for_account(AccountScope::new("Second", "team").unwrap());
+        let result = client.pull_requests(PrMode::MyPrs, 7, true).await.unwrap();
+        assert_eq!(
+            result
+                .items
+                .iter()
+                .map(|pull| pull.target.number)
+                .collect::<Vec<_>>(),
+            [7, 8]
+        );
+        let calls = transport.calls.lock().unwrap();
+        assert_eq!(calls.len(), 4);
+        assert_eq!(
+            calls[3].body.as_ref().unwrap()["variables"]["after"],
+            "viewer-two"
+        );
+    }
+    #[tokio::test]
+    async fn viewer_fallback_rejects_a_credential_for_a_different_login() {
+        let client = GitHubClients::with_transport(Arc::new(ParityFixture {
+            fallback: true,
+            wrong_viewer: true,
+            calls: Mutex::new(Vec::new()),
+        }))
+        .for_account(AccountScope::new("Second", "team").unwrap());
+        assert!(matches!(
+            client.pull_requests(PrMode::MyPrs, 7, true).await,
+            Err(GitHubError::Authentication)
+        ));
+    }
+    #[tokio::test]
+    async fn recently_merged_order_uses_merge_time_instead_of_later_comment_updates() {
+        let client = GitHubClients::with_transport(Arc::new(ParityFixture {
+            fallback: false,
+            wrong_viewer: false,
+            calls: Mutex::new(Vec::new()),
+        }))
+        .for_account(AccountScope::new("Second", "team").unwrap());
+        let result = client
+            .pull_requests(PrMode::RecentlyMerged, 7, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            result
+                .items
+                .iter()
+                .map(|pull| pull.target.number)
+                .collect::<Vec<_>>(),
+            [8, 7]
+        );
     }
 
     struct SearchFixture {

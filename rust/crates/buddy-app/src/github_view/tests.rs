@@ -25,6 +25,38 @@ fn setup(cx: &mut App) {
 }
 
 #[gpui_kit::test]
+fn changing_the_merged_window_invalidates_the_old_list_and_inflight_result(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = GitHubView::new(window, cx);
+                view.change_account(Some(account("First")), cx);
+                view.navigate(Route::Pulls(PrMode::RecentlyMerged), cx);
+                view.data = Some(PageData {
+                    title: "Old seven-day list".into(),
+                    ..Default::default()
+                });
+                let old = view.selection.begin().unwrap();
+                let mut updated = Settings::global(cx).config.clone();
+                updated.pr.recently_merged_days = 1.0;
+                Settings::replace(cx, updated);
+                view.reconcile(cx);
+                assert!(
+                    view.data.is_none(),
+                    "the old date window must not remain visible after a Settings edit"
+                );
+                assert!(!view.selection.accepts(&old));
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+#[gpui_kit::test]
 fn drafts_survive_appearance_updates_and_clear_with_the_account_and_confirmation(
     cx: &mut gpui_kit::TestAppContext,
 ) {

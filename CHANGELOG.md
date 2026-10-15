@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1375] - 2026-10-15
+
+### Fixed
+
+- Preserve native GitHub search and review state
+
 ## [0.1.1374] - 2026-10-15
 
 ### Added

@@ -80,7 +80,7 @@ def qualify(executable, output, session, version, backend, api):
         ("click", "Needs Review"), ("click", "Recently Merged"), ("click", "Needs a nudge"),
         ("click", "My PRs"), ("field", "Filter loaded items", "First private"),
         ("click", "#7 First private navigation review"), ("click", "Reviews"),
-        ("click", "Commits"), ("click", "Checks"), ("click", "Files"), ("capture", "diff-dark"),
+        ("click", "Commits"), ("click", "Checks"), ("click", "Files"), ("wheel", -360), ("capture", "diff-dark"),
         ("click", "History"), ("click", "Review threads"), ("click", "src/navigation.rs"),
         ("click", "Back"), ("click", "Conversation"), ("wheel", -480),
         ("field", "PR comment", "Installed native fixture comment"), ("click", "Review comment"),
@@ -125,7 +125,8 @@ def qualify(executable, output, session, version, backend, api):
     value["native"]["activeSection"] = "github"
     config.write_text(json.dumps(value))
     light = driver.drive("accounts-light", [
-        ("resize", 900, 650), ("key", "Tab"), ("capture", "compact-keyboard-light"),
+        ("resize", 900, 650), ("field", "Filter loaded items", "First private"),
+        ("key", "Tab"), ("key", "Return"), ("sleep", 1), ("capture", "compact-keyboard-light"),
         ("resize", 1200, 820), ("click", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "second-account-light"),
         ("click", "Repositories"), ("click", "fixture-org/limited"), ("capture", "rate-limit-light"),
         ("click", "Repositories"), ("click", "fixture-org/denied"), ("capture", "denied-light"),
@@ -134,6 +135,8 @@ def qualify(executable, output, session, version, backend, api):
     check(light / "rate-limit-light.png", version, "GitHub is limiting requests")
     check(light / "denied-light.png", version, "cannot access")
     check(light / "compact-keyboard-light.png", version, "My PRs", "First private")
+    if json.loads(config.read_text(encoding="utf-8-sig"))["native"]["github"]["viewModes"]["pr-list-my-prs"] != "card":
+        raise RuntimeError("Tab and Enter did not activate the native Cards view control")
 
     api.scenario = "auth"
     reset_section(config)

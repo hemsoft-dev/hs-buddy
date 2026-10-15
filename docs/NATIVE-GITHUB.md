@@ -8,8 +8,11 @@ scope. Personal namespaces use GitHub's user search and authenticated private
 repository endpoint.
 
 My PRs, Needs Review, Recently Merged, and Needs a nudge retain the Electron
-queries and review classifications. Filter loaded requests by title, author,
-repository, branch, or number. Refresh fetches current data. Card/list preferences
+queries and review classifications. Recently Merged sorts by merge time.
+If Search returns no My PRs, Buddy checks the authenticated user's paged authored
+requests, verifies the viewer identity, and filters them to the selected namespace.
+Filter loaded requests by title, author, repository, branch, or number.
+Refresh fetches current data. Card/list preferences
 are saved in the shared configuration under `native.github.viewModes`; an
 existing local preference wins over Convex's secondary `settings.viewModes`.
 Account and PR preferences retain their existing Convex ownership. If Convex

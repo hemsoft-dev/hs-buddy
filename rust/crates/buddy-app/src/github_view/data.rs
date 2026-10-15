@@ -117,16 +117,21 @@ impl PageData {
 }
 
 fn pull_row(pull: PullSummary) -> Row {
+    let timestamp = pull
+        .merged_at
+        .as_deref()
+        .map(|date| format!("merged {date}"))
+        .unwrap_or_else(|| format!("updated {}", pull.updated_at));
     let mut row = Row::text(
         format!("#{} {}", pull.target.number, pull.title),
         format!(
-            "{} · {} · @{} · {} → {} · updated {}",
+            "{} · {} · @{} · {} → {} · {}",
             pull.target.repository.full_name(),
             pull.state,
             pull.author,
             pull.head_branch,
             pull.base_branch,
-            pull.updated_at
+            timestamp
         ),
     );
     row.author = Some(pull.author);
