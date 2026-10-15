@@ -13,6 +13,42 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_small_glyphs_use_an_analysis_copy_without_changing_the_original(self):
+        calls = []
+
+        def recognize(*arguments, **_kwargs):
+            calls.append(arguments)
+            if arguments[0] == "ffmpeg":
+                return ""
+            return ("src/navigation.rs native navigation Patch unavailable" if
+                str(arguments[1]).endswith(".ocr-scale3.png") else "stc/navigation.s native navigation Patch unavailable")
+
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=recognize):
+            image = Path(temporary) / "diff.png"
+            image.write_bytes(b"untouched original")
+            desktop.check(image, "navigation.rs", "native navigation", "Patch unavailable")
+            self.assertEqual(image.read_bytes(), b"untouched original")
+            self.assertIn("src/navigation.rs", image.with_suffix(".ocr.txt").read_text(encoding="utf-8"))
+        scalers = [call for call in calls if call[0] == "ffmpeg"]
+        self.assertEqual(len(scalers), 1)
+        self.assertIn("scale=iw*3:ih*3:flags=neighbor", scalers[0])
+        self.assertEqual(len([call for call in calls if call[0] == "tesseract"]), 4)
+
+    def test_partial_ocr_result_cannot_hide_an_account_leak(self):
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", return_value="Second private") as recognize:
+            with self.assertRaisesRegex(RuntimeError, "Another account"):
+                desktop.check(Path(temporary) / "github.png", "First private", absent=("Second private",))
+            self.assertEqual(recognize.call_count, 1)
+
+    def test_analysis_tool_errors_are_not_retried_or_replaced(self):
+        def recognize(*arguments, **_kwargs):
+            if arguments[0] == "ffmpeg":
+                raise RuntimeError("Analysis tool failed")
+            return "missing visible content"
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=recognize):
+            with self.assertRaisesRegex(RuntimeError, "Analysis tool failed"):
+                desktop.check(Path(temporary) / "github.png", "First private")
+
     def test_diff_markers_must_match_exactly_in_one_native_ocr_layout(self):
         outputs = {
             11: "stc/navigation.s native navigation Patch unavailable",
@@ -35,7 +71,9 @@ class InstalledEvidence(unittest.TestCase):
 
     def test_partial_markers_from_different_layouts_cannot_be_combined(self):
         outputs = {11: "navigation.rs", 3: "native navigation", 6: "Patch unavailable"}
-        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=lambda *args, **_: outputs[int(args[args.index("--psm") + 1])]):
+        def recognize(*args, **_kwargs):
+            return "" if args[0] == "ffmpeg" else outputs[int(args[args.index("--psm") + 1])]
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=recognize):
             with self.assertRaises(RuntimeError):
                 desktop.check(Path(temporary) / "diff.png", "navigation.rs", "native navigation", "Patch unavailable")
 

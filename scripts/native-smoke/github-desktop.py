@@ -63,17 +63,27 @@ def installed_binary(executable, version):
 
 def check(path, *markers, absent=()):
     missing = None
-    for mode in (11, 3, 6):
-        try:
-            settings.verify_text(path, *markers, mode=mode)
-        except settings.MissingVisibleText as failure:
-            missing = failure
-            continue
-        text = path.with_suffix(".ocr.txt").read_text(encoding="utf-8")
-        for marker in absent:
-            if marker.casefold() in text.casefold():
-                raise RuntimeError("Another account's fixture data remained visible")
-        return
+    for scale in (1, 3):
+        image = path
+        if scale == 3:
+            # Analysis copy only; the original window capture is never edited.
+            image = path.with_suffix(".ocr-scale3.png")
+            settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+                "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
+        for mode in (11, 3, 6):
+            complete = True
+            try:
+                settings.verify_text(image, *markers, mode=mode)
+            except settings.MissingVisibleText as failure:
+                missing, complete = failure, False
+            text = image.with_suffix(".ocr.txt").read_text(encoding="utf-8")
+            for marker in absent:
+                if marker.casefold() in text.casefold():
+                    raise RuntimeError("Another account's fixture data remained visible")
+            if complete:
+                if image != path:
+                    path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
+                return
     raise RuntimeError("GitHub screenshot does not show all required text in one OCR layout") from missing
 
 

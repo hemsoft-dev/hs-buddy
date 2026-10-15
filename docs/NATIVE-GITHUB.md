@@ -106,9 +106,12 @@ Complete control labels take precedence over matching words in status prose;
 competing complete labels remain an error. Failed navigation preserves its
 observed synthetic requests without replacing the original failure.
 OCR text and its saved receipts use explicit UTF-8 on every platform.
-GitHub text checks try the same untouched screenshot in OCR layouts 11, 3, and 6.
-Every required marker must appear in one result; text from separate attempts is
-never combined. Account-leak and OCR engine errors stop immediately.
+GitHub text checks try the original screenshot in OCR layouts 11, 3, and 6.
+If small glyphs remain unreadable, they use one 3x nearest-neighbor analysis copy.
+The original screenshot remains unchanged. Every required marker must appear in
+one result; text from separate attempts is never combined. Account leaks,
+including those found in partial results, and OCR or analysis tool errors stop
+immediately.
 Mac settings locators require two matching measurements before clicking so an
 asynchronous save message cannot move an input between capture and targeting.
 The guarded runner releases modifier keys around text replacement and checks
