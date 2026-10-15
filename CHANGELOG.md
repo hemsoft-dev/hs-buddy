@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1368] - 2026-10-15
+
+### Changed
+
+- Scale small Mac color glyphs for exact OCR (#813)
+
 ## [0.1.1367] - 2026-10-15
 
 ### Changed

@@ -258,7 +258,7 @@ def verify_color(path, expected, session):
     # OCR analysis only. The original screenshot remains the review evidence.
     cropped = path.with_suffix(".color-ocr.png")
     run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-        "-vf", f'crop={region["width"]}:{region["height"]}:{region["left"]}:{region["top"]}:exact=1',
+        "-vf", f'crop={region["width"]}:{region["height"]}:{region["left"]}:{region["top"]}:exact=1,scale=iw*3:ih*3:flags=neighbor',
         "-frames:v", "1", cropped)
     for mode in (7, 13):  # Single text line and raw line; no glyph substitutions.
         actual = run("tesseract", cropped, "stdout", "--psm", mode,
