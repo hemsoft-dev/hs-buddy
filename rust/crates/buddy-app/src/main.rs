@@ -10,6 +10,7 @@ mod logging;
 mod platform_placement;
 mod runtime;
 mod settings;
+mod settings_view;
 mod shell;
 mod theme;
 mod window_geometry;

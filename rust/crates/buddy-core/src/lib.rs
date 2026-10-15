@@ -3,6 +3,7 @@
 //! This crate has no UI dependencies so its logic can be unit-tested quickly
 //! and shared by any front end.
 
+pub mod application_settings;
 pub mod config;
 pub mod config_lock;
 pub mod convex_data;
@@ -13,7 +14,9 @@ pub mod format;
 pub mod gh;
 pub mod http;
 pub mod pollen;
+pub mod pollen_credentials;
 pub mod secrets;
+pub mod settings_backend;
 pub mod stats;
 pub mod weather;
 pub mod zoom;

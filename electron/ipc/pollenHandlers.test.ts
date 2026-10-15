@@ -7,12 +7,8 @@ vi.mock('electron', () => ({
 
 vi.mock('../config', () => ({
   configManager: {
-    getUiValue: vi.fn(),
+    getPollenApiKey: vi.fn(),
   },
-}))
-
-vi.mock('../../src/utils/errorUtils', () => ({
-  getErrorMessageWithFallback: vi.fn((_err: unknown, fallback: string) => fallback),
 }))
 
 import { ipcMain, net } from 'electron'
@@ -49,7 +45,7 @@ describe('pollenHandlers', () => {
     }
 
     it('returns no-api-key error when API key is missing', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('')
 
       const result = await invoke(location)
 
@@ -57,7 +53,7 @@ describe('pollenHandlers', () => {
     })
 
     it('returns no-api-key error when API key is undefined', async () => {
-      mockConfigManager.getUiValue.mockReturnValue(undefined as unknown as string)
+      mockConfigManager.getPollenApiKey.mockResolvedValue(undefined as unknown as string)
 
       const result = await invoke(location)
 
@@ -65,7 +61,7 @@ describe('pollenHandlers', () => {
     })
 
     it('reads the API key only once per fetch (no race condition)', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('valid-key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('valid-key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -80,11 +76,11 @@ describe('pollenHandlers', () => {
 
       await invoke(location)
 
-      expect(mockConfigManager.getUiValue).toHaveBeenCalledTimes(1)
+      expect(mockConfigManager.getPollenApiKey).toHaveBeenCalledTimes(1)
     })
 
     it('returns invalid location error for non-finite latitude', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('test-key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('test-key')
 
       const result = await invoke({ latitude: NaN, longitude: -78 })
 
@@ -92,7 +88,7 @@ describe('pollenHandlers', () => {
     })
 
     it('returns invalid location error for non-finite longitude', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('test-key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('test-key')
 
       const result = await invoke({ latitude: 35, longitude: Infinity })
 
@@ -100,7 +96,7 @@ describe('pollenHandlers', () => {
     })
 
     it('fetches from Google Pollen API with correct URL', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('my-api-key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('my-api-key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -134,7 +130,7 @@ describe('pollenHandlers', () => {
     })
 
     it('parses grass and weed pollen types', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -158,7 +154,7 @@ describe('pollenHandlers', () => {
     })
 
     it('collects health recommendations from pollen types', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -183,7 +179,7 @@ describe('pollenHandlers', () => {
     })
 
     it('returns error when API responds with non-ok status', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: false,
         status: 403,
@@ -194,12 +190,12 @@ describe('pollenHandlers', () => {
 
       expect(result).toEqual({
         success: false,
-        error: 'Google Pollen API: API key invalid',
+        error: 'Google Pollen API: HTTP 403. Check API enablement, key restrictions, and quota.',
       })
     })
 
     it('falls back to HTTP status when error body has no message', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: false,
         status: 500,
@@ -208,11 +204,14 @@ describe('pollenHandlers', () => {
 
       const result = await invoke(location)
 
-      expect(result).toEqual({ success: false, error: 'Google Pollen API: HTTP 500' })
+      expect(result).toEqual({
+        success: false,
+        error: 'Google Pollen API: HTTP 500. Check API enablement, key restrictions, and quota.',
+      })
     })
 
     it('falls back to HTTP status when error body is unparseable', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: false,
         status: 502,
@@ -223,11 +222,14 @@ describe('pollenHandlers', () => {
 
       const result = await invoke(location)
 
-      expect(result).toEqual({ success: false, error: 'Google Pollen API: HTTP 502' })
+      expect(result).toEqual({
+        success: false,
+        error: 'Google Pollen API: HTTP 502. Check API enablement, key restrictions, and quota.',
+      })
     })
 
     it('returns error when response has no dailyInfo', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({}),
@@ -242,7 +244,7 @@ describe('pollenHandlers', () => {
     })
 
     it('returns error when dailyInfo has empty arrays', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -259,7 +261,7 @@ describe('pollenHandlers', () => {
     })
 
     it('handles network errors gracefully', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockRejectedValue(new Error('Network timeout'))
 
       const result = await invoke(location)
@@ -267,8 +269,25 @@ describe('pollenHandlers', () => {
       expect(result).toEqual({ success: false, error: 'Pollen fetch failed' })
     })
 
+    it('withholds reflected credentials in provider and network errors', async () => {
+      const secret = 'fixture-key-should-never-reach-renderer'
+      mockConfigManager.getPollenApiKey.mockResolvedValue(secret)
+      const body = vi.fn().mockResolvedValue({ error: { message: `Invalid key ${secret}` } })
+      mockNetFetch.mockResolvedValue({ ok: false, status: 403, json: body } as unknown as Response)
+      const rejected = await invoke(location)
+      expect(rejected).toEqual({
+        success: false,
+        error: 'Google Pollen API: HTTP 403. Check API enablement, key restrictions, and quota.',
+      })
+      expect(body).not.toHaveBeenCalled()
+      mockNetFetch.mockRejectedValue(
+        new Error(`Request failed: https://example.invalid/?key=${secret}`)
+      )
+      expect(await invoke(location)).toEqual({ success: false, error: 'Pollen fetch failed' })
+    })
+
     it('skips plants without code or displayName', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -299,7 +318,7 @@ describe('pollenHandlers', () => {
     })
 
     it('normalizes unknown plant types to TREE', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -320,7 +339,7 @@ describe('pollenHandlers', () => {
     })
 
     it('defaults plant fields when optional data is missing', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -343,7 +362,7 @@ describe('pollenHandlers', () => {
     })
 
     it('ignores unknown pollen type codes', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -367,7 +386,7 @@ describe('pollenHandlers', () => {
     })
 
     it('handles pollenTypeInfo with missing code gracefully', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -387,7 +406,7 @@ describe('pollenHandlers', () => {
     })
 
     it('defaults indexInfo.value to 0 when value is undefined', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -406,7 +425,7 @@ describe('pollenHandlers', () => {
     })
 
     it('handles undefined pollenTypeInfo and plantInfo arrays', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -427,7 +446,7 @@ describe('pollenHandlers', () => {
     })
 
     it('handles undefined pollenTypeInfo with defined plantInfo', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('key')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('key')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -464,7 +483,7 @@ describe('pollenHandlers', () => {
     }
 
     it('returns no-api-key when value is a non-string type (number)', async () => {
-      mockConfigManager.getUiValue.mockReturnValue(42 as unknown as string)
+      mockConfigManager.getPollenApiKey.mockResolvedValue(42 as unknown as string)
 
       const result = await invoke(location)
 
@@ -472,7 +491,7 @@ describe('pollenHandlers', () => {
     })
 
     it('returns no-api-key when value is whitespace-only', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('   \t  ')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('   \t  ')
 
       const result = await invoke(location)
 
@@ -480,7 +499,7 @@ describe('pollenHandlers', () => {
     })
 
     it('trims surrounding whitespace from a valid key', async () => {
-      mockConfigManager.getUiValue.mockReturnValue('  my-key  ')
+      mockConfigManager.getPollenApiKey.mockResolvedValue('  my-key  ')
       mockNetFetch.mockResolvedValue({
         ok: true,
         json: async () => ({

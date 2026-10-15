@@ -16,6 +16,7 @@ reqwest.workspace = true
 convex.workspace = true
 keyring.workspace = true
 futures.workspace = true
+sha2 = "0.10"
 chrono.workspace = true
 sys-locale = "0.3"
 icu_decimal = "2"

@@ -220,6 +220,7 @@ pub fn parse_google_response(json: &str) -> Result<Option<PollenData>, String> {
 
 /// Google Pollen forecast URL; the key is the caller's trimmed API key.
 pub fn pollen_url(latitude: f64, longitude: f64, api_key: &str) -> String {
+    let api_key = crate::http::encode_component(api_key);
     format!(
         "https://pollen.googleapis.com/v1/forecast:lookup?key={api_key}&location.latitude={latitude}&location.longitude={longitude}&days=1"
     )
@@ -230,18 +231,6 @@ fn valid_coordinates(latitude: f64, longitude: f64) -> bool {
         && longitude.is_finite()
         && (-90.0..=90.0).contains(&latitude)
         && (-180.0..=180.0).contains(&longitude)
-}
-
-#[derive(Debug, Deserialize)]
-struct GoogleErrorBody {
-    #[serde(default)]
-    error: Option<GoogleErrorDetail>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GoogleErrorDetail {
-    #[serde(default)]
-    message: Option<String>,
 }
 
 /// `fetchPollenData`.
@@ -270,12 +259,12 @@ pub async fn fetch_pollen(
         .await
         .map_err(|err| PollenError::Message(describe_error(&err, "Pollen fetch failed")))?;
     if !status.is_success() {
-        let detail = serde_json::from_str::<GoogleErrorBody>(&body)
-            .ok()
-            .and_then(|b| b.error)
-            .and_then(|e| e.message)
-            .unwrap_or_else(|| format!("HTTP {}", status.as_u16()));
-        return Err(PollenError::Message(format!("Google Pollen API: {detail}")));
+        // Provider error text may reflect the API key. Report only trusted
+        // status and recovery text, never an upstream body or request URL.
+        return Err(PollenError::Message(format!(
+            "Google Pollen API: HTTP {}. Check API enablement, key restrictions, and quota.",
+            status.as_u16()
+        )));
     }
     match parse_google_response(&body) {
         Ok(Some(data)) => Ok(data),
@@ -326,6 +315,12 @@ mod tests {
         let url = pollen_url(35.8235, -78.8256, "AIza-test-key");
         assert!(!url.contains(char::is_whitespace), "{url}");
         assert!(url.contains("?key=AIza-test-key&location.latitude=35.8235"));
+        let key = "fixture&key=π #fragment";
+        let encoded = reqwest::Url::parse(&pollen_url(35.8235, -78.8256, key)).unwrap();
+        let pairs: Vec<_> = encoded.query_pairs().collect();
+        assert_eq!(pairs.iter().filter(|(name, _)| name == "key").count(), 1);
+        assert_eq!(pairs[0].1, key);
+        assert_eq!(encoded.fragment(), None);
     }
 
     #[test]

@@ -42,6 +42,7 @@ function SettingsWeatherActions({
   isDirty,
   apiKey,
   isConfigured,
+  statusError,
   onSave,
   onClear,
 }: {
@@ -49,6 +50,7 @@ function SettingsWeatherActions({
   isDirty: boolean
   apiKey: string
   isConfigured: boolean
+  statusError: string | null
   onSave: () => void
   onClear: () => void
 }) {
@@ -74,38 +76,65 @@ function SettingsWeatherActions({
           </button>
         )}
       </div>
-      <ApiKeyStatus isConfigured={isConfigured} />
+      {statusError ? (
+        <p role="alert" className="settings-status-text">
+          {statusError}
+        </p>
+      ) : (
+        <ApiKeyStatus isConfigured={isConfigured} />
+      )}
     </>
   )
 }
 
 export function SettingsWeather() {
   const [apiKey, setApiKey] = useState('')
-  const [savedKey, setSavedKey] = useState('')
+  const [isConfigured, setIsConfigured] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showKey, setShowKey] = useState(false)
 
   useEffect(() => {
+    let active = true
     window.ipcRenderer
       .invoke(IPC_INVOKE.CONFIG_GET_POLLEN_API_KEY)
-      .then((key: string) => {
-        setApiKey(key || '')
-        setSavedKey(key || '')
+      .then((status: { configured: boolean; error?: string }) => {
+        if (!status || typeof status.configured !== 'boolean' || status.error) {
+          throw new Error('Secure credential status unavailable')
+        }
+        if (active) setIsConfigured(status.configured)
       })
       .catch(() => {
-        /* IPC unavailable */
+        if (active)
+          setError(
+            'Could not read the saved key. Unlock secure storage, or save your preferred key again to finish migration.'
+          )
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   const handleSave = async () => {
     setSaving(true)
+    setError(null)
     try {
-      await window.ipcRenderer.invoke(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, apiKey.trim())
-      setSavedKey(apiKey.trim())
+      const result = await window.ipcRenderer.invoke(
+        IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY,
+        apiKey.trim()
+      )
+      if (!result?.success) throw new Error('Secure save failed')
+      setIsConfigured(true)
+      setApiKey('')
+      setShowKey(false)
     } catch (_: unknown) {
-      /* IPC error */
+      setError(
+        'Could not save the key. Check secure storage and configuration-file permissions, then try again.'
+      )
     } finally {
       setSaving(false)
     }
@@ -113,19 +142,23 @@ export function SettingsWeather() {
 
   const handleClear = async () => {
     setSaving(true)
+    setError(null)
     try {
-      await window.ipcRenderer.invoke(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, '')
+      const result = await window.ipcRenderer.invoke(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, '')
+      if (!result?.success) throw new Error('Secure clear failed')
       setApiKey('')
-      setSavedKey('')
+      setIsConfigured(false)
+      setShowKey(false)
     } catch (_: unknown) {
-      /* IPC error */
+      setError(
+        'Could not clear the key. Check secure storage and configuration-file permissions, then try again.'
+      )
     } finally {
       setSaving(false)
     }
   }
 
-  const isDirty = apiKey.trim() !== savedKey
-  const isConfigured = savedKey.length > 0
+  const isDirty = apiKey.trim().length > 0
 
   if (loading) {
     return (
@@ -154,9 +187,8 @@ export function SettingsWeather() {
             </h3>
           </div>
           <p className="section-description">
-            Pollen data is provided by the Google Pollen API. Create a free Google Cloud API key (no
-            credit card required, 10,000 calls/month) to see tree, grass, and weed pollen levels in
-            your weather card.
+            Use a Google Cloud API key with the Pollen API enabled to see tree, grass, and weed
+            pollen levels in your weather card.
           </p>
 
           <div className="settings-field-group">
@@ -171,7 +203,11 @@ export function SettingsWeather() {
                 className="settings-input"
                 placeholder="Enter your Google Cloud API key…"
                 value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
+                disabled={saving}
+                onChange={e => {
+                  setApiKey(e.target.value)
+                  setError(null)
+                }}
                 autoComplete="off"
               />
               <button
@@ -179,6 +215,7 @@ export function SettingsWeather() {
                 className="settings-btn settings-btn-secondary"
                 onClick={() => setShowKey(!showKey)}
                 title={showKey ? 'Hide key' : 'Show key'}
+                disabled={saving}
               >
                 {showKey ? 'Hide' : 'Show'}
               </button>
@@ -190,13 +227,14 @@ export function SettingsWeather() {
             isDirty={isDirty}
             apiKey={apiKey}
             isConfigured={isConfigured}
+            statusError={error}
             onSave={handleSave}
             onClear={handleClear}
           />
 
           <div className="info-box">
             <p>
-              <strong>Get a free API key:</strong>
+              <strong>Configure your API key:</strong>
             </p>
             <p>
               <a
@@ -217,8 +255,8 @@ export function SettingsWeather() {
               Credentials.
             </p>
             <p className="mt-2">
-              <strong>Privacy:</strong> Your API key is stored locally in the app configuration
-              file. It is never sent to any server other than Google.
+              <strong>Privacy:</strong> Saved keys use your OS credential store. This form never
+              displays a saved key. Pollen requests send the key only to Google.
             </p>
           </div>
         </div>

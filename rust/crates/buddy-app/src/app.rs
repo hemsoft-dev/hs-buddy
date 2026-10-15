@@ -13,6 +13,7 @@ use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::platform_placement;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
+use crate::settings_view::SettingsView;
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
 use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
@@ -105,6 +106,7 @@ pub struct BuddyApp {
     /// The account the `gh` CLI is currently using, once resolved.
     pub active_account: Option<String>,
     dashboard: Entity<DashboardView>,
+    settings_view: Entity<SettingsView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -284,6 +286,7 @@ impl BuddyApp {
             active_section: section,
             active_account: None,
             dashboard,
+            settings_view: cx.new(|_| SettingsView::new()),
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -296,6 +299,7 @@ impl BuddyApp {
         let container = div().flex_1().min_h_0().w_full().bg(theme.background);
         match self.active_section {
             None => container.child(self.dashboard.clone()),
+            Some(Section::Settings) => container.child(self.settings_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -373,6 +377,7 @@ mod tests {
                         active_section: Some(Section::GitHub),
                         active_account: None,
                         dashboard,
+                        settings_view: cx.new(|_| SettingsView::new()),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

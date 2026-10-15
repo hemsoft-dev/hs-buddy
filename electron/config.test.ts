@@ -17,6 +17,16 @@ vi.mock('electron', () => ({
   },
 }))
 import { safeStorage } from 'electron'
+const protectedPollen = vi.hoisted(() => ({
+  load: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+  save: vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined),
+}))
+vi.mock('./services/pollenCredentials', () => ({
+  PollenCredentials: class {
+    load = protectedPollen.load
+    save = protectedPollen.save
+  },
+}))
 const configFixture = vi.hoisted(() => ({ initial: {} as Record<string, unknown> }))
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -100,10 +110,10 @@ vi.mock('../src/types/config', () => ({
 import { configManager, CONVEX_URL } from './config'
 
 describe('config', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     vi.mocked(safeStorage.isEncryptionAvailable).mockReturnValue(false)
-    configManager.reset()
+    await configManager.reset()
   })
 
   it('exports CONVEX_URL as a string', () => {
@@ -111,13 +121,13 @@ describe('config', () => {
     expect(CONVEX_URL.length).toBeGreaterThan(0)
   })
 
-  it('routes weather coordinates to protected session storage without plaintext config writes', () => {
+  it('routes weather coordinates to protected session storage without plaintext config writes', async () => {
     const location = { latitude: 12.3456, longitude: -65.4321, name: 'Private place' }
     configManager.setUiValue('weatherLocation', location)
     expect(configManager.getUiValue('weatherLocation')).toEqual(location)
     expect(JSON.stringify(configManager.getConfig())).not.toContain('12.3456')
     expect(JSON.stringify(configManager.getConfig())).not.toContain('Private place')
-    configManager.reset()
+    await configManager.reset()
     expect(configManager.getUiValue('weatherLocation')).toBeNull()
   })
 
@@ -498,6 +508,38 @@ describe('config', () => {
       const config = configManager.getConfig()
       expect(config).toBeDefined()
     })
+
+    it('redacts a legacy key from full snapshots and the generic UI getter', async () => {
+      configFixture.initial = { ui: { pollenApiKey: 'private-fixture-key', future: 7 } }
+      try {
+        vi.resetModules()
+        const manager = (await import('./config')).configManager
+        expect(manager.getUiValue('pollenApiKey')).toBe('')
+        expect(manager.getConfig().ui.pollenApiKey).toBe('')
+        expect(JSON.stringify(manager.getConfig())).not.toContain('private-fixture-key')
+        expect((manager.getConfig().ui as unknown as { future: number }).future).toBe(7)
+        expect(() => manager.setUiValue('pollenApiKey', 'new-fixture-key')).toThrow(
+          'secure storage'
+        )
+      } finally {
+        configFixture.initial = {}
+      }
+    })
+
+    it('routes provider reads and saves through the protected module', async () => {
+      protectedPollen.load.mockResolvedValueOnce('protected-fixture')
+      expect(await configManager.getPollenApiKey()).toBe('protected-fixture')
+      await configManager.setPollenApiKey('new-fixture-key')
+      expect(protectedPollen.save).toHaveBeenLastCalledWith('new-fixture-key')
+      expect(JSON.stringify(configManager.getConfig())).not.toContain('new-fixture-key')
+    })
+
+    it('does not erase settings when secure reset fails', async () => {
+      configManager.addGitHubAccount({ username: 'user', org: 'org' })
+      protectedPollen.save.mockRejectedValueOnce(new Error('vault unavailable'))
+      await expect(configManager.reset()).rejects.toThrow('vault unavailable')
+      expect(configManager.getGitHubAccounts()).toEqual([{ username: 'user', org: 'org' }])
+    })
   })
 
   describe('migrateFromEnv', () => {
@@ -542,9 +584,9 @@ describe('config', () => {
       expect(typeof storePath).toBe('string')
     })
 
-    it('reset clears the store', () => {
+    it('reset clears the store', async () => {
       configManager.addGitHubAccount({ username: 'user', org: 'org' })
-      configManager.reset()
+      await configManager.reset()
       const accounts = configManager.getGitHubAccounts()
       expect(accounts).toEqual([])
     })

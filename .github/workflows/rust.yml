@@ -13,6 +13,7 @@ on:
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
+      - 'electron/services/pollenCredentials*'
       - 'public/icon-512.png'
       - 'public/icon.ico'
       - 'LICENSE'
@@ -25,6 +26,7 @@ on:
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
+      - 'electron/services/pollenCredentials*'
       - 'public/icon-512.png'
       - 'public/icon.ico'
       - 'LICENSE'
@@ -67,7 +69,7 @@ jobs:
             build-essential cmake clang pkg-config mold \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
             libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
-            libssl-dev libdbus-1-dev
+            libssl-dev libdbus-1-dev dbus-x11 gnome-keyring libglib2.0-bin
 
       - name: Install macOS desktop qualification tools
         if: runner.os == 'macOS'
@@ -111,6 +113,44 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Install the shared credential adapter
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Build the credential interop probe
+        run: cargo build -p buddy-core --example pollen-credential-probe
+
+      - name: Qualify credential sharing on Windows and macOS
+        if: runner.os != 'Linux'
+        working-directory: .
+        env:
+          BUDDY_CREDENTIAL_FIXTURE: '1'
+          BUDDY_CREDENTIAL_EVIDENCE: ${{ runner.temp }}/native-evidence/credentials/interop.json
+        run: bun scripts/native-smoke/credential-interop.ts
+
+      - name: Qualify persistent Secret Service credential sharing
+        if: runner.os == 'Linux'
+        working-directory: .
+        env:
+          BUDDY_CREDENTIAL_FIXTURE: '1'
+          BUDDY_CREDENTIAL_EVIDENCE: ${{ runner.temp }}/native-evidence/credentials/interop.json
+          XDG_DATA_HOME: ${{ runner.temp }}/buddy-credential-session/data
+          XDG_CACHE_HOME: ${{ runner.temp }}/buddy-credential-session/cache
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/buddy-credential-session/runtime
+        run: |
+          mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR/keyring"
+          chmod 700 "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR/keyring"
+          dbus-run-session -- bash -euo pipefail <<'CREDENTIAL_SESSION'
+          printf '\n' | gnome-keyring-daemon --unlock --foreground --components=secrets \
+            --control-directory="$XDG_RUNTIME_DIR/keyring" > "$XDG_RUNTIME_DIR/keyring.log" 2>&1 &
+          keyring_pid=$!
+          trap 'kill "$keyring_pid" 2>/dev/null || true; wait "$keyring_pid" 2>/dev/null || true' EXIT
+          gdbus wait --session --timeout 10 org.freedesktop.secrets
+          bun scripts/native-smoke/credential-interop.ts
+          CREDENTIAL_SESSION
 
       - name: Package and visual failure guards
         working-directory: .
