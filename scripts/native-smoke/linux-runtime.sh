@@ -4,6 +4,19 @@ set -euo pipefail
 [[ "${GITHUB_ACTIONS:-}" == true && -f /.dockerenv && "$EUID" == 0 ]]
 . /etc/os-release
 [[ "$ID" == ubuntu && "$VERSION_ID" == 24.04 ]]
+[[ "${BUDDY_EVIDENCE_OWNER:-}" =~ ^[0-9]+:[0-9]+$ && -d /evidence && ! -L /evidence ]]
+# The app intentionally saves configuration with mode 0600. Restore ownership
+# of this owned bind mount for the host artifact uploader, retaining those modes.
+finish_evidence() {
+  result=$?
+  trap - EXIT
+  if ! chown -hR -- "$BUDDY_EVIDENCE_OWNER" /evidence; then
+    echo 'Could not restore native evidence ownership' >&2 || true
+    if [[ "$result" == 0 ]]; then result=1; fi
+  fi
+  exit "$result"
+}
+trap finish_evidence EXIT
 export DEBIAN_FRONTEND=noninteractive
 # Node's mkdtemp build directory is 0700 and stays read-only on the host.
 # Give the container's test user a readable copy, without widening that mount.

@@ -30,6 +30,7 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     --mount "type=bind,source=$package_directory,target=/package,readonly" \
     --mount "type=bind,source=$output,target=/evidence" \
     --env GITHUB_ACTIONS=true \
+    --env "BUDDY_EVIDENCE_OWNER=$(stat -c '%u:%g' "$output")" \
     ubuntu:24.04 bash /source/scripts/native-smoke/linux-runtime.sh
   exit
 fi

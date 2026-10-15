@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1340] - 2026-10-15
+
+### Fixed
+
+- Preserve Linux qualification evidence for the runner
+
 ## [0.1.1339] - 2026-10-15
 
 ### Fixed

@@ -69,6 +69,11 @@ class DashboardGate(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             require_dashboard("Your Universal Productivity Companion Customize 0.1.1", "0.1.2")
 
+    def test_a_version_prefix_cannot_qualify_a_different_release(self):
+        for observed in ("0.1.20", "10.1.2", "0.1.2.1"):
+            with self.subTest(observed=observed), self.assertRaises(RuntimeError):
+                require_dashboard(f"Your Universal Productivity Companion Customize {observed}", "0.1.2")
+
     def test_body_and_current_version_pass(self):
         require_dashboard("Your Universal\nProductivity Companion Customize Version 0.1.2", "0.1.2")
 

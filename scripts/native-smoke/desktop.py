@@ -38,15 +38,25 @@ def run(*args, **kwargs):
 def require_dashboard(text, version):
     normalized = re.sub(r"\s+", " ", text).lower()
     # Dashboard in the tab bar alone does not prove that the body rendered.
-    for marker in ("universal productivity companion", "customize", version):
+    for marker in ("universal productivity companion", "customize"):
         if marker not in normalized:
             raise RuntimeError(f"Dashboard screenshot is missing {marker!r}")
+    if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", normalized):
+        raise RuntimeError(f"Dashboard screenshot is missing exact version {version!r}")
 
 
 def inspect_screenshot(path, version):
     text = run("tesseract", path, "stdout", "--psm", "11")
     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
-    require_dashboard(text, version)
+    try:
+        require_dashboard(text, version)
+    except RuntimeError as error:
+        # Bounded numeric version candidates diagnose OCR without dumping app
+        # contents. Keep the exact-version gate and its original failure.
+        candidates = re.findall(r"(?i)(?<![\w.])[0-9o]{1,6}\s*\.\s*[0-9o]{1,6}\s*\.\s*[0-9o]{1,8}(?![\w.])", text)
+        finish_cleanup(lambda: print(f"Dashboard OCR version candidates: {candidates[:4]!r}", file=sys.stderr),
+                       error, "OCR diagnostics")
+        raise
 
 
 def inspect_keyboard_menu(path, version):
