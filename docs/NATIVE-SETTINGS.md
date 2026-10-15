@@ -170,6 +170,8 @@ adjacent Save glyph's measured pixel bounds to exclude its focus border. The
 analysis is scaled with nearest-neighbor pixels and must read the exact draft;
 extra text and ambiguous glyphs fail. Full-window OCR can omit a correctly
 rendered focused input on both macOS and Linux.
+The fixture tabs out after entering its last draft so a blinking insertion
+caret cannot be mistaken for an additional letter in the captured value.
 The backend fixture snapshots its generated selector after the CLI reports
 completed setup. It still preserves and rejects changes made after readiness.
 Window captures and recordings cover both themes and the two qualification sizes.
