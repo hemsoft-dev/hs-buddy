@@ -32,6 +32,7 @@ public static class Drive {
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW")] public static extern IntPtr GetClassLongPtr(IntPtr h, int index);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SendMessageTimeoutW(IntPtr h, uint message, IntPtr wparam, ref RECT rect, uint flags, uint timeout, out UIntPtr result);
@@ -247,7 +248,7 @@ try {
                 Start-Sleep -Milliseconds 900
                 $actual = New-Object Drive+RECT
                 if (-not [Drive]::GetWindowRect($h, [ref]$actual)) { throw 'Owned window disappeared after the DPI event' }
-                $size = @{ width = $actual.r - $actual.l; height = $actual.b - $actual.t; units = 'Windows outer physical pixels'; simulatedDpi = $dpi; actualMonitorDpi = [Drive]::GetDpiForWindow($h) }
+                $size = @{ width = $actual.r - $actual.l; height = $actual.b - $actual.t; units = 'Windows outer physical pixels'; simulatedDpi = $dpi; actualMonitorDpi = [Drive]::GetDpiForWindow($h); defaultMaxTrackWidth = [Drive]::GetSystemMetrics(59); defaultMaxTrackHeight = [Drive]::GetSystemMetrics(60) }
                 Note "simulated DPI=$dpi requested $($parts[2])x$($parts[3]); observed $($size.width)x$($size.height)"
                 if ([Math]::Abs($size.width - [int]$parts[2]) -gt 2 -or [Math]::Abs($size.height - [int]$parts[3]) -gt 2) { throw 'Owned window ignored or clamped the simulated DPI rectangle' }
                 $size | ConvertTo-Json | Set-Content (Join-Path ([IO.Path]::GetDirectoryName($Log)) "dpi-$dpi.json")
@@ -260,6 +261,7 @@ try {
                 $r = New-Object Drive+RECT; $d = New-Object Drive+RECT
                 [Drive]::GetWindowRect($h,[ref]$r) | Out-Null; $result=[Drive]::DwmGetWindowAttribute($h,9,[ref]$d,16)
                 Note ("geometry: raw={0},{1},{2},{3} dwm={4},{5},{6},{7} dpi={8} result={9}" -f $r.l,$r.t,$r.r,$r.b,$d.l,$d.t,$d.r,$d.b,[Drive]::GetDpiForWindow($h),$result)
+                Note ("desktop={0}x{1}; default max-track={2}x{3}" -f [Drive]::GetSystemMetrics(0),[Drive]::GetSystemMetrics(1),[Drive]::GetSystemMetrics(59),[Drive]::GetSystemMetrics(60))
             }
             'rect' {
                 $rect = New-Object Drive+RECT

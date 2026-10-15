@@ -174,8 +174,8 @@ def windows(executable, directory, config, restored=False):
             "resize:80:80:900:650", "geometry",
             f"capture:{directory / 'resized.png'}", "focus", "ctrlkey:187",
             f"capture:{directory / 'zoomed.png'}",
-            "simulated-dpi:144:1350:975",
-            f"capture:{directory / 'dpi-simulated-150-percent.png'}",
+            "simulated-dpi:120:1125:813",
+            f"capture:{directory / 'dpi-simulated-125-percent.png'}",
             "simulated-dpi:96:900:650",
             f"classicon:{directory / 'registered-window-icons.png'}",
             "record-stop",
@@ -196,7 +196,7 @@ def require_size(actual, width, height):
 
 def require_dpi_sequence(directory):
     # Both the scale-up and the return event must actually resize the HWND.
-    for dpi, width, height in ((144, 1350, 975), (96, 900, 650)):
+    for dpi, width, height in ((120, 1125, 813), (96, 900, 650)):
         actual = json.loads((directory / f"dpi-{dpi}.json").read_text(encoding="utf-8-sig"))
         if actual["simulatedDpi"] != dpi or not math.isfinite(actual["actualMonitorDpi"]) or actual["actualMonitorDpi"] <= 0:
             raise RuntimeError("Unreadable simulated versus actual monitor DPI")
@@ -437,7 +437,7 @@ def main():
         inspect_keyboard_menu(directory / "keyboard-menu.png", args.version)
         encode_recording(directory)
         if args.session == "windows":
-            inspect_screenshot(directory / "dpi-simulated-150-percent.png", args.version)
+            inspect_screenshot(directory / "dpi-simulated-125-percent.png", args.version)
         zoom = json.loads((directory / "zoom-level.json").read_text(encoding="utf-8-sig"))
         if abs(zoom["zoomFactor"] - 1.1) > 0.001:
             raise RuntimeError("Keyboard zoom did not persist 110%")

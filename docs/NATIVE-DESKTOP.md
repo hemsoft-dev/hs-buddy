@@ -135,8 +135,10 @@ control as well as the header and exact release version. It checks both themes,
 actual window dimensions after resize, keyboard zoom and quit,
 saved placement after restart, disconnected-display recovery, and preservation
 of an unknown settings field. Tab then Enter must open the File menu before a
-mouse click. Windows also sends a simulated 96-to-144-to-96 `WM_DPICHANGED`
-sequence to the owned window and checks its rendered dashboard at 150% scale.
+mouse click. Windows also sends a simulated 96-to-120-to-96 `WM_DPICHANGED`
+sequence to the owned window and checks its rendered dashboard at 125% scale.
+The 1125 x 813 scale-up fits the hosted desktop's window tracking limits;
+the driver records those limits rather than assuming an unlimited display.
 Each event must apply its requested physical bounds, including the return to
 96 DPI. The driver records measured bounds and rejects ignored or clamped events.
 The log retains the actual monitor DPI separately. macOS captures record both
