@@ -1,0 +1,23 @@
+{
+  "productName": "Buddy Native",
+  "identifier": "com.hemsoft.buddy.native",
+  "binaryName": "buddy-native",
+  "packagerVersion": "0.11.8",
+  "minimumMacOsVersion": "15.0",
+  "linuxDependencies": [
+    "libc6 (>= 2.39)",
+    "libgcc-s1",
+    "libstdc++6",
+    "libfontconfig1",
+    "libfreetype6",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "libxcb1",
+    "libxcb-xkb1",
+    "libwayland-client0",
+    "libvulkan1",
+    "mesa-vulkan-drivers | vulkan-icd",
+    "libasound2t64",
+    "libdbus-1-3"
+  ]
+}

@@ -184,6 +184,19 @@ pub fn restore_bounds(window: &Window, cx: &App) -> Option<Bounds<Pixels>> {
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = cx;
+        #[cfg(target_os = "linux")]
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if HasWindowHandle::window_handle(window)
+                .is_ok_and(|handle| matches!(handle.as_raw(), RawWindowHandle::Wayland(_)))
+            {
+                // Wayland's surface includes client shadow padding; the
+                // compositor's visible window geometry excludes that padding.
+                let mut bounds = window.inner_window_bounds().get_bounds();
+                bounds.origin = gpui_kit::point(gpui_kit::px(0.0), gpui_kit::px(0.0));
+                return Some(bounds);
+            }
+        }
         Some(window.window_bounds().get_bounds())
     }
 }
@@ -232,7 +245,7 @@ mod macos {
 /// window. This uses OS placement APIs so private GPUI frame metrics never
 /// need to be duplicated.
 pub fn apply_restore_bounds(
-    window: &Window,
+    window: &mut Window,
     bounds: Bounds<Pixels>,
     cx: &App,
     physical: Option<DisplayRect>,
@@ -241,8 +254,87 @@ pub fn apply_restore_bounds(
     if let Err(err) = windows::apply_restore_bounds(window, bounds, cx, physical) {
         log::warn!("could not restore outer window rectangle: {err}");
     }
+    #[cfg(target_os = "linux")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if HasWindowHandle::window_handle(window)
+            .is_ok_and(|handle| matches!(handle.as_raw(), RawWindowHandle::Wayland(_)))
+        {
+            // Root establishes its decoration inset during the first render.
+            // Resize the surface afterwards so the visible geometry matches
+            // the saved size. Global placement remains the compositor's.
+            window.on_next_frame(move |window, _| {
+                let surface = window.window_bounds().get_bounds().size;
+                let geometry = window.inner_window_bounds().get_bounds().size;
+                window.resize(surface_size_for_geometry(bounds.size, surface, geometry));
+            });
+        } else if let Err(err) = apply_x11_restore_bounds(window, bounds) {
+            log::warn!("could not restore X11 window rectangle: {err}");
+        }
+    }
     #[cfg(not(windows))]
     let _ = (window, bounds, cx, physical);
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn surface_size_for_geometry(
+    requested: gpui_kit::Size<Pixels>,
+    surface: gpui_kit::Size<Pixels>,
+    geometry: gpui_kit::Size<Pixels>,
+) -> gpui_kit::Size<Pixels> {
+    let extent = |requested: Pixels, surface: Pixels, geometry: Pixels| {
+        gpui_kit::px(f32::from(requested) + (f32::from(surface) - f32::from(geometry)).max(0.0))
+    };
+    gpui_kit::size(
+        extent(requested.width, surface.width, geometry.width),
+        extent(requested.height, surface.height, geometry.height),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn apply_x11_restore_bounds(
+    window: &Window,
+    bounds: Bounds<Pixels>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use x11rb::connection::Connection;
+    use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
+    use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt, Gravity};
+
+    let handle = HasWindowHandle::window_handle(window)?;
+    let id = match handle.as_raw() {
+        RawWindowHandle::Xcb(handle) => handle.window.get(),
+        RawWindowHandle::Xlib(handle) => handle.window as u32,
+        // Wayland deliberately leaves global window placement to its compositor.
+        _ => return Ok(()),
+    };
+    let scale = window.scale_factor();
+    let x = (f32::from(bounds.origin.x) * scale).round() as i32;
+    let y = (f32::from(bounds.origin.y) * scale).round() as i32;
+    let width = (f32::from(bounds.size.width) * scale).round() as u32;
+    let height = (f32::from(bounds.size.height) * scale).round() as u32;
+    let (connection, _) = x11rb::connect(None)?;
+    let mut hints = WmSizeHints::get_normal_hints(&connection, id)?
+        .reply()?
+        .unwrap_or_default();
+    // GPUI supplies min/max sizes but no position hint. A WM such as Openbox
+    // therefore centers each restored window as though it were a first launch.
+    // Keep those sizing hints and identify the persisted position as the user's.
+    hints.position = Some((WmSizeHintsSpecification::UserSpecified, x, y));
+    hints.win_gravity = Some(Gravity::STATIC);
+    hints.set_normal_hints(&connection, id)?.check()?;
+    connection
+        .configure_window(
+            id,
+            &ConfigureWindowAux::new()
+                .x(x)
+                .y(y)
+                .width(width)
+                .height(height),
+        )?
+        .check()?;
+    connection.flush()?;
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -594,5 +686,26 @@ mod geometry_tests {
         assert!(geometry_matches_monitor(geometry, monitor));
         let scaled = crate::windows_coordinates::Monitor::new(1, display, display, 1.5);
         assert!(!geometry_matches_monitor(geometry, scaled));
+    }
+
+    #[test]
+    fn restored_wayland_geometry_adds_measured_shadow_padding_once() {
+        use gpui_kit::{px, size};
+        assert_eq!(
+            surface_size_for_geometry(
+                size(px(900.0), px(650.0)),
+                size(px(940.0), px(690.0)),
+                size(px(900.0), px(650.0))
+            ),
+            size(px(940.0), px(690.0))
+        );
+        assert_eq!(
+            surface_size_for_geometry(
+                size(px(900.0), px(650.0)),
+                size(px(900.0), px(650.0)),
+                size(px(900.0), px(650.0))
+            ),
+            size(px(900.0), px(650.0))
+        );
     }
 }

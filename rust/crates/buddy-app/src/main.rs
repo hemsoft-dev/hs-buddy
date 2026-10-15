@@ -4,6 +4,7 @@
 
 mod app;
 mod assets;
+mod command_line;
 mod dashboard;
 mod logging;
 mod platform_placement;
@@ -65,6 +66,8 @@ fn resolve_saved_placement(
     primary: Option<usize>,
     screen_local: bool,
 ) -> Option<(Bounds<Pixels>, Option<DisplayId>)> {
+    // Wayland exposes connected outputs but has no designated primary.
+    let primary = primary.or_else(|| (!displays.is_empty()).then_some(0));
     let uuids: Vec<_> = displays
         .iter()
         .map(|display| display.uuid.clone())
@@ -145,7 +148,7 @@ fn native_window_options(placement: &InitialPlacement) -> WindowOptions {
         display_id: placement.display_id,
         window_min_size: Some(size(px(800.0), px(600.0))),
         window_decorations: Some(WindowDecorations::Client),
-        app_id: Some("com.hemsoft.buddy".into()),
+        app_id: Some(env!("BUDDY_APP_ID").into()),
         titlebar: Some(TitlebarOptions {
             title: Some("Buddy".into()),
             ..TitleBar::title_bar_options()
@@ -167,7 +170,8 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
             area: area(display),
         })
         .collect();
-    let primary = cx.primary_display().map(|display| area(&display));
+    let primary_display = cx.primary_display().or_else(|| connected.first().cloned());
+    let primary = primary_display.as_ref().map(area);
     let default_size = size(px(1280.0), px(820.0));
     // First launch (or an unusable saved state): the default size fitted to
     // and centred on the primary work area, so a 1366×768 screen gets a
@@ -182,7 +186,7 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
         InitialPlacement {
             bounds: WindowBounds::Windowed(placed),
             enter_full_screen: false,
-            display_id: cx.primary_display().map(|display| display.id()),
+            display_id: primary_display.as_ref().map(|display| display.id()),
             restore_outer: None,
             restore_physical: None,
         }
@@ -195,7 +199,7 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
     // macOS rectangles are screen-local, and all screens have origin zero.
     // A disconnected saved UUID must resolve against the primary display,
     // rather than arbitrarily matching another screen with the same size.
-    let primary_index = cx.primary_display().and_then(|primary| {
+    let primary_index = primary_display.as_ref().and_then(|primary| {
         displays
             .iter()
             .position(|display| display.id == primary.id())
@@ -218,16 +222,81 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
         WindowBounds::Maximized(_) => WindowBounds::Maximized(gpui_bounds),
         WindowBounds::Fullscreen(_) => WindowBounds::Fullscreen(gpui_bounds),
     };
+    let restore_native_bounds = cfg!(windows)
+        || (cfg!(target_os = "linux") && matches!(window_bounds, WindowBounds::Windowed(_)));
     InitialPlacement {
         bounds: window_bounds,
         enter_full_screen,
         display_id,
-        restore_outer: cfg!(windows).then_some(bounds),
+        restore_outer: restore_native_bounds.then_some(bounds),
         restore_physical: platform_placement::physical_bounds_for_state(&state, bounds, cx),
     }
 }
 
+fn open_primary_window(cx: &mut App) {
+    let placement = initial_window_bounds(cx);
+    let options = native_window_options(&placement);
+    gpui_kit::open_window(options, cx, |window, cx| {
+        if let Some(bounds) = placement.restore_outer {
+            platform_placement::apply_restore_bounds(
+                window,
+                bounds,
+                cx,
+                placement.restore_physical,
+            );
+        }
+        // Quit while the owned HWND still exists, before Windows teardown.
+        window.on_window_should_close(cx, |_, cx| {
+            cx.quit();
+            false
+        });
+        if placement.enter_full_screen {
+            window.on_next_frame(|window, _| window.toggle_fullscreen());
+        }
+        cx.new(|cx| BuddyApp::new(window, cx))
+    })
+    .expect("failed to open the Buddy window");
+    cx.activate(true);
+}
+
+fn open_when_displays_ready(cx: &mut App) {
+    if !cx.displays().is_empty() {
+        open_primary_window(cx);
+        return;
+    }
+    // Wayland output properties arrive after the initial registry callback.
+    // Let the event loop receive them before fitting saved geometry. A host
+    // with no outputs still takes the existing fallback after two seconds.
+    cx.spawn(async |cx| {
+        for _ in 0..100 {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(20))
+                .await;
+            if cx.update(|cx| !cx.displays().is_empty()) {
+                break;
+            }
+        }
+        cx.update(open_primary_window);
+    })
+    .detach();
+}
+
 fn main() {
+    match command_line::parse(std::env::args_os().skip(1)) {
+        Ok(command_line::Command::Open) => {}
+        Ok(command_line::Command::Help) => {
+            command_line::print_help();
+            return;
+        }
+        Ok(command_line::Command::Version) => {
+            println!("{} {}", env!("BUDDY_PRODUCT_NAME"), env!("BUDDY_VERSION"));
+            return;
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    }
     logging::init();
 
     let config = match AppConfig::load() {
@@ -250,8 +319,7 @@ fn main() {
             zoom::init(cx);
 
             cx.bind_keys([
-                KeyBinding::new("ctrl-q", Quit, None),
-                KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("secondary-q", Quit, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
@@ -291,36 +359,28 @@ fn main() {
             })
             .detach();
 
-            let placement = initial_window_bounds(cx);
-            let options = native_window_options(&placement);
-
-            gpui_kit::open_window(options, cx, |window, cx| {
-                if let Some(bounds) = placement.restore_outer {
-                    platform_placement::apply_restore_bounds(window, bounds, cx, placement.restore_physical);
-                }
-                // Closing the only window quits the app, so quit while the
-                // window still exists instead of letting the OS destroy it
-                // first: GPUI's Windows teardown (`WindowsWindow::drop`) then
-                // runs on a live HWND rather than logging invalid-handle
-                // errors for an already destroyed one, and the title-bar
-                // close button takes the same path as File → Exit.
-                window.on_window_should_close(cx, |_, cx| {
-                    cx.quit();
-                    false
-                });
-                if placement.enter_full_screen {
-                    window.on_next_frame(|window, _| window.toggle_fullscreen());
-                }
-                cx.new(|cx| BuddyApp::new(window, cx))
-            })
-            .expect("failed to open the Buddy window");
-            cx.activate(true);
+            open_when_displays_ready(cx);
         });
 }
 
 #[cfg(test)]
 mod placement_tests {
     use super::*;
+
+    #[test]
+    fn a_compositor_without_a_primary_output_retains_saved_size_on_recovery() {
+        let state = WindowState {
+            x: 50000.0,
+            y: 50000.0,
+            width: 900.0,
+            height: 650.0,
+            ..WindowState::default()
+        };
+        let (bounds, _) = resolve_saved_placement(&state, &[display(1, "output")], None, false)
+            .expect("a connected output can recover saved geometry without a primary");
+        assert_eq!(bounds.size, size(px(900.0), px(650.0)));
+        assert_eq!(bounds.origin, point(px(510.0), px(215.0)));
+    }
 
     fn display(id: u64, uuid: &str) -> SavedDisplay {
         let bounds = Bounds {

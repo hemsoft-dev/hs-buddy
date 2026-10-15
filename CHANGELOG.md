@@ -9,6 +9,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1348] - 2026-10-15
+
+### Fixed
+
+- Scale DPI qualification from framed minimum size
+
+## [0.1.1347] - 2026-10-15
+
+### Fixed
+
+- Fit DPI qualification within desktop tracking limits
+
+## [0.1.1346] - 2026-10-15
+
+### Fixed
+
+- Restore Wayland geometry after display discovery
+
+## [0.1.1345] - 2026-10-15
+
+### Fixed
+
+- Validate DPI bounds and retain the Wayland keyboard seat
+
+## [0.1.1344] - 2026-10-15
+
+### Fixed
+
+- Require measured bounds for both simulated DPI events
+
+## [0.1.1343] - 2026-10-15
+
+### Fixed
+
+- Preserve Wayland menu input and assert overlay content
+
+## [0.1.1342] - 2026-10-15
+
+### Fixed
+
+- Verify native cards geometry icons and window capture
+
+## [0.1.1341] - 2026-10-15
+
+### Fixed
+
+- Make the native release version readable
+
+## [0.1.1340] - 2026-10-15
+
+### Fixed
+
+- Preserve Linux qualification evidence for the runner
+
+## [0.1.1339] - 2026-10-15
+
+### Fixed
+
+- Qualify bundled assets and honor desktop driver deadlines
+
+## [0.1.1338] - 2026-10-15
+
+### Fixed
+
+- Preserve primary native qualification failures
+
+## [0.1.1337] - 2026-10-14
+
+### Fixed
+
+- Make container qualification package readable to test user
+
+## [0.1.1336] - 2026-10-14
+
+### Fixed
+
+- Bundle Mac license notice without an install prompt
+
+## [0.1.1335] - 2026-10-14
+
+### Changed
+
+- Preserve native compiler cache after UI failures
+
+## [0.1.1334] - 2026-10-14
+
+### Fixed
+
+- Qualify readable light theme desktop rendering
+
+## [0.1.1333] - 2026-10-14
+
+### Fixed
+
+- Show the platform quit shortcut in native menus
+
+## [0.1.1332] - 2026-10-14
+
+### Fixed
+
+- Preserve X11 placement when restoring native windows
+
+## [0.1.1331] - 2026-10-14
+
+### Changed
+
+- Qualify native runtime dependencies without build tooling
+
+## [0.1.1330] - 2026-10-14
+
+### Fixed
+
+- Enable initial keyboard focus and exercise desktop scaling
+
+## [0.1.1329] - 2026-10-14
+
+### Added
+
+- Package and exercise native desktop targets
+
 ## [0.1.1328] - 2026-10-14
 
 ### Added
