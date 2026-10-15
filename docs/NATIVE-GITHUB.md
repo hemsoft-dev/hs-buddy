@@ -27,6 +27,8 @@ optional repository data report partial failures rather than manufacturing zeroe
 Authored profiles retain all open PRs and add merges from the last 90 days.
 Reviewed profiles exclude the user's own PRs without a date cutoff. Issue lists
 and details accept both string and object label representations.
+Commit lists show the subject once as the navigation control, followed by any
+remaining message paragraphs. The commit detail retains the full message.
 
 Comments, approvals, thread replies, resolve/reopen, reactions, and review
 requests require a confirmation of the selected account and PR. Approvals pin

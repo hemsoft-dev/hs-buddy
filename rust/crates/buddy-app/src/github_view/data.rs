@@ -162,11 +162,15 @@ fn user_row(user: UserSummary) -> Row {
     row
 }
 fn commit_row(commit: Commit) -> Row {
+    let mut message = commit.message.lines();
     let mut row = Row::text(
-        commit.message.lines().next().unwrap_or("").to_string(),
+        message.next().unwrap_or("").to_string(),
         format!("{} · {} · {}", commit.sha, commit.author, commit.date),
     );
-    row.body = Some(commit.message);
+    let body = message.collect::<Vec<_>>().join("\n");
+    if !body.trim().is_empty() {
+        row.body = Some(body.trim_matches('\n').to_string());
+    }
     row.url = commit.url;
     row.route = Some(Route::Commit(commit.repository, commit.sha));
     row
@@ -597,4 +601,41 @@ pub async fn load(
         }
     }
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_list_separates_the_title_from_its_remaining_message() {
+        let repository = RepositoryRef::new("fixture-org", "native-demo").unwrap();
+        for (message, expected_body) in [
+            ("Improve native navigation", None),
+            ("Improve native navigation\n\n", None),
+            (
+                "Improve native navigation\r\n\r\nKeep keyboard focus.\r\n\r\nPreserve navigation history.",
+                Some("Keep keyboard focus.\n\nPreserve navigation history."),
+            ),
+        ] {
+            let row = commit_row(Commit {
+                repository: repository.clone(),
+                sha: "a".repeat(40),
+                message: message.into(),
+                author: "fixture-author".into(),
+                date: "2026-10-15T12:00:00Z".into(),
+                url: Some("https://github.com/fixture-org/native-demo/commit/example".into()),
+            });
+            assert_eq!(row.title, "Improve native navigation");
+            assert_eq!(row.body.as_deref(), expected_body);
+            assert_eq!(
+                row.route,
+                Some(Route::Commit(repository.clone(), "a".repeat(40)))
+            );
+            assert_eq!(
+                row.url.as_deref(),
+                Some("https://github.com/fixture-org/native-demo/commit/example")
+            );
+        }
+    }
 }
