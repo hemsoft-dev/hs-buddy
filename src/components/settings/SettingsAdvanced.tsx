@@ -81,7 +81,7 @@ export function SettingsAdvanced() {
     let resetApplied = false
     try {
       const result = await api.reset()
-      if (result?.success !== true) throw new Error('Reset was not acknowledged')
+      if (result.success !== true) throw new Error('Reset was not acknowledged')
       resetApplied = true
       await refresh()
     } catch (_: unknown) {
