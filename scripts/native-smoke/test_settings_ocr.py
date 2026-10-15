@@ -26,6 +26,14 @@ class LabelGuards(unittest.TestCase):
         words = [word("ModelID", 80, 200, "default"), word("Save", 1100, 200, "default")]
         self.assertEqual(ocr.find_label(words, "Model ID", field=True)["top"], 200)
 
+    def test_model_id_ocr_variants_still_exclude_the_premium_suffix(self):
+        words = [word("Model", 80, 200, "default"), word("1D", 120, 200, "default"),
+            word("Premium", 80, 300, "premium"), word("model", 120, 300, "premium"), word("1D", 160, 300, "premium")]
+        labels = "Model ID|Model 1D|Model lD"
+        self.assertEqual(ocr.locate_label(words, labels, field=True)["top"], 200)
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(words[2:], labels, field=True)
+
     def test_navigation_excludes_a_same_named_account_provider(self):
         words = [word("Settings", 80, 100, "a"), word("Copilot", 320, 150, "b"), word("Copilot", 200, 300, "c")]
         self.assertEqual(ocr.find_label(words, "Copilot", True)["top"], 150)

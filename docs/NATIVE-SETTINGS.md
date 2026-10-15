@@ -145,8 +145,9 @@ limits and macOS usable display bounds are measured before choosing a smaller
 fixture; the receipt records the actual size. The Mac CI helper selects a larger
 supported display mode when available and restores it on process exit. Every
 resize must match its planned bounds; a clamped request fails qualification.
-Mac form interaction posts mouse, scroll, and Unicode keyboard events through
-the disposable runner's event stream. Accessibility button activation alone
+Mac form interaction posts mouse and scroll events through the disposable
+runner's event stream and types through System Events scoped to the owned app.
+Accessibility button activation alone
 does not prove text-field focus, and direct PID event posting was ignored by
 the installed GPUI app. The helper requires the disposable CI marker, a live
 owned process, and a matching frontmost PID before each input action. It never

@@ -72,11 +72,14 @@ def locate_label(words, labels, navigation=False, field=False):
 
 def locate_image(image, labels, navigation=False, field=False):
     for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
+        words = recognize(image, mode)
         try:
-            return locate_label(recognize(image, mode), labels, navigation, field)
+            return locate_label(words, labels, navigation, field)
         except RuntimeError:
-            pass
-    raise RuntimeError("No OCR mode found the requested visible label unambiguously")
+            # Retain the actual native engine output with the already-owned
+            # screenshot, so a failure can be diagnosed without guessing.
+            image.with_suffix(f".ocr-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+    raise RuntimeError(f"No OCR mode found the visible label {labels!r} unambiguously")
 
 
 def main():

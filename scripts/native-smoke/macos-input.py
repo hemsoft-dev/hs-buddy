@@ -1,5 +1,6 @@
 """Exercise the focused owned app through a disposable Mac CI event stream."""
 import ctypes as c
+import json
 import os
 import subprocess
 import time
@@ -20,9 +21,6 @@ class OwnedMacInput:
         self.core = c.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
         self.graphics.CGEventCreateMouseEvent.argtypes = [c.c_void_p, c.c_uint32, Point, c.c_uint32]
         self.graphics.CGEventCreateMouseEvent.restype = c.c_void_p
-        self.graphics.CGEventCreateKeyboardEvent.argtypes = [c.c_void_p, c.c_uint16, c.c_bool]
-        self.graphics.CGEventCreateKeyboardEvent.restype = c.c_void_p
-        self.graphics.CGEventKeyboardSetUnicodeString.argtypes = [c.c_void_p, c.c_ulong, c.POINTER(c.c_uint16)]
         self.graphics.CGEventPost.argtypes = [c.c_uint32, c.c_void_p]
         self.graphics.CGEventSetFlags.argtypes = [c.c_void_p, c.c_uint64]
         self.graphics.CGEventCreateScrollWheelEvent.argtypes = [c.c_void_p, c.c_uint32, c.c_uint32, c.c_int32]
@@ -62,17 +60,13 @@ class OwnedMacInput:
 
     def type(self, text):
         self.require_focus()
-        # Explicit Unicode also avoids depending on the runner keyboard layout.
-        for character in text:
-            encoded = character.encode("utf-16-le")
-            units = (c.c_uint16 * (len(encoded) // 2)).from_buffer_copy(encoded)
-            for down in (True, False):
-                event = self.graphics.CGEventCreateKeyboardEvent(None, 0, down)
-                if not event:
-                    raise RuntimeError("Could not create an owned Mac text event")
-                self.graphics.CGEventKeyboardSetUnicodeString(event, len(units), units)
-                self.post(event)
-            time.sleep(0.01)
+        # Use the same keyboard route as the select-all operation. Synthetic
+        # virtual-key-0 Unicode events did not replace the existing color draft
+        # during the real Electron companion exercise, despite empty-field setup
+        # succeeding. Actual mouse events above establish text-field focus.
+        script = (f'tell application "System Events" to tell first application process '
+            f'whose unix id is {self.process.pid}\nkeystroke {json.dumps(text, ensure_ascii=False)}\nend tell')
+        subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=10)
 
     def scroll(self, x, y, delta):
         self.require_focus()
