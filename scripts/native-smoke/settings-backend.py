@@ -20,7 +20,7 @@ class SettingsBackend:
         self.checkout = Path(checkout).resolve()
         self.child, self.log, self.generated_hash = None, None, None
         self.profile = Path(tempfile.mkdtemp(prefix="buddy-settings-backend-", dir=os.environ["RUNNER_TEMP"]))
-        self.url = "http://127.0.0.1:8130"
+        self.url = None
         self.generated = self.checkout / ".env.local"
 
     def query(self, path):
@@ -37,9 +37,14 @@ class SettingsBackend:
             for name in (".env", ".env.local"):
                 if (self.checkout / name).exists():
                     raise RuntimeError("Preserve existing deployment selectors")
-            for port in (8130, 8131):
-                with socket.socket() as probe:
-                    probe.bind(("127.0.0.1", port))
+            # Consecutive fixtures must not depend on the preceding backend's
+            # fixed ports leaving TIME_WAIT. Reserve two distinct fresh ports
+            # together, then release them for this owned CLI's startup.
+            with socket.socket() as cloud, socket.socket() as site:
+                cloud.bind(("127.0.0.1", 0))
+                site.bind(("127.0.0.1", 0))
+                cloud_port, site_port = cloud.getsockname()[1], site.getsockname()[1]
+            self.url = f"http://127.0.0.1:{cloud_port}"
             node = shutil.which("node")
             if not node:
                 raise RuntimeError("Node is required for the disposable backend")
@@ -52,7 +57,7 @@ class SettingsBackend:
                 GH_CONFIG_DIR=str(self.profile / "empty-gh"), CONVEX_AGENT_MODE="anonymous", NO_COLOR="1")
             self.log = (self.profile / "backend.log").open("w", encoding="utf-8")
             options = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == "nt" else dict(start_new_session=True)
-            self.child = subprocess.Popen([node, str(self.checkout / "node_modules/convex/bin/main.js"), "dev", "--local-cloud-port", "8130", "--local-site-port", "8131"],
+            self.child = subprocess.Popen([node, str(self.checkout / "node_modules/convex/bin/main.js"), "dev", "--local-cloud-port", str(cloud_port), "--local-site-port", str(site_port)],
                 cwd=self.checkout, env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT, **options)
             deadline = time.monotonic() + 180
             while time.monotonic() < deadline:

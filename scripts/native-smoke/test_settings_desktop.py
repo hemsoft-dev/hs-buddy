@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import struct
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 spec = importlib.util.spec_from_file_location("settings_desktop", Path(__file__).with_name("settings-desktop.py"))
 desktop = importlib.util.module_from_spec(spec)
@@ -63,6 +63,36 @@ class DraftReadVerification(unittest.TestCase):
         with patch.object(desktop.ocr, "locate_image", return_value=label), \
                 patch.object(desktop, "run", side_effect=["", "draft audlo", "draft audio"]):
             desktop.verify_draft(self.capture(), "Notification audio file", "draft audio")
+
+
+class LabeledInputs(unittest.TestCase):
+    def test_input_without_save_uses_its_label_and_replaces_text(self):
+        for session, scale in (("macos", 2), ("x11", 1)):
+            with self.subTest(session=session):
+                driver = desktop.Driver.__new__(desktop.Driver)
+                driver.session = session
+                directory = MagicMock()
+                image = directory.__truediv__.return_value
+                image.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200 * scale, 820 * scale)
+                image.with_suffix.return_value.read_text.return_value = json.dumps(dict(
+                    kCGWindowBounds=dict(X=100, Y=50), capturePixelsPerWindowPoint=scale))
+                label = dict(left=800 * scale, top=100 * scale, width=120 * scale, height=14 * scale)
+                window, helper = Mock(), Mock()
+                with patch.object(desktop.ocr, "locate_image", return_value=label) as locate, \
+                        patch.object(desktop, "OwnedMacInput", return_value=helper), \
+                        patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+                    driver.interact(window, directory, "input", ["Filter loaded items", "First private"])
+                locate.assert_called_once_with(image, "Filter loaded items", navigation=False,
+                    field=True, save_row=False)
+                if session == "macos":
+                    helper.click.assert_called_once_with(920, 184)
+                    helper.replace_text.assert_called_once_with("First private")
+                else:
+                    self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
+                        window.window, 820, 134, "click", 1), run.call_args_list)
+                    window.key.assert_called_once_with("a")
+                    self.assertIn(unittest.mock.call("xdotool", "type", "--clearmodifiers",
+                        "--delay", 10, "--", "First private"), run.call_args_list)
 
 
 class MacInputOwnership(unittest.TestCase):

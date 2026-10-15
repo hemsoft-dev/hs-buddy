@@ -76,7 +76,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "click", "field", "leftfield", "rightfield", "save"):
+                if kind in ("nav", "click", "input", "field", "leftfield", "rightfield", "save"):
                     commands.append(kind + "64:" + ":".join(map(b64, values)))
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
@@ -145,7 +145,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "click", "field", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "click", "input", "field", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -159,7 +159,22 @@ class Driver:
                         else:
                             self.interact(window, directory, kind, values)
                 window.key("q")
-                if process.wait(timeout=20) != 0:
+                try:
+                    exit_code = process.wait(timeout=20)
+                except subprocess.TimeoutExpired as failure:
+                    if self.session == "macos":
+                        # Keep the owned window and native stacks when input or
+                        # application shutdown stalls on a disposable runner.
+                        for diagnose in (
+                            lambda: window.screenshot(directory / "exit-timeout.png"),
+                            lambda: run("sample", process.pid, 2, 1, "-file", directory / "exit-timeout.sample.txt", timeout=10),
+                        ):
+                            try:
+                                diagnose()
+                            except Exception as diagnostic_error:
+                                failure.add_note(f"Exit diagnostic failed: {type(diagnostic_error).__name__}")
+                    raise
+                if exit_code != 0:
                     raise RuntimeError("Installed settings app failed on exit")
                 if companion is not None and companion.wait(timeout=30) != 0:
                     raise RuntimeError("Electron config companion failed")
@@ -184,7 +199,7 @@ class Driver:
         image = directory / "locator.png"
         window.screenshot(image)
         label = ocr.locate_image(image, values[0], navigation=kind == "nav",
-            field=kind in ("field", "leftfield", "rightfield", "save"),
+            field=kind in ("input", "field", "leftfield", "rightfield", "save"),
             save_row=self.session == "macos" and kind in ("field", "save"))
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
@@ -196,13 +211,17 @@ class Driver:
             origin = (bounds["X"], bounds["Y"])
         x = (label["left"] + label["width"] / 2) / scale
         y = (label["top"] + label["height"] / 2) / scale
-        if kind in ("field", "leftfield", "rightfield", "save"):
+        if kind in ("input", "field", "leftfield", "rightfield", "save"):
             y = (label["top"] + label["height"]) / scale + 20
             x = width / scale - 49 if kind == "save" else width / scale / 2
             if kind == "leftfield":
                 x = width / scale / 4
             elif kind == "rightfield":
                 x = width / scale * 3 / 4
+            elif kind == "input":
+                # GitHub fields can occupy a narrow column and have no Save
+                # control. Target the editor immediately below its own label.
+                x = label["left"] / scale + 20
         if "save" in label:
             # Label glyph bottoms do not locate the editor: on Mac the old
             # offset hit the frame's padding, which shows a focus ring while
@@ -221,7 +240,7 @@ class Driver:
             run("xdotool", "windowactivate", "--sync", window.window)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
         time.sleep(0.4)
-        if kind in ("field", "leftfield", "rightfield"):
+        if kind in ("input", "field", "leftfield", "rightfield"):
             if self.session == "macos":
                 helper = OwnedMacInput(window.process)
                 if kind == "field" and values[0] == "Accent color":

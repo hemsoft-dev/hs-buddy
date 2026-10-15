@@ -98,7 +98,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {
     $label = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
     $arguments = @((Join-Path $PSScriptRoot 'settings-ocr.py'), '--image', $image, '--label', $label)
     if ($Mode -eq 'navigation') { $arguments += '--navigation' }
-    if ($Mode -in @('field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
+    if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
     $raw = & python @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Owned settings label was not found unambiguously' }
     $box = $raw | ConvertFrom-Json
@@ -109,7 +109,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {
     $scale = [Drive]::GetDpiForWindow($h) / 96.0
     $x = $box.left + $box.width / 2
     $y = $box.top + $box.height / 2
-    if ($Mode -in @('field', 'leftfield', 'rightfield', 'save')) { $y = $box.top + $box.height + 20 * $scale; $x = $box.left + 20 * $scale }
+    if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $y = $box.top + $box.height + 20 * $scale; $x = $box.left + 20 * $scale }
     if ($Mode -eq 'leftfield') { $x = ($rect.r-$rect.l) / 4 }
     if ($Mode -eq 'rightfield') { $x = 3 * ($rect.r-$rect.l) / 4 }
     if ($Mode -eq 'save') { $x = ($rect.r-$rect.l) - 49 * $scale }
@@ -192,11 +192,11 @@ try {
                 # global input, shell expansion, or payload logging.
                 Write-OwnedText $parts[1]
             }
-            { $_ -in 'nav64', 'click64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
-                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
+            { $_ -in 'nav64', 'click64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
+                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
                 $point = Find-OwnedLabelPoint $parts[1] $mode
                 Click-OwnedPoint $point.X $point.Y
-                if ($mode -in @('field', 'leftfield', 'rightfield')) {
+                if ($mode -in @('input', 'field', 'leftfield', 'rightfield')) {
                     [Drive]::Ctrl($true)
                     [Drive]::PostMessageW($h, 0x100, [IntPtr]65, [IntPtr]0x1E0001) | Out-Null
                     Start-Sleep -Milliseconds 100
@@ -344,7 +344,7 @@ try {
             'close' { [Drive]::PostMessageW($h, 0x10, 0, 0) | Out-Null }
             default { throw "unknown action $($parts[0])" }
         }
-        if ($parts[0] -in @('text64', 'field64', 'leftfield64', 'rightfield64')) { Note "done $($parts[0]) [payload withheld]" }
+        if ($parts[0] -in @('text64', 'input64', 'field64', 'leftfield64', 'rightfield64')) { Note "done $($parts[0]) [payload withheld]" }
         else { Note "done $action" }
     }
 }

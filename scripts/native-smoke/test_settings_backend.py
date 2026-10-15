@@ -13,6 +13,39 @@ spec.loader.exec_module(backend)
 
 
 class BackendOwnership(unittest.TestCase):
+    def test_each_launch_uses_fresh_loopback_ports_when_previous_ports_are_unavailable(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ,
+                {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):
+            fixture = backend.SettingsBackend(temporary)
+            sockets = []
+            def socket_factory():
+                context = unittest.mock.MagicMock()
+                probe = context.__enter__.return_value
+                def bind(address):
+                    if address != ("127.0.0.1", 0):
+                        raise OSError("Previous fixture's fixed ports are unavailable")
+                probe.bind.side_effect = bind
+                probe.getsockname.return_value = ("127.0.0.1", 48130 + len(sockets))
+                sockets.append(probe)
+                return context
+            def spawn(*args, **kwargs):
+                self.assertEqual(args[0][-4:], ["--local-cloud-port", "48130", "--local-site-port", "48131"])
+                self.assertEqual(fixture.url, "http://127.0.0.1:48130")
+                fixture.generated.write_text("owned fixture")
+                fixture.log.write("Convex functions ready!")
+                fixture.log.flush()
+                return Mock(pid=123, poll=Mock(return_value=None))
+            with patch.object(backend.shutil, "which", return_value="node"), \
+                    patch.object(backend.socket, "socket", side_effect=socket_factory), \
+                    patch.object(backend.subprocess, "Popen", side_effect=spawn) as launched, \
+                    patch.object(fixture, "query", side_effect=lambda path: [] if path == "githubAccounts:list" else {}):
+                try:
+                    fixture.__enter__()
+                    launched.assert_called_once()
+                finally:
+                    fixture.child = None
+                    fixture.__exit__(None, None, None)
+
     def test_selector_snapshot_waits_for_completed_cli_setup(self):
         with TemporaryDirectory() as temporary, patch.dict(os.environ,
                 {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1376] - 2026-10-15
+
+### Fixed
+
+- Isolate native GitHub qualification inputs and backend ports
+
 ## [0.1.1375] - 2026-10-15
 
 ### Fixed

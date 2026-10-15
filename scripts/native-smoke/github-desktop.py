@@ -75,15 +75,15 @@ def qualify(executable, output, session, version, backend, api):
         mutate(backend, "githubAccounts:create", dict(username=user, org="fixture-org"))
     driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
     review = driver.drive("review-dark", [
-        ("capture", "list-dark"), ("field", "Filter loaded items", "First private"),
+        ("capture", "list-dark"), ("input", "Filter loaded items", "First private"),
         ("click", "List"), ("capture", "filter-list-dark"),
         ("click", "Needs Review"), ("click", "Recently Merged"), ("click", "Needs a nudge"),
-        ("click", "My PRs"), ("field", "Filter loaded items", "First private"),
+        ("click", "My PRs"), ("input", "Filter loaded items", "First private"),
         ("click", "#7 First private navigation review"), ("click", "Reviews"),
         ("click", "Commits"), ("click", "Checks"), ("click", "Files"), ("wheel", -360), ("capture", "diff-dark"),
         ("click", "History"), ("click", "Review threads"), ("click", "src/navigation.rs"),
         ("click", "Back"), ("click", "Conversation"), ("wheel", -480),
-        ("field", "PR comment", "Installed native fixture comment"), ("click", "Review comment"),
+        ("input", "PR comment", "Installed native fixture comment"), ("click", "Review comment"),
         ("capture", "confirmation-dark"), ("click", "Confirm action"), ("sleep", 1),
         ("capture", "write-ack-dark"), ("click", "Refresh"),
     ], record=True)
@@ -125,7 +125,7 @@ def qualify(executable, output, session, version, backend, api):
     value["native"]["activeSection"] = "github"
     config.write_text(json.dumps(value))
     light = driver.drive("accounts-light", [
-        ("resize", 900, 650), ("field", "Filter loaded items", "First private"),
+        ("resize", 900, 650), ("input", "Filter loaded items", "First private"),
         ("key", "Tab"), ("key", "Return"), ("sleep", 1), ("capture", "compact-keyboard-light"),
         ("resize", 1200, 820), ("click", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "second-account-light"),
         ("click", "Repositories"), ("click", "fixture-org/limited"), ("capture", "rate-limit-light"),
