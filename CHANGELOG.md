@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1387] - 2026-10-15
+
+### Fixed
+
+- Verify exact GitHub text across bounded OCR layouts
+
 ## [0.1.1386] - 2026-10-15
 
 ### Fixed

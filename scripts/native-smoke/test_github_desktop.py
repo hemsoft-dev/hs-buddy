@@ -13,6 +13,44 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_diff_markers_must_match_exactly_in_one_native_ocr_layout(self):
+        outputs = {
+            11: "stc/navigation.s native navigation Patch unavailable",
+            3: "src/navigationrs native navigation Patch unavailable",
+            6: "src/navigation.rs native navigation Patch unavailable",
+        }
+        modes = []
+
+        def recognize(*arguments, **kwargs):
+            mode = int(arguments[arguments.index("--psm") + 1])
+            modes.append(mode)
+            self.assertEqual(kwargs.get("encoding"), "utf-8")
+            return outputs[mode]
+
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=recognize):
+            image = Path(temporary) / "diff.png"
+            desktop.check(image, "navigation.rs", "native navigation", "Patch unavailable")
+            self.assertIn("src/navigation.rs", image.with_suffix(".ocr.txt").read_text(encoding="utf-8"))
+        self.assertEqual(modes, [11, 3, 6])
+
+    def test_partial_markers_from_different_layouts_cannot_be_combined(self):
+        outputs = {11: "navigation.rs", 3: "native navigation", 6: "Patch unavailable"}
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=lambda *args, **_: outputs[int(args[args.index("--psm") + 1])]):
+            with self.assertRaises(RuntimeError):
+                desktop.check(Path(temporary) / "diff.png", "navigation.rs", "native navigation", "Patch unavailable")
+
+    def test_cross_account_data_cannot_be_retried_away_by_another_ocr_layout(self):
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", return_value="First private Second private") as recognize:
+            with self.assertRaisesRegex(RuntimeError, "Another account"):
+                desktop.check(Path(temporary) / "github.png", "First private", absent=("Second private",))
+            self.assertEqual(recognize.call_count, 1)
+
+    def test_ocr_engine_failure_is_not_treated_as_missing_text(self):
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, "run", side_effect=RuntimeError("OCR engine failed")) as recognize:
+            with self.assertRaisesRegex(RuntimeError, "OCR engine failed"):
+                desktop.check(Path(temporary) / "github.png", "First private")
+            self.assertEqual(recognize.call_count, 1)
+
     def test_utf8_ocr_receipts_are_read_independently_of_the_windows_code_page(self):
         read_text = Path.read_text
 

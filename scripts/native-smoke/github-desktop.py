@@ -62,11 +62,19 @@ def installed_binary(executable, version):
 
 
 def check(path, *markers, absent=()):
-    settings.verify_text(path, *markers)
-    text = path.with_suffix(".ocr.txt").read_text(encoding="utf-8")
-    for marker in absent:
-        if marker.casefold() in text.casefold():
-            raise RuntimeError("Another account's fixture data remained visible")
+    missing = None
+    for mode in (11, 3, 6):
+        try:
+            settings.verify_text(path, *markers, mode=mode)
+        except settings.MissingVisibleText as failure:
+            missing = failure
+            continue
+        text = path.with_suffix(".ocr.txt").read_text(encoding="utf-8")
+        for marker in absent:
+            if marker.casefold() in text.casefold():
+                raise RuntimeError("Another account's fixture data remained visible")
+        return
+    raise RuntimeError("GitHub screenshot does not show all required text in one OCR layout") from missing
 
 
 def verify_detail_requests(requests):

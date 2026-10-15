@@ -298,12 +298,17 @@ class Driver:
             verify_draft(image, values[0], values[1])
 
 
-def verify_text(path, *markers):
-    text = run("tesseract", path, "stdout", "--psm", 11, encoding="utf-8").casefold()
+class MissingVisibleText(RuntimeError):
+    """An OCR result lacks required text; engine and I/O errors remain distinct."""
+
+
+def verify_text(path, *markers, mode=11):
+    text = run("tesseract", path, "stdout", "--psm", mode, encoding="utf-8").casefold()
     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
+    path.with_suffix(f".ocr-{mode}.txt").write_text(text, encoding="utf-8")
     for marker in markers:
         if marker.casefold() not in text:
-            raise RuntimeError(f"Settings screenshot is missing {marker!r}")
+            raise MissingVisibleText(f"Settings screenshot is missing {marker!r}")
 
 
 def verify_color(path, expected, session):
