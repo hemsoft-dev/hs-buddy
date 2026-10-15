@@ -140,10 +140,14 @@ impl SettingsView {
             state
         });
         let clear_models = id == "copilot-account";
+        let stop_audio = id == "sound";
         cx.subscribe_in(&input, window, move |this, _, event, _, cx| {
             if matches!(event, InputEvent::Change) {
                 if clear_models {
                     this.models.clear();
+                }
+                if stop_audio {
+                    this.stop_preview();
                 }
                 cx.notify();
             }
@@ -250,7 +254,19 @@ impl SettingsView {
                     }
                     Err(error) => {
                         this.must_reload = error == BackendError::UnknownSaveResult;
-                        this.status = Some(error.to_string());
+                        this.status = Some(
+                            if matches!(
+                                &mirror,
+                                BackendCommand::UpdateAccount {
+                                    provider: Some(_),
+                                    ..
+                                }
+                            ) {
+                                format!("Provider choice saved locally. {error}")
+                            } else {
+                                error.to_string()
+                            },
+                        );
                     }
                 }
             },
@@ -258,6 +274,14 @@ impl SettingsView {
     }
 
     fn install_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.snapshot.is_none() {
+            for account in Settings::global(cx).config.github.accounts.clone() {
+                let id = format!("repo-local-{}", GitHubConfig::override_key(&account));
+                if !self.fields.contains_key(&id) {
+                    self.add_field(id, account.repo_root.unwrap_or_default(), window, cx);
+                }
+            }
+        }
         for (id, value) in std::mem::take(&mut self.pending_fields) {
             if let Some(field) = self.fields.get(&id) {
                 field.update(cx, |input, cx| input.set_value(value, window, cx));
@@ -273,29 +297,7 @@ impl SettingsView {
         let Some((snapshot, replace_drafts)) = self.pending_snapshot.take() else {
             return;
         };
-        let mirror_result = Settings::try_update(cx, |config| {
-            let old = &config.github.accounts;
-            config.github.accounts = snapshot
-                .accounts
-                .iter()
-                .map(|record| {
-                    let mut account = record.account();
-                    if let Some(previous) = old.iter().find(|old| {
-                        GitHubConfig::override_key(old) == GitHubConfig::override_key(&account)
-                    }) {
-                        account.extra = previous.extra.clone();
-                    }
-                    account
-                })
-                .collect();
-            config.pr.refresh_interval = snapshot.pr.refresh_interval;
-            config.pr.auto_refresh = snapshot.pr.auto_refresh;
-            config.pr.recently_merged_days = snapshot.pr.recently_merged_days;
-            config.copilot.gh_account = snapshot.copilot.gh_account.clone();
-            config.copilot.model = snapshot.copilot.model.clone();
-            config.copilot.premium_model = snapshot.copilot.premium_model.clone();
-            Ok(())
-        });
+        let mirror_result = Settings::try_update(cx, |config| snapshot.apply_mirror(config));
         if let Err(error) = mirror_result {
             self.status = Some(format!(
                 "Loaded from Convex. Local account mirror needs retry: {error}"
@@ -307,6 +309,13 @@ impl SettingsView {
                 self.add_field(id, record.repo_root.clone().unwrap_or_default(), window, cx);
             }
         }
+        self.fields.retain(|key, _| {
+            !key.starts_with("repo-")
+                || snapshot
+                    .accounts
+                    .iter()
+                    .any(|record| key == &format!("repo-{}", record.id))
+        });
         if replace_drafts {
             for (id, value) in [
                 ("copilot-account", snapshot.copilot.gh_account.clone()),
@@ -399,14 +408,23 @@ impl SettingsView {
             .snapshot
             .as_ref()
             .map(|snapshot| snapshot.accounts.clone())
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                Settings::global(cx)
+                    .config
+                    .github
+                    .accounts
+                    .iter()
+                    .map(settings_backend::AccountRecord::cached)
+                    .collect()
+            });
         for record in accounts {
             let account = record.account();
             let key = GitHubConfig::override_key(&account);
             let provider = Settings::global(cx)
                 .config
                 .github
-                .effective_usage_provider(&account);
+                .effective_usage_provider(&account)
+                .unwrap_or(UsageProvider::Copilot);
             let mut choices = h_flex().gap_2();
             for (value, label) in [
                 (UsageProvider::Copilot, "Copilot"),
@@ -417,7 +435,7 @@ impl SettingsView {
                 choices = choices.child(
                     Button::new(format!("provider-{}-{label}", record.id))
                         .label(label)
-                        .selected(provider == Some(value))
+                        .selected(provider == value)
                         .disabled(self.busy || self.must_reload)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             // The durable local choice controls the incumbent fallback.
@@ -427,6 +445,7 @@ impl SettingsView {
                                 provider: value,
                             };
                             match Settings::try_update(cx, |config| edit.apply(config)) {
+                                Ok(()) if this.snapshot.is_none() => { this.status = Some("Provider choice saved locally. Reload synced settings to update Convex.".into()); cx.notify(); },
                                 Ok(()) => this.backend(
                                     BackendCommand::UpdateAccount {
                                         id: id.clone(),
@@ -448,7 +467,7 @@ impl SettingsView {
             let id = record.id.clone();
             let save_repo = Button::new(format!("save-{repo_id}"))
                 .label("Save folder")
-                .disabled(self.busy || self.must_reload)
+                .disabled(self.busy || self.must_reload || self.snapshot.is_none())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.backend(
                         BackendCommand::UpdateAccount {
@@ -462,7 +481,7 @@ impl SettingsView {
             let browse_field = format!("repo-{}", record.id);
             let browse = Button::new(format!("browse-repo-{}", record.id))
                 .label("Browse")
-                .disabled(self.busy)
+                .disabled(self.busy || self.snapshot.is_none())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.choose_path(browse_field.clone(), true, cx)
                 }));
@@ -481,7 +500,11 @@ impl SettingsView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(Input::new(&repo_field).flex_1().disabled(self.busy))
+                            .child(
+                                Input::new(&repo_field)
+                                    .flex_1()
+                                    .disabled(self.busy || self.snapshot.is_none()),
+                            )
                             .child(browse)
                             .child(save_repo),
                     )
@@ -492,7 +515,7 @@ impl SettingsView {
                             } else {
                                 "Remove account"
                             })
-                            .disabled(self.busy || self.must_reload)
+                            .disabled(self.busy || self.must_reload || self.snapshot.is_none())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if this.confirm_remove.as_deref() == Some(&id) {
                                     this.backend(
@@ -1043,6 +1066,9 @@ impl Render for SettingsView {
                             .label(label)
                             .selected(self.panel == panel)
                             .on_click(cx.listener(move |this, _, _, cx| {
+                                if this.panel != panel {
+                                    this.stop_preview();
+                                }
                                 this.panel = panel;
                                 this.confirm_remove = None;
                                 cx.notify();

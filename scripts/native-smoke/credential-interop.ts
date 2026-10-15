@@ -26,6 +26,9 @@ const keychain = join(profile, 'fixture.keychain-db')
 // on the disposable runner and is deleted after restoring its prior default.
 const keychainPassword = 'buddy-ci-fixture-keychain'
 let previousKeychain: string | undefined
+let fixtureAclDiagnostic: string | undefined
+let probeStatus: number | null | undefined
+let probeSignal: string | null | undefined
 function security(args: string[]): string {
   const result = spawnSync('/usr/bin/security', args, { encoding: 'utf8', timeout: 15_000 })
   if (result.error || result.status !== 0)
@@ -39,7 +42,10 @@ function grantFixtureAccess(): void {
     ['scripts/native-smoke/credential-macos-access.py', config, process.execPath, executable],
     { encoding: 'utf8', timeout: 15_000 }
   )
-  if (result.error || result.status !== 0) throw new Error('Owned fixture ACL authorization failed')
+  if (result.error || result.status !== 0) {
+    fixtureAclDiagnostic = result.stderr.trim().slice(0, 1000)
+    throw new Error('Owned fixture ACL authorization failed')
+  }
 }
 writeFileSync(join(profile, '.buddy-credential-fixture'), 'buddy credential fixture v1')
 writeFileSync(config, JSON.stringify({ ui: { pollenApiKey: '' }, fixtureUnknown: 7 }))
@@ -51,6 +57,8 @@ function probe(mode: string, input = ''): string {
     timeout: 30_000,
     windowsHide: true,
   })
+  probeStatus = result.status
+  probeSignal = result.signal
   // Never include child output or expected/actual credential values in errors.
   if (result.error || result.status !== 0)
     throw new Error(`Rust credential fixture failed in ${mode}`)
@@ -154,6 +162,15 @@ try {
   )
   console.log('Credential interop passed; no credential values were logged.')
 } catch (_: unknown) {
+  mkdirSync(dirname(evidence), { recursive: true })
+  writeFileSync(
+    evidence,
+    JSON.stringify(
+      { result: 'failed', stage, probeStatus, probeSignal, fixtureAclDiagnostic },
+      null,
+      2
+    )
+  )
   failure = new Error(`Credential interop failed during ${stage}; credential values are withheld.`)
 }
 try {

@@ -75,6 +75,8 @@ def run():
 if __name__ == "__main__":
     try:
         run()
-    except Exception:
-        print("Owned fixture ACL authorization failed; no credential data was accessed.", file=sys.stderr)
+    except Exception as error:
+        # This helper never requests password data. Its exception contains
+        # only guard failures, API type errors, or a numeric OS status.
+        print(f"Owned fixture ACL authorization failed: {type(error).__name__}: {error}", file=sys.stderr)
         sys.exit(1)

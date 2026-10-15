@@ -41,6 +41,9 @@ impl SettingsView {
                 match result {
                     Ok(Ok(Some(paths))) => {
                         if let Some(path) = paths.into_iter().next() {
+                            if field == "sound" {
+                                this.stop_preview();
+                            }
                             this.pending_fields
                                 .push((field, path.display().to_string()));
                             this.status = Some("File selected. Save to apply the change.".into());
@@ -91,6 +94,9 @@ impl SettingsView {
     }
 
     pub(super) fn stop_preview(&mut self) {
+        if self.preview_playing {
+            self.status = Some("Preview stopped".into());
+        }
         self.preview_generation = self.preview_generation.wrapping_add(1);
         self.preview.stop();
         self.preview_playing = false;
