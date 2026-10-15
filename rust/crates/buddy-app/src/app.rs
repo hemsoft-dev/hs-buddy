@@ -132,6 +132,10 @@ impl BuddyApp {
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        if section == Some(Section::Settings) && self.active_section != section {
+            self.settings_view
+                .update(cx, |settings, cx| settings.activate(cx));
+        }
         if section != Some(Section::Settings) {
             self.settings_view
                 .update(cx, |settings, _| settings.deactivate());

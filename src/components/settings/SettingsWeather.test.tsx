@@ -51,6 +51,23 @@ describe('SettingsWeather', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Unlock secure storage')
     expect(screen.getByRole('alert')).not.toHaveTextContent('private-fixture-error')
     expect(screen.getByPlaceholderText(/Enter your Google Cloud API key/)).toHaveValue('')
+    expect(screen.getByText('Clear Key')).not.toBeDisabled()
+  })
+
+  it('clears a migration conflict without requiring a replacement key', async () => {
+    mockInvoke.mockResolvedValueOnce({ configured: false, error: 'migration conflict' })
+    render(<SettingsWeather />)
+    await screen.findByRole('alert')
+    const input = screen.getByPlaceholderText(/Enter your Google Cloud API key/)
+    fireEvent.change(input, { target: { value: ' ' } })
+    expect(screen.getByText(/Saved key status is unknown/)).toBeInTheDocument()
+    expect(screen.getByText('Save Key')).toBeDisabled()
+    mockInvoke.mockResolvedValueOnce({ success: true })
+    fireEvent.click(screen.getByText('Clear Key'))
+    await waitFor(() => expect(screen.getByText(/Not configured:/)).toBeInTheDocument())
+    expect(mockInvoke).toHaveBeenCalledWith(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, '')
+    expect(input).toHaveValue('')
+    expect(screen.queryByText('Clear Key')).not.toBeInTheDocument()
   })
 
   it('shows and hides only the user-entered draft', async () => {

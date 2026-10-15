@@ -3,23 +3,72 @@ use super::*;
 use crate::notification_audio;
 use gpui_kit::PathPromptOptions;
 
+pub(super) fn local_field_values(
+    config: &buddy_core::config::AppConfig,
+) -> [(&'static str, &String); 10] {
+    [
+        ("accent", &config.ui.accent_color),
+        ("text", &config.ui.font_color),
+        ("background", &config.ui.bg_primary),
+        ("secondary", &config.ui.bg_secondary),
+        ("status-background", &config.ui.status_bar_bg),
+        ("status-text", &config.ui.status_bar_fg),
+        ("font", &config.ui.font_family),
+        ("mono-font", &config.ui.mono_font_family),
+        ("enterprise", &config.ui.enterprise_slug),
+        ("sound", &config.notifications.review_complete_sound_path),
+    ]
+}
+
 impl SettingsView {
+    pub(super) fn queue_saved_field(&mut self, id: &str, value: String) {
+        self.field_baselines.insert(id.into(), value.clone());
+        self.pending_fields.push((id.into(), value));
+    }
+
     pub(super) fn queue_local_fields(&mut self, cx: &App) {
         let config = &Settings::global(cx).config;
-        for (id, value) in [
-            ("accent", &config.ui.accent_color),
-            ("text", &config.ui.font_color),
-            ("background", &config.ui.bg_primary),
-            ("secondary", &config.ui.bg_secondary),
-            ("status-background", &config.ui.status_bar_bg),
-            ("status-text", &config.ui.status_bar_fg),
-            ("font", &config.ui.font_family),
-            ("mono-font", &config.ui.mono_font_family),
-            ("enterprise", &config.ui.enterprise_slug),
-            ("sound", &config.notifications.review_complete_sound_path),
-        ] {
-            self.pending_fields.push((id.into(), value.clone()));
+        for (id, value) in local_field_values(config) {
+            self.queue_saved_field(id, value.clone());
         }
+    }
+
+    pub(super) fn queue_color_fields(&mut self, cx: &App) {
+        for (id, value) in local_field_values(&Settings::global(cx).config)
+            .into_iter()
+            .take(6)
+        {
+            self.queue_saved_field(id, value.clone());
+        }
+    }
+
+    fn queue_reset_fields(&mut self, cx: &App) {
+        for (id, value) in local_field_values(&Settings::global(cx).config)
+            .into_iter()
+            .filter(|(id, _)| *id != "enterprise")
+        {
+            self.queue_saved_field(id, value.clone());
+        }
+    }
+
+    /// Preserve real drafts while refreshing unchanged fields on re-entry.
+    pub fn activate(&mut self, cx: &mut Context<Self>) {
+        let config = &Settings::global(cx).config;
+        for (id, value) in local_field_values(config).into_iter().chain([
+            ("copilot-account", &config.copilot.gh_account),
+            ("model", &config.copilot.model),
+            ("premium-model", &config.copilot.premium_model),
+        ]) {
+            if self
+                .field_baselines
+                .get(id)
+                .is_some_and(|baseline| self.value(id, cx) == *baseline)
+                && !self.pending_fields.iter().any(|(key, _)| key == id)
+            {
+                self.queue_saved_field(id, value.clone());
+            }
+        }
+        cx.notify();
     }
     pub(super) fn choose_path(&mut self, field: String, directories: bool, cx: &mut Context<Self>) {
         let origin = self.panel;
@@ -157,15 +206,9 @@ impl SettingsView {
                 Ok(Ok(())) => {
                     this.pollen_configured = Some(false); this.pending_key_clear = true;
                     this.status = Some(match Settings::try_update(cx, |config| {
-                        let defaults = buddy_core::config::AppConfig::default();
-                        let unknown_ui = config.ui.extra.clone();
-                        let location = config.ui.weather_location.clone();
-                        config.ui = defaults.ui; config.ui.extra = unknown_ui; config.ui.weather_location = location;
-                        let unknown_notifications = config.notifications.extra.clone();
-                        config.notifications = defaults.notifications; config.notifications.extra = unknown_notifications;
-                        config.github.usage_provider_overrides.clear(); config.github.usage_provider_default_overrides.clear();
+                        buddy_core::application_settings::reset_local_preferences(config);
                         Ok(())
-                    }) { Ok(()) => { this.queue_local_fields(cx); "Local preferences reset. Synced accounts, PR and Copilot settings, and the saved weather city are retained.".into() }, Err(error) => format!("Pollen key cleared. Local preferences were not reset: {error}") });
+                    }) { Ok(()) => { this.queue_reset_fields(cx); "Local preferences reset. Synced accounts, PR and Copilot settings, and the saved weather city are retained.".into() }, Err(error) => format!("Pollen key cleared. Local preferences were not reset: {error}") });
                 }
                 _ => this.status = Some("Secure storage could not clear the key. Local preferences were not reset. Unlock it and retry.".into()),
             }

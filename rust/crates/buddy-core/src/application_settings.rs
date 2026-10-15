@@ -13,6 +13,29 @@ pub const REFRESH_MINUTES: [u32; 6] = [1, 5, 10, 15, 30, 60];
 pub const RECENTLY_MERGED_DAYS: [u32; 5] = [7, 14, 30, 60, 90];
 pub const MAX_SOUND_BYTES: u64 = 5 * 1024 * 1024;
 
+/// Reset only the preferences named by the native reset action. The caller
+/// must clear protected credentials successfully before applying this edit.
+pub fn reset_local_preferences(config: &mut AppConfig) {
+    let defaults = AppConfig::default();
+    let ui = &mut config.ui;
+    ui.theme = defaults.ui.theme;
+    ui.accent_color = defaults.ui.accent_color;
+    ui.font_color = defaults.ui.font_color;
+    ui.bg_primary = defaults.ui.bg_primary;
+    ui.bg_secondary = defaults.ui.bg_secondary;
+    ui.status_bar_bg = defaults.ui.status_bar_bg;
+    ui.status_bar_fg = defaults.ui.status_bar_fg;
+    ui.font_family = defaults.ui.font_family;
+    ui.mono_font_family = defaults.ui.mono_font_family;
+    ui.dashboard_cards = defaults.ui.dashboard_cards;
+    config.notifications.play_sound_on_review_complete =
+        defaults.notifications.play_sound_on_review_complete;
+    config.notifications.review_complete_sound_path =
+        defaults.notifications.review_complete_sound_path;
+    config.github.usage_provider_overrides.clear();
+    config.github.usage_provider_default_overrides.clear();
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub struct SettingsError(pub &'static str);
@@ -407,5 +430,49 @@ mod tests {
             .apply(&mut config)
             .unwrap();
         assert_eq!(config.ui.bg_primary, "#1e1e1e");
+    }
+
+    #[test]
+    fn reset_preserves_unrelated_ui_and_all_synced_preferences() {
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        let preserved = json!({
+            "enterpriseSlug": "keep-enterprise", "favoriteUsers": ["keep-user"],
+            "zoomLevel": 125, "sidebarWidth": 420, "paneSizes": [200, 800],
+            "showBookmarkedOnly": true, "terminalOpen": true, "assistantOpen": true,
+            "terminalPanelHeight": 450, "displayId": 23,
+            "displayBounds": {"x": 10, "y": 20, "width": 1600, "height": 900},
+            "displayWorkArea": {"x": 10, "y": 20, "width": 1600, "height": 860},
+            "weatherLocation": {"latitude": 40, "longitude": -74, "name": "Keep city"},
+            "futurePreference": {"keep": true}
+        });
+        for (key, entry) in preserved.as_object().unwrap() {
+            value["ui"][key] = entry.clone();
+        }
+        value["ui"]["accentColor"] = json!("#abcdef");
+        value["ui"]["fontFamily"] = json!("Other font");
+        value["ui"]["dashboardCards"] = json!({"command-center": false});
+        value["pr"]["refreshInterval"] = json!(30);
+        value["copilot"]["model"] = json!("keep-model");
+        value["notifications"]["future"] = json!(42);
+        value["notifications"]["reviewCompleteSoundPath"] = json!("old.wav");
+        value["github"]["usageProviderOverrides"] = json!({"team/user": "codex"});
+        let mut config: AppConfig = serde_json::from_value(value).unwrap();
+        let before = serde_json::to_value(&config).unwrap();
+        reset_local_preferences(&mut config);
+        let result = serde_json::to_value(&config).unwrap();
+        for key in preserved.as_object().unwrap().keys() {
+            assert_eq!(result["ui"][key], before["ui"][key], "{key}");
+        }
+        assert_eq!(result["pr"], before["pr"]);
+        assert_eq!(result["copilot"], before["copilot"]);
+        assert_eq!(result["notifications"]["future"], 42);
+        assert_eq!(config.ui.accent_color, AppConfig::default().ui.accent_color);
+        assert_eq!(config.ui.font_family, AppConfig::default().ui.font_family);
+        assert_eq!(
+            config.ui.dashboard_cards,
+            AppConfig::default().ui.dashboard_cards
+        );
+        assert!(config.notifications.review_complete_sound_path.is_empty());
+        assert!(config.github.usage_provider_overrides.is_empty());
     }
 }

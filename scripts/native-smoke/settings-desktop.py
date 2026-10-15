@@ -359,9 +359,22 @@ def qualify(executable, output, session, checkout, backend):
     saved = json.loads(config.read_text(encoding="utf-8-sig"))
     if saved["ui"]["fontFamily"] != font or saved["ui"]["monoFontFamily"] != mono or not saved["ui"]["dashboardCards"]["command-center"]:
         raise RuntimeError("Font and dashboard visibility edits did not persist")
+    drafts = driver.drive("retained-drafts", [("nav", "Appearance"), ("wheel", -2400),
+        ("field", "Interface font", "Draft font"), ("nav", "Accounts"), ("wheel", -2400),
+        ("field", "GitHub enterprise slug", "draft-enterprise"), ("nav", "Notifications"), ("wheel", 2400),
+        ("field", "Notification audio file", "draft audio"), ("nav", "Appearance"), ("wheel", 2400),
+        ("click", "Light"), ("click", "Dark"), ("wheel", -2400),
+        ("capture", "theme-retained-font-dark"), ("nav", "Accounts"), ("wheel", -2400),
+        ("capture", "theme-retained-enterprise-dark"), ("nav", "Notifications"), ("wheel", 2400),
+        ("capture", "theme-retained-audio-dark")], record=True)
+    for name, expected in (("font", "Draft font"), ("enterprise", "draft-enterprise"), ("audio", "draft audio")):
+        verify_text(drafts / f"theme-retained-{name}-dark.png", expected)
+    saved = json.loads(config.read_text(encoding="utf-8-sig"))
+    if saved["ui"]["fontFamily"] != font or saved["ui"]["enterpriseSlug"] != "fixture-concurrent-complete" or saved["notifications"]["reviewCompleteSoundPath"]:
+        raise RuntimeError("Theme changes committed an unrelated unsaved draft")
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session, largeWindow=driver.large_size,
         binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "all seven panels",
-        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
+        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
 
 
 def main():

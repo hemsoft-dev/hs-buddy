@@ -29,6 +29,9 @@ neighboring values and unknown keys. Invalid edits leave the file untouched.
 
 Theme selection applies the same six color presets as Electron. **Reset colors**
 restores the current theme's preset. Fonts are selected from installed names.
+Theme changes update only color drafts. Unsubmitted fonts, enterprise slugs,
+and audio paths remain intact across panels. Returning to Settings refreshes
+unchanged fields from the shared configuration while retaining edited drafts.
 Notification files must be supported audio no larger than 5 MiB. Previews stop
 on replacement, explicit Stop, leaving settings, or completion, with a 30-second
 preview limit. A missing output device produces a recoverable error.
@@ -36,7 +39,9 @@ preview limit. A missing output device produces a recoverable error.
 **Reset local preferences** requires confirmation. It clears the profile's pollen
 key, resets local appearance, card visibility, notifications, and provider
 overrides, and preserves unknown fields. Synced accounts and PR/Copilot
-preferences, and the saved weather city remain. It never deletes Convex data.
+preferences, enterprise routing, favorites, zoom, window and pane geometry,
+filters, terminal/assistant state, and the saved weather city remain. It never
+deletes Convex data.
 If clearing secure storage fails, the preference reset does not proceed. A later
 file-write failure reports that the key cleared but local preferences did not reset.
 
@@ -65,6 +70,8 @@ Saved keys never fill the form. Only the new draft can be shown, and successful
 saves clear and remask it. Provider errors do not include raw response bodies
 or request URLs. Packaged Electron qualification loads the native keyring
 binding without opening a credential entry.
+Electron keeps Clear Key available when status is unknown, including migration
+conflicts, so clearing does not require submitting a replacement credential.
 
 The disposable CI interoperability probe checks ASCII and Unicode passwords,
 both application directions, deletion, legacy migration, unknown-field

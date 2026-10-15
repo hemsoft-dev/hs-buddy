@@ -3,7 +3,20 @@ import { RefreshCw, Key, ExternalLink, CheckCircle, AlertCircle } from 'lucide-r
 import { IPC_INVOKE } from '../../ipc/contracts'
 import './SettingsShared.css'
 
-function ApiKeyStatus({ isConfigured }: { isConfigured: boolean }) {
+function ApiKeyStatus({
+  isConfigured,
+  statusKnown,
+}: {
+  isConfigured: boolean
+  statusKnown: boolean
+}) {
+  if (!statusKnown) {
+    return (
+      <p className="settings-status-text">
+        Saved key status is unknown. Save a new key or clear the saved key.
+      </p>
+    )
+  }
   return (
     <div className="settings-status-row">
       {isConfigured ? (
@@ -41,6 +54,8 @@ function SettingsWeatherActions({
   saving,
   isDirty,
   isConfigured,
+  canClear,
+  statusKnown,
   statusError,
   onSave,
   onClear,
@@ -48,6 +63,8 @@ function SettingsWeatherActions({
   saving: boolean
   isDirty: boolean
   isConfigured: boolean
+  canClear: boolean
+  statusKnown: boolean
   statusError: string | null
   onSave: () => void
   onClear: () => void
@@ -63,7 +80,7 @@ function SettingsWeatherActions({
         >
           <SaveButton saving={saving} />
         </button>
-        {isConfigured && (
+        {canClear && (
           <button
             type="button"
             className="settings-btn settings-btn-secondary"
@@ -79,7 +96,7 @@ function SettingsWeatherActions({
           {statusError}
         </p>
       ) : (
-        <ApiKeyStatus isConfigured={isConfigured} />
+        <ApiKeyStatus isConfigured={isConfigured} statusKnown={statusKnown} />
       )}
     </>
   )
@@ -88,6 +105,7 @@ function SettingsWeatherActions({
 export function SettingsWeather() {
   const [apiKey, setApiKey] = useState('')
   const [isConfigured, setIsConfigured] = useState(false)
+  const [statusKnown, setStatusKnown] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -101,12 +119,15 @@ export function SettingsWeather() {
         if (!status || typeof status.configured !== 'boolean' || status.error) {
           throw new Error('Secure credential status unavailable')
         }
-        if (active) setIsConfigured(status.configured)
+        if (active) {
+          setIsConfigured(status.configured)
+          setStatusKnown(true)
+        }
       })
       .catch(() => {
         if (active)
           setError(
-            'Could not read the saved key. Unlock secure storage, or save your preferred key again to finish migration.'
+            'Could not read the saved key. Unlock secure storage, save a new key, or clear the saved key to finish migration.'
           )
       })
       .finally(() => {
@@ -124,6 +145,7 @@ export function SettingsWeather() {
       const result = await window.ipcRenderer.invoke(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, value)
       if (!result?.success) throw new Error('Secure save failed')
       setIsConfigured(Boolean(value))
+      setStatusKnown(true)
       setApiKey('')
       setShowKey(false)
     } catch (_: unknown) {
@@ -203,6 +225,8 @@ export function SettingsWeather() {
             saving={saving}
             isDirty={isDirty}
             isConfigured={isConfigured}
+            canClear={isConfigured || !statusKnown}
+            statusKnown={statusKnown}
             statusError={error}
             onSave={() => persistKey(apiKey.trim())}
             onClear={() => persistKey('')}

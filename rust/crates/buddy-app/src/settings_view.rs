@@ -49,6 +49,7 @@ const PANELS: [(Panel, &str); 7] = [
 pub struct SettingsView {
     panel: Panel,
     fields: BTreeMap<String, Entity<InputState>>,
+    field_baselines: BTreeMap<String, String>,
     status: Option<String>,
     backend_warning: Option<String>,
     busy: bool,
@@ -84,6 +85,7 @@ impl SettingsView {
                 Panel::Appearance
             },
             fields: BTreeMap::new(),
+            field_baselines: BTreeMap::new(),
             status: None,
             backend_warning: None,
             busy: false,
@@ -135,6 +137,7 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) {
         let id = id.into();
+        self.field_baselines.insert(id.clone(), value.clone());
         let masked = id == "pollen";
         let input = cx.new(|cx| {
             let mut state = InputState::new(window, cx).masked(masked);
@@ -194,7 +197,32 @@ impl SettingsView {
         self.status = Some(match result {
             Ok(()) => {
                 if matches!(edit, LocalEdit::Theme(_)) {
-                    self.queue_local_fields(cx);
+                    self.queue_color_fields(cx);
+                } else {
+                    let id = match &edit {
+                        LocalEdit::Color(field, _) => Some(match field {
+                            ColorField::Accent => "accent",
+                            ColorField::Text => "text",
+                            ColorField::Background => "background",
+                            ColorField::SecondaryBackground => "secondary",
+                            ColorField::StatusBackground => "status-background",
+                            ColorField::StatusText => "status-text",
+                        }),
+                        LocalEdit::Font { monospace, .. } => {
+                            Some(if *monospace { "mono-font" } else { "font" })
+                        }
+                        LocalEdit::EnterpriseSlug(_) => Some("enterprise"),
+                        LocalEdit::NotificationSound(_) => Some("sound"),
+                        _ => None,
+                    };
+                    if let Some(id) = id
+                        && let Some((_, value)) =
+                            actions::local_field_values(&Settings::global(cx).config)
+                                .into_iter()
+                                .find(|(key, _)| *key == id)
+                    {
+                        self.queue_saved_field(id, value.clone());
+                    }
                 }
                 "Saved".into()
             }
@@ -251,6 +279,26 @@ impl SettingsView {
                         } else {
                             Ok(())
                         };
+                        if local_result.is_ok()
+                            && let BackendCommand::Preference(edit) = &mirror
+                        {
+                            let config = &Settings::global(cx).config;
+                            let field = match edit {
+                                SyncedEdit::CopilotAccount(_) => {
+                                    Some(("copilot-account", config.copilot.gh_account.clone()))
+                                }
+                                SyncedEdit::CopilotModel(_) => {
+                                    Some(("model", config.copilot.model.clone()))
+                                }
+                                SyncedEdit::PremiumModel(_) => {
+                                    Some(("premium-model", config.copilot.premium_model.clone()))
+                                }
+                                _ => None,
+                            };
+                            if let Some((id, value)) = field {
+                                this.queue_saved_field(id, value);
+                            }
+                        }
                         this.status = Some(if let Err(error) = local_result {
                             let warning =
                                 format!("Saved to Convex. Local settings need reload: {error}");
@@ -341,12 +389,15 @@ impl SettingsView {
                     .iter()
                     .any(|record| key == &format!("repo-{}", record.id))
         });
+        self.field_baselines
+            .retain(|key, _| self.fields.contains_key(key));
         if replace_drafts {
             for (id, value) in [
                 ("copilot-account", snapshot.copilot.gh_account.clone()),
                 ("model", snapshot.copilot.model.clone()),
                 ("premium-model", snapshot.copilot.premium_model.clone()),
             ] {
+                self.field_baselines.insert(id.into(), value.clone());
                 self.fields[id].update(cx, |input, cx| input.set_value(value, window, cx));
             }
         }
@@ -1132,6 +1183,69 @@ impl Render for SettingsView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui_kit::test]
+    fn activation_refreshes_clean_fields_and_themes_preserve_unrelated_drafts(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| {
+                    let mut view = SettingsView::new(window, cx);
+                    view.fields["font"]
+                        .update(cx, |input, cx| input.set_value("Unsaved font", window, cx));
+                    view.fields["enterprise"].update(cx, |input, cx| {
+                        input.set_value("unsaved-enterprise", window, cx)
+                    });
+                    view.fields["sound"]
+                        .update(cx, |input, cx| input.set_value("unsaved.wav", window, cx));
+                    // Picker results remain drafts; acknowledged saves become
+                    // clean and must follow subsequent external edits.
+                    view.pending_fields
+                        .push(("sound".into(), "unsaved.wav".into()));
+                    view.queue_saved_field("mono-font", "Previously saved mono".into());
+                    view.install_pending(window, cx);
+                    let mut external = Settings::global(cx).config.clone();
+                    external.ui.accent_color = "#123456".into();
+                    external.ui.font_family = "External font".into();
+                    external.ui.mono_font_family = "External mono".into();
+                    external.copilot.model = "external-model".into();
+                    Settings::replace(cx, external);
+                    view.activate(cx);
+                    view.install_pending(window, cx);
+                    assert_eq!(view.value("accent", cx), "#123456");
+                    assert_eq!(view.value("mono-font", cx), "External mono");
+                    assert_eq!(view.value("model", cx), "external-model");
+                    assert_eq!(view.value("font", cx), "Unsaved font");
+                    assert_eq!(view.value("enterprise", cx), "unsaved-enterprise");
+                    assert_eq!(view.value("sound", cx), "unsaved.wav");
+                    let mut changed = Settings::global(cx).config.clone();
+                    LocalEdit::Theme(ThemeName::Light)
+                        .apply(&mut changed)
+                        .unwrap();
+                    Settings::replace(cx, changed);
+                    view.queue_color_fields(cx);
+                    view.install_pending(window, cx);
+                    assert_eq!(view.value("accent", cx), "#0078d4");
+                    assert_eq!(view.value("font", cx), "Unsaved font");
+                    assert_eq!(view.value("enterprise", cx), "unsaved-enterprise");
+                    assert_eq!(view.value("sound", cx), "unsaved.wav");
+                    let mut external = Settings::global(cx).config.clone();
+                    external.ui.accent_color = "#fedcba".into();
+                    Settings::replace(cx, external);
+                    view.activate(cx);
+                    view.install_pending(window, cx);
+                    assert_eq!(view.value("accent", cx), "#fedcba");
+                    view
+                })
+            })
+            .unwrap();
+        });
+    }
 
     #[gpui_kit::test]
     fn first_run_opens_accounts_and_never_prefills_a_legacy_secret(
