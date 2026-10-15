@@ -26,6 +26,7 @@ def load(name):
 
 ocr = load("settings-ocr")
 SettingsBackend = load("settings-backend").SettingsBackend
+OwnedMacInput = load("macos-input").OwnedMacInput
 
 
 def b64(value):
@@ -141,7 +142,10 @@ class Driver:
                             raise RuntimeError("Electron config companion did not become ready")
                         time.sleep(0.1)
                 with recording(window, directory / "frames") if record else nullcontext():
-                    for kind, *values in actions:
+                    for index, (kind, *values) in enumerate(actions):
+                        with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
+                            receipt.write(json.dumps(dict(index=index, kind=kind,
+                                label=values[0] if kind in ("nav", "click", "field", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -219,7 +223,8 @@ class Driver:
             elif kind == "rightfield":
                 x = width / scale * 3 / 4
         if self.session == "macos":
-            run("osascript", "-e", window.apple(f"set frontmost to true\nclick at {{{int(origin[0]+x)}, {int(origin[1]+y)}}}"))
+            run("osascript", "-e", window.apple("set frontmost to true"))
+            OwnedMacInput(window.process).click(origin[0] + x, origin[1] + y)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
@@ -227,7 +232,7 @@ class Driver:
         if kind in ("field", "leftfield", "rightfield"):
             window.key("a")
             if self.session == "macos":
-                run("osascript", "-e", window.apple("keystroke " + json.dumps(values[1])))
+                OwnedMacInput(window.process).type(values[1])
             else:
                 run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
         time.sleep(0.7)

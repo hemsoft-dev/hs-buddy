@@ -145,5 +145,10 @@ limits and macOS usable display bounds are measured before choosing a smaller
 fixture; the receipt records the actual size. The Mac CI helper selects a larger
 supported display mode when available and restores it on process exit. Every
 resize must match its planned bounds; a clamped request fails qualification.
+Mac form interaction posts mouse and Unicode keyboard events to the owned app
+PID. Accessibility button activation alone does not prove text-field focus.
+The helper requires the disposable CI marker and a live owned process; it uses
+neither the clipboard nor a global event tap. Per-action receipts omit entered
+field values.
 The Ubuntu cold-runtime container remains a separate dependency-closure gate.
 Do not run the CI desktop entry point against a developer desktop or deployment.

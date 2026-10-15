@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1358] - 2026-10-15
+
+### Changed
+
+- Send owned Mac settings input to the app process (#813)
+
 ## [0.1.1357] - 2026-10-15
 
 ### Fixed

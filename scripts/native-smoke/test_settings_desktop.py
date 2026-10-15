@@ -1,7 +1,9 @@
 """Choose supported fixtures before requesting sizes; never accept clamping."""
 import importlib.util
+import os
 from pathlib import Path
 import unittest
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("settings_desktop", Path(__file__).with_name("settings-desktop.py"))
 desktop = importlib.util.module_from_spec(spec)
@@ -19,6 +21,18 @@ class DesktopLimits(unittest.TestCase):
             desktop.planned_large_size(899, 820)
         with self.assertRaises(RuntimeError):
             desktop.planned_large_size(1200, 649)
+
+
+class MacInputOwnership(unittest.TestCase):
+    def test_normal_environment_cannot_load_input_frameworks(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "", "BUDDY_SETTINGS_FIXTURE": ""}):
+            with self.assertRaisesRegex(RuntimeError, "disposable CI fixture"):
+                desktop.OwnedMacInput(Mock(pid=123))
+
+    def test_exited_owned_app_cannot_receive_input(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "live owned app"):
+                desktop.OwnedMacInput(Mock(pid=123, poll=Mock(return_value=0)))
 
 
 if __name__ == "__main__":
