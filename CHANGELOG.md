@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1350] - 2026-10-15
+
+### Fixed
+
+- Package Mac qualification helper for CodeQL autobuild
+
+## [0.1.1349] - 2026-10-15
+
+### Fixed
+
+- Package Mac qualification helper for CodeQL autobuild
+
 ## [0.1.1348] - 2026-10-15
 
 ### Fixed

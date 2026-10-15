@@ -111,6 +111,12 @@ package for local development. It cannot qualify as a committed release.
 
 ## Desktop qualification
 
+The Mac window-capture helper is a SwiftPM executable defined in
+[`Package.swift`](../Package.swift). From the repository root on macOS, build it
+with `swift build --configuration release --product buddy-window-info`.
+Qualification copies that executable to the runner's temporary directory.
+The package also lets CodeQL discover and build the Swift source automatically.
+
 The Rust workflow preserves formatting, warnings-denied Clippy, workspace
 tests, and the dependency audit. It builds and installs an NSIS package, Intel
 and ARM DMGs, and a DEB. Linux installs the DEB into a fresh Ubuntu 24.04

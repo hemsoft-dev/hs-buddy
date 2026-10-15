@@ -9,6 +9,7 @@ on:
       # build.rs embeds the version from package.json; a release bump must
       # produce native binaries too.
       - 'package.json'
+      - 'Package.swift'
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
@@ -20,6 +21,7 @@ on:
       - 'rust/**'
       - '.github/workflows/rust.yml'
       - 'package.json'
+      - 'Package.swift'
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
@@ -69,9 +71,12 @@ jobs:
 
       - name: Install macOS desktop qualification tools
         if: runner.os == 'macOS'
+        working-directory: .
         run: |
           brew install tesseract ffmpeg
-          swiftc ../scripts/native-smoke/macos-window.swift -o "$RUNNER_TEMP/buddy-window-info"
+          swift package describe
+          swift build --configuration release --product buddy-window-info
+          cp .build/release/buddy-window-info "$RUNNER_TEMP/buddy-window-info"
 
       - name: Install Windows OCR
         if: runner.os == 'Windows'

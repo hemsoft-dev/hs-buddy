@@ -8,7 +8,9 @@ aspire-apphost/.aspire/
 .aspire/packages/
 .aspire/integrations/
 
-# Build outputs (created by `bun run build` or `npm run build`)
+# Build outputs
+/.build/
+/.swiftpm/
 dist/
 dist-electron/
 
