@@ -46,6 +46,7 @@ const profile=dirname(resolve(process.env.BUDDY_CONFIG_PATH));
 if(readFileSync(join(profile,'.buddy-settings-fixture'),'utf8')!=='buddy settings fixture v1') throw new Error('Missing fixture marker');
 app.setPath('userData',profile);
 app.whenReady().then(async()=>{
+  if(process.platform==='darwin') app.setActivationPolicy('prohibited');
   const {configManager}=await import(${JSON.stringify(pathToFileURL(modulePath).href)});
   writeFileSync(join(profile,'companion-ready.json'),JSON.stringify({ready:true,electron:process.versions.electron,startedAt:Date.now()}));
   const started=Date.now();let writes=0;

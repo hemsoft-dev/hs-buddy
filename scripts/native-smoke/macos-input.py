@@ -58,15 +58,17 @@ class OwnedMacInput:
             self.post(self.graphics.CGEventCreateMouseEvent(None, kind, Point(x, y), 0))
             time.sleep(0.05)
 
-    def type(self, text):
+    def replace_text(self, text):
         self.require_focus()
-        # Use the same keyboard route as the select-all operation. Synthetic
-        # virtual-key-0 Unicode events did not replace the existing color draft
-        # during the real Electron companion exercise, despite empty-field setup
-        # succeeding. Actual mouse events above establish text-field focus.
+        # Keep replacement in one System Events transaction. A separate
+        # select-all process left prefilled fields unchanged during the real
+        # headless Electron exercise. Explicitly release Command before typing.
         script = (f'tell application "System Events" to tell first application process '
-            f'whose unix id is {self.process.pid}\nkeystroke {json.dumps(text, ensure_ascii=False)}\nend tell')
+            f'whose unix id is {self.process.pid}\nkeystroke "a" using command down\n'
+            f'key up command\ndelay 0.1\nkey code 51\n'
+            f'keystroke {json.dumps(text, ensure_ascii=False)}\nend tell')
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+        self.require_focus()
 
     def scroll(self, x, y, delta):
         self.require_focus()

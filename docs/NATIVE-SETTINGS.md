@@ -139,6 +139,11 @@ with an empty GitHub CLI profile. It creates two accounts through native inputs,
 checks backend receipts, edits appearance and preferences, rejects invalid input,
 and restarts the app. A headless Electron companion runs the real config module
 and `electron-store` during native saves. Its credential adapter rejects access.
+On macOS the companion uses a prohibited activation policy so it cannot take
+keyboard focus from the native fixture. Text replacement keeps selection,
+modifier release, deletion, and typing in one owned System Events script.
+The backend fixture snapshots its generated selector after the CLI reports
+completed setup. It still preserves and rejects changes made after readiness.
 Window captures and recordings cover both themes and the two qualification sizes.
 The large fixture requests 1200 × 820 where the host supports it. Windows tracking
 limits and macOS usable display bounds are measured before choosing a smaller

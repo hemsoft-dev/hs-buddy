@@ -42,6 +42,15 @@ class MacInputOwnership(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
                 helper.require_focus()
 
+    def test_text_replacement_never_types_into_another_frontmost_app(self):
+        helper = desktop.OwnedMacInput.__new__(desktop.OwnedMacInput)
+        helper.process = Mock(pid=123)
+        subprocess_module = desktop.OwnedMacInput.require_focus.__globals__["subprocess"]
+        with patch.object(subprocess_module, "run", return_value=Mock(stdout="456\n")) as run:
+            with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
+                helper.replace_text("owned fixture text")
+            self.assertEqual(run.call_count, 1)  # Only the focus query ran.
+
 
 if __name__ == "__main__":
     unittest.main()

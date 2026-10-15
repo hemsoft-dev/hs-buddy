@@ -210,12 +210,15 @@ class Driver:
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
         time.sleep(0.4)
         if kind in ("field", "leftfield", "rightfield"):
-            window.key("a")
             if self.session == "macos":
-                OwnedMacInput(window.process).type(values[1])
+                OwnedMacInput(window.process).replace_text(values[1])
             else:
+                window.key("a")
                 run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
         time.sleep(0.7)
+        if self.session == "macos" and kind == "field" and values[0] == "Accent color":
+            name = "valid" if values[1].startswith("#") else "invalid"
+            window.screenshot(directory / f"typed-{name}-accent-draft.png")
 
 
 def verify_text(path, *markers):

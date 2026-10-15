@@ -70,6 +70,14 @@ class SettingsBackend:
                     raise RuntimeError("The disposable account list is not empty")
                 if self.generated_hash is None:
                     raise RuntimeError("The anonymous backend did not write its deployment selector")
+                # The CLI writes the selector more than once during initial
+                # setup. API readiness can precede its finished-deploy log.
+                # Take ownership of the completed file, then keep the strict
+                # unchanged-file cleanup guard for the entire UI exercise.
+                if "Convex functions ready!" not in (self.profile / "backend.log").read_text(encoding="utf-8", errors="replace"):
+                    time.sleep(0.25)
+                    continue
+                self.generated_hash = hashlib.sha256(self.generated.read_bytes()).digest()
                 return self
             raise RuntimeError("The owned anonymous backend did not become ready")
         except BaseException:
