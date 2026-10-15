@@ -40,15 +40,18 @@ class DashboardGate(unittest.TestCase):
             def write(dpi, width, height):
                 (directory / f"dpi-{dpi}.json").write_text(json.dumps(dict(
                     width=width, height=height, simulatedDpi=dpi, actualMonitorDpi=96)))
-            write(120, 900, 650)  # A successfully delivered but ignored event.
-            write(96, 900, 650)
+            write(120, 816, 608)  # A successfully delivered but ignored event.
+            write(96, 816, 608)
             with self.assertRaises(RuntimeError):
                 require_dpi_sequence(directory)
-            write(120, 1125, 813)
-            write(96, 1125, 813)  # Scale-up alone cannot qualify a return event.
+            write(120, 1044, 788)  # The small runner desktop's actual clamp.
             with self.assertRaises(RuntimeError):
                 require_dpi_sequence(directory)
-            write(96, 900, 650)
+            write(120, 1020, 760)
+            write(96, 1020, 760)  # Scale-up alone cannot qualify a return event.
+            with self.assertRaises(RuntimeError):
+                require_dpi_sequence(directory)
+            write(96, 816, 608)
             require_dpi_sequence(directory)
 
     def test_menu_requires_its_own_visible_content_and_exact_version(self):

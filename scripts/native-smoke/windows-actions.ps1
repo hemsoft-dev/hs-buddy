@@ -229,6 +229,7 @@ try {
                 $actual = New-Object Drive+RECT
                 if (-not [Drive]::GetWindowRect($h, [ref]$actual)) { throw 'Owned resized window disappeared' }
                 $size = @{ width = $actual.r - $actual.l; height = $actual.b - $actual.t; units = 'Windows outer physical pixels' }
+                Note "resize requested $($parts[3])x$($parts[4]); observed $($size.width)x$($size.height)"
                 if ([Math]::Abs($size.width - [int]$parts[3]) -gt 2 -or [Math]::Abs($size.height - [int]$parts[4]) -gt 2) { throw 'Owned window ignored or clamped the requested resize' }
                 $size | ConvertTo-Json | Set-Content (Join-Path ([IO.Path]::GetDirectoryName($Log)) 'resize.json')
             }

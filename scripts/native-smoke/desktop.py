@@ -174,9 +174,13 @@ def windows(executable, directory, config, restored=False):
             "resize:80:80:900:650", "geometry",
             f"capture:{directory / 'resized.png'}", "focus", "ctrlkey:187",
             f"capture:{directory / 'zoomed.png'}",
-            "simulated-dpi:120:1125:813",
+            # At 96 DPI the 800x600 client minimum has a 16x8 Windows frame.
+            # Its 125% outer size fits a 1024x768 desktop's tracking limits.
+            "resize:80:40:816:608",
+            "simulated-dpi:120:1020:760",
             f"capture:{directory / 'dpi-simulated-125-percent.png'}",
-            "simulated-dpi:96:900:650",
+            "simulated-dpi:96:816:608",
+            "resize:80:80:900:650",
             f"classicon:{directory / 'registered-window-icons.png'}",
             "record-stop",
         ]
@@ -196,7 +200,7 @@ def require_size(actual, width, height):
 
 def require_dpi_sequence(directory):
     # Both the scale-up and the return event must actually resize the HWND.
-    for dpi, width, height in ((120, 1125, 813), (96, 900, 650)):
+    for dpi, width, height in ((120, 1020, 760), (96, 816, 608)):
         actual = json.loads((directory / f"dpi-{dpi}.json").read_text(encoding="utf-8-sig"))
         if actual["simulatedDpi"] != dpi or not math.isfinite(actual["actualMonitorDpi"]) or actual["actualMonitorDpi"] <= 0:
             raise RuntimeError("Unreadable simulated versus actual monitor DPI")

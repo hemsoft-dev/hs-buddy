@@ -137,8 +137,12 @@ saved placement after restart, disconnected-display recovery, and preservation
 of an unknown settings field. Tab then Enter must open the File menu before a
 mouse click. Windows also sends a simulated 96-to-120-to-96 `WM_DPICHANGED`
 sequence to the owned window and checks its rendered dashboard at 125% scale.
-The 1125 x 813 scale-up fits the hosted desktop's window tracking limits;
-the driver records those limits rather than assuming an unlimited display.
+The DPI sequence starts at 816 x 608 outer pixels, the app's 800 x 600 client
+minimum plus the Windows frame at 96 DPI. It scales to 1020 x 760, then returns
+to 816 x 608. This also fits the default tracking limits on a 1024 x 768 runner
+desktop. The driver records those limits
+rather than assuming an unlimited display, then restores the ordinary
+900 x 650 fixture before the restart checks.
 Each event must apply its requested physical bounds, including the return to
 96 DPI. The driver records measured bounds and rejects ignored or clamped events.
 The log retains the actual monitor DPI separately. macOS captures record both
