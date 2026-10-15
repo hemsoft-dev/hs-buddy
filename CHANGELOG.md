@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1367] - 2026-10-15
+
+### Changed
+
+- Read the persisted Mac color as an exact hex line (#813)
+
 ## [0.1.1366] - 2026-10-15
 
 ### Changed

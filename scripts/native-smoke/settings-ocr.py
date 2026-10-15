@@ -2,6 +2,7 @@
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -105,6 +106,21 @@ def aligned_save(words, label):
     if len(candidates) != 1:
         raise RuntimeError("The field's aligned Save button is ambiguous")
     return candidates[0]
+
+
+def color_region(label, scale, dimensions):
+    """Keep the original pixels of the color row, excluding other controls."""
+    if not math.isfinite(scale) or scale <= 0:
+        raise RuntimeError("A positive measured capture scale is required")
+    button = label["save"]
+    center = button["top"] + button["height"] / 2
+    left, right = int(label["left"]), int(button["left"] - 20 * scale)
+    top, bottom = math.floor(center - 12 * scale), math.ceil(center + 12 * scale)
+    width, height = dimensions
+    if not (0 <= left < right <= width and 0 <= top < bottom <= height
+            and right - left >= 40 * scale):
+        raise RuntimeError("The visible color input has invalid capture bounds")
+    return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
 def locate_image(image, labels, navigation=False, field=False, save_row=False):

@@ -146,6 +146,10 @@ Single-column Mac fields target the visible Save row's vertical center rather
 than an offset from label glyphs. The outer input frame can show a focus ring
 while its editor remains unfocused when a click lands in frame padding. Missing
 or ambiguous row controls fail qualification; target receipts retain coordinates.
+The Mac restart-color check analyzes an unscaled crop of that input row using
+single-line OCR and the full hex alphabet, then requires the exact saved value.
+The original window screenshot remains untouched for review; no ambiguous glyph
+substitutions are accepted.
 The backend fixture snapshots its generated selector after the CLI reports
 completed setup. It still preserves and rejects changes made after readiness.
 Window captures and recordings cover both themes and the two qualification sizes.

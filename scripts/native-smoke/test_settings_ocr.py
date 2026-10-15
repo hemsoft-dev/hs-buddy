@@ -15,6 +15,20 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_color_analysis_region_preserves_the_measured_row_at_both_scales(self):
+        label = dict(left=72, save=dict(left=1134, top=367, height=10))
+        self.assertEqual(ocr.color_region(label, 1, (1200, 820)),
+            dict(left=72, top=360, width=1042, height=24))
+        scaled = dict(left=144, save=dict(left=2268, top=734, height=20))
+        self.assertEqual(ocr.color_region(scaled, 2, (2400, 1640)),
+            dict(left=144, top=720, width=2084, height=48))
+
+    def test_color_region_cannot_escape_the_owned_capture(self):
+        with self.assertRaisesRegex(RuntimeError, "invalid capture bounds"):
+            ocr.color_region(dict(left=72, save=dict(left=1134, top=367, height=10)), 1, (900, 650))
+        with self.assertRaisesRegex(RuntimeError, "positive measured"):
+            ocr.color_region({}, float("nan"), (1200, 820))
+
     def test_mac_editor_row_uses_the_actual_save_baseline_not_label_padding(self):
         # Exact native Tesseract bounds from the failed Mac Accent capture.
         label = dict(left=72, top=333, width=72, height=10)

@@ -1,7 +1,9 @@
 """Choose supported fixtures before requesting sizes; never accept clamping."""
 import importlib.util
+import json
 import os
 from pathlib import Path
+import struct
 import unittest
 from unittest.mock import Mock, patch
 
@@ -21,6 +23,28 @@ class DesktopLimits(unittest.TestCase):
             desktop.planned_large_size(899, 820)
         with self.assertRaises(RuntimeError):
             desktop.planned_large_size(1200, 649)
+
+
+class ColorReadVerification(unittest.TestCase):
+    def capture(self):
+        path = Mock()
+        path.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200, 820)
+        path.with_suffix.return_value.read_text.return_value = json.dumps(dict(capturePixelsPerWindowPoint=1))
+        return path
+
+    def test_wrong_hex_and_misread_glyphs_are_never_accepted_as_the_expected_color(self):
+        label = dict(left=72, save=dict(left=1134, top=367, height=10))
+        for actual in ("#8246a1", "#8246al"):
+            with self.subTest(actual=actual), patch.object(desktop.ocr, "locate_image", return_value=label), \
+                    patch.object(desktop, "run", side_effect=["", actual, actual]):
+                with self.assertRaisesRegex(RuntimeError, "exact saved hex"):
+                    desktop.verify_color(self.capture(), "#8246af", "macos")
+
+    def test_a_second_line_mode_must_read_the_exact_value(self):
+        label = dict(left=72, save=dict(left=1134, top=367, height=10))
+        with patch.object(desktop.ocr, "locate_image", return_value=label), \
+                patch.object(desktop, "run", side_effect=["", "#8246al", "#8246af"]):
+            desktop.verify_color(self.capture(), "#8246af", "macos")
 
 
 class MacInputOwnership(unittest.TestCase):

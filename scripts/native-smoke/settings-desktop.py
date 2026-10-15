@@ -246,6 +246,29 @@ def verify_text(path, *markers):
             raise RuntimeError(f"Settings screenshot is missing {marker!r}")
 
 
+def verify_color(path, expected, session):
+    if session != "macos":
+        verify_text(path, expected)
+        return
+    import struct
+    label = ocr.locate_image(path, "Accent color", field=True, save_row=True)
+    metadata = json.loads(path.with_suffix(".window.json").read_text())
+    region = ocr.color_region(label, metadata["capturePixelsPerWindowPoint"],
+        struct.unpack(">II", path.read_bytes()[16:24]))
+    # OCR analysis only. The original screenshot remains the review evidence.
+    cropped = path.with_suffix(".color-ocr.png")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", f'crop={region["width"]}:{region["height"]}:{region["left"]}:{region["top"]}:exact=1',
+        "-frames:v", "1", cropped)
+    for mode in (7, 13):  # Single text line and raw line; no glyph substitutions.
+        actual = run("tesseract", cropped, "stdout", "--psm", mode,
+            "-c", "tessedit_char_whitelist=#0123456789abcdef").strip().casefold()
+        path.with_suffix(f".color-ocr-{mode}.txt").write_text(actual, encoding="utf-8")
+        if actual == expected.casefold():
+            return
+    raise RuntimeError("The restarted color input does not show the exact saved hex value")
+
+
 def verify_feedback_scope(path):
     text = " ".join(run("tesseract", path, "stdout", "--psm", 11).casefold().split())
     if "choose an absolute" in text:
@@ -325,7 +348,7 @@ def qualify(executable, output, session, checkout, backend):
         ("resize", 900, 650), ("capture", "persisted-compact-light"), ("click", "Dark"),
         ("capture", "persisted-compact-dark"), ("resize", 1200, 820), ("nav", "Accounts"),
         ("capture", "accounts-after-restart-dark")])
-    verify_text(restarted / "persisted-light.png", "#8246af")
+    verify_color(restarted / "persisted-light.png", "#8246af", session)
     verify_text(restarted / "accounts-after-restart-dark.png", "fixture-native-one", "fixture-native-two")
     font = "DejaVu Sans" if session == "x11" else "Arial"
     mono = "DejaVu Sans Mono" if session == "x11" else "Courier New"
