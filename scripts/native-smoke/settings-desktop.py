@@ -345,7 +345,7 @@ def qualify(executable, output, session, checkout, backend):
         raise RuntimeError("Concurrent real Electron/native saves lost an edit")
     if saved["packageQualificationSentinel"] != {"preserve": True}:
         raise RuntimeError("Unknown shared config fields were lost")
-    verify_text(appearance / "invalid-color-light.png", "six-digit hex color")
+    verify_text(appearance / "keyboard-compact-light.png", "six-digit hex color")
     preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"),
         ("click", "Automatic refresh: on"), ("capture", "pr-light"), ("nav", "Copilot"),
         ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"),
