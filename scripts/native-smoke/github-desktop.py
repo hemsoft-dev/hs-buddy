@@ -55,16 +55,24 @@ def reset_section(config):
     config.write_text(json.dumps(value), encoding="utf-8")
 
 
-def check(path, version, *markers, absent=()):
+def installed_binary(executable, version):
+    output = settings.run(executable, "--version")
+    require_version(output, version)
+    return dict(versionOutput=output, binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest())
+
+
+def check(path, *markers, absent=()):
     settings.verify_text(path, *markers)
     text = path.with_suffix(".ocr.txt").read_text()
-    require_version(text, version)
     for marker in absent:
         if marker.casefold() in text.casefold():
             raise RuntimeError("Another account's fixture data remained visible")
 
 
 def qualify(executable, output, session, version, backend, api):
+    # GitHub's route does not display a version label. Bind these captures to
+    # the actual installed executable, also exercised by the base UI fixture.
+    binary = installed_binary(executable, version)
     config = fixture(output, "dark")
     initial = json.loads(config.read_text())
     initial["github"]["accounts"] = [dict(username=user, org="fixture-org") for user in ("fixture-one", "fixture-two")]
@@ -87,10 +95,10 @@ def qualify(executable, output, session, version, backend, api):
         ("capture", "confirmation-dark"), ("click", "Confirm action"), ("sleep", 1),
         ("capture", "write-ack-dark"), ("click", "Refresh"),
     ], record=True)
-    check(review / "filter-list-dark.png", version, "First private", "List")
-    check(review / "diff-dark.png", version, "navigation.rs", "native navigation", "Patch unavailable")
-    check(review / "confirmation-dark.png", version, "Confirm as", "fixture-one", "Installed native fixture comment")
-    check(review / "write-ack-dark.png", version, "Comment posted", "Refresh")
+    check(review / "filter-list-dark.png", "First private", "List")
+    check(review / "diff-dark.png", "navigation.rs", "native navigation", "Patch unavailable")
+    check(review / "confirmation-dark.png", "Confirm as", "fixture-one", "Installed native fixture comment")
+    check(review / "write-ack-dark.png", "Comment posted", "Refresh")
     writes = [request for request in api.requests if request["method"] == "POST" and request["path"].endswith("/issues/7/comments")]
     if len(writes) != 1 or writes[0]["account"] != "fixture-one" or writes[0]["body"] != dict(body="Installed native fixture comment"):
         raise RuntimeError("The observed confirmed write did not reach exactly the reviewed fixture account and PR")
@@ -111,8 +119,8 @@ def qualify(executable, output, session, version, backend, api):
         ("click", "Activity"), ("click", "Team memberships"), ("click", "Native Team"),
         ("click", "Organization"),
     ])
-    check(navigation / "repository-dark.png", version, "native-demo", "Languages", "Rust")
-    check(navigation / "profile-dark.png", version, "Demo Contributor", "Contribution calendar")
+    check(navigation / "repository-dark.png", "native-demo", "Languages", "Rust")
+    check(navigation / "profile-dark.png", "Demo Contributor", "Contribution calendar")
     if not backend.query("repoBookmarks:list"):
         raise RuntimeError("The installed bookmark action did not reach Convex")
     if "fixture-author" not in json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["favoriteUsers"]:
@@ -131,24 +139,24 @@ def qualify(executable, output, session, version, backend, api):
         ("click", "Repositories"), ("click", "fixture-org/limited"), ("capture", "rate-limit-light"),
         ("click", "Repositories"), ("click", "fixture-org/denied"), ("capture", "denied-light"),
     ])
-    check(light / "second-account-light.png", version, "Second private", absent=("First private", "Installed native fixture comment"))
-    check(light / "rate-limit-light.png", version, "GitHub is limiting requests")
-    check(light / "denied-light.png", version, "cannot access")
-    check(light / "compact-keyboard-light.png", version, "My PRs", "First private")
+    check(light / "second-account-light.png", "Second private", absent=("First private", "Installed native fixture comment"))
+    check(light / "rate-limit-light.png", "GitHub is limiting requests")
+    check(light / "denied-light.png", "cannot access")
+    check(light / "compact-keyboard-light.png", "My PRs", "First private")
     if json.loads(config.read_text(encoding="utf-8-sig"))["native"]["github"]["viewModes"]["pr-list-my-prs"] != "card":
         raise RuntimeError("Tab and Enter did not activate the native Cards view control")
 
     api.scenario = "auth"
     reset_section(config)
     missing = driver.drive("missing-auth", [("click", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "missing-auth-light")])
-    check(missing / "missing-auth-light.png", version, "Sign in to GitHub CLI", absent=("First private", "Second private"))
+    check(missing / "missing-auth-light.png", "Sign in to GitHub CLI", absent=("First private", "Second private"))
     api.scenario = "empty"
     reset_section(config)
     empty = driver.drive("empty", [("capture", "empty-light")])
-    check(empty / "empty-light.png", version, "No items for this account and view")
+    check(empty / "empty-light.png", "No items for this account and view")
     (output / "requests.json").write_text(json.dumps(api.requests, indent=2))
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
-        binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), largeWindow=driver.large_size,
+        **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment",
             "repository/commit/issue navigation", "profile/calendar/teams", "Convex bookmark and favorite",
