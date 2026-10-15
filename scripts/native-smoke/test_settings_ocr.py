@@ -17,6 +17,15 @@ class LabelGuards(unittest.TestCase):
             word("Premium", 80, 300, "premium"), word("model", 120, 300, "premium"), word("ID", 160, 300, "premium")]
         self.assertEqual(ocr.find_label(words, "Model ID", field=True)["top"], 200)
 
+    def test_missing_model_label_cannot_select_the_premium_field(self):
+        words = [word("Premium", 80, 300, "premium"), word("model", 120, 300, "premium"), word("ID", 160, 300, "premium")]
+        with self.assertRaises(RuntimeError):
+            ocr.find_label(words, "Model ID", field=True)
+
+    def test_a_joined_ocr_word_matches_the_exact_label(self):
+        words = [word("ModelID", 80, 200, "default"), word("Save", 1100, 200, "default")]
+        self.assertEqual(ocr.find_label(words, "Model ID", field=True)["top"], 200)
+
     def test_navigation_excludes_a_same_named_account_provider(self):
         words = [word("Settings", 80, 100, "a"), word("Copilot", 320, 150, "b"), word("Copilot", 200, 300, "c")]
         self.assertEqual(ocr.find_label(words, "Copilot", True)["top"], 150)

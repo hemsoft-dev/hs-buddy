@@ -13,8 +13,8 @@ def normalize(text):
 
 
 def find_label(words, label, navigation=False, field=False, exact_line=False):
-    wanted = [normalize(word) for word in label.split()]
-    if not wanted or not all(wanted):
+    wanted = normalize(label)
+    if not wanted:
         raise RuntimeError("A nonempty visible label is required")
     lines = {}
     for word in words:
@@ -22,17 +22,23 @@ def find_label(words, label, navigation=False, field=False, exact_line=False):
     matches = []
     for line in lines.values():
         line.sort(key=lambda word: word["left"])
-        if (field and len(line) > 5) or (exact_line and len(line) != len(wanted)):
+        if field and len(line) > 5:
             continue
-        for start in range(len(line) - len(wanted) + 1):
-            span = line[start:start + len(wanted)]
-            if [normalize(word["text"]) for word in span] != wanted:
-                continue
-            left = min(word["left"] for word in span)
-            top = min(word["top"] for word in span)
-            right = max(word["left"] + word["width"] for word in span)
-            bottom = max(word["top"] + word["height"] for word in span)
-            matches.append(dict(left=left, top=top, width=right-left, height=bottom-top, exact=len(line) == len(wanted)))
+        # A field label starts its OCR line. In particular, a missing Model ID
+        # must never fall back to the suffix of Premium model ID.
+        for start in ([0] if field else range(len(line))):
+            for end in range(start + 1, len(line) + 1):
+                span = line[start:end]
+                if "".join(normalize(word["text"]) for word in span) != wanted:
+                    continue
+                exact = start == 0 and end == len(line)
+                if exact_line and not exact:
+                    continue
+                left = min(word["left"] for word in span)
+                top = min(word["top"] for word in span)
+                right = max(word["left"] + word["width"] for word in span)
+                bottom = max(word["top"] + word["height"] for word in span)
+                matches.append(dict(left=left, top=top, width=right-left, height=bottom-top, exact=exact))
     if field and any(match["exact"] for match in matches):
         matches = [match for match in matches if match["exact"]]
     if navigation:
@@ -44,9 +50,9 @@ def find_label(words, label, navigation=False, field=False, exact_line=False):
     return matches[0]
 
 
-def recognize(image):
+def recognize(image, mode=11):
     if shutil.which("tesseract"):
-        result = subprocess.run(["tesseract", str(image), "stdout", "--psm", "11", "tsv"], capture_output=True, text=True, check=True, timeout=30)
+        result = subprocess.run(["tesseract", str(image), "stdout", "--psm", str(mode), "tsv"], capture_output=True, text=True, check=True, timeout=30)
         rows = csv.DictReader(result.stdout.splitlines(), delimiter="\t")
         return [dict(text=row["text"], left=int(row["left"]), top=int(row["top"]), width=int(row["width"]), height=int(row["height"]), line="/".join(row[key] for key in ("block_num", "par_num", "line_num"))) for row in rows if row["level"] == "5" and row["text"].strip()]
     if sys.platform == "win32":
@@ -64,6 +70,15 @@ def locate_label(words, labels, navigation=False, field=False):
     raise RuntimeError("None of the requested visible labels was unambiguous")
 
 
+def locate_image(image, labels, navigation=False, field=False):
+    for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
+        try:
+            return locate_label(recognize(image, mode), labels, navigation, field)
+        except RuntimeError:
+            pass
+    raise RuntimeError("No OCR mode found the requested visible label unambiguously")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True, type=Path)
@@ -71,7 +86,7 @@ def main():
     parser.add_argument("--navigation", action="store_true")
     parser.add_argument("--field", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(locate_label(recognize(args.image), args.label, args.navigation, args.field)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field)))
 
 
 if __name__ == "__main__":

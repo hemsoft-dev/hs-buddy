@@ -34,6 +34,14 @@ class MacInputOwnership(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "live owned app"):
                 desktop.OwnedMacInput(Mock(pid=123, poll=Mock(return_value=0)))
 
+    def test_another_frontmost_app_is_rejected(self):
+        helper = desktop.OwnedMacInput.__new__(desktop.OwnedMacInput)
+        helper.process = Mock(pid=123)
+        subprocess_module = desktop.OwnedMacInput.require_focus.__globals__["subprocess"]
+        with patch.object(subprocess_module, "run", return_value=Mock(stdout="456\n")):
+            with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
+                helper.require_focus()
+
 
 if __name__ == "__main__":
     unittest.main()

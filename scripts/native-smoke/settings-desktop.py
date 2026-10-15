@@ -174,36 +174,16 @@ class Driver:
             run("xdotool", "mousemove", "--window", window.window, 600, 400)
             run("xdotool", "click", "--repeat", max(1, abs(delta) // 120), "--delay", 50, 5 if delta < 0 else 4)
         else:
-            # Post only to this owned process on the disposable Mac runner.
-            # https://developer.apple.com/documentation/coregraphics/cgevent/posttopid(_:)?language=objc
-            import ctypes as c
-            class Point(c.Structure):
-                _fields_ = [("x", c.c_double), ("y", c.c_double)]
-            graphics = c.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
-            core = c.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-            graphics.CGEventCreateScrollWheelEvent.argtypes = [c.c_void_p, c.c_uint32, c.c_uint32, c.c_int32]
-            graphics.CGEventCreateScrollWheelEvent.restype = c.c_void_p
-            graphics.CGEventSetLocation.argtypes = [c.c_void_p, Point]
-            graphics.CGEventPostToPid.argtypes = [c.c_int32, c.c_void_p]
-            core.CFRelease.argtypes = [c.c_void_p]
             metadata = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", window.process.pid))
             bounds = metadata["kCGWindowBounds"]
-            for _ in range(max(1, abs(delta) // 240)):
-                event = graphics.CGEventCreateScrollWheelEvent(None, 1, 1, -10 if delta < 0 else 10)
-                if not event:
-                    raise RuntimeError("Could not create the owned scrolling event")
-                try:
-                    graphics.CGEventSetLocation(event, Point(bounds["X"] + bounds["Width"] / 2, bounds["Y"] + bounds["Height"] / 2))
-                    graphics.CGEventPostToPid(window.process.pid, event)
-                finally:
-                    core.CFRelease(event)
-                time.sleep(0.05)
+            OwnedMacInput(window.process).scroll(bounds["X"] + bounds["Width"] / 2,
+                bounds["Y"] + bounds["Height"] / 2, delta)
         time.sleep(0.7)
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
         window.screenshot(image)
-        label = ocr.locate_label(ocr.recognize(image), values[0], navigation=kind == "nav",
+        label = ocr.locate_image(image, values[0], navigation=kind == "nav",
             field=kind in ("field", "leftfield", "rightfield", "save"))
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1359] - 2026-10-15
+
+### Changed
+
+- Route Mac CI input and disambiguate settings fields (#813)
+
 ## [0.1.1358] - 2026-10-15
 
 ### Changed
