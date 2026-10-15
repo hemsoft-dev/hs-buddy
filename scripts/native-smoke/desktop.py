@@ -25,10 +25,11 @@ HERE = Path(__file__).resolve().parent
 
 
 def run(*args, **kwargs):
+    timeout = kwargs.pop("timeout", 60)
     try:
         return subprocess.run(
             [str(arg) for arg in args], check=True, capture_output=True,
-            text=True, timeout=60, **kwargs,
+            text=True, timeout=timeout, **kwargs,
         ).stdout.strip()
     except subprocess.CalledProcessError as error:
         raise RuntimeError(f"{args[0]} failed with exit {error.returncode}: {error.stderr[-8000:]}") from error
@@ -152,7 +153,9 @@ def windows(executable, directory, config, restored=False):
     actions += ["ctrlkey:81"]
     run("pwsh", "-NoProfile", "-File", HERE / "windows-window.ps1",
         "-Exe", executable, "-OutDir", directory, "-ConfigPath", config,
-        "-Actions", ",".join(actions))
+        # Allow the driver's 45s render, 120s action, and 20s exit deadlines,
+        # plus PowerShell startup and its owned-process cleanup.
+        "-Actions", ",".join(actions), timeout=240)
 
 
 class UnixWindow:

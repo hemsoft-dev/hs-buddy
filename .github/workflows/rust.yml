@@ -12,6 +12,9 @@ on:
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
+      - 'public/icon-512.png'
+      - 'public/icon.ico'
+      - 'LICENSE'
   pull_request:
     paths:
       - 'rust/**'
@@ -20,6 +23,9 @@ on:
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
+      - 'public/icon-512.png'
+      - 'public/icon.ico'
+      - 'LICENSE'
 
 permissions:
   contents: read

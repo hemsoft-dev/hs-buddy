@@ -2,13 +2,20 @@
 
 import unittest
 import json
+import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
-from desktop import fixture, recording, require_dashboard
+from desktop import fixture, recording, require_dashboard, run
 
 
 class DashboardGate(unittest.TestCase):
+    def test_command_timeout_can_be_set_by_the_caller(self):
+        self.assertEqual(run(sys.executable, "-c", "print('owned child')", timeout=5), "owned child")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run(sys.executable, "-c", "import time; time.sleep(10)", timeout=0.1)
+
     def recording_storage_failure(self, action_error):
         started, release = Event(), Event()
         calls = []
