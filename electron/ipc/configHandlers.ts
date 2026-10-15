@@ -336,8 +336,16 @@ function registerMiscConfigHandlers(): void {
   })
 
   ipcMain.handle(IPC_INVOKE.CONFIG_RESET, async () => {
-    await configManager.reset()
-    return { success: true }
+    try {
+      await configManager.reset()
+      return { success: true }
+    } catch (_: unknown) {
+      return {
+        success: false,
+        error:
+          'Could not reset settings. Unlock secure storage, check file permissions, then retry.',
+      }
+    }
   })
 }
 

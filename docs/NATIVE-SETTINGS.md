@@ -26,6 +26,10 @@ Both applications use the existing `config.json.lock` protocol. Native form
 saves refuse a busy or unavailable lock. The file stamp also detects a writer
 that ignored the lock. Retries reapply the field edit to the new file, preserving
 neighboring values and unknown keys. Invalid edits leave the file untouched.
+Shell preference failures also remain visible in the native status bar. A failed
+navigation save keeps the previous section selected, so the same action can be
+retried after the other process releases the lock. Successful retries clear the
+save error; no caller writes around the shared lock.
 
 Theme selection applies the same six color presets as Electron. **Reset colors**
 restores the current theme's preset. Fonts are selected from installed names.
@@ -72,6 +76,9 @@ or request URLs. Packaged Electron qualification loads the native keyring
 binding without opening a credential entry.
 Electron keeps Clear Key available when status is unknown, including migration
 conflicts, so clearing does not require submitting a replacement credential.
+Electron reset returns a handled failure when secure storage cannot clear the
+key and re-enables its confirmation control. A failed reload after an acknowledged
+reset is reported separately from a reset that did not complete.
 
 The disposable CI interoperability probe checks ASCII and Unicode passwords,
 both application directions, deletion, legacy migration, unknown-field
@@ -158,6 +165,11 @@ nearest-neighbor scaling, then uses single-line OCR and the full hex alphabet
 and requires the exact saved value.
 The original window screenshot remains untouched for review; no ambiguous glyph
 substitutions are accepted.
+Draft-retention checks read an analysis copy of the input interior, using the
+adjacent Save glyph's measured pixel bounds to exclude its focus border. The
+analysis is scaled with nearest-neighbor pixels and must read the exact draft;
+extra text and ambiguous glyphs fail. Full-window OCR can omit a correctly
+rendered focused input on both macOS and Linux.
 The backend fixture snapshots its generated selector after the CLI reports
 completed setup. It still preserves and rejects changes made after readiness.
 Window captures and recordings cover both themes and the two qualification sizes.

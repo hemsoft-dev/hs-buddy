@@ -108,6 +108,23 @@ def aligned_save(words, label):
     return candidates[0]
 
 
+def input_region(label, dimensions):
+    """Use measured glyph pixels to exclude the input's focus border."""
+    button = label["save"]
+    height = button["height"]
+    if not math.isfinite(height) or height <= 0:
+        raise RuntimeError("A positive measured control height is required")
+    center = button["top"] + height / 2
+    left = math.ceil(label["left"] + height * 0.4)
+    right = math.floor(button["left"] - height * 2.4)
+    top, bottom = math.floor(center - height), math.ceil(center + height)
+    width, capture_height = dimensions
+    if not (0 <= left < right <= width and 0 <= top < bottom <= capture_height
+            and right - left >= height * 4):
+        raise RuntimeError("The visible input has invalid capture bounds")
+    return dict(left=left, top=top, width=right-left, height=bottom-top)
+
+
 def color_region(label, scale, dimensions):
     """Keep the original pixels of the color row, excluding other controls."""
     if not math.isfinite(scale) or scale <= 0:

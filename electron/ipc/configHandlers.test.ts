@@ -235,6 +235,14 @@ describe('configHandlers', () => {
   })
 
   describe('config:reset', () => {
+    it('handles secure reset failure without exposing provider details', async () => {
+      mockConfigManager.reset.mockRejectedValueOnce(new Error('private-reset-fixture'))
+      const result = await handlers.get('config:reset')!()
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Unlock secure storage')
+      expect(result.error).not.toContain('private-reset-fixture')
+    })
+
     it('calls configManager.reset and returns success', async () => {
       const result = await handlers.get('config:reset')!()
       expect(mockConfigManager.reset).toHaveBeenCalled()

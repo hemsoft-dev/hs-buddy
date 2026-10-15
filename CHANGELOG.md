@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1370] - 2026-10-15
+
+### Fixed
+
+- Handle settings reset and lock failures
+
 ## [0.1.1369] - 2026-10-15
 
 ### Fixed

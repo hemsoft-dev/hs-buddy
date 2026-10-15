@@ -7,6 +7,7 @@ use gpui_kit::component::{ActiveTheme, Icon, h_flex};
 use gpui_kit::{App, IntoElement, ParentElement, SharedString, Styled};
 
 use crate::app::BuddyApp;
+use crate::settings::Settings;
 use crate::theme::BuddyPalette;
 use crate::zoom::zpx;
 
@@ -35,6 +36,7 @@ pub fn render(app: &BuddyApp, cx: &App) -> impl IntoElement + use<> {
     let now = chrono::Local::now();
     let clock = buddy_core::format::clock(now.time())
         .unwrap_or_else(|| now.format("%-I:%M:%S %p").to_string());
+    let save_error = Settings::global(cx).save_error.clone();
 
     StatusBar::new()
         .h(zpx(STATUS_BAR_HEIGHT))
@@ -44,5 +46,10 @@ pub fn render(app: &BuddyApp, cx: &App) -> impl IntoElement + use<> {
         .text_color(palette.status_bar_fg)
         .text_size(zpx(11.0))
         .left(status_item(IconName::Users, account))
+        .left(gpui_kit::div().children(
+            save_error.map(|error| {
+                status_item(IconName::Settings, format!("Settings not saved: {error}"))
+            }),
+        ))
         .right(status_item(IconName::Clock, clock))
 }

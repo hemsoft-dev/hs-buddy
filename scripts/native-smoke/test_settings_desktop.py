@@ -47,6 +47,24 @@ class ColorReadVerification(unittest.TestCase):
             desktop.verify_color(self.capture(), "#8246af", "macos")
 
 
+class DraftReadVerification(unittest.TestCase):
+    capture = ColorReadVerification.capture
+
+    def test_wrong_glyphs_and_additional_text_are_rejected(self):
+        label = dict(left=73, save=dict(left=1133, top=281, height=11))
+        for actual in ("draft audlo", "draft audio extra", "; draft audio ;"):
+            with self.subTest(actual=actual), patch.object(desktop.ocr, "locate_image", return_value=label), \
+                    patch.object(desktop, "run", side_effect=["", actual, actual]):
+                with self.assertRaisesRegex(RuntimeError, "exact retained draft"):
+                    desktop.verify_draft(self.capture(), "Notification audio file", "draft audio")
+
+    def test_second_mode_requires_the_exact_unaliased_value(self):
+        label = dict(left=73, save=dict(left=1133, top=281, height=11))
+        with patch.object(desktop.ocr, "locate_image", return_value=label), \
+                patch.object(desktop, "run", side_effect=["", "draft audlo", "draft audio"]):
+            desktop.verify_draft(self.capture(), "Notification audio file", "draft audio")
+
+
 class MacInputOwnership(unittest.TestCase):
     def test_normal_environment_cannot_load_input_frameworks(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "", "BUDDY_SETTINGS_FIXTURE": ""}):

@@ -1192,7 +1192,7 @@ mod tests {
             gpui_kit::init(cx);
             let config = buddy_core::config::AppConfig::default();
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 cx.new(|cx| {
                     let mut view = SettingsView::new(window, cx);
@@ -1256,7 +1256,7 @@ mod tests {
             let mut config = buddy_core::config::AppConfig::default();
             config.ui.pollen_api_key = "fixture-secret-must-remain-out-of-the-form".into();
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 cx.new(|cx| {
                     let mut view = SettingsView::new(window, cx);

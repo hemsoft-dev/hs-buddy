@@ -424,13 +424,14 @@ jobs:
         timeout-minutes: 10
         run: bun install --frozen-lockfile
 
-      - name: Ensure Chrome is available for E2E
+      - name: Prepare E2E browser and recording tools
         run: |
           if command -v google-chrome >/dev/null 2>&1; then
             google-chrome --version
           else
             npx playwright install --with-deps chrome
           fi
+          npx playwright install ffmpeg
 
       - name: Run E2E tests
         run: bun run test:e2e

@@ -15,6 +15,19 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_draft_region_excludes_focus_border_using_actual_glyph_bounds(self):
+        self.assertEqual(ocr.input_region(dict(left=73, save=dict(left=1133, top=281, height=11)), (1200, 820)),
+            dict(left=78, top=275, width=1028, height=23))
+        self.assertEqual(ocr.input_region(dict(left=146, save=dict(left=2266, top=562, height=22)), (2400, 1640)),
+            dict(left=155, top=551, width=2058, height=44))
+
+    def test_draft_region_rejects_invalid_height_or_out_of_capture_coordinates(self):
+        for height in (0, -1, float("nan")):
+            with self.assertRaisesRegex(RuntimeError, "positive measured"):
+                ocr.input_region(dict(left=73, save=dict(left=1133, top=281, height=height)), (1200, 820))
+        with self.assertRaisesRegex(RuntimeError, "invalid capture bounds"):
+            ocr.input_region(dict(left=73, save=dict(left=1133, top=281, height=11)), (900, 650))
+
     def test_color_analysis_region_preserves_the_measured_row_at_both_scales(self):
         label = dict(left=72, save=dict(left=1134, top=367, height=10))
         self.assertEqual(ocr.color_region(label, 1, (1200, 820)),

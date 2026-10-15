@@ -269,6 +269,23 @@ def verify_color(path, expected, session):
     raise RuntimeError("The restarted color input does not show the exact saved hex value")
 
 
+def verify_draft(path, label, expected):
+    """Verify controlled fixture drafts without altering review screenshots."""
+    import struct
+    bounds = ocr.locate_image(path, label, field=True, save_row=True)
+    region = ocr.input_region(bounds, struct.unpack(">II", path.read_bytes()[16:24]))
+    analysis = path.with_suffix(".input-ocr.png")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", f'crop={region["width"]}:{region["height"]}:{region["left"]}:{region["top"]}:exact=1,scale=iw*3:ih*3:flags=neighbor',
+        "-frames:v", "1", analysis)
+    for mode in (7, 13):
+        actual = run("tesseract", analysis, "stdout", "--psm", mode).strip().casefold()
+        path.with_suffix(f".input-ocr-{mode}.txt").write_text(actual, encoding="utf-8")
+        if actual == expected.casefold():
+            return
+    raise RuntimeError("The input does not show the exact retained draft")
+
+
 def verify_feedback_scope(path):
     text = " ".join(run("tesseract", path, "stdout", "--psm", 11).casefold().split())
     if "choose an absolute" in text:
@@ -367,8 +384,10 @@ def qualify(executable, output, session, checkout, backend):
         ("capture", "theme-retained-font-dark"), ("nav", "Accounts"), ("wheel", -2400),
         ("capture", "theme-retained-enterprise-dark"), ("nav", "Notifications"), ("wheel", 2400),
         ("capture", "theme-retained-audio-dark")], record=True)
-    for name, expected in (("font", "Draft font"), ("enterprise", "draft-enterprise"), ("audio", "draft audio")):
-        verify_text(drafts / f"theme-retained-{name}-dark.png", expected)
+    for name, label, expected in (("font", "Interface font", "Draft font"),
+            ("enterprise", "GitHub enterprise slug", "draft-enterprise"),
+            ("audio", "Notification audio file", "draft audio")):
+        verify_draft(drafts / f"theme-retained-{name}-dark.png", label, expected)
     saved = json.loads(config.read_text(encoding="utf-8-sig"))
     if saved["ui"]["fontFamily"] != font or saved["ui"]["enterpriseSlug"] != "fixture-concurrent-complete" or saved["notifications"]["reviewCompleteSoundPath"]:
         raise RuntimeError("Theme changes committed an unrelated unsaved draft")

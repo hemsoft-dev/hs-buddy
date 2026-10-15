@@ -123,10 +123,13 @@ impl BuddyApp {
     /// Show a section (`None` is the dashboard) and remember it for the next
     /// launch; the dashboard pauses its refreshes while hidden.
     pub fn set_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
-        if self.active_section != section {
-            Settings::update(cx, |config| {
+        if self.active_section != section
+            && !Settings::update(cx, |config| {
                 config.native.active_section = section.map(|section| section.id().to_string())
-            });
+            })
+        {
+            cx.notify();
+            return;
         }
         self.show_section(section, cx);
     }
@@ -218,6 +221,7 @@ impl BuddyApp {
             if this.active_section != section {
                 this.show_section(section, cx);
             }
+            cx.notify();
         })
         .detach();
     }
@@ -382,7 +386,7 @@ mod tests {
             let mut config = buddy_core::config::AppConfig::default();
             config.native.active_section = Some("github".into());
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             let mut entity = None;
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));

@@ -1439,7 +1439,7 @@ mod tests {
             let mut config = buddy_core::config::AppConfig::default();
             config.native.expanded_cards.insert("weather".into(), false);
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             let mut dashboard = None;
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let entity = cx.new(|cx| DashboardView::new(window, cx, false));
@@ -1487,7 +1487,7 @@ mod tests {
             gpui_kit::init(cx);
             let config = buddy_core::config::AppConfig::default();
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 cx.new(|cx| {
                     let mut view = DashboardView::new(window, cx, false);
@@ -1527,7 +1527,7 @@ mod tests {
         let dashboard = cx.update(|cx| {
             gpui_kit::init(cx);
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             let mut entity = None;
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));

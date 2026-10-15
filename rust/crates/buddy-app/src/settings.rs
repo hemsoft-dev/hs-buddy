@@ -7,11 +7,19 @@ use gpui_kit::{App, Global};
 
 pub struct Settings {
     pub config: AppConfig,
+    pub save_error: Option<String>,
 }
 
 impl Global for Settings {}
 
 impl Settings {
+    pub fn new(config: AppConfig) -> Self {
+        Self {
+            config,
+            save_error: None,
+        }
+    }
+
     pub fn global(cx: &App) -> &Self {
         cx.global::<Self>()
     }
@@ -38,6 +46,8 @@ impl Settings {
             Ok(path) => path,
             Err(err) => {
                 log::warn!("not saving: configuration path unknown ({err})");
+                cx.global_mut::<Self>().save_error =
+                    Some("Configuration path is unavailable. Retry after restoring access.".into());
                 return false;
             }
         };
@@ -60,11 +70,12 @@ impl Settings {
         path: &std::path::Path,
         edit: impl Fn(&mut AppConfig),
     ) -> bool {
-        Self::try_update_at(cx, path, |config| {
+        let result = Self::try_update_at(cx, path, |config| {
             edit(config);
             Ok(())
-        })
-        .is_ok()
+        });
+        cx.global_mut::<Self>().save_error = result.as_ref().err().map(ToString::to_string);
+        result.is_ok()
     }
 
     fn try_update_at(
@@ -206,9 +217,7 @@ mod tests {
         let body = r#"{"copilot":{"model":"concurrent-model"},"future":42}"#;
         std::fs::write(&path, body).unwrap();
         cx.update(|cx| {
-            cx.set_global(Settings {
-                config: AppConfig::default(),
-            });
+            cx.set_global(Settings::new(AppConfig::default()));
             let result = Settings::try_update_at(cx, &path, |config| {
                 LocalEdit::Color(ColorField::Accent, "invalid".into()).apply(config)
             });
@@ -231,9 +240,7 @@ mod tests {
         std::fs::write(&path, "{}").unwrap();
         let wrote = std::cell::Cell::new(false);
         cx.update(|cx| {
-            cx.set_global(Settings {
-                config: AppConfig::default(),
-            });
+            cx.set_global(Settings::new(AppConfig::default()));
             let result = Settings::try_update_at(cx, &path, |config| {
                 SyncedEdit::AutoRefresh(false).apply_mirror(config)?;
                 if !wrote.replace(true) {
@@ -272,17 +279,37 @@ mod tests {
             .unwrap()
             .unwrap();
         cx.update(|cx| {
-            cx.set_global(Settings {
-                config: AppConfig::default(),
-            });
+            gpui_kit::init(cx);
+            cx.set_global(Settings::new(AppConfig::default()));
             let result = Settings::try_update_at(cx, &path, |config| {
                 LocalEdit::Color(ColorField::Accent, "#abcdef".into()).apply(config)
             });
             assert!(result.unwrap_err().to_string().contains("busy"));
+            assert!(!Settings::update_at(cx, &path, |config| config
+                .ui
+                .terminal_open =
+                true));
+            assert!(
+                Settings::global(cx)
+                    .save_error
+                    .as_deref()
+                    .unwrap()
+                    .contains("busy")
+            );
+            assert!(!Settings::global(cx).config.ui.terminal_open);
         });
         assert!(lock.is_held());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         drop(lock);
+        cx.update(|cx| {
+            assert!(Settings::update_at(cx, &path, |config| config
+                .ui
+                .terminal_open =
+                true));
+            assert!(Settings::global(cx).config.ui.terminal_open);
+            assert!(Settings::global(cx).save_error.is_none());
+        });
+        assert_eq!(AppConfig::load_from(&path).unwrap().extra["future"], 42);
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_dir(path.parent().unwrap()).unwrap();
     }

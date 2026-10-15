@@ -314,9 +314,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             theme::install(&config, cx);
-            cx.set_global(Settings {
-                config: config.clone(),
-            });
+            cx.set_global(Settings::new(config.clone()));
             cx.set_global(Runtime::start());
             zoom::init(cx);
 
