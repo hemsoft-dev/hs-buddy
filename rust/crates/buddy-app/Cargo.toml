@@ -36,6 +36,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphic
 x11rb = "0.13"
 
 [dev-dependencies]
+tempfile = "3"
 # Headless UI tests (`#[gpui_kit::test]`).
 gpui-kit = { workspace = true, features = ["test-support"] }
 

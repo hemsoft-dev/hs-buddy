@@ -131,3 +131,14 @@ ownership, duplicate rejection, repository folders, partial preferences, and
 reloads, then restores its fixture data. Never point it at a live deployment.
 OS credential probes require disposable GitHub Actions fixtures and an owned
 marker; local unit tests use fake credential adapters.
+
+The Rust installer jobs also run `scripts/native-smoke/settings-desktop.py`
+against the installed executable on Windows, both macOS architectures, and an
+Ubuntu X11 desktop. Each run starts its own anonymous loopback Convex backend
+with an empty GitHub CLI profile. It creates two accounts through native inputs,
+checks backend receipts, edits appearance and preferences, rejects invalid input,
+and restarts the app. A headless Electron companion runs the real config module
+and `electron-store` during native saves. Its credential adapter rejects access.
+Window captures and recordings cover both themes and the two qualification sizes.
+The Ubuntu cold-runtime container remains a separate dependency-closure gate.
+Do not run the CI desktop entry point against a developer desktop or deployment.

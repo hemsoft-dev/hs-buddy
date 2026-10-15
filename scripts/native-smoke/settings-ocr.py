@@ -32,12 +32,15 @@ def find_label(words, label, navigation=False, field=False, exact_line=False):
             top = min(word["top"] for word in span)
             right = max(word["left"] + word["width"] for word in span)
             bottom = max(word["top"] + word["height"] for word in span)
-            matches.append(dict(left=left, top=top, width=right-left, height=bottom-top))
+            matches.append(dict(left=left, top=top, width=right-left, height=bottom-top, exact=len(line) == len(wanted)))
+    if field and any(match["exact"] for match in matches):
+        matches = [match for match in matches if match["exact"]]
     if navigation:
         heading = find_label(words, "Settings", exact_line=True)
         matches = [match for match in matches if heading["top"] < match["top"] < heading["top"] + heading["height"] + 70]
     if len(matches) != 1:
         raise RuntimeError(f"Expected exactly one visible '{label}' label, observed {len(matches)}")
+    matches[0].pop("exact")
     return matches[0]
 
 

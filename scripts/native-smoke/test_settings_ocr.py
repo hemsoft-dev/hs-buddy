@@ -12,6 +12,11 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_model_field_does_not_match_premium_model_label(self):
+        words = [word("Model", 80, 200, "default"), word("ID", 120, 200, "default"),
+            word("Premium", 80, 300, "premium"), word("model", 120, 300, "premium"), word("ID", 160, 300, "premium")]
+        self.assertEqual(ocr.find_label(words, "Model ID", field=True)["top"], 200)
+
     def test_navigation_excludes_a_same_named_account_provider(self):
         words = [word("Settings", 80, 100, "a"), word("Copilot", 320, 150, "b"), word("Copilot", 200, 300, "c")]
         self.assertEqual(ocr.find_label(words, "Copilot", True)["top"], 150)

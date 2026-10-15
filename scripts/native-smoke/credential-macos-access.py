@@ -30,11 +30,18 @@ def run():
     core.CFArrayCreate.argtypes = [pointer, c.POINTER(pointer), c.c_long, pointer]
     core.CFArrayCreate.restype = pointer
     core.CFRelease.argtypes = [pointer]
+    core.CFArrayGetCount.argtypes, core.CFArrayGetCount.restype = [pointer], c.c_long
+    core.CFArrayGetValueAtIndex.argtypes, core.CFArrayGetValueAtIndex.restype = [pointer, c.c_long], pointer
+    security.SecAccessCopyMatchingACLList.argtypes = [pointer, pointer]
+    security.SecAccessCopyMatchingACLList.restype = pointer
     signatures = {
         "SecKeychainOpen": [c.c_char_p, out],
+        "SecKeychainUnlock": [pointer, c.c_uint32, c.c_char_p, c.c_ubyte],
         "SecKeychainFindGenericPassword": [pointer, c.c_uint32, c.c_char_p, c.c_uint32, c.c_char_p, pointer, pointer, out],
         "SecTrustedApplicationCreateFromPath": [c.c_char_p, out],
-        "SecAccessCreate": [pointer, pointer, out],
+        "SecKeychainItemCopyAccess": [pointer, out],
+        "SecACLCopyContents": [pointer, out, out, c.POINTER(c.c_uint16)],
+        "SecACLSetContents": [pointer, pointer, pointer, c.c_uint16],
         "SecKeychainItemSetAccessWithPassword": [pointer, pointer, c.c_uint32, c.c_char_p],
     }
     for name, arguments in signatures.items():
@@ -42,18 +49,20 @@ def run():
         function.argtypes, function.restype = arguments, c.c_int32
     references = []
 
-    def check(status):
+    def check(status, operation):
         if status != 0:
-            raise RuntimeError(f"Fixture ACL operation failed with OS status {status}")
+            raise RuntimeError(f"{operation} failed with OS status {status}")
 
     def allocate(name, *arguments):
         result = pointer()
-        check(getattr(security, name)(*arguments, c.byref(result)))
+        check(getattr(security, name)(*arguments, c.byref(result)), name)
         references.append(result)
         return result
 
     try:
         store = allocate("SecKeychainOpen", os.fsencode(keychain))
+        password = b"buddy-ci-fixture-keychain"
+        check(security.SecKeychainUnlock(store, len(password), password, 1), "SecKeychainUnlock")
         service = b"hs-buddy-pollen-v1"
         account = ("pollen-" + hashlib.sha256(os.fsencode(os.path.abspath(config))).hexdigest()).encode()
         # Null password-data pointers request only the item reference.
@@ -61,11 +70,21 @@ def run():
         apps = [allocate("SecTrustedApplicationCreateFromPath", os.fsencode(path.resolve())) for path in (node, rust)]
         array = core.CFArrayCreate(None, (pointer * len(apps))(*(app.value for app in apps)), len(apps), None)
         references.append(array)
-        label = core.CFStringCreateWithCString(None, b"Buddy disposable credential fixture", 0x08000100)
-        references.append(label)
-        access = allocate("SecAccessCreate", label, array)
-        password = b"buddy-ci-fixture-keychain"
-        check(security.SecKeychainItemSetAccessWithPassword(item, access, len(password), password))
+        # Preserve the item's owner and partition ACLs. A newly created access
+        # object would also replace ownership, which is a different operation.
+        access = allocate("SecKeychainItemCopyAccess", item)
+        decrypt = pointer.in_dll(security, "kSecACLAuthorizationDecrypt")
+        acls = security.SecAccessCopyMatchingACLList(access, decrypt)
+        references.append(acls)
+        if not acls or core.CFArrayGetCount(acls) < 1:
+            raise RuntimeError("Fixture decrypt ACL was not found")
+        for index in range(core.CFArrayGetCount(acls)):
+            acl = core.CFArrayGetValueAtIndex(acls, index)
+            old_apps, description, prompt = pointer(), pointer(), c.c_uint16()
+            check(security.SecACLCopyContents(acl, c.byref(old_apps), c.byref(description), c.byref(prompt)), "SecACLCopyContents")
+            references.extend((old_apps, description))
+            check(security.SecACLSetContents(acl, array, description, prompt), "SecACLSetContents")
+        check(security.SecKeychainItemSetAccessWithPassword(item, access, len(password), password), "SecKeychainItemSetAccessWithPassword")
     finally:
         for reference in reversed(references):
             if reference:

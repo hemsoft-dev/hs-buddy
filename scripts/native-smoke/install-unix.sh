@@ -32,6 +32,19 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     --env GITHUB_ACTIONS=true \
     --env "BUDDY_EVIDENCE_OWNER=$(stat -c '%u:%g' "$output")" \
     ubuntu:24.04 bash /source/scripts/native-smoke/linux-runtime.sh
+  # The clean runtime container above proves dependency closure independently.
+  # This additional installed host copy exercises the same binary with the
+  # anonymous backend and the existing Electron file-store implementation.
+  sudo apt-get install -y --no-install-recommends "$package_directory/"*.deb \
+    xvfb openbox xdotool imagemagick tesseract-ocr ffmpeg
+  cmp "$(command -v buddy-native)" "$source_directory/rust/target/release/buddy"
+  xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
+    set -euo pipefail
+    openbox >"$RUNNER_TEMP/buddy-settings-openbox.log" 2>&1 &
+    wm=$!
+    trap "kill $wm" EXIT
+    BUDDY_SETTINGS_FIXTURE=1 python3 "$1/settings-desktop.py" --executable "$(command -v buddy-native)" --output "$2/settings" --session x11
+  ' bash "$script_directory" "$output"
   exit
 fi
 
@@ -56,6 +69,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
   codesign --verify --deep --strict "$app"
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]

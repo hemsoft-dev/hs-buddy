@@ -121,4 +121,36 @@ mod tests {
         assert!(cancelled.load(Ordering::Acquire));
         assert!(preview.cancelled.is_none());
     }
+
+    #[test]
+    fn valid_wave_samples_are_accepted_and_oversize_files_rejected_before_decoding() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fixture.wav");
+        let mut wave = b"RIFF".to_vec();
+        wave.extend(38_u32.to_le_bytes());
+        wave.extend(b"WAVEfmt ");
+        wave.extend(16_u32.to_le_bytes());
+        wave.extend(1_u16.to_le_bytes());
+        wave.extend(1_u16.to_le_bytes());
+        wave.extend(8000_u32.to_le_bytes());
+        wave.extend(16000_u32.to_le_bytes());
+        wave.extend(2_u16.to_le_bytes());
+        wave.extend(16_u16.to_le_bytes());
+        wave.extend(b"data");
+        wave.extend(2_u32.to_le_bytes());
+        wave.extend(0_i16.to_le_bytes());
+        std::fs::write(&path, wave).unwrap();
+        assert!(validate(path.to_str().unwrap()).is_ok());
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(MAX_SOUND_BYTES + 1)
+            .unwrap();
+        assert_eq!(
+            validate(path.to_str().unwrap()),
+            Err("Choose an audio file no larger than 5 MiB.")
+        );
+        assert!(validate(directory.path().to_str().unwrap()).is_err());
+    }
 }
