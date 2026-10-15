@@ -13,6 +13,21 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_utf8_ocr_receipts_are_read_independently_of_the_windows_code_page(self):
+        read_text = Path.read_text
+
+        def windows_default(path, *args, **kwargs):
+            kwargs.setdefault("encoding", "cp1252")
+            return read_text(path, *args, **kwargs)
+
+        with TemporaryDirectory() as temporary:
+            image = Path(temporary) / "github.png"
+            with patch.object(desktop.settings, "run", return_value="First private List \u201d"), patch.object(
+                Path, "read_text", autospec=True, side_effect=windows_default
+            ):
+                desktop.check(image, "First private", "List")
+            self.assertEqual(image.with_suffix(".ocr.txt").read_text(encoding="utf-8"), "first private list \u201d")
+
     def test_failed_navigation_preserves_the_observed_requests(self):
         requests = self.detail_requests()
         with TemporaryDirectory() as temporary:

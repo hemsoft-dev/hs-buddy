@@ -105,6 +105,7 @@ commands alone do not prove navigation.
 Complete control labels take precedence over matching words in status prose;
 competing complete labels remain an error. Failed navigation preserves its
 observed synthetic requests without replacing the original failure.
+OCR text and its saved receipts use explicit UTF-8 on every platform.
 Mac settings locators require two matching measurements before clicking so an
 asynchronous save message cannot move an input between capture and targeting.
 The guarded runner releases modifier keys around text replacement and checks

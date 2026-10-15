@@ -299,7 +299,7 @@ class Driver:
 
 
 def verify_text(path, *markers):
-    text = run("tesseract", path, "stdout", "--psm", 11).casefold()
+    text = run("tesseract", path, "stdout", "--psm", 11, encoding="utf-8").casefold()
     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
     for marker in markers:
         if marker.casefold() not in text:

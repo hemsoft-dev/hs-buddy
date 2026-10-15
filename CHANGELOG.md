@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1384] - 2026-10-15
+
+### Fixed
+
+- Decode native OCR evidence consistently as UTF-8
+
 ## [0.1.1383] - 2026-10-15
 
 ### Fixed
