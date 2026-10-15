@@ -101,7 +101,8 @@ class LabeledInputs(unittest.TestCase):
                         patch.object(desktop, "OwnedMacInput", return_value=helper), \
                         patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
                     driver.interact(window, directory, "input", ["Filter loaded items", "First private"])
-                locate.assert_called_once_with(image, "Filter loaded items", navigation=False,
+                self.assertEqual(locate.call_count, 2 if session == "macos" else 1)
+                locate.assert_called_with(image, "Filter loaded items", navigation=False,
                     field=True, save_row=False, tab=False)
                 if session == "macos":
                     helper.click.assert_called_once_with(920, 184)
@@ -150,6 +151,49 @@ class MacInputOwnership(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
                 helper.focus_state()
             self.assertEqual(run.call_count, 1)
+
+
+class MacInputDelivery(unittest.TestCase):
+    def helper(self):
+        helper = desktop.OwnedMacInput.__new__(desktop.OwnedMacInput)
+        helper.process = Mock(pid=123, poll=Mock(return_value=None))
+        helper.graphics, helper.core = Mock(), Mock()
+        helper.require_focus = Mock()
+        return helper
+
+    def test_click_releases_inherited_modifiers_and_marks_a_single_click(self):
+        helper = self.helper()
+        helper.graphics.CGEventSourceFlagsState.side_effect = [1 << 20, 0]
+        helper.click(100, 200)
+        self.assertEqual(helper.graphics.CGEventCreateKeyboardEvent.call_count, 8)
+        self.assertEqual(helper.graphics.CGEventSetIntegerValueField.call_count, 2)
+        for call in helper.graphics.CGEventSetIntegerValueField.call_args_list:
+            self.assertEqual(call.args[1:], (1, 1))
+
+    def test_stuck_modifiers_fail_before_any_mouse_event(self):
+        helper = self.helper()
+        helper.graphics.CGEventSourceFlagsState.return_value = 1 << 20
+        with self.assertRaisesRegex(RuntimeError, "modifier"):
+            helper.click(100, 200)
+        helper.graphics.CGEventCreateMouseEvent.assert_not_called()
+
+    def test_locator_waits_for_the_feedback_row_to_stop_moving(self):
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "macos"
+        old = dict(left=72, top=248, width=100, height=11, save=dict(left=1133, top=282, width=32, height=11))
+        new = dict(old, top=290, save=dict(old["save"], top=324))
+        window, image = Mock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[old, new, new]):
+            self.assertEqual(driver.locate(window, image, "field", "Notification audio file"), new)
+        self.assertEqual(window.screenshot.call_count, 3)
+
+    def test_a_continuously_moving_target_is_never_clicked(self):
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "macos"
+        window, image = Mock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[dict(top=i) for i in range(4)]):
+            with self.assertRaisesRegex(RuntimeError, "stable"):
+                driver.locate(window, image, "field", "Notification audio file")
 
 
 if __name__ == "__main__":

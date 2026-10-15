@@ -38,7 +38,7 @@ fn write_fixture_view(
     let mut entity = None;
     cx.update(|cx| {
         setup(cx);
-        cx.set_global(Runtime::start());
+        cx.set_global(Runtime::for_test(cx.background_executor().clone()));
         gpui_kit::open_window(Default::default(), cx, |window, cx| {
             let view = cx.new(|cx| {
                 let mut view = GitHubView::new(window, cx);
@@ -56,14 +56,11 @@ fn write_fixture_view(
 }
 
 fn wait_for_write(cx: &mut gpui_kit::TestAppContext, view: &Entity<GitHubView>) {
-    for _ in 0..200 {
-        cx.run_until_parked();
-        if cx.update(|cx| !view.read(cx).write_busy) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    panic!("The fixture write did not finish");
+    cx.run_until_parked();
+    assert!(
+        cx.update(|cx| !view.read(cx).write_busy),
+        "The fixture write did not finish"
+    );
 }
 
 #[gpui_kit::test]

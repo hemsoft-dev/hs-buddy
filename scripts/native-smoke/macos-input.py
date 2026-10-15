@@ -5,6 +5,9 @@ import os
 import subprocess
 import time
 
+COMBINED_SESSION = 0
+MODIFIER_MASK = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
+
 
 class Point(c.Structure):
     _fields_ = [("x", c.c_double), ("y", c.c_double)]
@@ -23,6 +26,11 @@ class OwnedMacInput:
         self.graphics.CGEventCreateMouseEvent.restype = c.c_void_p
         self.graphics.CGEventPost.argtypes = [c.c_uint32, c.c_void_p]
         self.graphics.CGEventSetFlags.argtypes = [c.c_void_p, c.c_uint64]
+        self.graphics.CGEventSetIntegerValueField.argtypes = [c.c_void_p, c.c_uint32, c.c_int64]
+        self.graphics.CGEventCreateKeyboardEvent.argtypes = [c.c_void_p, c.c_uint16, c.c_bool]
+        self.graphics.CGEventCreateKeyboardEvent.restype = c.c_void_p
+        self.graphics.CGEventSourceFlagsState.argtypes = [c.c_int32]
+        self.graphics.CGEventSourceFlagsState.restype = c.c_uint64
         self.graphics.CGEventCreateScrollWheelEvent.argtypes = [c.c_void_p, c.c_uint32, c.c_uint32, c.c_int32]
         self.graphics.CGEventCreateScrollWheelEvent.restype = c.c_void_p
         self.graphics.CGEventSetLocation.argtypes = [c.c_void_p, Point]
@@ -50,16 +58,33 @@ class OwnedMacInput:
         finally:
             self.core.CFRelease(event)
 
-    def click(self, x, y):
+    def release_modifiers(self):
+        """Normalize the guarded runner's input after System Events shortcuts."""
         self.require_focus()
+        before = self.graphics.CGEventSourceFlagsState(COMBINED_SESSION)
+        for code in (54, 55, 56, 60, 58, 61, 59, 62):  # Both Command/Shift/Option/Control keys.
+            self.post(self.graphics.CGEventCreateKeyboardEvent(None, code, False))
+        for _ in range(20):
+            time.sleep(0.05)
+            after = self.graphics.CGEventSourceFlagsState(COMBINED_SESSION)
+            if not after & MODIFIER_MASK:
+                return dict(before=before, after=after)
+        raise RuntimeError("The disposable Mac keyboard modifier state did not clear")
+
+    def click(self, x, y):
+        self.release_modifiers()
         # System Events' accessibility click can invoke a button without focusing
         # GPUI's text input. Send the actual mouse events to the owned process.
         for kind in (5, 1, 2):  # mouse moved, left down, left up
-            self.post(self.graphics.CGEventCreateMouseEvent(None, kind, Point(x, y), 0))
+            event = self.graphics.CGEventCreateMouseEvent(None, kind, Point(x, y), 0)
+            if event and kind in (1, 2):
+                # kCGMouseEventClickState=1, value 1 is a single click.
+                self.graphics.CGEventSetIntegerValueField(event, 1, 1)
+            self.post(event)
             time.sleep(0.05)
 
     def replace_text(self, text):
-        self.require_focus()
+        self.release_modifiers()
         # Keep replacement in one System Events transaction. A separate
         # select-all process left prefilled fields unchanged during the real
         # headless Electron exercise. Explicitly release Command before typing.
@@ -67,7 +92,10 @@ class OwnedMacInput:
             f'whose unix id is {self.process.pid}\nkeystroke "a" using command down\n'
             f'key up command\ndelay 0.1\nkey code 51\n'
             f'keystroke {json.dumps(text, ensure_ascii=False)}\nend tell')
-        subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+        try:
+            subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=10)
+        finally:
+            self.release_modifiers()
         self.require_focus()
 
     def focus_state(self):
@@ -78,7 +106,8 @@ class OwnedMacInput:
             'return {value of attribute "AXMain" of window 1, '
             'value of attribute "AXFocused" of window 1}\nend tell')
         result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
-        return dict(returncode=result.returncode, flags=result.stdout.strip(), error=result.stderr.strip())
+        return dict(returncode=result.returncode, flags=result.stdout.strip(), error=result.stderr.strip(),
+            modifiers=self.graphics.CGEventSourceFlagsState(COMBINED_SESSION))
 
     def scroll(self, x, y, delta):
         self.require_focus()

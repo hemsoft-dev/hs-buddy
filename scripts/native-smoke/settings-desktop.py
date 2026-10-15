@@ -158,6 +158,9 @@ class Driver:
                             self.scroll(window, values[0])
                         else:
                             self.interact(window, directory, kind, values)
+                if self.session == "macos":
+                    state = OwnedMacInput(process).release_modifiers()
+                    (directory / "exit-input-state.json").write_text(json.dumps(state), encoding="utf-8")
                 window.key("q")
                 try:
                     exit_code = process.wait(timeout=20)
@@ -195,12 +198,23 @@ class Driver:
                 bounds["Y"] + bounds["Height"] / 2, delta)
         time.sleep(0.7)
 
+    def locate(self, window, image, kind, text):
+        previous = None
+        for _ in range(4 if self.session == "macos" else 1):
+            window.screenshot(image)
+            label = ocr.locate_image(image, text, navigation=kind == "nav",
+                field=kind in ("input", "field", "leftfield", "rightfield", "save"),
+                save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            # A pending save can insert feedback while OCR runs, moving every
+            # content control. Measure twice before emitting any Mac input.
+            if self.session != "macos" or label == previous:
+                return label
+            previous = label
+        raise RuntimeError("The visible Mac input target did not become stable")
+
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
-        window.screenshot(image)
-        label = ocr.locate_image(image, values[0], navigation=kind == "nav",
-            field=kind in ("input", "field", "leftfield", "rightfield", "save"),
-            save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+        label = self.locate(window, image, kind, values[0])
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)
@@ -255,6 +269,13 @@ class Driver:
             window.screenshot(directory / f"typed-{name}-accent-draft.png")
             (directory / f"accent-focus-after-{name}.json").write_text(
                 json.dumps(OwnedMacInput(window.process).focus_state()), encoding="utf-8")
+        if self.session == "macos" and kind == "field" and values[0] == "Notification audio file":
+            window.key("Tab", control=False)
+            image = directory / "typed-audio-draft.png"
+            window.screenshot(image)
+            (directory / "audio-input-state.json").write_text(
+                json.dumps(OwnedMacInput(window.process).focus_state()), encoding="utf-8")
+            verify_draft(image, values[0], values[1])
 
 
 def verify_text(path, *markers):
