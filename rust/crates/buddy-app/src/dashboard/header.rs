@@ -40,9 +40,13 @@ fn badge(
         } else {
             theme.secondary
         })
-        .text_size(zpx(11.0))
+        .text_size(zpx(if elevated { 13.0 } else { 11.0 }))
         .font_weight(FontWeight::MEDIUM)
-        .text_color(palette.text_secondary)
+        .text_color(if elevated {
+            theme.foreground
+        } else {
+            palette.text_secondary
+        })
         .when_some(icon, |this, icon| {
             this.child(Icon::new(icon).size(zpx(12.0)).text_color(theme.primary))
         })
