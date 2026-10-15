@@ -24,6 +24,9 @@ current head, file patches, review threads, and timeline history. Missing binary
 or large patches remain explicitly unavailable. Load more continues each paged
 detail view; search results disclose GitHub's 1,000-result limit. Counts and other
 optional repository data report partial failures rather than manufacturing zeroes.
+Authored profiles retain all open PRs and add merges from the last 90 days.
+Reviewed profiles exclude the user's own PRs without a date cutoff. Issue lists
+and details accept both string and object label representations.
 
 Comments, approvals, thread replies, resolve/reopen, reactions, and review
 requests require a confirmation of the selected account and PR. Approvals pin
@@ -31,10 +34,14 @@ the displayed commit and recheck the head before writing. Acknowledged writes
 remain successful if a later reload fails. An uncertain write stays blocked
 across navigation and account switching until a successful explicit refresh.
 Buddy never automatically replays a write.
+Confirmation submits the reviewed text. If the editor changes afterward, an
+acknowledged comment or reply preserves the newer unsent draft.
 
 Copilot and CodeRabbit requests submit GitHub review requests. Their monitor
 captures a pre-request checkpoint and looks for a new formal bot review or a new
 or edited bot summary. A request acknowledgement is not a completed review.
+Each provider has its own account-and-PR watch and status, so simultaneous
+CodeRabbit and Copilot requests remain independently monitored.
 CodeRabbit requests require `.coderabbit.yaml`. Native Copilot execution and
 Ralph launch handoffs are covered by their respective migration issues; GitHub
 review requests do not execute a local agent.
@@ -85,6 +92,11 @@ Convex deployment. The normal installed executable is unchanged. Captures and
 recordings cover PR modes/filtering, details, one confirmed fixture comment,
 repository/profile navigation, two accounts, denial, rate limits, missing auth,
 empty data, both themes, keyboard navigation, and compact windows.
+Each backend reserves fresh loopback ports and preserves its owned project-local
+database outside the checkout after shutdown, giving consecutive fixtures fresh
+state. Existing deployment selectors or local databases are preserved and refused.
+GitHub evidence records the installed executable's exact CLI version and SHA-256;
+the GitHub screen itself has no visible version label.
 
 The app enables that fixture only with explicit fixture environment flags,
 `GITHUB_ACTIONS=true`, a configuration and exact marker inside `RUNNER_TEMP`, and

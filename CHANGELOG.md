@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1378] - 2026-10-15
+
+### Fixed
+
+- Preserve GitHub profile drafts and independent review watches
+
 ## [0.1.1377] - 2026-10-15
 
 ### Fixed

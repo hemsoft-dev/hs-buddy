@@ -2,7 +2,7 @@ use super::{AccountScope, GitHubClient, GitHubError, PullRef};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ReviewKind {
     CodeRabbit,
     Copilot,

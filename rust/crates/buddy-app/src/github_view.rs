@@ -43,7 +43,7 @@ pub struct GitHubView {
     filter: Entity<InputState>,
     draft: Entity<TextareaState>,
     clear_inputs: bool,
-    clear_draft: bool,
+    clear_draft: Option<String>,
     pending: Option<PendingWrite>,
     write_busy: bool,
     must_reload: bool,
@@ -57,8 +57,8 @@ pub struct GitHubView {
     unknown_nudges: HashSet<String>,
     nudge_editing: bool,
     merged_days: u32,
-    review_watches: BTreeMap<String, github::ReviewWatch>,
-    review_status: BTreeMap<String, String>,
+    review_watches: BTreeMap<(String, github::ReviewKind), github::ReviewWatch>,
+    review_status: BTreeMap<(String, github::ReviewKind), String>,
     review_abort: Option<AbortHandle>,
     review_poll_at: Option<Instant>,
     review_loading: bool,
@@ -147,7 +147,7 @@ impl GitHubView {
             filter,
             draft,
             clear_inputs: false,
-            clear_draft: false,
+            clear_draft: None,
             pending: None,
             write_busy: false,
             must_reload: false,
@@ -473,10 +473,12 @@ impl GitHubView {
         };
         let account = pending.account().clone();
         let resource = pending.action().pull().clone();
-        let clear_draft = matches!(
-            pending.action(),
-            WriteAction::Comment { .. } | WriteAction::Reply { .. }
-        );
+        let submitted_draft = match pending.action() {
+            WriteAction::Comment { body, .. } | WriteAction::Reply { body, .. } => {
+                Some(body.clone())
+            }
+            _ => None,
+        };
         let recovery = match pending.action() {
             WriteAction::Approve { .. } | WriteAction::RequestCopilot { .. } => {
                 Route::Pull(resource.clone(), PullTab::Reviews)
@@ -520,12 +522,8 @@ impl GitHubView {
                 this.write_busy = false;
                 if result.is_ok() && let Some(watch)=watch {
                     match watch {
-                        Ok(watch)=>{
-                            this.review_status.insert(write_key.clone(),format!("{} review requested. Waiting for a new or updated bot review.",watch.kind.label()));
-                            if this.review_watches.len()>=64 && let Some(old)=this.review_watches.keys().next().cloned() {this.review_watches.remove(&old);this.review_status.remove(&old);}
-                            this.review_watches.insert(write_key.clone(),watch);this.review_poll_at=None;
-                        }
-                        Err(_)=>{this.review_status.insert(write_key.clone(),"Review requested; automatic monitoring is unavailable. Check Reviews and Conversation.".into());}
+                        Ok(watch)=>this.track_review(watch),
+                        Err(_)=>{if let Some(kind)=review_kind {this.set_review_status((write_key.clone(),kind),format!("{} review requested; automatic monitoring is unavailable. Check Reviews and Conversation.",kind.label()));}}
                     }
                 }
                 // The write continues across navigation, but its feedback cannot leak into another account.
@@ -548,7 +546,7 @@ impl GitHubView {
                             resource.repository.full_name(),
                             resource.number
                         ));
-                        if clear_draft && this.current_write_key().as_ref()==Some(&write_key) {this.clear_draft=true;}
+                        if this.current_write_key().as_ref()==Some(&write_key) {this.clear_draft=submitted_draft;}
                     }
                     Err(error) => {
                         this.status = Some(error.to_string());
@@ -691,10 +689,11 @@ impl Render for GitHubView {
             self.nudge_email
                 .update(cx, |input, cx| input.set_value("", window, cx));
         }
-        if self.clear_draft {
+        if let Some(submitted) = self.clear_draft.take()
+            && self.draft.read(cx).value().as_ref() == submitted
+        {
             self.draft
                 .update(cx, |input, cx| input.set_value("", window, cx));
-            self.clear_draft = false;
         }
         if let Route::Pulls(mode) = self.route {
             self.view_mode = github::backend::view_mode(&Settings::global(cx).config, mode)

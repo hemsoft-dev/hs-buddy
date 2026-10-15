@@ -79,11 +79,12 @@ impl GitHubView {
         if let Some(data) = &self.data
             && let Some(pull) = &data.pull
         {
-            if let Some(status) = self
-                .current_write_key()
-                .and_then(|key| self.review_status.get(&key))
-            {
-                actions = actions.child(div().whitespace_normal().child(status.clone()));
+            if let Some(resource) = self.current_write_key() {
+                for ((key, _), status) in &self.review_status {
+                    if key == &resource {
+                        actions = actions.child(div().whitespace_normal().child(status.clone()));
+                    }
+                }
             }
             actions = actions.child(div().child(format!(
                 "{} · {} · {} → {} · {} files · {} threads · head {}",

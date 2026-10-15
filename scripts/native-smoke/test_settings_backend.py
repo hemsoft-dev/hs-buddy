@@ -13,6 +13,51 @@ spec.loader.exec_module(backend)
 
 
 class BackendOwnership(unittest.TestCase):
+    def test_consecutive_fixtures_do_not_reuse_project_local_database_state(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ,
+                {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):
+            checkout = Path(temporary) / "checkout"
+            checkout.mkdir()
+            state = checkout / ".convex" / "local" / "default"
+            for _ in range(2):
+                fixture = backend.SettingsBackend(checkout)
+                def spawn(*args, **kwargs):
+                    state.mkdir(parents=True, exist_ok=True)
+                    fixture.generated.write_text("owned anonymous fixture")
+                    fixture.log.write("Convex functions ready!")
+                    fixture.log.flush()
+                    return Mock(pid=123, poll=Mock(return_value=None))
+                def query(path):
+                    if path == "githubAccounts:list":
+                        return ["previous fixture account"] if (state / "records").exists() else []
+                    return {}
+                with patch.object(backend.shutil, "which", return_value="node"), \
+                        patch.object(backend.socket, "socket"), \
+                        patch.object(backend.subprocess, "run", return_value=Mock(returncode=0)), \
+                        patch.object(backend.subprocess, "Popen", side_effect=spawn), \
+                        patch.object(fixture, "query", side_effect=query):
+                    try:
+                        fixture.__enter__()
+                        (state / "records").write_text("fixture accounts")
+                    finally:
+                        fixture.child = None
+                        fixture.__exit__(None, None, None)
+                    self.assertEqual((fixture.profile / "backend-state" / "records").read_text(), "fixture accounts")
+
+    def test_existing_project_database_is_preserved_without_starting_a_process(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ,
+                {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):
+            state = Path(temporary) / ".convex" / "local" / "default"
+            state.mkdir(parents=True)
+            (state / "records").write_text("retained deployment")
+            with patch.object(backend.subprocess, "Popen") as spawn, \
+                    patch.object(backend.subprocess, "run", return_value=Mock(returncode=0)):
+                with self.assertRaisesRegex(RuntimeError, "Preserve existing local"):
+                    with backend.SettingsBackend(temporary):
+                        self.fail("Existing local state is not disposable")
+                spawn.assert_not_called()
+            self.assertEqual((state / "records").read_text(), "retained deployment")
+
     def test_each_launch_uses_fresh_loopback_ports_when_previous_ports_are_unavailable(self):
         with TemporaryDirectory() as temporary, patch.dict(os.environ,
                 {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):

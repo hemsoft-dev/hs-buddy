@@ -59,7 +59,13 @@ impl IssueSummary {
                 .as_array()
                 .ok_or(GitHubError::InvalidData)?
                 .iter()
-                .map(|v| text(v, "name").map(str::to_string))
+                .map(|value| {
+                    value
+                        .as_str()
+                        .or_else(|| value["name"].as_str())
+                        .map(str::to_string)
+                        .ok_or(GitHubError::InvalidData)
+                })
                 .collect::<Result<_, _>>()?,
             assignees: value["assignees"]
                 .as_array()

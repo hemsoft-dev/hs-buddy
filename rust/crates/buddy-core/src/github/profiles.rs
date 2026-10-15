@@ -187,7 +187,6 @@ impl GitHubClient {
         force: bool,
     ) -> Result<PullSearchResult, GitHubError> {
         valid_login(login)?;
-        let qualifier = if reviewed { "reviewed-by" } else { "author" };
         let namespace = if self.namespace_is_personal(force).await? {
             "user"
         } else {
@@ -198,15 +197,51 @@ impl GitHubClient {
             .checked_sub_days(Days::new(90))
             .ok_or(GitHubError::InvalidData)?
             .format("%Y-%m-%d");
-        let query = format!(
-            "is:pr {qualifier}:{login} {namespace}:{} updated:>={date} sort:updated-desc",
-            self.account.organization()
-        );
-        let (items, truncated) = self.search_pulls(&query, force).await?;
+        let scope = format!("{namespace}:{}", self.account.organization());
+        // Match the incumbent profile: all open authored PRs, plus recent
+        // merges. Reviewed PRs exclude the user's own PRs without a date cut.
+        let queries = if reviewed {
+            vec![format!(
+                "is:pr reviewed-by:{login} -author:{login} {scope} sort:updated-desc"
+            )]
+        } else {
+            vec![
+                format!("is:pr author:{login} is:open {scope} sort:updated-desc"),
+                format!("is:pr author:{login} is:merged merged:>={date} {scope} sort:updated-desc"),
+            ]
+        };
+        let mut items = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut truncated = false;
+        let mut warnings = Vec::new();
+        let mut failures = Vec::new();
+        for query in &queries {
+            match self.search_pulls(query, force).await {
+                Ok((found, limited)) => {
+                    truncated |= limited;
+                    items.extend(
+                        found
+                            .into_iter()
+                            .filter(|pull| seen.insert(pull.target.key())),
+                    );
+                }
+                Err(error) => failures.push(error),
+            }
+        }
+        if failures.len() == queries.len() {
+            return Err(failures.remove(0));
+        }
+        warnings.extend(failures);
+        items.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.target.key().cmp(&right.target.key()))
+        });
         Ok(PullSearchResult {
             items,
             truncated,
-            warnings: Vec::new(),
+            warnings,
         })
     }
 

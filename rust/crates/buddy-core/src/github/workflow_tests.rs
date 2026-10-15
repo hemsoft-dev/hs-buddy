@@ -54,6 +54,103 @@ fn repository() -> RepositoryRef {
 fn issue(number: u64) -> Value {
     json!({"number":number,"title":"Fixture issue","state":"open","created_at":"2026-10-15T00:00:00Z","updated_at":"2026-10-15T00:00:00Z","user":{"login":"author"},"labels":[{"name":"bug"}],"assignees":[],"comments":0})
 }
+
+#[tokio::test]
+async fn issue_pages_and_details_accept_mixed_string_and_object_labels() {
+    let mut mixed = issue(13);
+    mixed["labels"] = json!(["legacy-label", {"name":"object-label"}]);
+    let mut malformed = mixed.clone();
+    malformed["labels"] = json!([true]);
+    let (client, _) = fixture(vec![
+        response(json!([mixed.clone()]), false),
+        response(mixed, false),
+        response(malformed, false),
+    ]);
+    let page = client
+        .repository_issues(&repository(), false, None, true)
+        .await
+        .unwrap();
+    assert_eq!(page.items[0].labels, ["legacy-label", "object-label"]);
+    let detail = client.issue(&repository(), 13, true).await.unwrap();
+    assert_eq!(detail.issue.labels, ["legacy-label", "object-label"]);
+    assert!(matches!(
+        client.issue(&repository(), 13, true).await,
+        Err(GitHubError::InvalidData)
+    ));
+}
+
+#[tokio::test]
+async fn profile_searches_keep_all_open_authored_prs_and_separate_recent_merges() {
+    let empty = || {
+        response(
+            json!({"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}),
+            false,
+        )
+    };
+    let (client, fixture) = fixture(vec![
+        response(json!({"type":"Organization"}), false),
+        empty(),
+        empty(),
+        empty(),
+    ]);
+    client
+        .user_pull_requests("author", false, false)
+        .await
+        .unwrap();
+    client
+        .user_pull_requests("author", true, false)
+        .await
+        .unwrap();
+    let calls = fixture.calls.lock().unwrap();
+    let queries: Vec<_> = calls
+        .iter()
+        .filter_map(|(_, request)| {
+            request
+                .body
+                .as_ref()
+                .and_then(|body| body["variables"]["query"].as_str())
+        })
+        .collect();
+    assert_eq!(
+        queries.len(),
+        3,
+        "authored open, authored merged, and reviewed are separate searches"
+    );
+    assert!(queries[0].contains("author:author") && queries[0].contains("is:open"));
+    assert!(
+        !queries[0].contains("updated:") && !queries[0].contains("merged:"),
+        "stale open authored PRs must remain visible"
+    );
+    assert!(
+        queries[1].contains("author:author")
+            && queries[1].contains("is:merged")
+            && queries[1].contains("merged:>=")
+    );
+    assert!(queries[2].contains("reviewed-by:author") && queries[2].contains("-author:author"));
+    assert!(
+        !queries[2].contains("updated:>="),
+        "reviewed profiles retain the incumbent unbounded date range"
+    );
+}
+#[tokio::test]
+async fn profile_search_failures_are_visible_without_losing_successful_results() {
+    let empty = response(
+        json!({"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}),
+        false,
+    );
+    let (client, _) = fixture(vec![response(json!({"type":"Organization"}), false), empty]);
+    let partial = client
+        .user_pull_requests("author", false, true)
+        .await
+        .unwrap();
+    assert_eq!(partial.warnings, [GitHubError::Network]);
+    let (client, _) = fixture(vec![response(json!({"type":"Organization"}), false)]);
+    assert!(matches!(
+        client.user_pull_requests("author", false, true).await,
+        Err(GitHubError::Network)
+    ));
+}
+
 #[tokio::test]
 async fn issue_pagination_survives_a_page_containing_only_pull_requests() {
     let (client, fixture) = fixture(vec![
