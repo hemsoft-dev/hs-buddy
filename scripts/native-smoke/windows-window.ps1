@@ -5,9 +5,14 @@ param(
     [Parameter(Mandatory)] [string] $Exe,
     [Parameter(Mandatory)] [string] $OutDir,
     [Parameter(Mandatory)] [string] $ConfigPath,
-    [Parameter(Mandatory)] [string] $Actions
+    [Parameter(Mandatory)] [string] $Actions,
+    [string] $ConvexUrl = 'http://127.0.0.1:9'
 )
 $ErrorActionPreference = 'Stop'
+$backend = [Uri]$ConvexUrl
+if (-not $backend.IsLoopback -or $backend.Scheme -ne 'http' -or $backend.UserInfo) {
+    throw 'Desktop fixtures require an isolated loopback Convex backend'
+}
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -95,7 +100,7 @@ $savedEnvironment = @{}
 try {
     $environment = @{
         BUDDY_CONFIG_PATH = $ConfigPath
-        BUDDY_CONVEX_URL = 'http://127.0.0.1:9'
+        BUDDY_CONVEX_URL = $ConvexUrl
         GH_CONFIG_DIR = (Join-Path $OutDir 'empty-gh')
         GH_TOKEN = $null
         GITHUB_TOKEN = $null

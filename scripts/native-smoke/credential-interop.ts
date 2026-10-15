@@ -34,20 +34,12 @@ function security(args: string[]): string {
 }
 function grantFixtureAccess(): void {
   if (process.platform !== 'darwin') return
-  // Unsigned fixture executables need explicit OS authorization. Scope this
-  // grant to the exact fake entry in our private keychain, never login items.
-  security([
-    'set-generic-password-partition-list',
-    '-a',
-    credentialAccountForPath(config),
-    '-s',
-    'hs-buddy-pollen-v1',
-    '-S',
-    'apple-tool:,apple:,unsigned:',
-    '-k',
-    keychainPassword,
-    keychain,
-  ])
+  const result = spawnSync(
+    'python3',
+    ['scripts/native-smoke/credential-macos-access.py', config, process.execPath, executable],
+    { encoding: 'utf8', timeout: 15_000 }
+  )
+  if (result.error || result.status !== 0) throw new Error('Owned fixture ACL authorization failed')
 }
 writeFileSync(join(profile, '.buddy-credential-fixture'), 'buddy credential fixture v1')
 writeFileSync(config, JSON.stringify({ ui: { pollenApiKey: '' }, fixtureUnknown: 7 }))

@@ -53,7 +53,23 @@ impl LocalEdit {
     /// fresh configuration rather than the list the form originally showed.
     pub fn apply(&self, config: &mut AppConfig) -> Result<(), SettingsError> {
         match self {
-            Self::Theme(theme) => config.ui.theme = *theme,
+            Self::Theme(theme) => {
+                config.ui.theme = *theme;
+                let colors = match theme {
+                    ThemeName::Dark => [
+                        "#0e639c", "#cccccc", "#1e1e1e", "#252526", "#181818", "#9d9d9d",
+                    ],
+                    ThemeName::Light => [
+                        "#0078d4", "#1f1f1f", "#ffffff", "#f3f3f3", "#f3f3f3", "#616161",
+                    ],
+                };
+                config.ui.accent_color = colors[0].into();
+                config.ui.font_color = colors[1].into();
+                config.ui.bg_primary = colors[2].into();
+                config.ui.bg_secondary = colors[3].into();
+                config.ui.status_bar_bg = colors[4].into();
+                config.ui.status_bar_fg = colors[5].into();
+            }
             Self::Color(field, value) => {
                 if value.len() != 7
                     || !value.starts_with('#')
@@ -362,5 +378,34 @@ mod tests {
                 .mutation()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn theme_selection_applies_incumbent_presets_without_losing_other_preferences() {
+        let mut config = AppConfig::default();
+        config.ui.font_family = "fixture font".into();
+        config.ui.extra.insert("future".into(), json!(42));
+        LocalEdit::Theme(ThemeName::Light)
+            .apply(&mut config)
+            .unwrap();
+        assert_eq!(
+            [
+                config.ui.accent_color.as_str(),
+                config.ui.font_color.as_str(),
+                config.ui.bg_primary.as_str(),
+                config.ui.bg_secondary.as_str(),
+                config.ui.status_bar_bg.as_str(),
+                config.ui.status_bar_fg.as_str()
+            ],
+            [
+                "#0078d4", "#1f1f1f", "#ffffff", "#f3f3f3", "#f3f3f3", "#616161"
+            ]
+        );
+        assert_eq!(config.ui.font_family, "fixture font");
+        assert_eq!(config.ui.extra["future"], 42);
+        LocalEdit::Theme(ThemeName::Dark)
+            .apply(&mut config)
+            .unwrap();
+        assert_eq!(config.ui.bg_primary, "#1e1e1e");
     }
 }

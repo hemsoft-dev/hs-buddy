@@ -7,6 +7,7 @@ mod assets;
 mod command_line;
 mod dashboard;
 mod logging;
+mod notification_audio;
 mod platform_placement;
 mod runtime;
 mod settings;

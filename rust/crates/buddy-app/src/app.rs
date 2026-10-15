@@ -13,7 +13,7 @@ use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::platform_placement;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
-use crate::settings_view::SettingsView;
+use crate::settings_view::{SettingsEvent, SettingsView};
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
 use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
@@ -132,6 +132,10 @@ impl BuddyApp {
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        if section != Some(Section::Settings) {
+            self.settings_view
+                .update(cx, |settings, _| settings.deactivate());
+        }
         self.active_section = section;
         self.dashboard.update(cx, |dashboard, cx| {
             dashboard.set_active(section.is_none(), cx)
@@ -282,11 +286,18 @@ impl BuddyApp {
         })
         .detach();
 
+        let settings_view = cx.new(|cx| SettingsView::new(window, cx));
+        cx.subscribe(&settings_view, |this, _, event, cx| match event {
+            SettingsEvent::ClearCache => this
+                .dashboard
+                .update(cx, |dashboard, cx| dashboard.clear_cached_data(cx)),
+        })
+        .detach();
         let mut this = Self {
             active_section: section,
             active_account: None,
             dashboard,
-            settings_view: cx.new(|_| SettingsView::new()),
+            settings_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -377,7 +388,7 @@ mod tests {
                         active_section: Some(Section::GitHub),
                         active_account: None,
                         dashboard,
-                        settings_view: cx.new(|_| SettingsView::new()),
+                        settings_view: cx.new(|cx| SettingsView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

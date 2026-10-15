@@ -134,6 +134,17 @@ try {
                 [Drive]::SetFocus($h) | Out-Null
                 Start-Sleep -Milliseconds 400
             }
+            'text64' {
+                # Fixture text goes only to this owned HWND. No clipboard,
+                # global input, shell expansion, or payload logging.
+                $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($parts[1]))
+                if ($text.Length -gt 8192) { throw 'Fixture text exceeds the bounded input size' }
+                foreach ($character in $text.ToCharArray()) {
+                    [Drive]::PostMessageW($h, 0x102, [IntPtr]([int]$character), [IntPtr]1) | Out-Null
+                    Start-Sleep -Milliseconds 10
+                }
+                Start-Sleep -Milliseconds 400
+            }
             { $_ -in 'key', 'gpuikey' } {
                 $vk = [int]$parts[1]
                 $keyBits = ([long][Drive]::MapVirtualKeyW($vk, 0) -shl 16) -bor 1
@@ -272,7 +283,8 @@ try {
             'close' { [Drive]::PostMessageW($h, 0x10, 0, 0) | Out-Null }
             default { throw "unknown action $action" }
         }
-        Note "done $action"
+        if ($parts[0] -eq 'text64') { Note 'done text64 [payload withheld]' }
+        else { Note "done $action" }
     }
 }
 finally {

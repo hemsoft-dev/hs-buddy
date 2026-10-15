@@ -981,6 +981,31 @@ impl DashboardView {
 
     // ── Actions ──────────────────────────────────────────────────────────
 
+    /// Drop only this native view's cached provider results. Generation bumps
+    /// prevent already-running requests from putting stale data back.
+    pub fn clear_cached_data(&mut self, cx: &mut Context<Self>) {
+        self.weather_generation = self.weather_generation.wrapping_add(1);
+        self.pollen_generation = self.pollen_generation.wrapping_add(1);
+        self.pollen_key_generation = self.pollen_key_generation.wrapping_add(1);
+        self.finance_generation = self.finance_generation.wrapping_add(1);
+        self.copilot_generation = self.copilot_generation.wrapping_add(1);
+        self.weather = None;
+        self.weather_error = None;
+        self.pollen = None;
+        self.pollen_error = None;
+        self.loaded_pollen_key.clear();
+        self.pollen_force_pending = false;
+        self.quotes.clear();
+        self.failed_symbols.clear();
+        self.finance_error = None;
+        self.command_center = CommandCenterSummary::default();
+        self.copilot_errors.clear();
+        self.copilot_period = None;
+        self.weather_refresh = RefreshState::new(self.weather_refresh.interval_minutes);
+        self.finance_refresh = RefreshState::new(self.finance_refresh.interval_minutes);
+        cx.notify();
+    }
+
     pub fn refresh_copilot_usage(&mut self, cx: &mut Context<Self>) {
         if !self.command_center.loading {
             self.load_copilot(cx);
@@ -1451,6 +1476,41 @@ mod tests {
         assert_eq!((at(100.0).narrow, at(100.0).two_columns), (false, true));
         assert_eq!((at(150.0).narrow, at(150.0).two_columns), (false, false));
         assert_eq!((at(200.0).narrow, at(200.0).two_columns), (true, false));
+    }
+
+    #[gpui_kit::test]
+    fn cache_clear_invalidates_inflight_data_without_changing_settings(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::AppContext as _;
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings { config });
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| {
+                    let mut view = DashboardView::new(window, cx, false);
+                    let before = Settings::global(cx).config.clone();
+                    view.weather_error = Some("stale provider error".into());
+                    view.loaded_pollen_key = "fixture-cached-secret".into();
+                    view.copilot_period = Some((2026, 10));
+                    view.clear_cached_data(cx);
+                    assert_eq!(view.weather_generation, 1);
+                    assert_eq!(view.pollen_generation, 1);
+                    assert_eq!(view.pollen_key_generation, 1);
+                    assert_eq!(view.finance_generation, 1);
+                    assert_eq!(view.copilot_generation, 1);
+                    assert!(view.weather_error.is_none());
+                    assert!(view.loaded_pollen_key.is_empty());
+                    assert!(view.copilot_period.is_none());
+                    assert!(!view.started);
+                    assert_eq!(Settings::global(cx).config, before);
+                    view
+                })
+            })
+            .unwrap();
+        });
     }
 
     #[gpui_kit::test]

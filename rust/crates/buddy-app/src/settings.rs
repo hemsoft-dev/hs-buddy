@@ -73,7 +73,7 @@ impl Settings {
         edit: impl Fn(&mut AppConfig) -> Result<(), SettingsError>,
     ) -> Result<(), SettingsError> {
         const ATTEMPTS: usize = 3;
-        let mut lock = acquire_lock(path);
+        let mut lock = acquire_lock(path)?;
         for attempt in 1..=ATTEMPTS {
             let (mut fresh, stamp) = match AppConfig::load_with_stamp_from(path) {
                 Ok(loaded) => loaded,
@@ -88,13 +88,13 @@ impl Settings {
                 Self::resync(cx, path);
                 return Err(error);
             }
-            if lock.as_ref().is_some_and(|held| !held.is_held()) {
+            if !lock.is_held() {
                 // Suspended past the stale window: another writer owns the
                 // lock now and may be mid-edit, so do not write under it.
                 // Take the lock again (the old guard leaves theirs alone) and
                 // start over from a fresh read.
                 log::warn!("config lock was taken over while editing; re-acquiring");
-                lock = acquire_lock(path);
+                lock = acquire_lock(path)?;
                 continue;
             }
             match fresh.save_if_unchanged_at(path, &stamp) {
@@ -172,19 +172,17 @@ fn appearance_differs(a: &UiConfig, b: &UiConfig) -> bool {
         || a.status_bar_fg != b.status_bar_fg
 }
 
-/// The shared lock for `path`, or `None` (logged) when it is busy or
-/// unavailable, in which case the save proceeds unlocked.
-fn acquire_lock(path: &std::path::Path) -> Option<ConfigLock> {
+/// Refuse the edit when another Buddy process owns the shared file. The
+/// stamp guard additionally detects writers that do not follow this lock.
+fn acquire_lock(path: &std::path::Path) -> Result<ConfigLock, SettingsError> {
     match ConfigLock::acquire(path, DEFAULT_TIMEOUT) {
-        Ok(Some(lock)) => Some(lock),
-        Ok(None) => {
-            log::warn!("config lock busy for {DEFAULT_TIMEOUT:?}; saving unlocked");
-            None
-        }
-        Err(err) => {
-            log::warn!("config lock unavailable ({err}); saving unlocked");
-            None
-        }
+        Ok(Some(lock)) => Ok(lock),
+        Ok(None) => Err(SettingsError(
+            "Configuration is busy. Retry after the other Buddy instance finishes saving.",
+        )),
+        Err(_) => Err(SettingsError(
+            "The configuration lock is unavailable. Check file permissions and retry.",
+        )),
     }
 }
 
@@ -261,5 +259,31 @@ mod tests {
         assert_eq!(saved.copilot.extra["future"], 4);
         assert_eq!(saved.extra["future"], 5);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn another_process_lock_refuses_the_edit_without_an_unlocked_fallback(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let path = fixture("busy");
+        let original = r##"{"ui":{"accentColor":"#123456"},"future":42}"##;
+        std::fs::write(&path, original).unwrap();
+        let lock = ConfigLock::acquire(&path, std::time::Duration::ZERO)
+            .unwrap()
+            .unwrap();
+        cx.update(|cx| {
+            cx.set_global(Settings {
+                config: AppConfig::default(),
+            });
+            let result = Settings::try_update_at(cx, &path, |config| {
+                LocalEdit::Color(ColorField::Accent, "#abcdef".into()).apply(config)
+            });
+            assert!(result.unwrap_err().to_string().contains("busy"));
+        });
+        assert!(lock.is_held());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        drop(lock);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(path.parent().unwrap()).unwrap();
     }
 }

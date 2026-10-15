@@ -7,6 +7,7 @@ pub mod application_settings;
 pub mod config;
 pub mod config_lock;
 pub mod convex_data;
+pub mod copilot_models;
 pub mod copilot_usage;
 pub mod dashboard;
 pub mod finance;

@@ -40,7 +40,6 @@ function SaveButton({ saving }: { saving: boolean }) {
 function SettingsWeatherActions({
   saving,
   isDirty,
-  apiKey,
   isConfigured,
   statusError,
   onSave,
@@ -48,7 +47,6 @@ function SettingsWeatherActions({
 }: {
   saving: boolean
   isDirty: boolean
-  apiKey: string
   isConfigured: boolean
   statusError: string | null
   onSave: () => void
@@ -61,7 +59,7 @@ function SettingsWeatherActions({
           type="button"
           className="settings-btn settings-btn-primary"
           onClick={onSave}
-          disabled={saving || !isDirty || !apiKey.trim()}
+          disabled={saving || !isDirty}
         >
           <SaveButton saving={saving} />
         </button>
@@ -119,39 +117,18 @@ export function SettingsWeather() {
     }
   }, [])
 
-  const handleSave = async () => {
+  const persistKey = async (value: string) => {
     setSaving(true)
     setError(null)
     try {
-      const result = await window.ipcRenderer.invoke(
-        IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY,
-        apiKey.trim()
-      )
+      const result = await window.ipcRenderer.invoke(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, value)
       if (!result?.success) throw new Error('Secure save failed')
-      setIsConfigured(true)
+      setIsConfigured(Boolean(value))
       setApiKey('')
       setShowKey(false)
     } catch (_: unknown) {
       setError(
-        'Could not save the key. Check secure storage and configuration-file permissions, then try again.'
-      )
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleClear = async () => {
-    setSaving(true)
-    setError(null)
-    try {
-      const result = await window.ipcRenderer.invoke(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, '')
-      if (!result?.success) throw new Error('Secure clear failed')
-      setApiKey('')
-      setIsConfigured(false)
-      setShowKey(false)
-    } catch (_: unknown) {
-      setError(
-        'Could not clear the key. Check secure storage and configuration-file permissions, then try again.'
+        `Could not ${value ? 'save' : 'clear'} the key. Unlock secure storage, check file permissions, then retry.`
       )
     } finally {
       setSaving(false)
@@ -225,11 +202,10 @@ export function SettingsWeather() {
           <SettingsWeatherActions
             saving={saving}
             isDirty={isDirty}
-            apiKey={apiKey}
             isConfigured={isConfigured}
             statusError={error}
-            onSave={handleSave}
-            onClear={handleClear}
+            onSave={() => persistKey(apiKey.trim())}
+            onClear={() => persistKey('')}
           />
 
           <div className="info-box">

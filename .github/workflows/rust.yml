@@ -194,7 +194,7 @@ jobs:
         env:
           PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
         run: |
-          & scripts/native-smoke/install-windows.ps1 -PackageDirectory $env:PACKAGE_DIRECTORY -Output "$env:RUNNER_TEMP/native-evidence"
+          & scripts/native-smoke/install-windows.ps1 -PackageDirectory $env:PACKAGE_DIRECTORY -Output "$env:RUNNER_TEMP/native-evidence/windows"
 
       - name: Install and qualify Unix package
         if: runner.os != 'Windows'
