@@ -6,6 +6,7 @@ mod app;
 mod assets;
 mod command_line;
 mod dashboard;
+mod github_view;
 mod logging;
 mod notification_audio;
 mod platform_placement;

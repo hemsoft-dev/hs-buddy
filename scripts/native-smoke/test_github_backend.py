@@ -1,0 +1,54 @@
+import importlib.util
+import json
+from pathlib import Path
+import unittest
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+spec = importlib.util.spec_from_file_location("github_backend", Path(__file__).with_name("github-backend.py"))
+backend = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(backend)
+
+
+class GitHubBackendTests(unittest.TestCase):
+    def request(self, server, path, body=None, account="fixture-one"):
+        request = Request(server.url.rstrip("/") + path,
+            data=None if body is None else json.dumps(body).encode(),
+            headers={"Authorization": "Bearer native-fixture-" + account, "Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=2) as response:
+                return response.status, json.load(response), response.headers
+        except HTTPError as error:
+            return error.code, json.load(error), error.headers
+
+    def test_real_http_authentication_and_account_payloads_are_distinct(self):
+        with backend.GitHubBackend() as server:
+            body = dict(query="query NativePullRequests($query:String!){search{nodes{number}}}", variables=dict(query="is:pr author:fixture-one is:open"))
+            first = self.request(server, "/graphql", body)[1]["data"]["search"]
+            second = self.request(server, "/graphql", body, "fixture-two")[1]["data"]["search"]
+            self.assertIn("First private", first["nodes"][0]["title"])
+            self.assertIn("Second private", second["nodes"][0]["title"])
+            self.assertTrue(first["pageInfo"]["hasNextPage"])
+            self.assertEqual(self.request(server, "/users/fixture-org", account="real-account")[0], 401)
+            self.assertNotIn("Authorization", json.dumps(server.requests))
+
+    def test_confirmed_fixture_write_is_observable_once_and_isolated_by_account(self):
+        with backend.GitHubBackend() as server:
+            status, response, _ = self.request(server, "/repos/fixture-org/native-demo/issues/7/comments", dict(body="Installed native fixture comment"))
+            self.assertEqual((status, response["id"]), (201, 301))
+            self.assertEqual(len(server.comments["fixture-one"]), 1)
+            self.assertEqual(server.comments["fixture-two"], [])
+            self.assertEqual(len([call for call in server.requests if call["method"] == "POST"]), 1)
+
+    def test_denial_rate_limit_and_unknown_endpoints_fail_explicitly(self):
+        with backend.GitHubBackend() as server:
+            self.assertEqual(self.request(server, "/repos/fixture-org/denied")[0], 403)
+            status, _, headers = self.request(server, "/repos/fixture-org/limited")
+            self.assertEqual((status, headers["Retry-After"]), (429, "60"))
+            self.assertEqual(self.request(server, "/unimplemented")[0], 404)
+            server.scenario = "auth"
+            self.assertEqual(self.request(server, "/users/fixture-org", account="fixture-two")[0], 401)
+
+
+if __name__ == "__main__":
+    unittest.main()

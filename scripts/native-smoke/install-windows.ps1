@@ -43,6 +43,8 @@ try {
     $env:BUDDY_SETTINGS_FIXTURE = '1'
     & python (Join-Path $PSScriptRoot 'settings-desktop.py') --executable $exe --output (Join-Path $Output 'settings') --session windows
     if ($LASTEXITCODE -ne 0) { throw 'Installed settings qualification failed' }
+    & python (Join-Path $PSScriptRoot 'github-desktop.py') --executable $exe --output (Join-Path $Output 'github') --session windows --version $metadata.version
+    if ($LASTEXITCODE -ne 0) { throw 'Installed GitHub qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }
