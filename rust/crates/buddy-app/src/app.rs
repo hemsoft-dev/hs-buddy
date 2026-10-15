@@ -356,6 +356,7 @@ impl Render for BuddyApp {
             .text_size(zpx(13.0))
             .bg(background)
             .text_color(foreground)
+            .child(crate::logging::fixture_mouse_listener())
             .child(title_bar::render(self, window, cx))
             .child(
                 h_flex()
@@ -374,7 +375,6 @@ impl Render for BuddyApp {
             )
             .child(status_bar::render(self, cx))
             .child(zoom::wheel_listener())
-            .child(crate::logging::fixture_mouse_listener())
     }
 }
 

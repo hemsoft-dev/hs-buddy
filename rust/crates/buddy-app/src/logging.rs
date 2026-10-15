@@ -10,6 +10,7 @@ use gpui_kit::{
     DispatchPhase, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Styled, canvas,
 };
 use log::{Level, Log, Metadata, Record};
+use std::io::Write as _;
 use std::sync::{
     OnceLock,
     atomic::{AtomicUsize, Ordering},
@@ -27,7 +28,8 @@ fn fixture_input_enabled() -> bool {
 fn fixture_input_record(kind: &str, event: &dyn std::fmt::Debug) {
     static RECORDS: AtomicUsize = AtomicUsize::new(0);
     if fixture_input_enabled() && RECORDS.fetch_add(1, Ordering::Relaxed) < 2048 {
-        eprintln!(
+        let _ = writeln!(
+            std::io::stderr().lock(),
             "[native-fixture-input] pid={} {kind} {event:?}",
             std::process::id()
         );
