@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)] [string] $PackageDirectory, [Parameter(Mandatory)] [string] $Output)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'cleanup.ps1')
 if ($env:GITHUB_ACTIONS -ne 'true' -or -not $env:RUNNER_TEMP) {
     throw 'Installer qualification requires an ephemeral GitHub Actions runner'
 }
@@ -19,6 +20,7 @@ if ((Test-Path $registration) -or (Test-Path 'HKCU:/Software/HemSoft/Buddy Nativ
 }
 $install = Join-Path $env:RUNNER_TEMP ('buddy-native-installed-' + [Guid]::NewGuid().ToString('N'))
 $installed = $false
+$nativePrimaryError = $null
 try {
     # No /R: silent installation must not auto-launch the app.
     $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$install") -WindowStyle Hidden -PassThru
@@ -41,7 +43,9 @@ try {
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }
+catch { $nativePrimaryError = $_; throw }
 finally {
+    Invoke-NativeCleanup -PrimaryError $nativePrimaryError -Cleanup {
     if ($installed) {
         # The exact owned path is checked again before invoking its uninstaller.
         $resolved = [IO.Path]::GetFullPath($install)
@@ -55,5 +59,6 @@ finally {
         $deadline = [DateTime]::UtcNow.AddSeconds(20)
         while ((Test-Path $registration) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
         if (Test-Path $registration) { throw 'Uninstaller left application registration behind' }
+    }
     }
 }

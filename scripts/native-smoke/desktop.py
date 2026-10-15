@@ -16,6 +16,7 @@ import platform
 import re
 import subprocess
 import struct
+import sys
 import time
 from threading import Event
 
@@ -54,6 +55,25 @@ def inspect_keyboard_menu(path, version):
         raise RuntimeError("Tab and Enter did not open the File menu")
 
 
+def finish_cleanup(cleanup, primary, operation):
+    """Required cleanup fails a successful run, but cannot hide its primary error."""
+    try:
+        cleanup()
+    except Exception as secondary:
+        if primary is None:
+            raise
+        notice = f"{operation} also failed ({type(secondary).__name__}); primary failure retained."
+        if hasattr(primary, "add_note"):
+            primary.add_note(notice)
+        else:
+            # Older Python hosts lack exception notes. Even a broken diagnostic
+            # stream must not replace the already-observed operation failure.
+            try:
+                print(notice, file=sys.stderr)
+            except Exception:
+                pass
+
+
 @contextmanager
 def recording(window, directory):
     directory.mkdir()
@@ -71,8 +91,9 @@ def recording(window, directory):
         try:
             yield
         finally:
+            primary = sys.exc_info()[1]
             stop.set()
-            future.result(timeout=15)
+            finish_cleanup(lambda: future.result(timeout=15), primary, "Interaction recording")
 
 
 def encode_recording(directory):
@@ -249,9 +270,11 @@ def unix(executable, directory, config, session, restored=False):
             if process.wait(timeout=20) != 0:
                 raise RuntimeError(f"App did not exit cleanly: {process.returncode}")
         finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=10)
+            def stop_child():
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=10)
+            finish_cleanup(stop_child, sys.exc_info()[1], "App shutdown")
 
 
 def main():
