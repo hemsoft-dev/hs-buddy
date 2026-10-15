@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1361] - 2026-10-15
+
+### Changed
+
+- Separate OCR field labels from neighboring columns (#813)
+
 ## [0.1.1360] - 2026-10-15
 
 ### Changed

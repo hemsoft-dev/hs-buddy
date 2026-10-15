@@ -16,16 +16,36 @@ def find_label(words, label, navigation=False, field=False, exact_line=False):
     wanted = normalize(label)
     if not wanted:
         raise RuntimeError("A nonempty visible label is required")
+    if field:
+        try:
+            content_left = find_label(words, "Settings", exact_line=True)["left"]
+            words = [word for word in words if word["left"] >= content_left]
+        except RuntimeError:
+            pass
     lines = {}
     for word in words:
         lines.setdefault(word["line"], []).append(word)
     matches = []
+    groups = []
     for line in lines.values():
         line.sort(key=lambda word: word["left"])
+        group = []
+        for word in line:
+            if group:
+                previous = group[-1]
+                gap = word["left"] - previous["left"] - previous["width"]
+                if gap > max(24, 2 * max(previous["height"], word["height"])):
+                    groups.append(group)
+                    group = []
+            group.append(word)
+        if group:
+            groups.append(group)
+    for line in groups:
         if field and len(line) > 5:
             continue
-        # A field label starts its OCR line. In particular, a missing Model ID
-        # must never fall back to the suffix of Premium model ID.
+        # A field label starts its spatial group. OCR may combine the sidebar
+        # and both account columns into one line. A missing Model ID must still
+        # never fall back to the adjacent words in Premium model ID.
         for start in ([0] if field else range(len(line))):
             for end in range(start + 1, len(line) + 1):
                 span = line[start:end]

@@ -34,6 +34,20 @@ class LabelGuards(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ocr.locate_label(words[2:], labels, field=True)
 
+    def test_account_columns_are_separate_field_label_groups(self):
+        words = [word("GitHiub", 80, 300, "row"), word("username", 120, 300, "row"),
+            word("Organization", 640, 300, "row")]
+        self.assertEqual(ocr.find_label(words, "Organization", field=True)["left"], 640)
+
+    def test_a_sidebar_ocr_glyph_does_not_prefix_the_model_label(self):
+        words = [word("x", 24, 200, "row"), word("Model", 80, 200, "row"), word("ID", 120, 200, "row")]
+        self.assertEqual(ocr.find_label(words, "Model ID", field=True)["left"], 80)
+
+    def test_fields_exclude_words_left_of_the_settings_content(self):
+        words = [word("Settings", 80, 100, "heading"), word("x", 45, 200, "row"),
+            word("Model", 80, 200, "row"), word("ID", 120, 200, "row")]
+        self.assertEqual(ocr.find_label(words, "Model ID", field=True)["left"], 80)
+
     def test_navigation_excludes_a_same_named_account_provider(self):
         words = [word("Settings", 80, 100, "a"), word("Copilot", 320, 150, "b"), word("Copilot", 200, 300, "c")]
         self.assertEqual(ocr.find_label(words, "Copilot", True)["top"], 150)
