@@ -374,6 +374,7 @@ impl Render for BuddyApp {
             )
             .child(status_bar::render(self, cx))
             .child(zoom::wheel_listener())
+            .child(crate::logging::fixture_mouse_listener())
     }
 }
 

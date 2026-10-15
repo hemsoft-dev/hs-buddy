@@ -113,6 +113,11 @@ the combined session state. Audio drafts are read back before Save; failed
 exits retain the owned window, input state, and sampled native stacks.
 Mac input receipts include event-posting access, pointer/button state, and the
 focused accessibility element's role and geometry. They never read field values.
+The opted-in CI fixture also records mouse events at GPUI's capture phase and
+row-click callbacks. It requires `GITHUB_ACTIONS=true`,
+`BUDDY_SETTINGS_FIXTURE=1`, and `BUDDY_NATIVE_INPUT_TRACE=1`. Each process logs at
+most 2,048 records containing mouse geometry, buttons, modifiers, or row indices.
+It does not record keyboard events or field values and does not consume input.
 Audio draft captures move keyboard focus past Save before the exact readback;
 its focus outline otherwise hides the Save glyphs used to measure the editor.
 Headless view tests run fake I/O on GPUI's deterministic scheduler. Production
