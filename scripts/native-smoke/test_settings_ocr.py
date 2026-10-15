@@ -1,6 +1,9 @@
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("settings_ocr", Path(__file__).with_name("settings-ocr.py"))
 ocr = importlib.util.module_from_spec(spec)
@@ -12,6 +15,22 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_utf8_tesseract_output_is_independent_of_a_windows_code_page(self):
+        output = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t24\t1\t1\t1\t506\t387\t24\t10\t90\t‘Add\n"
+            "5\t1\t24\t1\t1\t2\t535\t388\t48\t10\t90\taccount\n").encode("utf-8")
+        real_run = subprocess.run
+        def emit_tsv(_arguments, **kwargs):
+            # Emulate the Windows default only when the caller leaves encoding
+            # implicit. The real child emits the exact UTF-8 punctuation that
+            # the failed CI capture decoded as mojibake.
+            kwargs.setdefault("encoding", "cp1252")
+            return real_run([sys.executable, "-c", f"import sys; sys.stdout.buffer.write({output!r})"], **kwargs)
+        with patch.object(ocr.shutil, "which", return_value="tesseract"), patch.object(ocr.subprocess, "run", side_effect=emit_tsv):
+            words = ocr.recognize(Path("owned-capture.png"))
+        self.assertEqual(words[0]["text"], "‘Add")
+        self.assertEqual(ocr.locate_label(words, "Add account")["left"], 506)
+
     def test_model_field_does_not_match_premium_model_label(self):
         words = [word("Model", 80, 200, "default"), word("ID", 120, 200, "default"),
             word("Premium", 80, 300, "premium"), word("model", 120, 300, "premium"), word("ID", 160, 300, "premium")]
