@@ -76,7 +76,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "click", "input", "field", "leftfield", "rightfield", "save"):
+                if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
                     commands.append(kind + "64:" + ":".join(map(b64, values)))
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
@@ -145,7 +145,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "click", "input", "field", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -200,7 +200,7 @@ class Driver:
         window.screenshot(image)
         label = ocr.locate_image(image, values[0], navigation=kind == "nav",
             field=kind in ("input", "field", "leftfield", "rightfield", "save"),
-            save_row=self.session == "macos" and kind in ("field", "save"))
+            save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)

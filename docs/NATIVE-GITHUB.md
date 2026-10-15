@@ -97,6 +97,14 @@ database outside the checkout after shutdown, giving consecutive fixtures fresh
 state. Existing deployment selectors or local databases are preserved and refused.
 GitHub evidence records the installed executable's exact CLI version and SHA-256;
 the GitHub screen itself has no visible version label.
+Tab locators use the toolbar context, and qualification requires the underlying
+API reads for every PR detail tab and the opened review thread. Successful input
+commands alone do not prove navigation.
+
+The repository pins Bun 1.4.2 for frozen dependency installation. The offline
+`scripts/bun-install-integrity.test.ts` fixture requires the isolated installer
+to reject a bad tarball checksum within five seconds, retaining integrity checks
+without stalling until the CI step timeout.
 
 The app enables that fixture only with explicit fixture environment flags,
 `GITHUB_ACTIONS=true`, a configuration and exact marker inside `RUNNER_TEMP`, and

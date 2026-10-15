@@ -98,6 +98,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {
     $label = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
     $arguments = @((Join-Path $PSScriptRoot 'settings-ocr.py'), '--image', $image, '--label', $label)
     if ($Mode -eq 'navigation') { $arguments += '--navigation' }
+    if ($Mode -eq 'tab') { $arguments += '--tab' }
     if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
     $raw = & python @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Owned settings label was not found unambiguously' }
@@ -192,8 +193,8 @@ try {
                 # global input, shell expansion, or payload logging.
                 Write-OwnedText $parts[1]
             }
-            { $_ -in 'nav64', 'click64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
-                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
+            { $_ -in 'nav64', 'tab64', 'click64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
+                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
                 $point = Find-OwnedLabelPoint $parts[1] $mode
                 Click-OwnedPoint $point.X $point.Y
                 if ($mode -in @('input', 'field', 'leftfield', 'rightfield')) {

@@ -12,6 +12,25 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def detail_requests(self):
+        graphql = [dict(account="fixture-one", method="POST", path="/graphql", query="query " + operation)
+            for operation in ("NativePullComments", "NativePullReviews", "NativePullCommits", "NativePullThreads", "NativeThreadComments")]
+        rest = [dict(account="fixture-one", method="GET", path="/repos/fixture-org/native-demo" + path)
+            for path in ("/pulls/7/files", "/commits/head/check-runs", "/commits/head/statuses", "/issues/7/timeline")]
+        return graphql + rest
+
+    def test_click_receipts_cannot_substitute_for_loading_the_review_tab(self):
+        requests = self.detail_requests()
+        desktop.verify_detail_requests(requests)
+        requests = [request for request in requests if "NativePullReviews" not in request.get("query", "")]
+        with self.assertRaisesRegex(RuntimeError, "NativePullReviews"):
+            desktop.verify_detail_requests(requests)
+
+    def test_another_accounts_detail_requests_do_not_qualify_the_selected_account(self):
+        requests = [dict(request, account="fixture-two") for request in self.detail_requests()]
+        with self.assertRaises(RuntimeError):
+            desktop.verify_detail_requests(requests)
+
     def test_installed_version_must_match_exactly_before_accepting_its_hash(self):
         with TemporaryDirectory() as temporary:
             executable = Path(temporary) / "owned-binary"

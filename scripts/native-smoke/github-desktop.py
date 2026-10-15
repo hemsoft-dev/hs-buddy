@@ -69,6 +69,17 @@ def check(path, *markers, absent=()):
             raise RuntimeError("Another account's fixture data remained visible")
 
 
+def verify_detail_requests(requests):
+    reads = [request for request in requests if request.get("account") == "fixture-one"]
+    for operation in ("NativePullComments", "NativePullReviews", "NativePullCommits",
+            "NativePullThreads", "NativeThreadComments"):
+        if not any(operation in request.get("query", "") for request in reads):
+            raise RuntimeError(f"Installed PR navigation did not load {operation}")
+    for path in ("/pulls/7/files", "/check-runs", "/statuses", "/issues/7/timeline"):
+        if not any(request.get("method") == "GET" and path in request.get("path", "") for request in reads):
+            raise RuntimeError(f"Installed PR navigation did not load {path}")
+
+
 def qualify(executable, output, session, version, backend, api):
     # GitHub's route does not display a version label. Bind these captures to
     # the actual installed executable, also exercised by the base UI fixture.
@@ -87,10 +98,10 @@ def qualify(executable, output, session, version, backend, api):
         ("click", "List"), ("capture", "filter-list-dark"),
         ("click", "Needs Review"), ("click", "Recently Merged"), ("click", "Needs a nudge"),
         ("click", "My PRs"), ("input", "Filter loaded items", "First private"),
-        ("click", "#7 First private navigation review"), ("click", "Reviews"),
-        ("click", "Commits"), ("click", "Checks"), ("click", "Files"), ("wheel", -360), ("capture", "diff-dark"),
-        ("click", "History"), ("click", "Review threads"), ("click", "src/navigation.rs"),
-        ("click", "Back"), ("click", "Conversation"), ("wheel", -480),
+        ("click", "#7 First private navigation review"), ("tab", "Reviews"),
+        ("tab", "Commits"), ("tab", "Checks"), ("tab", "Files"), ("wheel", -360), ("capture", "diff-dark"),
+        ("tab", "History"), ("tab", "Review threads"), ("click", "src/navigation.rs"),
+        ("click", "Back"), ("tab", "Conversation"), ("wheel", -480),
         ("input", "PR comment", "Installed native fixture comment"), ("click", "Review comment"),
         ("capture", "confirmation-dark"), ("click", "Confirm action"), ("sleep", 1),
         ("capture", "write-ack-dark"), ("click", "Refresh"),
@@ -99,6 +110,7 @@ def qualify(executable, output, session, version, backend, api):
     check(review / "diff-dark.png", "navigation.rs", "native navigation", "Patch unavailable")
     check(review / "confirmation-dark.png", "Confirm as", "fixture-one", "Installed native fixture comment")
     check(review / "write-ack-dark.png", "Comment posted", "Refresh")
+    verify_detail_requests(api.requests)
     writes = [request for request in api.requests if request["method"] == "POST" and request["path"].endswith("/issues/7/comments")]
     if len(writes) != 1 or writes[0]["account"] != "fixture-one" or writes[0]["body"] != dict(body="Installed native fixture comment"):
         raise RuntimeError("The observed confirmed write did not reach exactly the reviewed fixture account and PR")
@@ -109,14 +121,14 @@ def qualify(executable, output, session, version, backend, api):
         raise RuntimeError("The native list preference did not reach Convex")
 
     navigation = driver.drive("navigation-dark", [
-        ("click", "Repositories"), ("click", "fixture-org/native-demo"), ("click", "Commits"),
-        ("click", "Improve native navigation"), ("click", "Back"), ("click", "Open issues"),
-        ("click", "#11 Fixture keyboard follow-up"), ("click", "Back"), ("click", "Closed issues"),
-        ("click", "Open PRs"), ("click", "Closed PRs"), ("click", "Overview"), ("capture", "repository-dark"),
+        ("click", "Repositories"), ("click", "fixture-org/native-demo"), ("tab", "Commits"),
+        ("click", "Improve native navigation"), ("click", "Back"), ("tab", "Open issues"),
+        ("click", "#11 Fixture keyboard follow-up"), ("click", "Back"), ("tab", "Closed issues"),
+        ("tab", "Open PRs"), ("tab", "Closed PRs"), ("tab", "Overview"), ("capture", "repository-dark"),
         ("click", "Bookmark repository"), ("sleep", 1),
         ("click", "People"), ("click", "fixture-author"), ("capture", "profile-dark"),
-        ("click", "Favorite user"), ("click", "Authored PRs"), ("click", "Reviewed PRs"),
-        ("click", "Activity"), ("click", "Team memberships"), ("click", "Native Team"),
+        ("click", "Favorite user"), ("tab", "Authored PRs"), ("tab", "Reviewed PRs"),
+        ("tab", "Activity"), ("tab", "Team memberships"), ("click", "Native Team"),
         ("click", "Organization"),
     ])
     check(navigation / "repository-dark.png", "native-demo", "Languages", "Rust")

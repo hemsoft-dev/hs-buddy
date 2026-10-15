@@ -230,7 +230,7 @@ The Crew, Tempo, Bookmarks, Copilot, Settings.
 | Layout     | allotment (resizable panes)                        |
 | Storage    | electron-store (local config)                      |
 | Build      | Vite + electron-builder (NSIS/DMG/DEB)             |
-| CI         | GitHub Actions, Bun 1.3.7, Node 24.12.0            |
+| CI         | GitHub Actions, Bun 1.4.2, Node 24.12.0            |
 
 ---
 

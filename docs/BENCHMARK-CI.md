@@ -31,7 +31,7 @@ An initial revision without a parent records advisory trend measurements.
 ## Measurements and decision
 
 Base and candidate run on the same GitHub-hosted Ubuntu runner, with Node 24.12.0
-and Bun 1.3.7. Each revision installs its own frozen dependencies. Results cached
+and Bun 1.4.2. Each revision installs its own frozen dependencies. Results cached
 from another runner are never used as the gate baseline.
 
 The job collects three interleaved pairs, in this order:

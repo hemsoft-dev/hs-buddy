@@ -66,6 +66,25 @@ class DraftReadVerification(unittest.TestCase):
 
 
 class LabeledInputs(unittest.TestCase):
+    def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
+        def word(text, left, top, line, width=40):
+            return dict(text=text, left=left, top=top, line=line, width=width, height=12)
+        words = [word("Filter", 200, 170, "1"), word("loaded", 245, 170, "1"),
+            word("items", 290, 170, "1"), word("Reviews", 200, 245, "2", 60),
+            word("Check", 200, 480, "3"), word("Reviews", 245, 480, "3", 60),
+            word("and", 310, 480, "3"), word("Conversation", 355, 480, "3", 90)]
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "x11"
+        directory = MagicMock()
+        image = directory.__truediv__.return_value
+        image.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200, 820)
+        window = Mock()
+        with patch.object(desktop.ocr, "recognize", return_value=words), \
+                patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+            driver.interact(window, directory, "tab", ["Reviews"])
+        self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
+            window.window, 230, 251, "click", 1), run.call_args_list)
+
     def test_input_without_save_uses_its_label_and_replaces_text(self):
         for session, scale in (("macos", 2), ("x11", 1)):
             with self.subTest(session=session):
@@ -83,7 +102,7 @@ class LabeledInputs(unittest.TestCase):
                         patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
                     driver.interact(window, directory, "input", ["Filter loaded items", "First private"])
                 locate.assert_called_once_with(image, "Filter loaded items", navigation=False,
-                    field=True, save_row=False)
+                    field=True, save_row=False, tab=False)
                 if session == "macos":
                     helper.click.assert_called_once_with(920, 184)
                     helper.replace_text.assert_called_once_with("First private")
