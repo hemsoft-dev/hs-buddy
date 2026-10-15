@@ -36,14 +36,18 @@ def run(*args, **kwargs):
         raise RuntimeError(f"{args[0]} failed with exit {error.returncode}: {error.stderr[-8000:]}") from error
 
 
+def require_version(text, version):
+    if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", text, re.IGNORECASE):
+        raise RuntimeError(f"Screenshot is missing exact version {version!r}")
+
+
 def require_dashboard(text, version):
     normalized = re.sub(r"\s+", " ", text).lower()
     # Dashboard in the tab bar alone does not prove that the body rendered.
     for marker in ("universal productivity companion", "customize", "command center", "configure accounts"):
         if marker not in normalized:
             raise RuntimeError(f"Dashboard screenshot is missing {marker!r}")
-    if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", normalized):
-        raise RuntimeError(f"Dashboard screenshot is missing exact version {version!r}")
+    require_version(normalized, version)
 
 
 def inspect_screenshot(path, version, menu=False):
@@ -55,9 +59,14 @@ def inspect_screenshot(path, version, menu=False):
         text = run("tesseract", path, "stdout", "--psm", mode)
         attempts.append(dict(mode=mode, text=text))
         try:
-            require_dashboard(text, version)
-            if menu and not re.search(r"\bexit\b", text, re.IGNORECASE):
-                raise RuntimeError("Tab and Enter did not open the File menu")
+            if menu:
+                # Assert this state's content. Dashboard/card content is checked
+                # separately before and after this overlay obscures its pixels.
+                require_version(text, version)
+                if not all(re.search(rf"\b{marker}\b", text, re.IGNORECASE) for marker in ("file", "exit")):
+                    raise RuntimeError("Tab and Enter did not open the File menu")
+            else:
+                require_dashboard(text, version)
         except RuntimeError as error:
             failures.append(error)
             continue
@@ -263,6 +272,33 @@ class UnixWindow:
             run("wtype", *( ["-M", "ctrl", "-k", key, "-m", "ctrl"] if control else ["-k", key]))
         time.sleep(0.7)
 
+    def keyboard_menu(self, path):
+        if self.session != "wayland":
+            self.key("Tab", control=False)
+            self.key("Return", control=False)
+            self.screenshot(path)
+            self.key("Escape", control=False)
+            return
+        run("swaymsg", f"[con_id={self.window}] focus")
+        # Destroying wtype's virtual keyboard can remove seat focus and dismiss
+        # the popup. Keep ONE keyboard attached through navigation and capture.
+        keyboard = subprocess.Popen(
+            ["wtype", "-s", "200", "-k", "Tab", "-s", "700", "-k", "Return", "-s", "7000", "-k", "Escape"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(1.6)
+            if keyboard.poll() is not None:
+                raise RuntimeError("Wayland virtual keyboard ended before the menu capture")
+            self.screenshot(path)
+            if keyboard.wait(timeout=15) != 0:
+                raise RuntimeError("Wayland virtual keyboard failed")
+        finally:
+            def stop_keyboard():
+                if keyboard.poll() is None:
+                    keyboard.kill()
+                    keyboard.wait(timeout=10)
+            finish_cleanup(stop_keyboard, sys.exc_info()[1], "Virtual keyboard shutdown")
+
     def screenshot(self, path):
         if self.session == "macos":
             # Capture the owned app window only. No full-monitor recording.
@@ -316,10 +352,7 @@ def unix(executable, directory, config, session, restored=False):
             window.screenshot(directory / "dashboard.png")
             if not restored:
                 with recording(window, directory / "frames"):
-                    window.key("Tab", control=False)
-                    window.key("Return", control=False)
-                    window.screenshot(directory / "keyboard-menu.png")
-                    window.key("Escape", control=False)
+                    window.keyboard_menu(directory / "keyboard-menu.png")
                     actual = window.resize(900, 650)
                     (directory / "resize.json").write_text(json.dumps(actual), encoding="utf-8")
                     window.screenshot(directory / "resized.png")

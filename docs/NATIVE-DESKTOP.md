@@ -141,6 +141,10 @@ OCR tries at most three page layouts on each untouched PNG. One result must
 contain every required marker and exact version; partial results are never
 combined. A title bar or empty window fails. Windows also rejects missing class
 icons and compares their pixels against the bundled Buddy icon.
+Unobstructed dashboard captures require the card heading and account control.
+The menu overlay has its own File, Exit, and exact-version assertion, so OCR
+errors in partly covered dashboard content cannot substitute for menu proof.
+Wayland keeps one virtual keyboard attached until its menu capture completes.
 Screenshots, action logs, recordings frames, and process results are retained
 with the workflow artifact. They support the PR's separately uploaded GitHub
 attachment evidence.

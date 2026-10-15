@@ -14,6 +14,21 @@ BODY = "Your Universal Productivity Companion Customize Command Center Configure
 
 
 class DashboardGate(unittest.TestCase):
+    def test_menu_requires_its_own_visible_content_and_exact_version(self):
+        # Dashboard/card rendering is asserted on the unobstructed captures.
+        # Opening a menu must additionally render Exit, not merely its trigger.
+        for text, passes in (("Buddy File Exit Version 0.1.2", True),
+                             (f"{BODY} File 0.1.2", False),
+                             ("Buddy File Exit Version 0.1.20", False),
+                             ("Buddy Exit Version 0.1.2", False)):
+            with self.subTest(text=text), TemporaryDirectory() as temporary, patch("desktop.run", return_value=text):
+                path = Path(temporary) / "keyboard-menu.png"
+                if passes:
+                    inspect_screenshot(path, "0.1.2", menu=True)
+                else:
+                    with self.assertRaises(RuntimeError):
+                        inspect_screenshot(path, "0.1.2", menu=True)
+
     def test_partial_ocr_results_cannot_be_combined_to_qualify(self):
         with TemporaryDirectory() as temporary, patch("desktop.run", side_effect=[
                 f"{BODY} 0.1.20", "Version 0.1.2", BODY]) as recognize:
