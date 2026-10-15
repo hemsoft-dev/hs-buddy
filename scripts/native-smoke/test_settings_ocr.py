@@ -48,6 +48,11 @@ class LabelGuards(unittest.TestCase):
             word("Model", 80, 200, "row"), word("ID", 120, 200, "row")]
         self.assertEqual(ocr.find_label(words, "Model ID", field=True)["left"], 80)
 
+    def test_optical_glyph_bounds_can_start_left_of_the_heading(self):
+        words = [word("Settings", 81, 105, "heading"), word("Accent", 80, 336, "field"),
+            word("color", 123, 335, "field")]
+        self.assertEqual(ocr.find_label(words, "Accent color", field=True)["left"], 80)
+
     def test_navigation_excludes_a_same_named_account_provider(self):
         words = [word("Settings", 80, 100, "a"), word("Copilot", 320, 150, "b"), word("Copilot", 200, 300, "c")]
         self.assertEqual(ocr.find_label(words, "Copilot", True)["top"], 150)

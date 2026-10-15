@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1362] - 2026-10-15
+
+### Changed
+
+- Allow optical glyph offsets in settings OCR (#813)
+
 ## [0.1.1361] - 2026-10-15
 
 ### Changed

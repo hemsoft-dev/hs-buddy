@@ -18,7 +18,10 @@ def find_label(words, label, navigation=False, field=False, exact_line=False):
         raise RuntimeError("A nonempty visible label is required")
     if field:
         try:
-            content_left = find_label(words, "Settings", exact_line=True)["left"]
+            heading = find_label(words, "Settings", exact_line=True)
+            # Glyph bounding boxes differ slightly even at the same layout x.
+            # The recorded heading S starts at 81 while Accent's A starts at 80.
+            content_left = heading["left"] - max(4, heading["height"] // 2)
             words = [word for word in words if word["left"] >= content_left]
         except RuntimeError:
             pass
