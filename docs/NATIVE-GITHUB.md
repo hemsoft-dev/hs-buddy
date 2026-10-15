@@ -110,6 +110,8 @@ the combined session state. Audio drafts are read back before Save; failed
 exits retain the owned window, input state, and sampled native stacks.
 Mac input receipts include event-posting access, pointer/button state, and the
 focused accessibility element's role and geometry. They never read field values.
+Audio draft captures move keyboard focus past Save before the exact readback;
+its focus outline otherwise hides the Save glyphs used to measure the editor.
 Headless view tests run fake I/O on GPUI's deterministic scheduler. Production
 I/O continues to use the separate Tokio runtime.
 

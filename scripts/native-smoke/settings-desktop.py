@@ -287,6 +287,9 @@ class Driver:
             (directory / f"accent-focus-after-{name}.json").write_text(
                 json.dumps(OwnedMacInput(window.process).focus_state()), encoding="utf-8")
         if self.session == "macos" and kind == "field" and values[0] == "Notification audio file":
+            # Leave the editor and its adjacent Save button unfocused. Save's
+            # focus outline hides its OCR glyphs, which locate the input row.
+            window.key("Tab", control=False)
             window.key("Tab", control=False)
             image = directory / "typed-audio-draft.png"
             window.screenshot(image)
