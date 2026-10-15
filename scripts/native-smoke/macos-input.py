@@ -70,6 +70,16 @@ class OwnedMacInput:
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=10)
         self.require_focus()
 
+    def focus_state(self):
+        """Read only the owned window's focus flags, never another app's UI."""
+        self.require_focus()
+        script = (f'tell application "System Events" to tell first application process '
+            f'whose unix id is {self.process.pid}\n'
+            'return {value of attribute "AXMain" of window 1, '
+            'value of attribute "AXFocused" of window 1}\nend tell')
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+        return dict(returncode=result.returncode, flags=result.stdout.strip(), error=result.stderr.strip())
+
     def scroll(self, x, y, delta):
         self.require_focus()
         for _ in range(max(1, abs(delta) // 240)):

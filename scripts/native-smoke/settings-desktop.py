@@ -211,7 +211,10 @@ class Driver:
         time.sleep(0.4)
         if kind in ("field", "leftfield", "rightfield"):
             if self.session == "macos":
-                OwnedMacInput(window.process).replace_text(values[1])
+                helper = OwnedMacInput(window.process)
+                if kind == "field" and values[0] == "Accent color":
+                    (directory / "accent-focus-before.json").write_text(json.dumps(helper.focus_state()), encoding="utf-8")
+                helper.replace_text(values[1])
             else:
                 window.key("a")
                 run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
@@ -219,6 +222,8 @@ class Driver:
         if self.session == "macos" and kind == "field" and values[0] == "Accent color":
             name = "valid" if values[1].startswith("#") else "invalid"
             window.screenshot(directory / f"typed-{name}-accent-draft.png")
+            (directory / f"accent-focus-after-{name}.json").write_text(
+                json.dumps(OwnedMacInput(window.process).focus_state()), encoding="utf-8")
 
 
 def verify_text(path, *markers):
@@ -269,6 +274,22 @@ def qualify(executable, output, session, checkout, backend):
     if not ready["startedAt"] <= captured <= receipt["completedAt"]:
         raise RuntimeError("Native save was not observed during actual Electron writes")
     if saved["ui"]["accentColor"] != "#8246af" or saved["ui"]["enterpriseSlug"] != "fixture-concurrent-complete" or receipt["writes"] < 2:
+        if session == "macos":
+            # Preserve the failed concurrent result. These bounded comparisons
+            # collect a cause; they cannot turn the original failure into a pass.
+            (output / "failed-concurrent-config.json").write_text(json.dumps(saved), encoding="utf-8")
+            comparison = {}
+            for name, theme_actions, expected in (
+                ("with-theme-change", [("click", "Dark"), ("click", "Light")], "#51a26b"),
+                ("without-theme-change", [], "#a1624b")):
+                try:
+                    driver.drive("input-diagnostic-" + name, [("nav", "Appearance"), *theme_actions,
+                        ("field", "Accent color", expected), ("save", "Accent color"),
+                        ("capture", "standalone-accent")])
+                    comparison[name] = dict(saved=json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["accentColor"] == expected)
+                except Exception as diagnostic_error:
+                    comparison[name] = dict(errorType=type(diagnostic_error).__name__)
+            (output / "mac-input-comparison.json").write_text(json.dumps(comparison), encoding="utf-8")
         raise RuntimeError("Concurrent real Electron/native saves lost an edit")
     if saved["packageQualificationSentinel"] != {"preserve": True}:
         raise RuntimeError("Unknown shared config fields were lost")

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1365] - 2026-10-15
+
+### Changed
+
+- Isolate Mac keyboard delivery after concurrent writes (#813)
+
 ## [0.1.1364] - 2026-10-15
 
 ### Changed
