@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1381] - 2026-10-15
+
+### Fixed
+
+- Qualify exact controls and retain native input diagnostics
+
 ## [0.1.1380] - 2026-10-15
 
 ### Fixed

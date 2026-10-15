@@ -15,6 +15,18 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_button_label_wins_over_the_same_word_in_status_prose(self):
+        words = [word("Refresh", 142, 188, "button"),
+            word("Comment", 64, 282, "status"), word("posted.", 99, 282, "status"),
+            word("Refresh", 134, 282, "status"), word("to", 169, 282, "status"),
+            word("load", 204, 282, "status")]
+        self.assertEqual(ocr.find_label(words, "Refresh")["top"], 188)
+
+    def test_two_complete_button_labels_are_still_ambiguous(self):
+        with self.assertRaises(RuntimeError):
+            ocr.find_label([word("Refresh", 140, 188, "one"),
+                word("Refresh", 400, 188, "two")], "Refresh")
+
     def test_tab_selection_requires_toolbar_context_and_an_unambiguous_row(self):
         with self.assertRaises(RuntimeError):
             ocr.find_label([word("Reviews", 200, 245, "2")], "Reviews", tab=True)

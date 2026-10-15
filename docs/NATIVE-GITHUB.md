@@ -100,11 +100,16 @@ the GitHub screen itself has no visible version label.
 Tab locators use the toolbar context, and qualification requires the underlying
 API reads for every PR detail tab and the opened review thread. Successful input
 commands alone do not prove navigation.
+Complete control labels take precedence over matching words in status prose;
+competing complete labels remain an error. Failed navigation preserves its
+observed synthetic requests without replacing the original failure.
 Mac settings locators require two matching measurements before clicking so an
 asynchronous save message cannot move an input between capture and targeting.
 The guarded runner releases modifier keys around text replacement and checks
 the combined session state. Audio drafts are read back before Save; failed
 exits retain the owned window, input state, and sampled native stacks.
+Mac input receipts include event-posting access, pointer/button state, and the
+focused accessibility element's role and geometry. They never read field values.
 Headless view tests run fake I/O on GPUI's deterministic scheduler. Production
 I/O continues to use the separate Tokio runtime.
 

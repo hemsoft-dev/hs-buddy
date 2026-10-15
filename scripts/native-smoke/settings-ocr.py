@@ -63,8 +63,6 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
                 right = max(word["left"] + word["width"] for word in span)
                 bottom = max(word["top"] + word["height"] for word in span)
                 matches.append(dict(left=left, top=top, width=right-left, height=bottom-top, exact=exact))
-    if field and any(match["exact"] for match in matches):
-        matches = [match for match in matches if match["exact"]]
     if navigation:
         heading = find_label(words, "Settings", exact_line=True)
         matches = [match for match in matches if heading["top"] < match["top"] < heading["top"] + heading["height"] + 70]
@@ -75,6 +73,11 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
         if matches:
             first = min(match["top"] for match in matches)
             matches = [match for match in matches if match["top"] < first + max(2, anchor["height"] // 2)]
+    # A complete spatial label identifies the control more precisely than
+    # the same word embedded in status/help prose. Two complete labels still
+    # fail below; never resolve competing controls by their discovery order.
+    if any(match["exact"] for match in matches):
+        matches = [match for match in matches if match["exact"]]
     if len(matches) != 1:
         raise RuntimeError(f"Expected exactly one visible '{label}' label, observed {len(matches)}")
     matches[0].pop("exact")

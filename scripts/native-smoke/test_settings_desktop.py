@@ -97,6 +97,7 @@ class LabeledInputs(unittest.TestCase):
                     kCGWindowBounds=dict(X=100, Y=50), capturePixelsPerWindowPoint=scale))
                 label = dict(left=800 * scale, top=100 * scale, width=120 * scale, height=14 * scale)
                 window, helper = Mock(), Mock()
+                helper.focus_state.return_value = dict(flags="owned fixture window")
                 with patch.object(desktop.ocr, "locate_image", return_value=label) as locate, \
                         patch.object(desktop, "OwnedMacInput", return_value=helper), \
                         patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
@@ -176,6 +177,14 @@ class MacInputDelivery(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "modifier"):
             helper.click(100, 200)
         helper.graphics.CGEventCreateMouseEvent.assert_not_called()
+
+    def test_denied_post_access_releases_the_event_without_injecting_it(self):
+        helper = self.helper()
+        helper.graphics.CGPreflightPostEventAccess.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "cannot post input"):
+            helper.post(1234)
+        helper.graphics.CGEventPost.assert_not_called()
+        helper.core.CFRelease.assert_called_once_with(1234)
 
     def test_locator_waits_for_the_feedback_row_to_stop_moving(self):
         driver = desktop.Driver.__new__(desktop.Driver)

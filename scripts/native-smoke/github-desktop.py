@@ -80,6 +80,14 @@ def verify_detail_requests(requests):
             raise RuntimeError(f"Installed PR navigation did not load {path}")
 
 
+def preserve_failed_requests(output, requests, failure):
+    try:
+        if output.is_dir():
+            (output / "requests.json").write_text(json.dumps(requests, indent=2), encoding="utf-8")
+    except Exception as diagnostic_error:
+        failure.add_note(f"Request diagnostic failed: {type(diagnostic_error).__name__}")
+
+
 def qualify(executable, output, session, version, backend, api):
     # GitHub's route does not display a version label. Bind these captures to
     # the actual installed executable, also exercised by the base UI fixture.
@@ -188,7 +196,11 @@ def main():
     if output.exists() or not output.is_relative_to(Path(os.environ["RUNNER_TEMP"]).resolve()):
         raise RuntimeError("A fresh owned runner output directory is required")
     with settings.SettingsBackend(HERE.parent.parent) as backend, GitHubBackend() as api, fixture_environment(api.url):
-        qualify(args.executable.resolve(strict=True), output, args.session, args.version, backend, api)
+        try:
+            qualify(args.executable.resolve(strict=True), output, args.session, args.version, backend, api)
+        except Exception as failure:
+            preserve_failed_requests(output, api.requests, failure)
+            raise
 
 
 if __name__ == "__main__":

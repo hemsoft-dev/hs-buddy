@@ -31,6 +31,14 @@ class OwnedMacInput:
         self.graphics.CGEventCreateKeyboardEvent.restype = c.c_void_p
         self.graphics.CGEventSourceFlagsState.argtypes = [c.c_int32]
         self.graphics.CGEventSourceFlagsState.restype = c.c_uint64
+        self.graphics.CGPreflightPostEventAccess.argtypes = []
+        self.graphics.CGPreflightPostEventAccess.restype = c.c_bool
+        self.graphics.CGEventCreate.argtypes = [c.c_void_p]
+        self.graphics.CGEventCreate.restype = c.c_void_p
+        self.graphics.CGEventGetLocation.argtypes = [c.c_void_p]
+        self.graphics.CGEventGetLocation.restype = Point
+        self.graphics.CGEventSourceButtonState.argtypes = [c.c_int32, c.c_uint32]
+        self.graphics.CGEventSourceButtonState.restype = c.c_bool
         self.graphics.CGEventCreateScrollWheelEvent.argtypes = [c.c_void_p, c.c_uint32, c.c_uint32, c.c_int32]
         self.graphics.CGEventCreateScrollWheelEvent.restype = c.c_void_p
         self.graphics.CGEventSetLocation.argtypes = [c.c_void_p, Point]
@@ -49,6 +57,8 @@ class OwnedMacInput:
         try:
             if self.process.poll() is not None:
                 raise RuntimeError("Owned Mac app exited before input")
+            if not self.graphics.CGPreflightPostEventAccess():
+                raise RuntimeError("The disposable Mac runner cannot post input events")
             # WindowServer must annotate the mouse event with its target window.
             # Direct PID posting was empirically ignored by this GPUI Mac app.
             # This stream exists ONLY on the disposable, guarded CI desktop.
@@ -106,8 +116,26 @@ class OwnedMacInput:
             'return {value of attribute "AXMain" of window 1, '
             'value of attribute "AXFocused" of window 1}\nend tell')
         result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+        # Read geometry and role only. Do not read an input's value, title,
+        # description, or any other potentially sensitive field content.
+        script = (f'tell application "System Events" to tell first application process '
+            f'whose unix id is {self.process.pid}\n'
+            'set focusedElement to value of attribute "AXFocusedUIElement"\n'
+            'return {role of focusedElement, enabled of focusedElement, '
+            'position of focusedElement, size of focusedElement}\nend tell')
+        focused = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+        event = self.graphics.CGEventCreate(None)
+        if not event:
+            raise RuntimeError("Could not inspect the disposable Mac pointer")
+        try:
+            pointer = self.graphics.CGEventGetLocation(event)
+        finally:
+            self.core.CFRelease(event)
         return dict(returncode=result.returncode, flags=result.stdout.strip(), error=result.stderr.strip(),
-            modifiers=self.graphics.CGEventSourceFlagsState(COMBINED_SESSION))
+            modifiers=self.graphics.CGEventSourceFlagsState(COMBINED_SESSION),
+            postEventAccess=bool(self.graphics.CGPreflightPostEventAccess()), pointer=[pointer.x, pointer.y],
+            leftButtonDown=bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, 0)),
+            focusedElement=dict(returncode=focused.returncode, geometry=focused.stdout.strip(), error=focused.stderr.strip()))
 
     def scroll(self, x, y, delta):
         self.require_focus()

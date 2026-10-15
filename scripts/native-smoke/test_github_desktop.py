@@ -1,10 +1,11 @@
 """Bind GitHub evidence to the installed binary and its actual route content."""
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("github_desktop", Path(__file__).with_name("github-desktop.py"))
 desktop = importlib.util.module_from_spec(spec)
@@ -12,6 +13,21 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_failed_navigation_preserves_the_observed_requests(self):
+        requests = self.detail_requests()
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            desktop.preserve_failed_requests(output, requests, RuntimeError("original navigation failure"))
+            self.assertEqual(json.loads((output / "requests.json").read_text()), requests)
+
+    def test_diagnostic_write_failure_does_not_replace_the_original_failure(self):
+        output = Mock()
+        output.__truediv__ = Mock(return_value=Mock(write_text=Mock(side_effect=OSError("unavailable"))))
+        failure = RuntimeError("original navigation failure")
+        desktop.preserve_failed_requests(output, self.detail_requests(), failure)
+        self.assertEqual(str(failure), "original navigation failure")
+        self.assertEqual(failure.__notes__, ["Request diagnostic failed: OSError"])
+
     def detail_requests(self):
         graphql = [dict(account="fixture-one", method="POST", path="/graphql", query="query " + operation)
             for operation in ("NativePullComments", "NativePullReviews", "NativePullCommits", "NativePullThreads", "NativeThreadComments")]

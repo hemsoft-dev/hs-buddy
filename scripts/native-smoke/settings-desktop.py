@@ -212,6 +212,11 @@ class Driver:
             previous = label
         raise RuntimeError("The visible Mac input target did not become stable")
 
+    def input_receipt(self, helper, directory, stage, kind, label, target):
+        with (directory / "input-state.jsonl").open("a", encoding="utf-8") as receipt:
+            receipt.write(json.dumps(dict(stage=stage, kind=kind, label=label,
+                target=target, state=helper.focus_state())) + "\n")
+
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
         label = self.locate(window, image, kind, values[0])
@@ -249,7 +254,18 @@ class Driver:
                 targets.write(json.dumps(dict(kind=kind, label=values[0], bounds=label,
                     windowPoint=[x, y])) + "\n")
             run("osascript", "-e", window.apple("set frontmost to true"))
-            OwnedMacInput(window.process).click(origin[0] + x, origin[1] + y)
+            helper = OwnedMacInput(window.process)
+            target = [origin[0] + x, origin[1] + y]
+            try:
+                helper.click(*target)
+            except Exception as failure:
+                try:
+                    self.input_receipt(helper, directory, "failed-click", kind, values[0], target)
+                    window.screenshot(directory / "failed-click.png")
+                except Exception as diagnostic_error:
+                    failure.add_note(f"Input diagnostic failed: {type(diagnostic_error).__name__}")
+                raise
+            self.input_receipt(helper, directory, "after-click", kind, values[0], target)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
@@ -260,6 +276,7 @@ class Driver:
                 if kind == "field" and values[0] == "Accent color":
                     (directory / "accent-focus-before.json").write_text(json.dumps(helper.focus_state()), encoding="utf-8")
                 helper.replace_text(values[1])
+                self.input_receipt(helper, directory, "after-typing", kind, values[0], target)
             else:
                 window.key("a")
                 run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
