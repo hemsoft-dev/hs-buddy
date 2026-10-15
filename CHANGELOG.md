@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1346] - 2026-10-15
+
+### Fixed
+
+- Restore Wayland geometry after display discovery
+
 ## [0.1.1345] - 2026-10-15
 
 ### Fixed

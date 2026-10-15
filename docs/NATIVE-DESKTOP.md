@@ -121,6 +121,11 @@ host display sockets. The Wayland child has no `DISPLAY`, so XWayland cannot
 pass for it. The artifact records the runtime image digest and package list.
 Wayland placement belongs to the compositor; its restart check requires saved
 size. Windows, macOS, and X11 also check the restored position.
+Startup waits briefly for asynchronous display discovery. Wayland has no
+designated primary output, so recovery uses an available output. Saved Wayland
+size excludes client shadow padding; restore adds the measured decoration inset
+after the first render. Qualification also checks the compositor's actual
+900 x 650 rectangle after restart and disconnected-display recovery.
 
 The desktop driver launches the installed executable from a directory outside
 the checkout with isolated settings and empty GitHub authentication. Weather,

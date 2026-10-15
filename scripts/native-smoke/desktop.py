@@ -447,6 +447,8 @@ def main():
         restored.mkdir()
         drive(executable, restored, config, restored=True)
         inspect_screenshot(restored / "dashboard.png", args.version)
+        if args.session == "wayland":
+            require_size(json.loads((restored / "dashboard.window.json").read_text()), 900, 650)
         after = json.loads((directory / "window-state.json").read_text(encoding="utf-8-sig"))
         # Wayland's compositor chooses global placement; the app restores size.
         geometry_keys = ("width", "height") if args.session == "wayland" else ("x", "y", "width", "height")
@@ -462,6 +464,8 @@ def main():
         recovery.mkdir()
         drive(executable, recovery, config, restored=True)
         inspect_screenshot(recovery / "dashboard.png", args.version)
+        if args.session == "wayland":
+            require_size(json.loads((recovery / "dashboard.window.json").read_text()), 900, 650)
         recovered = json.loads((directory / "window-state.json").read_text(encoding="utf-8-sig"))
         if recovered["x"] >= 50000 or recovered["y"] >= 50000:
             raise RuntimeError("Disconnected-display recovery did not persist a usable placement")

@@ -184,6 +184,19 @@ pub fn restore_bounds(window: &Window, cx: &App) -> Option<Bounds<Pixels>> {
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = cx;
+        #[cfg(target_os = "linux")]
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if HasWindowHandle::window_handle(window)
+                .is_ok_and(|handle| matches!(handle.as_raw(), RawWindowHandle::Wayland(_)))
+            {
+                // Wayland's surface includes client shadow padding; the
+                // compositor's visible window geometry excludes that padding.
+                let mut bounds = window.inner_window_bounds().get_bounds();
+                bounds.origin = gpui_kit::point(gpui_kit::px(0.0), gpui_kit::px(0.0));
+                return Some(bounds);
+            }
+        }
         Some(window.window_bounds().get_bounds())
     }
 }
@@ -232,7 +245,7 @@ mod macos {
 /// window. This uses OS placement APIs so private GPUI frame metrics never
 /// need to be duplicated.
 pub fn apply_restore_bounds(
-    window: &Window,
+    window: &mut Window,
     bounds: Bounds<Pixels>,
     cx: &App,
     physical: Option<DisplayRect>,
@@ -242,11 +255,40 @@ pub fn apply_restore_bounds(
         log::warn!("could not restore outer window rectangle: {err}");
     }
     #[cfg(target_os = "linux")]
-    if let Err(err) = apply_x11_restore_bounds(window, bounds) {
-        log::warn!("could not restore X11 window rectangle: {err}");
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if HasWindowHandle::window_handle(window)
+            .is_ok_and(|handle| matches!(handle.as_raw(), RawWindowHandle::Wayland(_)))
+        {
+            // Root establishes its decoration inset during the first render.
+            // Resize the surface afterwards so the visible geometry matches
+            // the saved size. Global placement remains the compositor's.
+            window.on_next_frame(move |window, _| {
+                let surface = window.window_bounds().get_bounds().size;
+                let geometry = window.inner_window_bounds().get_bounds().size;
+                window.resize(surface_size_for_geometry(bounds.size, surface, geometry));
+            });
+        } else if let Err(err) = apply_x11_restore_bounds(window, bounds) {
+            log::warn!("could not restore X11 window rectangle: {err}");
+        }
     }
     #[cfg(not(windows))]
     let _ = (window, bounds, cx, physical);
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn surface_size_for_geometry(
+    requested: gpui_kit::Size<Pixels>,
+    surface: gpui_kit::Size<Pixels>,
+    geometry: gpui_kit::Size<Pixels>,
+) -> gpui_kit::Size<Pixels> {
+    let extent = |requested: Pixels, surface: Pixels, geometry: Pixels| {
+        gpui_kit::px(f32::from(requested) + (f32::from(surface) - f32::from(geometry)).max(0.0))
+    };
+    gpui_kit::size(
+        extent(requested.width, surface.width, geometry.width),
+        extent(requested.height, surface.height, geometry.height),
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -644,5 +686,26 @@ mod geometry_tests {
         assert!(geometry_matches_monitor(geometry, monitor));
         let scaled = crate::windows_coordinates::Monitor::new(1, display, display, 1.5);
         assert!(!geometry_matches_monitor(geometry, scaled));
+    }
+
+    #[test]
+    fn restored_wayland_geometry_adds_measured_shadow_padding_once() {
+        use gpui_kit::{px, size};
+        assert_eq!(
+            surface_size_for_geometry(
+                size(px(900.0), px(650.0)),
+                size(px(940.0), px(690.0)),
+                size(px(900.0), px(650.0))
+            ),
+            size(px(940.0), px(690.0))
+        );
+        assert_eq!(
+            surface_size_for_geometry(
+                size(px(900.0), px(650.0)),
+                size(px(900.0), px(650.0)),
+                size(px(900.0), px(650.0))
+            ),
+            size(px(900.0), px(650.0))
+        );
     }
 }
