@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1366] - 2026-10-15
+
+### Changed
+
+- Target the visible Mac editor row instead of frame padding (#813)
+
 ## [0.1.1365] - 2026-10-15
 
 ### Changed

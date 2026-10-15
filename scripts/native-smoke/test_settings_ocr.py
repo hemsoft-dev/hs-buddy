@@ -15,6 +15,25 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_mac_editor_row_uses_the_actual_save_baseline_not_label_padding(self):
+        # Exact native Tesseract bounds from the failed Mac Accent capture.
+        label = dict(left=72, top=333, width=72, height=10)
+        save = dict(text="Save", left=1134, top=367, width=30, height=10, line="20/1/1")
+        words = [save, word("Save", 1134, 444, "next-field")]
+        actual = ocr.aligned_save(words, label)
+        self.assertEqual(actual["top"] + actual["height"] / 2, 372)
+        self.assertEqual(label["top"] + label["height"] + 20, 363)
+
+    def test_a_missing_row_cannot_fall_back_to_the_next_fields_save(self):
+        with self.assertRaisesRegex(RuntimeError, "not visible"):
+            ocr.aligned_save([word("Save", 1134, 444, "next-field")],
+                dict(left=72, top=333, width=72, height=10))
+
+    def test_two_save_buttons_on_the_nearest_row_are_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "ambiguous"):
+            ocr.aligned_save([word("Save", 600, 367, "a"), word("Save", 1134, 367, "b")],
+                dict(left=72, top=333, width=72, height=10))
+
     def test_utf8_tesseract_output_is_independent_of_a_windows_code_page(self):
         output = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
             "5\t1\t24\t1\t1\t1\t506\t387\t24\t10\t90\t‘Add\n"

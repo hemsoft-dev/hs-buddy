@@ -184,7 +184,8 @@ class Driver:
         image = directory / "locator.png"
         window.screenshot(image)
         label = ocr.locate_image(image, values[0], navigation=kind == "nav",
-            field=kind in ("field", "leftfield", "rightfield", "save"))
+            field=kind in ("field", "leftfield", "rightfield", "save"),
+            save_row=self.session == "macos" and kind in ("field", "save"))
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)
@@ -202,7 +203,18 @@ class Driver:
                 x = width / scale / 4
             elif kind == "rightfield":
                 x = width / scale * 3 / 4
+        if "save" in label:
+            # Label glyph bottoms do not locate the editor: on Mac the old
+            # offset hit the frame's padding, which shows a focus ring while
+            # leaving its text editor unfocused. Use the rendered row instead.
+            control = label["save"]
+            y = (control["top"] + control["height"] / 2) / scale
+            if kind == "save":
+                x = (control["left"] + control["width"] / 2) / scale
         if self.session == "macos":
+            with (directory / "targets.jsonl").open("a", encoding="utf-8") as targets:
+                targets.write(json.dumps(dict(kind=kind, label=values[0], bounds=label,
+                    windowPoint=[x, y])) + "\n")
             run("osascript", "-e", window.apple("set frontmost to true"))
             OwnedMacInput(window.process).click(origin[0] + x, origin[1] + y)
         else:

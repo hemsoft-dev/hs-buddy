@@ -93,11 +93,28 @@ def locate_label(words, labels, navigation=False, field=False):
     raise RuntimeError("None of the requested visible labels was unambiguous")
 
 
-def locate_image(image, labels, navigation=False, field=False):
+def aligned_save(words, label):
+    """Find the visible button aligned with a single-column field's editor."""
+    candidates = [word for word in words if normalize(word["text"]) == "save"
+        and word["left"] > label["left"] + label["width"] + 4 * label["height"]
+        and label["top"] + label["height"] < word["top"] < label["top"] + max(64, 6 * label["height"])]
+    if not candidates:
+        raise RuntimeError("The field's aligned Save button is not visible")
+    nearest = min(word["top"] for word in candidates)
+    candidates = [word for word in candidates if word["top"] < nearest + label["height"]]
+    if len(candidates) != 1:
+        raise RuntimeError("The field's aligned Save button is ambiguous")
+    return candidates[0]
+
+
+def locate_image(image, labels, navigation=False, field=False, save_row=False):
     for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
-            return locate_label(words, labels, navigation, field)
+            label = locate_label(words, labels, navigation, field)
+            if save_row:
+                label["save"] = aligned_save(words, label)
+            return label
         except RuntimeError:
             # Retain the actual native engine output with the already-owned
             # screenshot, so a failure can be diagnosed without guessing.

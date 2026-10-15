@@ -142,6 +142,10 @@ and `electron-store` during native saves. Its credential adapter rejects access.
 On macOS the companion uses a prohibited activation policy so it cannot take
 keyboard focus from the native fixture. Text replacement keeps selection,
 modifier release, deletion, and typing in one owned System Events script.
+Single-column Mac fields target the visible Save row's vertical center rather
+than an offset from label glyphs. The outer input frame can show a focus ring
+while its editor remains unfocused when a click lands in frame padding. Missing
+or ambiguous row controls fail qualification; target receipts retain coordinates.
 The backend fixture snapshots its generated selector after the CLI reports
 completed setup. It still preserves and rejects changes made after readiness.
 Window captures and recordings cover both themes and the two qualification sizes.
