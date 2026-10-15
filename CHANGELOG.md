@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1342] - 2026-10-15
+
+### Fixed
+
+- Verify native cards geometry icons and window capture
+
 ## [0.1.1341] - 2026-10-15
 
 ### Fixed

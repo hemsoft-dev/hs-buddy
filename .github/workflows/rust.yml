@@ -117,7 +117,9 @@ jobs:
         if: runner.os == 'Windows'
         working-directory: .
         shell: pwsh
-        run: ./scripts/native-smoke/test-cleanup.ps1
+        run: |
+          ./scripts/native-smoke/test-cleanup.ps1
+          ./scripts/native-smoke/test-windows-assertions.ps1
 
       # Advisory, license and source gate for the Rust dependency graph
       # (policy in rust/deny.toml). Once per run is enough.

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -38,32 +39,42 @@ def run(*args, **kwargs):
 def require_dashboard(text, version):
     normalized = re.sub(r"\s+", " ", text).lower()
     # Dashboard in the tab bar alone does not prove that the body rendered.
-    for marker in ("universal productivity companion", "customize"):
+    for marker in ("universal productivity companion", "customize", "command center", "configure accounts"):
         if marker not in normalized:
             raise RuntimeError(f"Dashboard screenshot is missing {marker!r}")
     if not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", normalized):
         raise RuntimeError(f"Dashboard screenshot is missing exact version {version!r}")
 
 
-def inspect_screenshot(path, version):
-    text = run("tesseract", path, "stdout", "--psm", "11")
-    path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
-    try:
-        require_dashboard(text, version)
-    except RuntimeError as error:
-        # Bounded numeric version candidates diagnose OCR without dumping app
-        # contents. Keep the exact-version gate and its original failure.
-        candidates = re.findall(r"(?i)(?<![\w.])[0-9o]{1,6}\s*\.\s*[0-9o]{1,6}\s*\.\s*[0-9o]{1,8}(?![\w.])", text)
-        finish_cleanup(lambda: print(f"Dashboard OCR version candidates: {candidates[:4]!r}", file=sys.stderr),
-                       error, "OCR diagnostics")
-        raise
+def inspect_screenshot(path, version, menu=False):
+    attempts, failures = [], []
+    # Sparse text can split a version number at 110% scale. Try bounded page
+    # layouts on the SAME untouched PNG, requiring every marker in ONE result.
+    # No digit substitutions, substring matches, action replay, or merged OCR.
+    for mode in (11, 3, 6):
+        text = run("tesseract", path, "stdout", "--psm", mode)
+        attempts.append(dict(mode=mode, text=text))
+        try:
+            require_dashboard(text, version)
+            if menu and not re.search(r"\bexit\b", text, re.IGNORECASE):
+                raise RuntimeError("Tab and Enter did not open the File menu")
+        except RuntimeError as error:
+            failures.append(error)
+            continue
+        path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
+        path.with_suffix(".ocr-mode.json").write_text(json.dumps(dict(mode=mode)), encoding="utf-8")
+        return
+    primary = failures[0]
+    finish_cleanup(lambda: path.with_suffix(".ocr.txt").write_text(
+        "\n\n".join(f'PSM {item["mode"]}\n{item["text"]}' for item in attempts), encoding="utf-8"),
+        primary, "Rejected OCR evidence")
+    finish_cleanup(lambda: print(f"Dashboard OCR rejected {path.name} in modes 11, 3, 6", file=sys.stderr),
+                   primary, "OCR diagnostics")
+    raise primary
 
 
 def inspect_keyboard_menu(path, version):
-    inspect_screenshot(path, version)
-    text = path.with_suffix(".ocr.txt").read_text(encoding="utf-8")
-    if not re.search(r"\bexit\b", text, re.IGNORECASE):
-        raise RuntimeError("Tab and Enter did not open the File menu")
+    inspect_screenshot(path, version, menu=True)
 
 
 def finish_cleanup(cleanup, primary, operation):
@@ -131,7 +142,7 @@ def fixture(directory, theme):
     config.write_text(json.dumps({
         "ui": {"theme": theme, **appearance, "dashboardCards": {
             "weather": False, "workspace-pulse": False,
-            "command-center": False, "finance": False,
+            "command-center": True, "finance": False,
         }},
         "github": {"accounts": []}, "native": {"activeSection": None},
         "packageQualificationSentinel": {"preserve": True},
@@ -168,6 +179,23 @@ def windows(executable, directory, config, restored=False):
         "-Actions", ",".join(actions), timeout=240)
 
 
+def require_size(actual, width, height):
+    if (not all(math.isfinite(actual[key]) for key in ("width", "height"))
+            or abs(actual["width"] - width) > 2 or abs(actual["height"] - height) > 2):
+        raise RuntimeError(f"Resize was not applied: requested {width}x{height}, observed {actual}")
+
+
+def owned_wayland_node(tree, pid, window=None):
+    if (tree.get("pid") == pid and tree.get("app_id") == "buddy-native"
+            and (window is None or tree.get("id") == window)):
+        return tree
+    for child in tree.get("nodes", []) + tree.get("floating_nodes", []):
+        found = owned_wayland_node(child, pid, window)
+        if found is not None:
+            return found
+    return None
+
+
 class UnixWindow:
     def __init__(self, process, session):
         self.process = process
@@ -183,16 +211,19 @@ class UnixWindow:
             self.window = run("xdotool", "search", "--onlyvisible", "--pid", self.process.pid).splitlines()[0]
             return True
         tree = json.loads(run("swaymsg", "-t", "get_tree", "-r"))
-        def find(node):
-            if node.get("pid") == self.process.pid and node.get("app_id") == "buddy-native":
-                return node["id"]
-            for child in node.get("nodes", []) + node.get("floating_nodes", []):
-                match = find(child)
-                if match:
-                    return match
-            return None
-        self.window = find(tree)
+        found = owned_wayland_node(tree, self.process.pid)
+        self.window = found["id"] if found is not None else None
         return self.window is not None
+
+    def wayland_rect(self):
+        tree = json.loads(run("swaymsg", "-t", "get_tree", "-r"))
+        owned = owned_wayland_node(tree, self.process.pid, self.window)
+        if owned is None:
+            raise RuntimeError("Owned Wayland window disappeared")
+        rect = owned["rect"]
+        if rect["width"] <= 0 or rect["height"] <= 0:
+            raise RuntimeError("Owned Wayland window has empty bounds")
+        return rect
 
     def apple(self, command):
         return (f'tell application "System Events" to tell first application process '
@@ -206,6 +237,18 @@ class UnixWindow:
         else:
             run("swaymsg", f"[con_id={self.window}] floating enable, resize set {width} {height}, move position 80 80")
         time.sleep(1)
+        if self.session == "macos":
+            size = [int(value) for value in re.findall(r"-?\d+", run("osascript", "-e", self.apple("get size of window 1")))]
+            if len(size) != 2:
+                raise RuntimeError("Unreadable owned Mac window size")
+            actual = dict(width=size[0], height=size[1], units="macOS window points")
+        elif self.session == "x11":
+            properties = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", self.window).splitlines())
+            actual = dict(width=int(properties["WIDTH"]), height=int(properties["HEIGHT"]), units="X11 client pixels")
+        else:
+            actual = dict(self.wayland_rect(), units="Wayland compositor units")
+        require_size(actual, width, height)
+        return actual
 
     def key(self, key, control=True):
         if self.session == "macos":
@@ -234,8 +277,11 @@ class UnixWindow:
         elif self.session == "x11":
             run("import", "-window", self.window, path)
         else:
-            # Sway runs on a fresh headless output that contains only this app.
-            run("grim", path)
+            # Ask the compositor to capture this owned window region directly,
+            # like the window-only captures on the other platforms. No PNG edit.
+            rect = self.wayland_rect()
+            run("grim", "-g", f'{rect["x"]},{rect["y"]} {rect["width"]}x{rect["height"]}', path)
+            path.with_suffix(".window.json").write_text(json.dumps(rect), encoding="utf-8")
 
 
 def unix(executable, directory, config, session, restored=False):
@@ -274,7 +320,8 @@ def unix(executable, directory, config, session, restored=False):
                     window.key("Return", control=False)
                     window.screenshot(directory / "keyboard-menu.png")
                     window.key("Escape", control=False)
-                    window.resize(900, 650)
+                    actual = window.resize(900, 650)
+                    (directory / "resize.json").write_text(json.dumps(actual), encoding="utf-8")
                     window.screenshot(directory / "resized.png")
                     window.key("=" if session == "macos" else "equal")
                     window.screenshot(directory / "zoomed.png")
@@ -316,6 +363,7 @@ def main():
         directory = output / theme
         config = fixture(directory, theme)
         drive(executable, directory, config)
+        require_size(json.loads((directory / "resize.json").read_text(encoding="utf-8-sig")), 900, 650)
         for shot in ("dashboard", "resized", "zoomed"):
             inspect_screenshot(directory / f"{shot}.png", args.version)
         inspect_keyboard_menu(directory / "keyboard-menu.png", args.version)

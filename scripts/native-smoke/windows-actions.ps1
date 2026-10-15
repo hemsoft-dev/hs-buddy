@@ -3,9 +3,11 @@
 # thread-attached key state (never SendInput), and captures it with PrintWindow.
 # Actions (comma separated): ctrlkey:<vk>  wheel:<delta>  ctrlwheel:<delta>
 #   click:<x>:<y> (client px)  capture:<file.png>  sleep:<ms>  close
-param([Parameter(Mandatory)] [long] $Hwnd, [Parameter(Mandatory)] [string] $Actions, [string] $Log)
+param([Parameter(Mandatory)] [long] $Hwnd, [Parameter(Mandatory)] [string] $Actions,
+    [Parameter(Mandatory)] [string] $Log, [Parameter(Mandatory)] [string] $ExpectedIconPath)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
+. (Join-Path $PSScriptRoot 'windows-assertions.ps1')
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -202,6 +204,12 @@ try {
                 $path = $parts[1..($parts.Length - 1)] -join ':'
                 $big = [Drive]::GetClassLongPtr($h, -14)    # GCLP_HICON
                 $small = [Drive]::GetClassLongPtr($h, -34)  # GCLP_HICONSM
+                $validated = @{
+                    big = Assert-NativeIcon -Handle $big -ExpectedIconPath $ExpectedIconPath
+                    small = Assert-NativeIcon -Handle $small -ExpectedIconPath $ExpectedIconPath
+                    expectedSha256 = (Get-FileHash -LiteralPath $ExpectedIconPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+                $validated | ConvertTo-Json -Depth 4 | Set-Content (Join-Path ([IO.Path]::GetDirectoryName($Log)) 'registered-window-icons.json')
                 $bmp = [System.Drawing.Bitmap]::new(420, 220)
                 $g = [System.Drawing.Graphics]::FromImage($bmp)
                 $g.Clear([System.Drawing.Color]::FromArgb(32, 32, 32))
@@ -215,8 +223,13 @@ try {
             }
             'resize' {
                 # x:y:w:h in screen px; SWP_NOZORDER | SWP_NOACTIVATE
-                [Drive]::SetWindowPos($h, 0, [int]$parts[1], [int]$parts[2], [int]$parts[3], [int]$parts[4], 0x14) | Out-Null
+                if (-not [Drive]::SetWindowPos($h, 0, [int]$parts[1], [int]$parts[2], [int]$parts[3], [int]$parts[4], 0x14)) { throw 'Owned window resize request failed' }
                 Start-Sleep -Milliseconds 800
+                $actual = New-Object Drive+RECT
+                if (-not [Drive]::GetWindowRect($h, [ref]$actual)) { throw 'Owned resized window disappeared' }
+                $size = @{ width = $actual.r - $actual.l; height = $actual.b - $actual.t; units = 'Windows outer physical pixels' }
+                if ([Math]::Abs($size.width - [int]$parts[3]) -gt 2 -or [Math]::Abs($size.height - [int]$parts[4]) -gt 2) { throw 'Owned window ignored or clamped the requested resize' }
+                $size | ConvertTo-Json | Set-Content (Join-Path ([IO.Path]::GetDirectoryName($Log)) 'resize.json')
             }
             'simulated-dpi' {
                 # Exercise GPUI's actual WM_DPICHANGED path without changing

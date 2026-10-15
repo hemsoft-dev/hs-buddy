@@ -117,11 +117,12 @@ try {
     }
     if (-not $hwnd) { throw 'Owned Buddy window did not appear' }
     Start-Sleep -Seconds 4
-    foreach ($value in @($Actions, $OutDir, $PSScriptRoot)) {
+    $expectedIconPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../public/icon.ico'))
+    foreach ($value in @($Actions, $OutDir, $PSScriptRoot, $expectedIconPath)) {
         if ($value.Contains('"') -or $value.Contains("`r") -or $value.Contains("`n")) { throw 'Invalid helper argument' }
     }
     $helperArguments = '-NoProfile -File "' + (Join-Path $PSScriptRoot 'windows-actions.ps1') +
-        '" -Hwnd ' + $hwnd.ToInt64() + ' -Actions "' + $Actions + '" -Log "' + (Join-Path $OutDir 'actions.log') + '"'
+        '" -Hwnd ' + $hwnd.ToInt64() + ' -Actions "' + $Actions + '" -Log "' + (Join-Path $OutDir 'actions.log') + '" -ExpectedIconPath "' + $expectedIconPath + '"'
     $helper = Start-OwnedProcess (Get-Command pwsh).Source $helperArguments
     if ([HiddenDesktop]::WaitForSingleObject($helper.hProcess, 120000) -ne 0) { throw 'Window actions timed out' }
     $helperExit = [uint32]0

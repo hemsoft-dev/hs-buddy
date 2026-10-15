@@ -123,8 +123,11 @@ Wayland placement belongs to the compositor; its restart check requires saved
 size. Windows, macOS, and X11 also check the restored position.
 
 The desktop driver launches the installed executable from a directory outside
-the checkout with isolated settings, empty GitHub authentication, and dashboard
-network cards disabled. It checks both themes, resize, keyboard zoom and quit,
+the checkout with isolated settings and empty GitHub authentication. Weather,
+finance, and backend activity cards are disabled; Command Center remains visible
+with no accounts configured. OCR requires its heading and Configure Accounts
+control as well as the header and exact release version. It checks both themes,
+actual window dimensions after resize, keyboard zoom and quit,
 saved placement after restart, disconnected-display recovery, and preservation
 of an unknown settings field. Tab then Enter must open the File menu before a
 mouse click. Windows also sends a simulated 96-to-144-to-96 `WM_DPICHANGED`
@@ -133,8 +136,11 @@ The log retains the actual monitor DPI separately. macOS captures record both
 the OS window bounds and PNG pixel dimensions to identify backing scale.
 Mixed-display coordinate conversions retain their existing Rust tests.
 Physical multi-monitor hardware coverage remains distinct from these CI
-scenarios. Screenshots must contain dashboard body text and
-the current version according to OCR. A title bar or empty window fails.
+scenarios. Wayland captures the owned window's compositor rectangle directly.
+OCR tries at most three page layouts on each untouched PNG. One result must
+contain every required marker and exact version; partial results are never
+combined. A title bar or empty window fails. Windows also rejects missing class
+icons and compares their pixels against the bundled Buddy icon.
 Screenshots, action logs, recordings frames, and process results are retained
 with the workflow artifact. They support the PR's separately uploaded GitHub
 attachment evidence.
