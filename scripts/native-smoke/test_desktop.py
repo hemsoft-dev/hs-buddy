@@ -8,12 +8,49 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from unittest.mock import patch
-from desktop import fixture, inspect_screenshot, owned_wayland_node, recording, require_dashboard, require_size, run
+from desktop import fixture, inspect_screenshot, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
 
 BODY = "Your Universal Productivity Companion Customize Command Center Configure Accounts"
 
 
 class DashboardGate(unittest.TestCase):
+    def test_seat_keyboard_lives_through_actions_and_is_reaped_on_failure(self):
+        spawn = subprocess.Popen
+        children = []
+        def owned_child(*args, **kwargs):
+            child = spawn([sys.executable, "-c", "import time; time.sleep(300)"], **kwargs)
+            children.append(child)
+            return child
+        primary = ValueError("Owned app action failed")
+        with TemporaryDirectory() as temporary, patch("desktop.subprocess.Popen", side_effect=owned_child):
+            with self.assertRaises(ValueError) as observed:
+                with wayland_keyboard("wayland", Path(temporary)):
+                    self.assertEqual(len(children), 1)
+                    self.assertIsNone(children[0].poll())
+                    raise primary
+            self.assertIs(observed.exception, primary)
+            self.assertEqual(len(children), 1, "Do not replay a failed app run")
+            self.assertIsNotNone(children[0].poll(), "Owned keyboard must not outlive its app")
+
+    def test_both_dpi_transitions_need_measured_bounds(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with self.assertRaises(FileNotFoundError):
+                require_dpi_sequence(directory)
+            def write(dpi, width, height):
+                (directory / f"dpi-{dpi}.json").write_text(json.dumps(dict(
+                    width=width, height=height, simulatedDpi=dpi, actualMonitorDpi=96)))
+            write(144, 900, 650)  # A successfully delivered but ignored event.
+            write(96, 900, 650)
+            with self.assertRaises(RuntimeError):
+                require_dpi_sequence(directory)
+            write(144, 1350, 975)
+            write(96, 1350, 975)  # Scale-up alone cannot qualify a return event.
+            with self.assertRaises(RuntimeError):
+                require_dpi_sequence(directory)
+            write(96, 900, 650)
+            require_dpi_sequence(directory)
+
     def test_menu_requires_its_own_visible_content_and_exact_version(self):
         # Dashboard/card rendering is asserted on the unobstructed captures.
         # Opening a menu must additionally render Exit, not merely its trigger.

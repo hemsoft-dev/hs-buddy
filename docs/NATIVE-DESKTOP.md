@@ -132,6 +132,8 @@ saved placement after restart, disconnected-display recovery, and preservation
 of an unknown settings field. Tab then Enter must open the File menu before a
 mouse click. Windows also sends a simulated 96-to-144-to-96 `WM_DPICHANGED`
 sequence to the owned window and checks its rendered dashboard at 150% scale.
+Each event must apply its requested physical bounds, including the return to
+96 DPI. The driver records measured bounds and rejects ignored or clamped events.
 The log retains the actual monitor DPI separately. macOS captures record both
 the OS window bounds and PNG pixel dimensions to identify backing scale.
 Mixed-display coordinate conversions retain their existing Rust tests.
@@ -145,6 +147,9 @@ Unobstructed dashboard captures require the card heading and account control.
 The menu overlay has its own File, Exit, and exact-version assertion, so OCR
 errors in partly covered dashboard content cannot substitute for menu proof.
 Wayland keeps one virtual keyboard attached until its menu capture completes.
+It also retains an inert, owned keyboard for each entire app run, because a
+headless seat has no physical keyboard to retain focus between input clients.
+The helper is reaped on both success and failure.
 Screenshots, action logs, recordings frames, and process results are retained
 with the workflow artifact. They support the PR's separately uploaded GitHub
 attachment evidence.

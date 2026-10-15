@@ -194,6 +194,15 @@ def require_size(actual, width, height):
         raise RuntimeError(f"Resize was not applied: requested {width}x{height}, observed {actual}")
 
 
+def require_dpi_sequence(directory):
+    # Both the scale-up and the return event must actually resize the HWND.
+    for dpi, width, height in ((144, 1350, 975), (96, 900, 650)):
+        actual = json.loads((directory / f"dpi-{dpi}.json").read_text(encoding="utf-8-sig"))
+        if actual["simulatedDpi"] != dpi or not math.isfinite(actual["actualMonitorDpi"]) or actual["actualMonitorDpi"] <= 0:
+            raise RuntimeError("Unreadable simulated versus actual monitor DPI")
+        require_size(actual, width, height)
+
+
 def owned_wayland_node(tree, pid, window=None):
     if (tree.get("pid") == pid and tree.get("app_id") == "buddy-native"
             and (window is None or tree.get("id") == window)):
@@ -320,6 +329,30 @@ class UnixWindow:
             path.with_suffix(".window.json").write_text(json.dumps(rect), encoding="utf-8")
 
 
+@contextmanager
+def wayland_keyboard(session, directory):
+    if session != "wayland":
+        yield
+        return
+    # A headless seat has no physical keyboard. Transient wtype clients can
+    # otherwise remove its last keyboard between actions and lose seat focus.
+    # This owned client sends no input during the bounded app run.
+    with (directory / "virtual-keyboard.log").open("w", encoding="utf-8") as log:
+        keyboard = subprocess.Popen(
+            ["wtype", "-s", "300000", "-k", "F15"], stdout=log, stderr=log)
+        try:
+            time.sleep(0.3)
+            if keyboard.poll() is not None:
+                raise RuntimeError("Wayland seat keyboard did not remain attached")
+            yield
+        finally:
+            def stop_keyboard():
+                if keyboard.poll() is None:
+                    keyboard.kill()
+                keyboard.wait(timeout=10)
+            finish_cleanup(stop_keyboard, sys.exc_info()[1], "Seat keyboard shutdown")
+
+
 def unix(executable, directory, config, session, restored=False):
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("Unix input automation requires an ephemeral GitHub Actions desktop")
@@ -331,7 +364,7 @@ def unix(executable, directory, config, session, restored=False):
         env.pop("WAYLAND_DISPLAY", None)
     elif session == "wayland":
         env.pop("DISPLAY", None)  # A passing XWayland launch cannot qualify Wayland.
-    with (directory / "app.log").open("w", encoding="utf-8") as log:
+    with wayland_keyboard(session, directory), (directory / "app.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen([str(executable)], cwd=directory, env=env, stdout=log, stderr=log)
         try:
             window = UnixWindow(process, session)
@@ -397,6 +430,8 @@ def main():
         config = fixture(directory, theme)
         drive(executable, directory, config)
         require_size(json.loads((directory / "resize.json").read_text(encoding="utf-8-sig")), 900, 650)
+        if args.session == "windows":
+            require_dpi_sequence(directory)
         for shot in ("dashboard", "resized", "zoomed"):
             inspect_screenshot(directory / f"{shot}.png", args.version)
         inspect_keyboard_menu(directory / "keyboard-menu.png", args.version)

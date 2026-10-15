@@ -245,6 +245,12 @@ try {
                 $ok = [Drive]::SendMessageTimeoutW($h, 0x2E0, [IntPtr](($dpi -shl 16) -bor $dpi), [ref]$rect, 2, 5000, [ref]$result)
                 if ($ok -eq [IntPtr]::Zero) { throw 'Simulated DPI event timed out' }
                 Start-Sleep -Milliseconds 900
+                $actual = New-Object Drive+RECT
+                if (-not [Drive]::GetWindowRect($h, [ref]$actual)) { throw 'Owned window disappeared after the DPI event' }
+                $size = @{ width = $actual.r - $actual.l; height = $actual.b - $actual.t; units = 'Windows outer physical pixels'; simulatedDpi = $dpi; actualMonitorDpi = [Drive]::GetDpiForWindow($h) }
+                Note "simulated DPI=$dpi requested $($parts[2])x$($parts[3]); observed $($size.width)x$($size.height)"
+                if ([Math]::Abs($size.width - [int]$parts[2]) -gt 2 -or [Math]::Abs($size.height - [int]$parts[3]) -gt 2) { throw 'Owned window ignored or clamped the simulated DPI rectangle' }
+                $size | ConvertTo-Json | Set-Content (Join-Path ([IO.Path]::GetDirectoryName($Log)) "dpi-$dpi.json")
                 Note "simulated WM_DPICHANGED=$dpi; actual monitor DPI=$([Drive]::GetDpiForWindow($h))"
             }
             'maximize' { [Drive]::ShowWindow($h, 3) | Out-Null; Start-Sleep -Milliseconds 1000 }

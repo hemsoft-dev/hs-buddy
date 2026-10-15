@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1345] - 2026-10-15
+
+### Fixed
+
+- Validate DPI bounds and retain the Wayland keyboard seat
+
+## [0.1.1344] - 2026-10-15
+
+### Fixed
+
+- Require measured bounds for both simulated DPI events
+
 ## [0.1.1343] - 2026-10-15
 
 ### Fixed
