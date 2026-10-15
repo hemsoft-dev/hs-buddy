@@ -9,6 +9,144 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1373] - 2026-10-15
+
+### Changed
+
+- Verify invalid color in the completed compact frame
+
+## [0.1.1372] - 2026-10-15
+
+### Fixed
+
+- Satisfy reset response quality lint
+
+## [0.1.1371] - 2026-10-15
+
+### Changed
+
+- Exclude insertion carets from draft captures
+
+## [0.1.1370] - 2026-10-15
+
+### Fixed
+
+- Handle settings reset and lock failures
+
+## [0.1.1369] - 2026-10-15
+
+### Fixed
+
+- Preserve settings drafts and credential recovery
+
+## [0.1.1368] - 2026-10-15
+
+### Changed
+
+- Scale small Mac color glyphs for exact OCR (#813)
+
+## [0.1.1367] - 2026-10-15
+
+### Changed
+
+- Read the persisted Mac color as an exact hex line (#813)
+
+## [0.1.1366] - 2026-10-15
+
+### Changed
+
+- Target the visible Mac editor row instead of frame padding (#813)
+
+## [0.1.1365] - 2026-10-15
+
+### Changed
+
+- Isolate Mac keyboard delivery after concurrent writes (#813)
+
+## [0.1.1364] - 2026-10-15
+
+### Changed
+
+- Synchronize fixture startup and Mac text replacement (#813)
+
+## [0.1.1363] - 2026-10-15
+
+### Changed
+
+- Decode native settings OCR output as UTF-8 (#813)
+
+## [0.1.1362] - 2026-10-15
+
+### Changed
+
+- Allow optical glyph offsets in settings OCR (#813)
+
+## [0.1.1361] - 2026-10-15
+
+### Changed
+
+- Separate OCR field labels from neighboring columns (#813)
+
+## [0.1.1360] - 2026-10-15
+
+### Changed
+
+- Correct Mac field input and retain failed OCR output (#813)
+
+## [0.1.1359] - 2026-10-15
+
+### Changed
+
+- Route Mac CI input and disambiguate settings fields (#813)
+
+## [0.1.1358] - 2026-10-15
+
+### Changed
+
+- Send owned Mac settings input to the app process (#813)
+
+## [0.1.1357] - 2026-10-15
+
+### Fixed
+
+- Retain sync warnings and configure the CI Electron sandbox (#813)
+
+## [0.1.1356] - 2026-10-15
+
+### Fixed
+
+- Scope settings feedback and respect desktop fixture limits (#813)
+
+## [0.1.1355] - 2026-10-15
+
+### Changed
+
+- Qualify installed native settings with real Electron concurrency (#813)
+
+## [0.1.1354] - 2026-10-15
+
+### Fixed
+
+- Reconcile native account mirrors and improve settings qualification (#813)
+
+## [0.1.1353] - 2026-10-15
+
+### Added
+
+- Implement native account and application settings forms (#813)
+
+## [0.1.1352] - 2026-10-15
+
+### Fixed
+
+- Qualify shared credentials in packaged and Mac fixtures (#813)
+
+## [0.1.1351] - 2026-10-15
+
+### Added
+
+- Establish native settings and shared secure credentials (#813)
+
 ## [0.1.1350] - 2026-10-15
 
 ### Fixed

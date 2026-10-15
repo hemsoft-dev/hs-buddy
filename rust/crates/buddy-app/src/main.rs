@@ -7,9 +7,11 @@ mod assets;
 mod command_line;
 mod dashboard;
 mod logging;
+mod notification_audio;
 mod platform_placement;
 mod runtime;
 mod settings;
+mod settings_view;
 mod shell;
 mod theme;
 mod window_geometry;
@@ -312,9 +314,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             theme::install(&config, cx);
-            cx.set_global(Settings {
-                config: config.clone(),
-            });
+            cx.set_global(Settings::new(config.clone()));
             cx.set_global(Runtime::start());
             zoom::init(cx);
 

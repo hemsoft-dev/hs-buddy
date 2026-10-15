@@ -101,7 +101,7 @@ pub struct WeatherLocation {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct UiConfig {
     pub theme: ThemeName,
@@ -132,6 +132,15 @@ pub struct UiConfig {
     pub enterprise_slug: String,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl std::fmt::Debug for UiConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("UiConfig")
+            .field("theme", &self.theme)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for UiConfig {
@@ -237,14 +246,48 @@ impl NativeConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CopilotConfig {
+    pub gh_account: String,
+    pub model: String,
+    pub premium_model: String,
+    pub pr_review_prompt_template: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl Default for CopilotConfig {
+    fn default() -> Self {
+        Self {
+            gh_account: String::new(),
+            model: "claude-sonnet-4.5".into(),
+            premium_model: "claude-opus-4.6".into(),
+            pr_review_prompt_template: String::new(),
+            extra: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotificationConfig {
+    pub play_sound_on_review_complete: bool,
+    pub review_complete_sound_path: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// The whole configuration file. Sections the native app does not model yet
-/// (`copilot`, `automation`, `notifications`, ...) survive in `extra`.
+/// (such as `automation`) survive in `extra`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
     pub github: GitHubConfig,
     pub ui: UiConfig,
     pub pr: PrConfig,
+    pub copilot: CopilotConfig,
+    pub notifications: NotificationConfig,
     pub finance: FinanceConfig,
     #[serde(skip_serializing_if = "NativeConfig::is_default")]
     pub native: NativeConfig,
@@ -482,6 +525,52 @@ fn replace_with(tmp: &Path, path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Shared atomic replacement for ordinary config saves and credential
+/// migration. The latter must not trigger the unrelated weather-location
+/// keychain migration, especially for an isolated test profile.
+pub(crate) fn save_config_body_at(
+    path: &Path,
+    body: &str,
+    expected: Option<&Option<FileStamp>>,
+) -> Result<bool, ConfigError> {
+    if expected.is_some_and(|stamp| FileStamp::of(path) != *stamp) {
+        return Ok(false);
+    }
+    let write = |source| ConfigError::Write {
+        path: path.to_path_buf(),
+        source,
+    };
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(write)?;
+    }
+    // Each process owns its staging file. Preserve existing permissions,
+    // with an owner-only file from the first byte for a new Unix config.
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    #[cfg(unix)]
+    let permissions = match std::fs::metadata(path) {
+        Ok(meta) => Some(meta.permissions()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(write(error)),
+    };
+    write_private(&tmp, body).map_err(write)?;
+    #[cfg(unix)]
+    if let Some(permissions) = permissions
+        && let Err(error) = std::fs::set_permissions(&tmp, permissions)
+    {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(write(error));
+    }
+    if expected.is_some_and(|stamp| FileStamp::of(path) != *stamp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Ok(false);
+    }
+    replace_with(&tmp, path).map_err(write)?;
+    Ok(true)
+}
+
 fn platform_config_root() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
         return std::env::var_os("APPDATA").map(PathBuf::from);
@@ -589,40 +678,7 @@ impl AppConfig {
         }
         let migrated = self.migrate_legacy_weather_location();
         let body = serde_json::to_string_pretty(self).expect("AppConfig is always serializable");
-        let write = |source| ConfigError::Write {
-            path: path.clone(),
-            source,
-        };
-        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent).map_err(write)?;
-        }
-        // Per-process name: two instances saving at once must not share (or
-        // unlink) each other's temp file.
-        let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-        // The temp file is private from its first byte. It then takes the
-        // existing file's permissions (a group-readable config stays so) or
-        // stays 0600 for a brand-new config. If the existing file cannot be
-        // inspected or the mode cannot be applied, the old file is kept.
-        #[cfg(unix)]
-        let permissions = match std::fs::metadata(&path) {
-            Ok(meta) => Some(meta.permissions()),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
-            Err(err) => return Err(write(err)),
-        };
-        write_private(&tmp, &body).map_err(write)?;
-        #[cfg(unix)]
-        if let Some(permissions) = permissions
-            && let Err(err) = std::fs::set_permissions(&tmp, permissions)
-        {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(write(err));
-        }
-        // Last look before the swap: a file that changed since it was loaded
-        // belongs to another writer whose edit this snapshot does not carry.
-        if let Some(expected) = expected
-            && FileStamp::of(&path) != *expected
-        {
-            let _ = std::fs::remove_file(&tmp);
+        if !save_config_body_at(&path, &body, expected)? {
             // The keychain write above belongs to this snapshot; undo it so
             // the retry (which reloads the newer file) migrates that one. If
             // the undo fails, the entry is re-pointed at the plaintext the
@@ -643,7 +699,6 @@ impl AppConfig {
             }
             return Ok(false);
         }
-        replace_with(&tmp, &path).map_err(write)?;
         Ok(true)
     }
 
@@ -822,7 +877,7 @@ mod tests {
             Some(UsageProvider::Codex)
         );
         assert!(config.ui.extra.contains_key("someFutureFlag"));
-        assert!(config.extra.contains_key("copilot"));
+        assert_eq!(config.copilot.model, "claude-sonnet-4.5");
         assert!(config.extra.contains_key("weatherLocationCiphertext"));
 
         let round_trip: Value = serde_json::to_value(&config).unwrap();
@@ -1185,7 +1240,7 @@ mod tests {
         assert!(!reread.is_dashboard_card_visible("finance"));
         assert!(reread.finance.watchlist.contains(&"AAPL".to_string()));
         assert_eq!(reread.ui.theme, ThemeName::Light);
-        assert_eq!(reread.extra["copilot"]["model"], "x");
+        assert_eq!(reread.copilot.model, "x");
         assert!(!path.with_extension("json.tmp").exists());
     }
 }

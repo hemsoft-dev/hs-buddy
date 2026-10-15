@@ -1,5 +1,4 @@
 import { ipcMain, net, type IpcMainInvokeEvent } from 'electron'
-import { getErrorMessageWithFallback } from '../../src/utils/errorUtils'
 import { IPC_INVOKE } from '../../src/ipc/contracts'
 import { configManager } from '../config'
 
@@ -147,16 +146,6 @@ function parseGooglePollenResponse(json: GoogleForecastResponse): PollenData | n
   return result
 }
 
-async function extractGoogleErrorDetail(res: Response): Promise<string> {
-  try {
-    const errBody = (await res.json()) as { error?: { message?: string } }
-    if (errBody.error?.message) return errBody.error.message
-  } catch (_: unknown) {
-    /* no parsable body */
-  }
-  return `HTTP ${res.status}`
-}
-
 function isFiniteLocation(location: { latitude: number; longitude: number }): boolean {
   return Number.isFinite(location.latitude) && Number.isFinite(location.longitude)
 }
@@ -170,18 +159,14 @@ function isInCoordinateRange(location: { latitude: number; longitude: number }):
   )
 }
 
-function getTrimmedPollenApiKey(): string | null {
-  const raw = configManager.getUiValue('pollenApiKey')
+async function getTrimmedPollenApiKey(): Promise<string | null> {
+  const raw = await configManager.getPollenApiKey()
   if (typeof raw !== 'string') return null
   const trimmed = raw.trim()
   return trimmed.length > 0 ? trimmed : null
 }
 
-function validatePollenRequest(
-  location: { latitude: number; longitude: number },
-  apiKey: string | null
-): string | null {
-  if (!apiKey) return 'no-api-key'
+function validatePollenRequest(location: { latitude: number; longitude: number }): string | null {
   if (!isFiniteLocation(location)) return 'Invalid location'
   return isInCoordinateRange(location) ? null : 'Invalid location'
 }
@@ -190,14 +175,24 @@ async function fetchPollenData(location: {
   latitude: number
   longitude: number
 }): Promise<PollenFetchResult> {
-  const apiKey = getTrimmedPollenApiKey()
-  const validationError = validatePollenRequest(location, apiKey)
+  let apiKey: string | null
+  try {
+    apiKey = await getTrimmedPollenApiKey()
+  } catch (_: unknown) {
+    return {
+      success: false,
+      error:
+        'Secure pollen storage is unavailable. Open Weather settings to unlock or update the key.',
+    }
+  }
+  if (!apiKey) return { success: false, error: 'no-api-key' }
+  const validationError = validatePollenRequest(location)
   if (validationError) return { success: false, error: validationError }
 
   try {
     const url =
       `https://pollen.googleapis.com/v1/forecast:lookup` +
-      `?key=${apiKey}` +
+      `?key=${encodeURIComponent(apiKey)}` +
       `&location.latitude=${location.latitude}` +
       `&location.longitude=${location.longitude}` +
       `&days=1`
@@ -208,8 +203,11 @@ async function fetchPollenData(location: {
     })
 
     if (!res.ok) {
-      const detail = await extractGoogleErrorDetail(res)
-      return { success: false, error: `Google Pollen API: ${detail}` }
+      // Provider error bodies may reflect the credential. Never expose them.
+      return {
+        success: false,
+        error: `Google Pollen API: HTTP ${res.status}. Check API enablement, key restrictions, and quota.`,
+      }
     }
 
     const json = (await res.json()) as GoogleForecastResponse
@@ -220,10 +218,10 @@ async function fetchPollenData(location: {
     }
 
     return { success: true, data }
-  } catch (err: unknown) {
+  } catch (_: unknown) {
     return {
       success: false,
-      error: getErrorMessageWithFallback(err, 'Pollen fetch failed'),
+      error: 'Pollen fetch failed',
     }
   }
 }

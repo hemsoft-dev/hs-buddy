@@ -10,6 +10,7 @@ import { assertValidGitHubAccountSlug } from '../../src/utils/githubAuthUtils'
 import { CONFIG_UI_KEYS, IPC_INVOKE } from '../../src/ipc/contracts'
 import { configManager } from '../config'
 import { readFileSnapshot } from '../services/fileSnapshots'
+import { pollenCredentialErrorMessage } from '../services/pollenCredentials'
 
 type UiConfigKey = keyof AppConfig['ui']
 type ConfigUiChannelKey = (typeof CONFIG_UI_KEYS)[number]
@@ -334,16 +335,40 @@ function registerMiscConfigHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle(IPC_INVOKE.CONFIG_RESET, () => {
-    configManager.reset()
-    return { success: true }
+  ipcMain.handle(IPC_INVOKE.CONFIG_RESET, async () => {
+    try {
+      await configManager.reset()
+      return { success: true }
+    } catch (_: unknown) {
+      return {
+        success: false,
+        error:
+          'Could not reset settings. Unlock secure storage, check file permissions, then retry.',
+      }
+    }
   })
 }
 
 export function registerConfigHandlers(): void {
   for (const [channel, key] of UI_VALUE_CHANNELS) {
-    registerUiValueHandler(channel, key)
+    if (key !== 'pollenApiKey') registerUiValueHandler(channel, key)
   }
+  ipcMain.handle(IPC_INVOKE.CONFIG_GET_POLLEN_API_KEY, async () => {
+    try {
+      return { configured: Boolean(await configManager.getPollenApiKey()) }
+    } catch (error: unknown) {
+      return { configured: false, error: pollenCredentialErrorMessage(error) }
+    }
+  })
+  ipcMain.handle(IPC_INVOKE.CONFIG_SET_POLLEN_API_KEY, async (_event, value: unknown) => {
+    if (typeof value !== 'string') return { success: false, error: 'API key must be text.' }
+    try {
+      await configManager.setPollenApiKey(value)
+      return { success: true }
+    } catch (error: unknown) {
+      return { success: false, error: pollenCredentialErrorMessage(error) }
+    }
+  })
   registerTerminalAndPanelHandlers()
   registerNotificationHandlers()
   registerMiscConfigHandlers()

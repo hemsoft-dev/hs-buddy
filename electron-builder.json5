@@ -11,6 +11,7 @@
     'node_modules/node-pty/**/*',
     'node_modules/@github/copilot-*/**/*',
     'node_modules/@koromix/koffi-*/**/*',
+    'node_modules/@napi-rs/keyring-*/**/*',
   ],
   win: {
     target: [

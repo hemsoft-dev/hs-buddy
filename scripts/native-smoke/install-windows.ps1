@@ -40,6 +40,9 @@ try {
     if ($shortcut.TargetPath -ne $exe) { throw 'Start menu shortcut targets another executable' }
     & python (Join-Path $PSScriptRoot 'desktop.py') --executable $exe --output $Output --version $metadata.version --session windows
     if ($LASTEXITCODE -ne 0) { throw 'Installed desktop qualification failed' }
+    $env:BUDDY_SETTINGS_FIXTURE = '1'
+    & python (Join-Path $PSScriptRoot 'settings-desktop.py') --executable $exe --output (Join-Path $Output 'settings') --session windows
+    if ($LASTEXITCODE -ne 0) { throw 'Installed settings qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

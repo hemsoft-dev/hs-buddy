@@ -1,13 +1,14 @@
 # Buddy Native desktop packages
 
-Buddy Native is the Rust/GPUI desktop app. It currently provides the dashboard
-and application shell. The Electron app remains the full application while
-issues #813 through #823 track feature migration and parity qualification.
+Buddy Native is the Rust/GPUI desktop app. It provides the dashboard,
+application shell, and [account and application settings](NATIVE-SETTINGS.md).
+The Electron app remains the full application while
+issues #814 through #823 track feature migration and parity qualification.
 
 Buddy Native has its own installer identity, `com.hemsoft.buddy.native`, so it
 can coexist with Electron Buddy. Both apps retain the existing configuration,
-window placement, and zoom formats. Avoid changing settings in both instances
-at once. Use `BUDDY_CONFIG_PATH` for an independent test profile.
+window placement, and zoom formats. Shared config edits use the existing file
+lock. Use `BUDDY_CONFIG_PATH` for an independent test profile.
 
 ## Targets and prerequisites
 

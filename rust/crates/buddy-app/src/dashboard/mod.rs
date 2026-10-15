@@ -18,7 +18,7 @@ use buddy_core::finance::{self, QuoteData};
 use buddy_core::pollen::{self, PollenData, PollenError};
 use buddy_core::stats::{BuddyStats, WorkspacePulse};
 use buddy_core::weather::{self, WeatherData};
-use buddy_core::{http, secrets};
+use buddy_core::{http, pollen_credentials, secrets};
 use chrono::Datelike as _;
 use futures::StreamExt as _;
 use gpui_kit::assets::IconName;
@@ -197,6 +197,8 @@ pub struct DashboardView {
     loaded_watchlist: Vec<String>,
     loaded_github: GitHubConfig,
     loaded_pollen_key: String,
+    pollen_key_generation: u64,
+    pollen_force_pending: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -284,6 +286,8 @@ impl DashboardView {
             loaded_watchlist: Vec::new(),
             loaded_github: GitHubConfig::default(),
             loaded_pollen_key: String::new(),
+            pollen_key_generation: 0,
+            pollen_force_pending: false,
             _subscriptions: subscriptions,
         };
 
@@ -382,8 +386,8 @@ impl DashboardView {
         if weather_visible && self.weather_refresh.never_attempted() {
             // Defers to the restore callback while the keychain lookup is pending.
             self.start_weather_if_visible(cx);
-        } else if weather_visible && config.ui.pollen_api_key != self.loaded_pollen_key {
-            self.load_pollen(cx);
+        } else if weather_visible {
+            self.load_pollen(false, cx);
         }
         cx.notify();
     }
@@ -533,7 +537,7 @@ impl DashboardView {
     fn start_weather_if_visible(&mut self, cx: &mut Context<Self>) {
         if self.card_visible(CardId::Weather, cx) && !self.restore_pending {
             self.load_weather(cx);
-            self.load_pollen(cx);
+            self.load_pollen(true, cx);
         }
     }
 
@@ -614,19 +618,53 @@ impl DashboardView {
         );
     }
 
-    fn load_pollen(&mut self, cx: &mut Context<Self>) {
+    fn load_pollen(&mut self, force: bool, cx: &mut Context<Self>) {
+        let profile = buddy_core::config::config_path();
+        self.pollen_force_pending |= force;
+        self.pollen_key_generation += 1;
+        let generation = self.pollen_key_generation;
+        self.run(
+            cx,
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let path = profile.map_err(|_| pollen_credentials::CredentialError::Profile)?;
+                    pollen_credentials::load_at(&path)
+                })
+                .await
+                .unwrap_or(Err(pollen_credentials::CredentialError::Unavailable))
+            },
+            move |this, result, cx| {
+                if generation != this.pollen_key_generation {
+                    return;
+                }
+                let key = match result {
+                    Ok(key) => key.unwrap_or_default(),
+                    Err(error) => {
+                        this.pollen_generation += 1;
+                        this.pollen_error = Some(error.to_string());
+                        return;
+                    }
+                };
+                let force = std::mem::take(&mut this.pollen_force_pending);
+                if force || key != this.loaded_pollen_key {
+                    this.fetch_pollen_with_key(key, cx);
+                }
+            },
+        );
+    }
+
+    fn fetch_pollen_with_key(&mut self, key: String, cx: &mut Context<Self>) {
         let http = self.http.clone();
         let (lat, lon) = (
             self.weather_location.latitude,
             self.weather_location.longitude,
         );
-        let api_key = Settings::global(cx).config.ui.pollen_api_key.clone();
-        self.loaded_pollen_key = api_key.clone();
+        self.loaded_pollen_key = key.clone();
         self.pollen_generation += 1;
         let generation = self.pollen_generation;
         self.run(
             cx,
-            async move { pollen::fetch_pollen(&http, lat, lon, &api_key).await },
+            async move { pollen::fetch_pollen(&http, lat, lon, &key).await },
             move |this, result, _| {
                 if generation != this.pollen_generation {
                     return;
@@ -753,7 +791,7 @@ impl DashboardView {
         self.pollen = None;
         self.persist_weather_location(cx);
         self.load_weather(cx);
-        self.load_pollen(cx);
+        self.load_pollen(true, cx);
     }
 
     // ── State accessors used by the cards ───────────────────────────────
@@ -943,6 +981,31 @@ impl DashboardView {
 
     // ── Actions ──────────────────────────────────────────────────────────
 
+    /// Drop only this native view's cached provider results. Generation bumps
+    /// prevent already-running requests from putting stale data back.
+    pub fn clear_cached_data(&mut self, cx: &mut Context<Self>) {
+        self.weather_generation = self.weather_generation.wrapping_add(1);
+        self.pollen_generation = self.pollen_generation.wrapping_add(1);
+        self.pollen_key_generation = self.pollen_key_generation.wrapping_add(1);
+        self.finance_generation = self.finance_generation.wrapping_add(1);
+        self.copilot_generation = self.copilot_generation.wrapping_add(1);
+        self.weather = None;
+        self.weather_error = None;
+        self.pollen = None;
+        self.pollen_error = None;
+        self.loaded_pollen_key.clear();
+        self.pollen_force_pending = false;
+        self.quotes.clear();
+        self.failed_symbols.clear();
+        self.finance_error = None;
+        self.command_center = CommandCenterSummary::default();
+        self.copilot_errors.clear();
+        self.copilot_period = None;
+        self.weather_refresh = RefreshState::new(self.weather_refresh.interval_minutes);
+        self.finance_refresh = RefreshState::new(self.finance_refresh.interval_minutes);
+        cx.notify();
+    }
+
     pub fn refresh_copilot_usage(&mut self, cx: &mut Context<Self>) {
         if !self.command_center.loading {
             self.load_copilot(cx);
@@ -955,7 +1018,7 @@ impl DashboardView {
             return;
         }
         self.load_weather(cx);
-        self.load_pollen(cx);
+        self.load_pollen(true, cx);
         cx.notify();
     }
 
@@ -1376,7 +1439,7 @@ mod tests {
             let mut config = buddy_core::config::AppConfig::default();
             config.native.expanded_cards.insert("weather".into(), false);
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             let mut dashboard = None;
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let entity = cx.new(|cx| DashboardView::new(window, cx, false));
@@ -1416,6 +1479,41 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn cache_clear_invalidates_inflight_data_without_changing_settings(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::AppContext as _;
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| {
+                    let mut view = DashboardView::new(window, cx, false);
+                    let before = Settings::global(cx).config.clone();
+                    view.weather_error = Some("stale provider error".into());
+                    view.loaded_pollen_key = "fixture-cached-secret".into();
+                    view.copilot_period = Some((2026, 10));
+                    view.clear_cached_data(cx);
+                    assert_eq!(view.weather_generation, 1);
+                    assert_eq!(view.pollen_generation, 1);
+                    assert_eq!(view.pollen_key_generation, 1);
+                    assert_eq!(view.finance_generation, 1);
+                    assert_eq!(view.copilot_generation, 1);
+                    assert!(view.weather_error.is_none());
+                    assert!(view.loaded_pollen_key.is_empty());
+                    assert!(view.copilot_period.is_none());
+                    assert!(!view.started);
+                    assert_eq!(Settings::global(cx).config, before);
+                    view
+                })
+            })
+            .unwrap();
+        });
+    }
+
+    #[gpui_kit::test]
     fn failed_card_save_survives_the_disk_resync_notification(cx: &mut gpui_kit::TestAppContext) {
         use gpui_kit::AppContext as _;
         let root = std::env::temp_dir().join(format!("buddy-card-failure-{}", std::process::id()));
@@ -1429,7 +1527,7 @@ mod tests {
         let dashboard = cx.update(|cx| {
             gpui_kit::init(cx);
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             let mut entity = None;
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));

@@ -32,6 +32,30 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     --env GITHUB_ACTIONS=true \
     --env "BUDDY_EVIDENCE_OWNER=$(stat -c '%u:%g' "$output")" \
     ubuntu:24.04 bash /source/scripts/native-smoke/linux-runtime.sh
+  # The clean runtime container above proves dependency closure independently.
+  # This additional installed host copy exercises the same binary with the
+  # anonymous backend and the existing Electron file-store implementation.
+  sudo apt-get install -y --no-install-recommends "$package_directory/"*.deb \
+    xvfb openbox xdotool imagemagick tesseract-ocr ffmpeg
+  cmp "$(command -v buddy-native)" "$source_directory/rust/target/release/buddy"
+  # Configure Electron's supplied sandbox rather than disabling it for the
+  # real config companion. Only this disposable checkout's binary is changed.
+  electron_executable="$(bun -e "console.log(require('electron'))" | tail -n 1)"
+  sandbox="$(realpath "$(dirname "$electron_executable")/chrome-sandbox")"
+  case "$sandbox" in
+    "$source_directory"/node_modules/*/chrome-sandbox) ;;
+    *) echo 'Sandbox helper escaped the owned checkout' >&2; exit 1 ;;
+  esac
+  sudo chown root:root "$sandbox"
+  sudo chmod 4755 "$sandbox"
+  test "$(stat -c '%u:%a' "$sandbox")" = 0:4755
+  xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
+    set -euo pipefail
+    openbox >"$RUNNER_TEMP/buddy-settings-openbox.log" 2>&1 &
+    wm=$!
+    trap "kill $wm" EXIT
+    BUDDY_SETTINGS_FIXTURE=1 python3 "$1/settings-desktop.py" --executable "$(command -v buddy-native)" --output "$2/settings" --session x11
+  ' bash "$script_directory" "$output"
   exit
 fi
 
@@ -39,7 +63,13 @@ if [[ "$(uname -s)" == Darwin ]]; then
   mount_point="$(mktemp -d "$RUNNER_TEMP/buddy-dmg-XXXXXX")"
   applications="$(mktemp -d "$RUNNER_TEMP/buddy-apps-XXXXXX")"
   mounted=false
-  cleanup() { if $mounted; then hdiutil detach "$mount_point"; fi; }
+  display_pid=''
+  cleanup() {
+    local failed=0
+    if $mounted; then hdiutil detach "$mount_point" || failed=$?; fi
+    if [[ -n "$display_pid" ]]; then kill "$display_pid" 2>/dev/null || true; wait "$display_pid" || true; fi
+    return "$failed"
+  }
   trap cleanup EXIT
   hdiutil attach "$package_directory/"*.dmg -nobrowse -readonly -mountpoint "$mount_point"
   mounted=true
@@ -55,7 +85,18 @@ if [[ "$(uname -s)" == Darwin ]]; then
   cmp "$script_directory/../../LICENSE" "$app/Contents/Resources/LICENSE"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
   codesign --verify --deep --strict "$app"
+  mkdir -p "$output"
+  export BUDDY_SETTINGS_DISPLAY_RECEIPT="$output/macos-display-fixture.json"
+  BUDDY_SETTINGS_FIXTURE=1 "$RUNNER_TEMP/buddy-window-info" --settings-display "$BUDDY_SETTINGS_DISPLAY_RECEIPT" &
+  display_pid=$!
+  for attempt in {1..100}; do
+    if [[ -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT" ]]; then break; fi
+    kill -0 "$display_pid"
+    sleep 0.1
+  done
+  test -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT"
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]

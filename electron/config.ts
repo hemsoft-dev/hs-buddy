@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { withConfigLock, type LockOptions } from './configLock'
 import { ProtectedWeatherLocation } from './services/protectedWeatherLocation'
+import { PollenCredentials } from './services/pollenCredentials'
 import {
   configSchema,
   defaultConfig,
@@ -138,6 +139,7 @@ function expectedConfigPath(): string | null {
 class ConfigManager {
   private store: Store<AppConfig>
   private weatherLocation: ProtectedWeatherLocation
+  private pollenCredentials: PollenCredentials | undefined
 
   constructor() {
     // `conf` writes merged defaults during construction when the on-disk
@@ -373,6 +375,7 @@ class ConfigManager {
   }
 
   getUiValue<K extends keyof AppConfig['ui']>(key: K): AppConfig['ui'][K] {
+    if (key === 'pollenApiKey') return '' as AppConfig['ui'][K]
     if (key === 'weatherLocation') return this.weatherLocation.get() as AppConfig['ui'][K]
     return this.store.get(
       `ui.${key}` as keyof AppConfig,
@@ -381,6 +384,7 @@ class ConfigManager {
   }
 
   setUiValue<K extends keyof AppConfig['ui']>(key: K, value: AppConfig['ui'][K]): void {
+    if (key === 'pollenApiKey') throw new Error('Pollen keys must use secure storage')
     if (key === 'weatherLocation') {
       this.weatherLocation.set(value as AppConfig['ui']['weatherLocation'])
       return
@@ -444,7 +448,30 @@ class ConfigManager {
 
   // Full config access
   getConfig(): AppConfig {
-    return this.store.store
+    const config = this.store.store
+    return { ...config, ui: { ...config.ui, pollenApiKey: '' } }
+  }
+
+  private pollenStore(): PollenCredentials {
+    return (this.pollenCredentials ??= new PollenCredentials(this.store.path, {
+      read: () => this.store.get('ui.pollenApiKey', ''),
+      clear: expected => {
+        if (this.store.get('ui.pollenApiKey', '') !== expected) return false
+        // PollenCredentials owns the strict shared lock. Re-entering write()
+        // here would wait on our own lock. conf.set rereads neighboring fields.
+        if (expected) this.store.set('ui.pollenApiKey', '')
+        return true
+      },
+    }))
+  }
+
+  /** Main-process provider access only; renderer handlers expose status. */
+  getPollenApiKey(): Promise<string | null> {
+    return this.pollenStore().load()
+  }
+
+  setPollenApiKey(value: string): Promise<void> {
+    return this.pollenStore().save(value)
   }
 
   // Migration helper from environment variables
@@ -483,7 +510,8 @@ class ConfigManager {
     return this.store.path
   }
 
-  reset(): void {
+  async reset(): Promise<void> {
+    await this.setPollenApiKey('')
     this.locked(() => {
       this.weatherLocation.set(null)
       this.store.clear()

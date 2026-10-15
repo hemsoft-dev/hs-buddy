@@ -20,6 +20,8 @@ vi.mock('../config', () => ({
   configManager: {
     getUiValue: vi.fn(),
     setUiValue: vi.fn(),
+    getPollenApiKey: vi.fn().mockResolvedValue(null),
+    setPollenApiKey: vi.fn().mockResolvedValue(undefined),
     getScheduleForecastDays: vi.fn(() => 3),
     setScheduleForecastDays: vi.fn(),
     getCopilotPRReviewPromptTemplate: vi.fn(() => ''),
@@ -233,10 +235,54 @@ describe('configHandlers', () => {
   })
 
   describe('config:reset', () => {
-    it('calls configManager.reset and returns success', () => {
-      const result = handlers.get('config:reset')!()
+    it('handles secure reset failure without exposing provider details', async () => {
+      mockConfigManager.reset.mockRejectedValueOnce(new Error('private-reset-fixture'))
+      const result = await handlers.get('config:reset')!()
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Unlock secure storage')
+      expect(result.error).not.toContain('private-reset-fixture')
+    })
+
+    it('calls configManager.reset and returns success', async () => {
+      const result = await handlers.get('config:reset')!()
       expect(mockConfigManager.reset).toHaveBeenCalled()
       expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe('secure pollen credentials', () => {
+    it('returns configured status without exposing the saved key', async () => {
+      mockConfigManager.getPollenApiKey.mockResolvedValueOnce('private-fixture-key')
+      expect(await handlers.get('config:get-pollen-api-key')!()).toEqual({ configured: true })
+      expect(mockConfigManager.getUiValue).not.toHaveBeenCalledWith('pollenApiKey')
+    })
+
+    it('returns unconfigured status for an empty vault', async () => {
+      mockConfigManager.getPollenApiKey.mockResolvedValueOnce(null)
+      expect(await handlers.get('config:get-pollen-api-key')!()).toEqual({ configured: false })
+    })
+
+    it('hides raw vault failures on both getter and setter', async () => {
+      mockConfigManager.getPollenApiKey.mockRejectedValueOnce(new Error('private-fixture-key'))
+      const status = await handlers.get('config:get-pollen-api-key')!()
+      expect(status.configured).toBe(false)
+      expect(status.error).toContain('Unlock your OS credential store')
+      expect(status.error).not.toContain('private-fixture-key')
+      mockConfigManager.setPollenApiKey.mockRejectedValueOnce(new Error('private-fixture-key'))
+      const result = await handlers.get('config:set-pollen-api-key')!({}, 'private-fixture-key')
+      expect(result.success).toBe(false)
+      expect(result.error).not.toContain('private-fixture-key')
+    })
+
+    it('uses the secure setter for save and clear, and rejects non-text input', async () => {
+      const set = handlers.get('config:set-pollen-api-key')!
+      expect(await set({}, 'fixture-key')).toEqual({ success: true })
+      expect(mockConfigManager.setPollenApiKey).toHaveBeenLastCalledWith('fixture-key')
+      expect(await set({}, '')).toEqual({ success: true })
+      expect(mockConfigManager.setPollenApiKey).toHaveBeenLastCalledWith('')
+      expect(await set({}, 42)).toEqual({ success: false, error: 'API key must be text.' })
+      expect(mockConfigManager.setPollenApiKey).toHaveBeenCalledTimes(2)
+      expect(mockConfigManager.setUiValue).not.toHaveBeenCalled()
     })
   })
 

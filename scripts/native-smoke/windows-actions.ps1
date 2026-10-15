@@ -62,6 +62,59 @@ $recordFrame = 0
 $recorder = $null
 $recordDirectory = $null
 [Drive]::Attach($h)
+function Save-OwnedImage([string] $Path) {
+    $rect = New-Object Drive+RECT
+    [Drive]::GetWindowRect($h, [ref]$rect) | Out-Null
+    $bmp = [System.Drawing.Bitmap]::new(($rect.r-$rect.l), ($rect.b-$rect.t), [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+    $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+    $hdc = $graphics.GetHdc()
+    try {
+        if (-not [Drive]::PrintWindow($h, $hdc, 2)) { throw 'Owned window capture failed' }
+    } finally { $graphics.ReleaseHdc($hdc); $graphics.Dispose() }
+    try { $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png) }
+    finally { $bmp.Dispose() }
+}
+function Click-OwnedPoint([int] $X, [int] $Y) {
+    $lp = [Drive]::MakeLParam($X, $Y)
+    [Drive]::PostMessageW($h, 0x200, 0, $lp) | Out-Null
+    Start-Sleep -Milliseconds 150
+    [Drive]::PostMessageW($h, 0x201, 1, $lp) | Out-Null
+    Start-Sleep -Milliseconds 80
+    [Drive]::PostMessageW($h, 0x202, 0, $lp) | Out-Null
+    Start-Sleep -Milliseconds 600
+}
+function Write-OwnedText([string] $Encoded) {
+    $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
+    if ($text.Length -gt 8192) { throw 'Fixture text exceeds the bounded input size' }
+    foreach ($character in $text.ToCharArray()) {
+        [Drive]::PostMessageW($h, 0x102, [IntPtr]([int]$character), [IntPtr]1) | Out-Null
+        Start-Sleep -Milliseconds 10
+    }
+    Start-Sleep -Milliseconds 400
+}
+function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {
+    $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'settings-locator.png'
+    Save-OwnedImage $image
+    $label = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
+    $arguments = @((Join-Path $PSScriptRoot 'settings-ocr.py'), '--image', $image, '--label', $label)
+    if ($Mode -eq 'navigation') { $arguments += '--navigation' }
+    if ($Mode -in @('field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
+    $raw = & python @arguments
+    if ($LASTEXITCODE -ne 0) { throw 'Owned settings label was not found unambiguously' }
+    $box = $raw | ConvertFrom-Json
+    $rect = New-Object Drive+RECT
+    [Drive]::GetWindowRect($h, [ref]$rect) | Out-Null
+    $origin = New-Object Drive+POINT
+    [Drive]::ClientToScreen($h, [ref]$origin) | Out-Null
+    $scale = [Drive]::GetDpiForWindow($h) / 96.0
+    $x = $box.left + $box.width / 2
+    $y = $box.top + $box.height / 2
+    if ($Mode -in @('field', 'leftfield', 'rightfield', 'save')) { $y = $box.top + $box.height + 20 * $scale; $x = $box.left + 20 * $scale }
+    if ($Mode -eq 'leftfield') { $x = ($rect.r-$rect.l) / 4 }
+    if ($Mode -eq 'rightfield') { $x = 3 * ($rect.r-$rect.l) / 4 }
+    if ($Mode -eq 'save') { $x = ($rect.r-$rect.l) - 49 * $scale }
+    return @{ X=[int]($rect.l + $x - $origin.x); Y=[int]($rect.t + $y - $origin.y) }
+}
 try {
     foreach ($action in $Actions.Split(',')) {
         $parts = $action.Split(':')
@@ -133,6 +186,25 @@ try {
                 [Drive]::SetActiveWindow($h) | Out-Null
                 [Drive]::SetFocus($h) | Out-Null
                 Start-Sleep -Milliseconds 400
+            }
+            'text64' {
+                # Fixture text goes only to this owned HWND. No clipboard,
+                # global input, shell expansion, or payload logging.
+                Write-OwnedText $parts[1]
+            }
+            { $_ -in 'nav64', 'click64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
+                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
+                $point = Find-OwnedLabelPoint $parts[1] $mode
+                Click-OwnedPoint $point.X $point.Y
+                if ($mode -in @('field', 'leftfield', 'rightfield')) {
+                    [Drive]::Ctrl($true)
+                    [Drive]::PostMessageW($h, 0x100, [IntPtr]65, [IntPtr]0x1E0001) | Out-Null
+                    Start-Sleep -Milliseconds 100
+                    [Drive]::PostMessageW($h, 0x101, [IntPtr]65, [IntPtr]0xC01E0001L) | Out-Null
+                    Start-Sleep -Milliseconds 400
+                    [Drive]::Ctrl($false)
+                    Write-OwnedText $parts[2]
+                }
             }
             { $_ -in 'key', 'gpuikey' } {
                 $vk = [int]$parts[1]
@@ -270,9 +342,10 @@ try {
                 Note ("rect: x={0} y={1} w={2} h={3}" -f $rect.l, $rect.t, ($rect.r - $rect.l), ($rect.b - $rect.t))
             }
             'close' { [Drive]::PostMessageW($h, 0x10, 0, 0) | Out-Null }
-            default { throw "unknown action $action" }
+            default { throw "unknown action $($parts[0])" }
         }
-        Note "done $action"
+        if ($parts[0] -in @('text64', 'field64', 'leftfield64', 'rightfield64')) { Note "done $($parts[0]) [payload withheld]" }
+        else { Note "done $action" }
     }
 }
 finally {

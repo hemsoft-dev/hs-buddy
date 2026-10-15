@@ -13,6 +13,7 @@ use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::platform_placement;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
+use crate::settings_view::{SettingsEvent, SettingsView};
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
 use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
@@ -105,6 +106,7 @@ pub struct BuddyApp {
     /// The account the `gh` CLI is currently using, once resolved.
     pub active_account: Option<String>,
     dashboard: Entity<DashboardView>,
+    settings_view: Entity<SettingsView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -121,15 +123,26 @@ impl BuddyApp {
     /// Show a section (`None` is the dashboard) and remember it for the next
     /// launch; the dashboard pauses its refreshes while hidden.
     pub fn set_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
-        if self.active_section != section {
-            Settings::update(cx, |config| {
+        if self.active_section != section
+            && !Settings::update(cx, |config| {
                 config.native.active_section = section.map(|section| section.id().to_string())
-            });
+            })
+        {
+            cx.notify();
+            return;
         }
         self.show_section(section, cx);
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        if section == Some(Section::Settings) && self.active_section != section {
+            self.settings_view
+                .update(cx, |settings, cx| settings.activate(cx));
+        }
+        if section != Some(Section::Settings) {
+            self.settings_view
+                .update(cx, |settings, _| settings.deactivate());
+        }
         self.active_section = section;
         self.dashboard.update(cx, |dashboard, cx| {
             dashboard.set_active(section.is_none(), cx)
@@ -208,6 +221,7 @@ impl BuddyApp {
             if this.active_section != section {
                 this.show_section(section, cx);
             }
+            cx.notify();
         })
         .detach();
     }
@@ -280,10 +294,18 @@ impl BuddyApp {
         })
         .detach();
 
+        let settings_view = cx.new(|cx| SettingsView::new(window, cx));
+        cx.subscribe(&settings_view, |this, _, event, cx| match event {
+            SettingsEvent::ClearCache => this
+                .dashboard
+                .update(cx, |dashboard, cx| dashboard.clear_cached_data(cx)),
+        })
+        .detach();
         let mut this = Self {
             active_section: section,
             active_account: None,
             dashboard,
+            settings_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -296,6 +318,7 @@ impl BuddyApp {
         let container = div().flex_1().min_h_0().w_full().bg(theme.background);
         match self.active_section {
             None => container.child(self.dashboard.clone()),
+            Some(Section::Settings) => container.child(self.settings_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -363,7 +386,7 @@ mod tests {
             let mut config = buddy_core::config::AppConfig::default();
             config.native.active_section = Some("github".into());
             crate::theme::install(&config, cx);
-            cx.set_global(Settings { config });
+            cx.set_global(Settings::new(config));
             let mut entity = None;
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
@@ -373,6 +396,7 @@ mod tests {
                         active_section: Some(Section::GitHub),
                         active_account: None,
                         dashboard,
+                        settings_view: cx.new(|cx| SettingsView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

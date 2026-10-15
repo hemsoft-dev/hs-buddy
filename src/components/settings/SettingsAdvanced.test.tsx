@@ -25,7 +25,7 @@ function defaultMockValues() {
     api: {
       getStorePath: vi.fn().mockResolvedValue('/path/to/config.json'),
       openInEditor: vi.fn().mockResolvedValue(undefined),
-      reset: vi.fn().mockResolvedValue(undefined),
+      reset: vi.fn().mockResolvedValue({ success: true }),
     },
     refresh: vi.fn().mockResolvedValue(undefined),
     loading: false,
@@ -149,6 +149,42 @@ describe('SettingsAdvanced', () => {
       expect(mock.api.reset).toHaveBeenCalled()
       expect(mock.refresh).toHaveBeenCalled()
     })
+  })
+
+  it.each([
+    ['rejected secure store', () => Promise.reject(new Error('private-reset-fixture'))],
+    ['handled failure', () => Promise.resolve({ success: false })],
+    ['missing acknowledgment', () => Promise.resolve(undefined)],
+  ])(
+    'recovers a failed reset for %s without refreshing unchanged settings',
+    async (_label, reply) => {
+      const mock = defaultMockValues()
+      mock.api.reset.mockImplementationOnce(reply)
+      mockUseConfig.mockReturnValue(mock)
+      render(<SettingsAdvanced />)
+      fireEvent.click(screen.getByText('Reset to Defaults'))
+      fireEvent.click(screen.getByText('Click Again to Confirm'))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Unlock secure storage')
+      expect(screen.getByRole('alert')).not.toHaveTextContent('private-reset-fixture')
+      expect(screen.getByText('Reset to Defaults')).toBeEnabled()
+      expect(mock.refresh).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByText('Reset to Defaults'))
+      fireEvent.click(screen.getByText('Click Again to Confirm'))
+      await waitFor(() => expect(mock.refresh).toHaveBeenCalledOnce())
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    }
+  )
+
+  it('distinguishes an acknowledged reset from a failed reload', async () => {
+    const mock = defaultMockValues()
+    mock.refresh.mockRejectedValueOnce(new Error('private-refresh-fixture'))
+    mockUseConfig.mockReturnValue(mock)
+    render(<SettingsAdvanced />)
+    fireEvent.click(screen.getByText('Reset to Defaults'))
+    fireEvent.click(screen.getByText('Click Again to Confirm'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Settings were reset')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('private-refresh-fixture')
+    expect(screen.getByText('Reset to Defaults')).toBeEnabled()
   })
 
   it('displays the config store path', async () => {

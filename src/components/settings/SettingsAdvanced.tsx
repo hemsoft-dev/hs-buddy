@@ -55,6 +55,7 @@ export function SettingsAdvanced() {
   const [openSuccess, setOpenSuccess] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
   const [cacheStats, setCacheStats] = useState<DataCacheStorageStats | null>(null)
   const [isClearingCache, setIsClearingCache] = useState(false)
   const [cacheClearError, setCacheClearError] = useState<string | null>(null)
@@ -76,10 +77,23 @@ export function SettingsAdvanced() {
       return
     }
     setIsResetting(true)
-    await api.reset()
-    await refresh()
-    setIsResetting(false)
-    setResetConfirm(false)
+    setResetError(null)
+    let resetApplied = false
+    try {
+      const result = await api.reset()
+      if (result.success !== true) throw new Error('Reset was not acknowledged')
+      resetApplied = true
+      await refresh()
+    } catch (_: unknown) {
+      setResetError(
+        resetApplied
+          ? 'Settings were reset, but could not be reloaded. Reopen Settings or retry.'
+          : 'Could not reset settings. Unlock secure storage, check file permissions, then retry.'
+      )
+    } finally {
+      setIsResetting(false)
+      setResetConfirm(false)
+    }
   }
   const handleClearCache = async () => {
     setIsClearingCache(true)
@@ -204,6 +218,11 @@ export function SettingsAdvanced() {
               <ResetButtonLabel isResetting={isResetting} resetConfirm={resetConfirm} />
             </button>
           </div>
+          {resetError ? (
+            <p className="hint" role="alert">
+              {resetError}
+            </p>
+          ) : null}
         </div>
         <div className="settings-section">
           <h3>About Storage</h3>

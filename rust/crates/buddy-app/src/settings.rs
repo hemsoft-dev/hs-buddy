@@ -1,16 +1,25 @@
 //! The loaded configuration as a GPUI global, shared by the shell and views.
 
+use buddy_core::application_settings::SettingsError;
 use buddy_core::config::{AppConfig, UiConfig, config_path};
 use buddy_core::config_lock::{ConfigLock, DEFAULT_TIMEOUT};
 use gpui_kit::{App, Global};
 
 pub struct Settings {
     pub config: AppConfig,
+    pub save_error: Option<String>,
 }
 
 impl Global for Settings {}
 
 impl Settings {
+    pub fn new(config: AppConfig) -> Self {
+        Self {
+            config,
+            save_error: None,
+        }
+    }
+
     pub fn global(cx: &App) -> &Self {
         cx.global::<Self>()
     }
@@ -37,10 +46,23 @@ impl Settings {
             Ok(path) => path,
             Err(err) => {
                 log::warn!("not saving: configuration path unknown ({err})");
+                cx.global_mut::<Self>().save_error =
+                    Some("Configuration path is unavailable. Retry after restoring access.".into());
                 return false;
             }
         };
         Self::update_at(cx, &path, edit)
+    }
+
+    /// A form edit can reject the fresh on-disk configuration before any
+    /// write. Existing dashboard callers keep the infallible `update` API.
+    pub fn try_update(
+        cx: &mut App,
+        edit: impl Fn(&mut AppConfig) -> Result<(), SettingsError>,
+    ) -> Result<(), SettingsError> {
+        let path =
+            config_path().map_err(|_| SettingsError("The configuration path is unavailable."))?;
+        Self::try_update_at(cx, &path, edit)
     }
 
     pub(crate) fn update_at(
@@ -48,30 +70,48 @@ impl Settings {
         path: &std::path::Path,
         edit: impl Fn(&mut AppConfig),
     ) -> bool {
+        let result = Self::try_update_at(cx, path, |config| {
+            edit(config);
+            Ok(())
+        });
+        cx.global_mut::<Self>().save_error = result.as_ref().err().map(ToString::to_string);
+        result.is_ok()
+    }
+
+    fn try_update_at(
+        cx: &mut App,
+        path: &std::path::Path,
+        edit: impl Fn(&mut AppConfig) -> Result<(), SettingsError>,
+    ) -> Result<(), SettingsError> {
         const ATTEMPTS: usize = 3;
-        let mut lock = acquire_lock(path);
+        let mut lock = acquire_lock(path)?;
         for attempt in 1..=ATTEMPTS {
             let (mut fresh, stamp) = match AppConfig::load_with_stamp_from(path) {
                 Ok(loaded) => loaded,
                 Err(err) => {
                     log::warn!("not saving: configuration could not be reloaded ({err})");
-                    return false;
+                    return Err(SettingsError(
+                        "The configuration could not be read. Check the file before saving.",
+                    ));
                 }
             };
-            edit(&mut fresh);
-            if lock.as_ref().is_some_and(|held| !held.is_held()) {
+            if let Err(error) = edit(&mut fresh) {
+                Self::resync(cx, path);
+                return Err(error);
+            }
+            if !lock.is_held() {
                 // Suspended past the stale window: another writer owns the
                 // lock now and may be mid-edit, so do not write under it.
                 // Take the lock again (the old guard leaves theirs alone) and
                 // start over from a fresh read.
                 log::warn!("config lock was taken over while editing; re-acquiring");
-                lock = acquire_lock(path);
+                lock = acquire_lock(path)?;
                 continue;
             }
             match fresh.save_if_unchanged_at(path, &stamp) {
                 Ok(true) => {
                     Self::install(cx, fresh);
-                    return true;
+                    return Ok(());
                 }
                 Ok(false) if attempt < ATTEMPTS => {
                     log::info!("configuration changed on disk while editing; applying again");
@@ -79,12 +119,16 @@ impl Settings {
                 Ok(false) => {
                     log::warn!("configuration kept changing on disk; edit not saved");
                     Self::resync(cx, path);
-                    return false;
+                    return Err(SettingsError(
+                        "The configuration kept changing. Reload and try again.",
+                    ));
                 }
                 Err(err) => {
                     log::warn!("could not save configuration: {err}");
                     Self::resync(cx, path);
-                    return false;
+                    return Err(SettingsError(
+                        "The configuration could not be saved. Check file permissions and try again.",
+                    ));
                 }
             }
         }
@@ -92,7 +136,9 @@ impl Settings {
         // one): the file may have changed meanwhile, so follow the disk.
         log::warn!("configuration kept changing or the lock kept moving; edit not saved");
         Self::resync(cx, path);
-        false
+        Err(SettingsError(
+            "The configuration kept changing. Reload and try again.",
+        ))
     }
 
     /// After a failed save the in-memory copy must reflect the disk, not the
@@ -137,18 +183,134 @@ fn appearance_differs(a: &UiConfig, b: &UiConfig) -> bool {
         || a.status_bar_fg != b.status_bar_fg
 }
 
-/// The shared lock for `path`, or `None` (logged) when it is busy or
-/// unavailable, in which case the save proceeds unlocked.
-fn acquire_lock(path: &std::path::Path) -> Option<ConfigLock> {
+/// Refuse the edit when another Buddy process owns the shared file. The
+/// stamp guard additionally detects writers that do not follow this lock.
+fn acquire_lock(path: &std::path::Path) -> Result<ConfigLock, SettingsError> {
     match ConfigLock::acquire(path, DEFAULT_TIMEOUT) {
-        Ok(Some(lock)) => Some(lock),
-        Ok(None) => {
-            log::warn!("config lock busy for {DEFAULT_TIMEOUT:?}; saving unlocked");
-            None
-        }
-        Err(err) => {
-            log::warn!("config lock unavailable ({err}); saving unlocked");
-            None
-        }
+        Ok(Some(lock)) => Ok(lock),
+        Ok(None) => Err(SettingsError(
+            "Configuration is busy. Retry after the other Buddy instance finishes saving.",
+        )),
+        Err(_) => Err(SettingsError(
+            "The configuration lock is unavailable. Check file permissions and retry.",
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use buddy_core::application_settings::{ColorField, LocalEdit, SyncedEdit};
+
+    fn fixture(label: &str) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("buddy-settings-{label}-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        root.join("config.json")
+    }
+
+    #[gpui_kit::test]
+    fn rejected_form_does_not_write_and_resyncs_the_fresh_snapshot(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let path = fixture("rejected");
+        let body = r#"{"copilot":{"model":"concurrent-model"},"future":42}"#;
+        std::fs::write(&path, body).unwrap();
+        cx.update(|cx| {
+            cx.set_global(Settings::new(AppConfig::default()));
+            let result = Settings::try_update_at(cx, &path, |config| {
+                LocalEdit::Color(ColorField::Accent, "invalid".into()).apply(config)
+            });
+            assert!(result.is_err());
+            assert_eq!(
+                Settings::global(cx).config.copilot.model,
+                "concurrent-model"
+            );
+            assert_eq!(Settings::global(cx).config.extra["future"], 42);
+        });
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn stamp_retry_reapplies_only_the_changed_field_to_the_new_file(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let path = fixture("concurrent");
+        std::fs::write(&path, "{}").unwrap();
+        let wrote = std::cell::Cell::new(false);
+        cx.update(|cx| {
+            cx.set_global(Settings::new(AppConfig::default()));
+            let result = Settings::try_update_at(cx, &path, |config| {
+                SyncedEdit::AutoRefresh(false).apply_mirror(config)?;
+                if !wrote.replace(true) {
+                    // A writer that ignores the advisory lock lands between
+                    // our read and save. The existing stamp protocol retries.
+                    std::fs::write(
+                        &path,
+                        r#"{"pr":{"recentlyMergedDays":60,"future":3},
+                        "copilot":{"model":"newer-model","future":4},"future":5}"#,
+                    )
+                    .unwrap();
+                }
+                Ok(())
+            });
+            assert!(result.is_ok());
+            assert!(!Settings::global(cx).config.pr.auto_refresh);
+        });
+        let saved = AppConfig::load_from(&path).unwrap();
+        assert!(!saved.pr.auto_refresh);
+        assert_eq!(saved.pr.recently_merged_days, 60.0);
+        assert_eq!(saved.pr.extra["future"], 3);
+        assert_eq!(saved.copilot.model, "newer-model");
+        assert_eq!(saved.copilot.extra["future"], 4);
+        assert_eq!(saved.extra["future"], 5);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn another_process_lock_refuses_the_edit_without_an_unlocked_fallback(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let path = fixture("busy");
+        let original = r##"{"ui":{"accentColor":"#123456"},"future":42}"##;
+        std::fs::write(&path, original).unwrap();
+        let lock = ConfigLock::acquire(&path, std::time::Duration::ZERO)
+            .unwrap()
+            .unwrap();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            cx.set_global(Settings::new(AppConfig::default()));
+            let result = Settings::try_update_at(cx, &path, |config| {
+                LocalEdit::Color(ColorField::Accent, "#abcdef".into()).apply(config)
+            });
+            assert!(result.unwrap_err().to_string().contains("busy"));
+            assert!(!Settings::update_at(cx, &path, |config| config
+                .ui
+                .terminal_open =
+                true));
+            assert!(
+                Settings::global(cx)
+                    .save_error
+                    .as_deref()
+                    .unwrap()
+                    .contains("busy")
+            );
+            assert!(!Settings::global(cx).config.ui.terminal_open);
+        });
+        assert!(lock.is_held());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        drop(lock);
+        cx.update(|cx| {
+            assert!(Settings::update_at(cx, &path, |config| config
+                .ui
+                .terminal_open =
+                true));
+            assert!(Settings::global(cx).config.ui.terminal_open);
+            assert!(Settings::global(cx).save_error.is_none());
+        });
+        assert_eq!(AppConfig::load_from(&path).unwrap().extra["future"], 42);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_dir(path.parent().unwrap()).unwrap();
     }
 }

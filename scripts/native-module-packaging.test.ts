@@ -23,6 +23,10 @@ const nativeModules = [
     dependency: 'koffi',
     unpackPattern: 'node_modules/@koromix/koffi-*/**/*',
   },
+  {
+    dependency: '@napi-rs/keyring',
+    unpackPattern: 'node_modules/@napi-rs/keyring-*/**/*',
+  },
 ] as const
 
 describe('Electron native module packaging', () => {

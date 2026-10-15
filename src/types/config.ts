@@ -56,7 +56,7 @@ export interface AppConfig {
     favoriteUsers: string[] // Favorite user keys ('org/login') that sort to the top
     dashboardCards: Record<string, boolean> // Dashboard card visibility (cardId → visible)
     weatherLocation: { latitude: number; longitude: number; name: string } | null // Saved weather city
-    pollenApiKey: string // Tomorrow.io API key for pollen data (user-provided, stored locally)
+    pollenApiKey: string // Legacy Google Pollen key, migrated to OS storage. Public snapshots return ''.
     enterpriseSlug: string // GitHub Enterprise slug for enterprise billing APIs
   }
   pr: {
