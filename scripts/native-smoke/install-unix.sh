@@ -38,6 +38,17 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
   sudo apt-get install -y --no-install-recommends "$package_directory/"*.deb \
     xvfb openbox xdotool imagemagick tesseract-ocr ffmpeg
   cmp "$(command -v buddy-native)" "$source_directory/rust/target/release/buddy"
+  # Configure Electron's supplied sandbox rather than disabling it for the
+  # real config companion. Only this disposable checkout's binary is changed.
+  electron_executable="$(bun -e "console.log(require('electron'))" | tail -n 1)"
+  sandbox="$(realpath "$(dirname "$electron_executable")/chrome-sandbox")"
+  case "$sandbox" in
+    "$source_directory"/node_modules/*/chrome-sandbox) ;;
+    *) echo 'Sandbox helper escaped the owned checkout' >&2; exit 1 ;;
+  esac
+  sudo chown root:root "$sandbox"
+  sudo chmod 4755 "$sandbox"
+  test "$(stat -c '%u:%a' "$sandbox")" = 0:4755
   xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
     set -euo pipefail
     openbox >"$RUNNER_TEMP/buddy-settings-openbox.log" 2>&1 &

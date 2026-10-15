@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1357] - 2026-10-15
+
+### Fixed
+
+- Retain sync warnings and configure the CI Electron sandbox (#813)
+
 ## [0.1.1356] - 2026-10-15
 
 ### Fixed

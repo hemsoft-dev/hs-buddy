@@ -272,7 +272,7 @@ impl SettingsView {
                     }
                     Err(error) => {
                         this.must_reload = error == BackendError::UnknownSaveResult;
-                        if this.must_reload {
+                        if this.must_reload || error == BackendError::Unavailable {
                             this.backend_warning = Some(error.to_string());
                         }
                         this.status = Some(
@@ -323,9 +323,10 @@ impl SettingsView {
         };
         let mirror_result = Settings::try_update(cx, |config| snapshot.apply_mirror(config));
         if let Err(error) = mirror_result {
-            self.status = Some(format!(
+            self.backend_warning = Some(format!(
                 "Loaded from Convex. Local account mirror needs retry: {error}"
             ));
+            self.status = None;
         }
         for record in &snapshot.accounts {
             let id = format!("repo-{}", record.id);
