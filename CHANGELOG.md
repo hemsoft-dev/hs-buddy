@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1425] - 2026-10-16
+
+### Changed
+
+- Allow cold Intel builds to finish native qualification
+
 ## [0.1.1424] - 2026-10-16
 
 ### Changed

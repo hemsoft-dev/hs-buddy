@@ -46,7 +46,8 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # A cold Intel build leaves too little of 90 minutes for installed UI checks.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 120 || 90 }}
     strategy:
       fail-fast: false
       matrix:
