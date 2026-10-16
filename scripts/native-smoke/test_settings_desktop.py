@@ -58,6 +58,34 @@ class CompanionHandshake(unittest.TestCase):
 
 
 class DesktopLimits(unittest.TestCase):
+    def test_scroll_anchor_uses_the_measured_label_instead_of_the_old_wheel_position(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "x11"
+        driver.locate = Mock(return_value=dict(left=60, top=350, width=70, height=20))
+        point = driver.scroll_anchor(Mock(), Path("owned-capture"), "Assistant")
+        self.assertEqual(point, (95, 360))
+        window = Mock(window="owned-window")
+        with patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+            driver.scroll(window, -120, point)
+        self.assertEqual(run.call_args_list[0].args, ("xdotool", "mousemove", "--window", "owned-window", 95, 360))
+
+    def test_mac_scroll_anchor_converts_capture_pixels_with_the_observed_scale(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        driver.locate = Mock(return_value=dict(left=120, top=700, width=140, height=40))
+        with tempfile.TemporaryDirectory(prefix="buddy-scroll-anchor-") as root:
+            directory = Path(root)
+            (directory / "settings-scroll-anchor.window.json").write_text(json.dumps(dict(capturePixelsPerWindowPoint=2)))
+            self.assertEqual(driver.scroll_anchor(Mock(), directory, "Assistant"), (95, 360))
+
+    def test_mac_scroll_anchor_requires_its_capture_calibration(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        driver.locate = Mock(return_value=dict(left=120, top=700, width=140, height=40))
+        with tempfile.TemporaryDirectory(prefix="buddy-scroll-anchor-") as root:
+            with self.assertRaises(FileNotFoundError):
+                driver.scroll_anchor(Mock(), Path(root), "Assistant")
+
     def test_full_and_small_host_limits_are_used_before_resize(self):
         self.assertEqual(desktop.planned_large_size(1920, 1080), (1200, 820))
         self.assertEqual(desktop.planned_large_size(1044, 788), (1044, 788))

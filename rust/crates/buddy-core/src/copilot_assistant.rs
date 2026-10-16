@@ -354,6 +354,20 @@ async fn drive(
     shared.changed();
 }
 
+fn report_preparation_cleanup(
+    shared: &Shared,
+    result: &Result<crate::copilot_runtime::VerifiedRuntime, crate::copilot_runtime::InstallError>,
+) {
+    if let Err(error @ crate::copilot_runtime::InstallError::CleanupFailed { .. }) = result {
+        lock(&shared.state).cleanup_warning = true;
+        if shared.fixture.is_some()
+            && let Some(details) = qualification::preparation_failure_details(error)
+        {
+            eprintln!("{details}");
+        }
+    }
+}
+
 async fn run_transport(
     shared: &Arc<Shared>,
     executable: PathBuf,
@@ -395,14 +409,14 @@ async fn run_transport(
         _=cancelled(cancel)=>{
             stop_prepare.store(true,Ordering::Release);
             let stopped=preparing.await;
-            if matches!(stopped,Err(crate::copilot_runtime::InstallError::CleanupFailed {..})) {lock(&shared.state).cleanup_warning=true;}
+            report_preparation_cleanup(shared, &stopped);
             if !matches!(stopped,Ok(_) | Err(crate::copilot_runtime::InstallError::Cancelled)) {
                 return Err(Failure::CancellationUnknown);
             }
             shared.confirm_cancel();return Ok(());
         }
         result=&mut preparing=>{
-            if matches!(result,Err(crate::copilot_runtime::InstallError::CleanupFailed {..})) {lock(&shared.state).cleanup_warning=true;}
+            report_preparation_cleanup(shared, &result);
             result.map_err(|_|Failure::ServiceUnavailable)?
         },
     };

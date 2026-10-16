@@ -132,6 +132,18 @@ async fn turn(owned: &std::path::Path, saved: bool, cancel: bool) -> Result<Snap
     Ok(snapshot)
 }
 
+pub(super) fn preparation_failure_details(
+    error: &crate::copilot_runtime::InstallError,
+) -> Option<String> {
+    let crate::copilot_runtime::InstallError::CleanupFailed { cancelled, failure } = error else {
+        return None;
+    };
+    Some(format!(
+        "Offline SDK preparation cleanup: stage={:?}, kind={:?}, os_code={:?}, cancelled={cancelled}",
+        failure.stage, failure.kind, failure.os_code
+    ))
+}
+
 /// Qualification errors expose state codes, never the private Snapshot fields.
 fn failure_details(
     snapshot: &Snapshot,
@@ -266,6 +278,21 @@ async fn exercise(owned: PathBuf) -> Result<serde_json::Value, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preparation_failure_reports_safe_stages_and_codes_only() {
+        use crate::copilot_runtime::{CleanupFailure, CleanupStage, InstallError};
+        let error = InstallError::CleanupFailed {
+            cancelled: false,
+            failure: CleanupFailure {
+                stage: CleanupStage::Reap,
+                kind: std::io::ErrorKind::Other,
+                os_code: Some(10),
+            },
+        };
+        let details = preparation_failure_details(&error).unwrap();
+        assert!(details.contains("Reap") && details.contains("Some(10)"));
+        assert!(preparation_failure_details(&InstallError::Unavailable).is_none());
+    }
 
     #[test]
     fn failure_diagnostics_include_state_codes_without_output_or_record_identity() {

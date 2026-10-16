@@ -247,7 +247,16 @@ fn process_ids() -> std::io::Result<Vec<i32>> {
             std::mem::size_of_val(pids.as_slice()) as i32,
         )
     };
-    if count <= 0 || count as usize >= pids.len() {
+    if count <= 0 {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error().is_some_and(|code| code != 0) {
+            return Err(error);
+        }
+        return Err(std::io::Error::other(
+            "Could not enumerate the owned terminal session.",
+        ));
+    }
+    if count as usize >= pids.len() {
         return Err(std::io::Error::other(
             "Could not enumerate the owned terminal session.",
         ));

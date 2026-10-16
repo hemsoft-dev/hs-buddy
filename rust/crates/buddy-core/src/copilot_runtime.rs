@@ -25,7 +25,33 @@ pub enum InstallError {
     InvalidRoot,
     Unavailable,
     Cancelled,
-    CleanupFailed { cancelled: bool },
+    CleanupFailed {
+        cancelled: bool,
+        failure: CleanupFailure,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupStage {
+    Ownership,
+    Reap,
+}
+
+/// Safe diagnostics deliberately discard error messages, paths, and arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CleanupFailure {
+    pub stage: CleanupStage,
+    pub kind: std::io::ErrorKind,
+    pub os_code: Option<i32>,
+}
+impl CleanupFailure {
+    fn capture(stage: CleanupStage, error: std::io::Error) -> Self {
+        Self {
+            stage,
+            kind: error.kind(),
+            os_code: error.raw_os_error(),
+        }
+    }
 }
 impl std::fmt::Display for InstallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -33,12 +59,12 @@ impl std::fmt::Display for InstallError {
             Self::InvalidRoot => "The private assistant runtime directory is unavailable.",
             Self::Unavailable => "The packaged assistant runtime could not be prepared.",
             Self::Cancelled => "Assistant preparation was cancelled.",
-            Self::CleanupFailed { cancelled: true } => {
-                "Assistant preparation was cancelled. Process cleanup could not be confirmed."
-            }
-            Self::CleanupFailed { cancelled: false } => {
-                "Assistant preparation failed. Process cleanup could not be confirmed."
-            }
+            Self::CleanupFailed {
+                cancelled: true, ..
+            } => "Assistant preparation was cancelled. Process cleanup could not be confirmed.",
+            Self::CleanupFailed {
+                cancelled: false, ..
+            } => "Assistant preparation failed. Process cleanup could not be confirmed.",
         })
     }
 }
@@ -307,11 +333,16 @@ fn prepare_blocking(
     // Never reap the helper before signalling its SID. Its unreaped PID cannot
     // be reused as an unrelated session, even if it exits before the receipt.
     let _ = input.write_all(b"q");
-    let cleanup = owner.finish().map_err(|_| InstallError::Unavailable);
+    let cleanup = owner
+        .finish()
+        .map_err(|error| CleanupFailure::capture(CleanupStage::Ownership, error));
     let _ = child.kill();
-    let reaped = child.wait().is_ok();
+    let reaped = child
+        .wait()
+        .map(|_| ())
+        .map_err(|error| CleanupFailure::capture(CleanupStage::Reap, error));
     let _ = reader.join();
-    let bytes = preparation_result(result, cleanup.is_ok() && reaped)?;
+    let bytes = preparation_result(result, cleanup.and(reaped))?;
     if bytes.len() > 16 * 1024 {
         return Err(InstallError::Unavailable);
     }
@@ -334,11 +365,12 @@ fn prepare_blocking(
 
 fn preparation_result(
     primary: Result<Vec<u8>, InstallError>,
-    cleaned: bool,
+    cleanup: Result<(), CleanupFailure>,
 ) -> Result<Vec<u8>, InstallError> {
-    if !cleaned {
+    if let Err(failure) = cleanup {
         return Err(InstallError::CleanupFailed {
             cancelled: matches!(primary, Err(InstallError::Cancelled)),
+            failure,
         });
     }
     primary

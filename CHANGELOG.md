@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1421] - 2026-10-16
+
+### Changed
+
+- Reveal compact chat and diagnose helper cleanup
+
 ## [0.1.1420] - 2026-10-16
 
 ### Changed

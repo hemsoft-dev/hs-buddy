@@ -136,3 +136,10 @@ missing-login response, without reading a local Codex credential.
 The chat fixture scrolls its owned conversation to expose completion and
 cancellation feedback, then requires the exact visible status before advancing.
 It does not infer a successful save from a finished stream or a scroll action.
+After resizing, the chat fixture finds the visible Assistant label and scrolls
+that owned conversation in small steps before requiring cancellation and partial
+output in the same capture. Its former fixed wheel position falls over the
+message editor at compact sizes.
+Failed runtime preparation reports ownership or reap stages, error kinds and OS
+codes only in the guarded offline qualifier. Private paths, arguments and error
+messages stay out of those diagnostics. Cleanup failures remain failures.

@@ -2,19 +2,43 @@ use super::*;
 
 #[test]
 fn cleanup_failure_remains_visible_alongside_a_cancelled_primary_result() {
-    assert_eq!(
-        preparation_result(Err(InstallError::Cancelled), false),
-        Err(InstallError::CleanupFailed { cancelled: true })
+    let failure = CleanupFailure::capture(
+        CleanupStage::Ownership,
+        std::io::Error::from(std::io::ErrorKind::Interrupted),
     );
     assert_eq!(
-        preparation_result(Err(InstallError::Unavailable), false),
-        Err(InstallError::CleanupFailed { cancelled: false })
+        preparation_result(Err(InstallError::Cancelled), Err(failure)),
+        Err(InstallError::CleanupFailed {
+            cancelled: true,
+            failure
+        })
     );
     assert_eq!(
-        preparation_result(Err(InstallError::Cancelled), true),
+        preparation_result(Err(InstallError::Unavailable), Err(failure)),
+        Err(InstallError::CleanupFailed {
+            cancelled: false,
+            failure
+        })
+    );
+    assert_eq!(
+        preparation_result(Err(InstallError::Cancelled), Ok(())),
         Err(InstallError::Cancelled)
     );
-    assert_eq!(preparation_result(Ok(vec![1]), true), Ok(vec![1]));
+    assert_eq!(preparation_result(Ok(vec![1]), Ok(())), Ok(vec![1]));
+}
+
+#[test]
+fn cleanup_diagnostics_keep_stage_and_code_without_private_error_messages() {
+    let private = "synthetic-private-runtime-path";
+    let failure = CleanupFailure::capture(CleanupStage::Reap, std::io::Error::other(private));
+    assert_eq!(failure.stage, CleanupStage::Reap);
+    assert_eq!(failure.kind, std::io::ErrorKind::Other);
+    assert!(!format!("{failure:?}").contains(private));
+    let error = std::io::Error::from_raw_os_error(4);
+    let kind = error.kind();
+    let failure = CleanupFailure::capture(CleanupStage::Ownership, error);
+    assert_eq!(failure.os_code, Some(4));
+    assert_eq!(failure.kind, kind);
 }
 
 #[test]

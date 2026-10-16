@@ -185,7 +185,8 @@ def qualify(executable, output, session, version, backend, api):
                 ('click', 'Inspect saved result'), ('wait_text', 'Synthetic assistant'), ('capture', 'saved-result-dark'),
                 ('click', 'Chat'), ('click', 'New conversation'), ('input', 'Message', 'BUDDYCANCEL73429'),
                 ('click', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('click', 'Cancel response'),
-                ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650), ('capture', 'cancelled-compact-dark'),
+                ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
+                ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
             ], record=True)
             github.check(dark / 'streaming-dark.png', 'Assistant is responding')
             github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results')

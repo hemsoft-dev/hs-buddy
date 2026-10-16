@@ -197,6 +197,8 @@ class Driver:
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind in ("wait_text", "wait_scroll_text"):
                     commands.append(("waitscrolltext64:" if kind == "wait_scroll_text" else "waittext64:") + b64(values[0]))
+                elif kind == "reveal_text":
+                    commands.append("revealtext64:" + ":".join(map(b64, values)))
                 elif kind == "sleep":
                     commands.append("sleep:" + str(int(values[0] * 1000)))
                 elif kind == "wheel":
@@ -268,6 +270,9 @@ class Driver:
                         elif kind in ("wait_text", "wait_scroll_text"):
                             scroll = (lambda: self.scroll(window, -1200)) if kind == "wait_scroll_text" else None
                             wait_visible(window, directory, values[0], scroll=scroll)
+                        elif kind == "reveal_text":
+                            point = self.scroll_anchor(window, directory, values[1])
+                            wait_visible(window, directory, values[0], scroll=lambda: self.scroll(window, -120, point))
                         elif kind == "sleep":
                             time.sleep(values[0])
                         elif kind == "wheel":
@@ -305,15 +310,25 @@ class Driver:
                         child.kill()
                         child.wait(timeout=10)
 
-    def scroll(self, window, delta):
+    def scroll_anchor(self, window, directory, text):
+        image = directory / "settings-scroll-anchor.png"
+        label = self.locate(window, image, "click", text)
+        scale = 1
+        if self.session == "macos":
+            scale = json.loads(image.with_suffix(".window.json").read_text())["capturePixelsPerWindowPoint"]
+        return ((label["left"] + label["width"] / 2) / scale,
+                (label["top"] + label["height"] / 2) / scale)
+
+    def scroll(self, window, delta, point=None):
         if self.session == "x11":
-            run("xdotool", "mousemove", "--window", window.window, 600, 400)
+            x, y = point if point is not None else (600, 400)
+            run("xdotool", "mousemove", "--window", window.window, int(x), int(y))
             run("xdotool", "click", "--repeat", max(1, abs(delta) // 120), "--delay", 50, 5 if delta < 0 else 4)
         else:
             metadata = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", window.process.pid))
             bounds = metadata["kCGWindowBounds"]
-            OwnedMacInput(window.process).scroll(bounds["X"] + bounds["Width"] / 2,
-                bounds["Y"] + bounds["Height"] / 2, delta)
+            x, y = point if point is not None else (bounds["Width"] / 2, bounds["Height"] / 2)
+            OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta)
         time.sleep(0.7)
 
     def locate(self, window, image, kind, text):
