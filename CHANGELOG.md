@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1397] - 2026-10-16
+
+### Fixed
+
+- Make terminal process probes portable across shells
+
 ## [0.1.1396] - 2026-10-16
 
 ### Fixed

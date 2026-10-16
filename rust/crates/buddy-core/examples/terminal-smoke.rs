@@ -223,10 +223,12 @@ fn natural_exit(host: &Path, cwd: &Path) -> io::Result<()> {
     #[cfg(windows)]
     command(
         &session,
-        "$owned=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 120' -PassThru;[Console]::WriteLine('NATURAL_CHILD:'+$owned.Id)",
+        "$owned=Start-Process -FilePath (Get-Process -Id $PID).Path -WindowStyle Hidden -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 120' -PassThru;[Console]::WriteLine('NATURAL_CHILD:'+$owned.Id)",
     )?;
+    // $! is a numeric PID. Leaving it unquoted avoids Bash 3.2 treating the
+    // following double quote as a history event during interactive input.
     #[cfg(unix)]
-    command(&session, r#"sleep 120 & printf 'NATURAL_CHILD:%s\n' "$!""#)?;
+    command(&session, r"sleep 120 & printf 'NATURAL_CHILD:%s\n' $!")?;
     let snapshot = until(&session, |snapshot| {
         snapshot.screen.text().lines().any(|line| {
             line.trim()
@@ -397,10 +399,10 @@ fn main() -> io::Result<()> {
     #[cfg(windows)]
     command(
         &session,
-        "$owned=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 120' -PassThru;[Console]::WriteLine('BUDDY_CHILD:'+$owned.Id)",
+        "$owned=Start-Process -FilePath (Get-Process -Id $PID).Path -WindowStyle Hidden -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 120' -PassThru;[Console]::WriteLine('BUDDY_CHILD:'+$owned.Id)",
     )?;
     #[cfg(unix)]
-    command(&session, r#"sleep 120 & printf 'BUDDY_CHILD:%s\n' "$!""#)?;
+    command(&session, r"sleep 120 & printf 'BUDDY_CHILD:%s\n' $!")?;
     let snapshot = until(&session, |s| {
         s.screen.text().lines().any(|line| {
             line.trim()
