@@ -202,15 +202,36 @@ mod tests {
         body: &str,
     ) -> (String, std::thread::JoinHandle<String>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}",
             body.len()
         );
         let thread = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => panic!("owned usage fixture received no request before its deadline"),
+                }
+            };
+            // Windows inherits the listener's mode on accepted sockets.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            // The client can reject Content-Length before reading the body.
+            // A synchronous join must not wait forever for that body to drain
+            // while the current-thread runtime cannot poll connection cleanup.
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
             let mut request = Vec::new();
             let mut byte = [0];

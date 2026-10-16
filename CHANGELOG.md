@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1415] - 2026-10-16
+
+### Changed
+
+- Bound Codex usage HTTP fixture I/O
+
 ## [0.1.1413] - 2026-10-16
 
 ### Fixed
