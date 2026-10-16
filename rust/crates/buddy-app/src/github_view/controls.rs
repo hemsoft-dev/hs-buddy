@@ -381,7 +381,8 @@ impl GitHubView {
             .py_2()
             .border_b_1()
             .border_color(cx.theme().border);
-        if matches!(self.route, Route::Pulls(_)) && self.view_mode == ViewMode::Card {
+        let card = matches!(self.route, Route::Pulls(_)) && self.view_mode == ViewMode::Card;
+        if card {
             item = item
                 .p_3()
                 .border_1()
@@ -404,7 +405,11 @@ impl GitHubView {
         }
         item = item.child(
             div()
-                .text_color(cx.theme().muted_foreground)
+                .text_color(if card {
+                    cx.theme().secondary_foreground.opacity(0.8)
+                } else {
+                    cx.theme().muted_foreground
+                })
                 .whitespace_normal()
                 .child(row.detail.clone()),
         );
@@ -414,7 +419,7 @@ impl GitHubView {
                 self.route,
                 Route::Pull(_, PullTab::Files) | Route::Commit(_, _)
             ) {
-                text = text.font_family(Settings::global(cx).config.ui.mono_font_family.clone());
+                text = text.font_family(cx.theme().mono_font_family.clone());
             }
             item = item.child(text);
         }

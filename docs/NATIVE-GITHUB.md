@@ -29,6 +29,10 @@ Reviewed profiles exclude the user's own PRs without a date cutoff. Issue lists
 and details accept both string and object label representations.
 Commit lists show the subject once as the navigation control, followed by any
 remaining message paragraphs. The commit detail retains the full message.
+File patches use the theme's resolved code font. An unavailable configured font
+falls back through GPUI Kit's installed platform alternatives; a valid installed
+user choice remains selected. Card metadata uses a subordinate foreground tint
+on its own surface so the default dark cards retain readable small text.
 
 Comments, approvals, thread replies, resolve/reopen, reactions, and review
 requests require a confirmation of the selected account and PR. Approvals pin
