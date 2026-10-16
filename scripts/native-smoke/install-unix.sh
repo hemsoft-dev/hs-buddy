@@ -56,6 +56,7 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     trap "kill $wm" EXIT
     BUDDY_SETTINGS_FIXTURE=1 python3 "$1/settings-desktop.py" --executable "$(command -v buddy-native)" --output "$2/settings" --session x11
     BUDDY_SETTINGS_FIXTURE=1 python3 "$1/github-desktop.py" --executable "$(command -v buddy-native)" --output "$2/github" --session x11 --version "$3"
+    BUDDY_SETTINGS_FIXTURE=1 python3 "$1/terminal-desktop.py" --executable "$(command -v buddy-native)" --output "$2/terminal" --session x11 --version "$3"
   ' bash "$script_directory" "$output" "$version"
   exit
 fi
@@ -99,6 +100,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/github-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/github" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/terminal-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/terminal" --session macos --version "$version"
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]

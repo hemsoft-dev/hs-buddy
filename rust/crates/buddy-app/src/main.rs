@@ -14,6 +14,7 @@ mod runtime;
 mod settings;
 mod settings_view;
 mod shell;
+mod terminal_view;
 mod theme;
 mod window_geometry;
 mod window_persistence;
@@ -287,6 +288,9 @@ fn open_when_displays_ready(cx: &mut App) {
 fn main() {
     match command_line::parse(std::env::args_os().skip(1)) {
         Ok(command_line::Command::Open) => {}
+        Ok(command_line::Command::TerminalHost) => {
+            std::process::exit(buddy_core::terminal::run_terminal_host());
+        }
         Ok(command_line::Command::Help) => {
             command_line::print_help();
             return;
@@ -318,6 +322,7 @@ fn main() {
             cx.set_global(Settings::new(config.clone()));
             cx.set_global(Runtime::start());
             zoom::init(cx);
+            terminal_view::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),

@@ -19,6 +19,8 @@ embed-resource = "3.0"
 
 [dependencies]
 buddy-core = { path = "../buddy-core" }
+serde_json.workspace = true
+uuid = { version = "1", features = ["v4"] }
 gpui-kit.workspace = true
 chrono.workspace = true
 env_logger = "0.11"
@@ -37,7 +39,6 @@ x11rb = "0.13"
 
 [dev-dependencies]
 tempfile = "3"
-serde_json.workspace = true
 # Headless UI tests (`#[gpui_kit::test]`).
 gpui-kit = { workspace = true, features = ["test-support"] }
 

@@ -7,6 +7,179 @@ const modules = import.meta.glob('../**/*.*s')
 
 const paneLayout = { type: 'pane', terminalId: 'terminal-1' }
 
+const nativeNodes = () => [
+  {
+    id: 'native',
+    name: 'Native',
+    sortOrder: 0,
+    layout: { type: 'pane', id: 'pane-one', cwd: '' },
+  },
+]
+
+test('first save and same immutable request have one persisted effect', async () => {
+  const t = convexTest(schema, modules)
+  const args = {
+    nodes: nativeNodes(),
+    activeNodeId: 'native',
+    expectedRevision: 0,
+    requestId: 'request-one',
+  }
+  await expect(t.mutation(api.terminalWorkspaces.saveWorkspaceNative, args)).resolves.toEqual({
+    status: 'saved',
+    revision: 1,
+    savedRevision: 1,
+  })
+  const before = await t.query(api.terminalWorkspaces.getWorkspace)
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+      ...args,
+      nodes: [{ ...args.nodes[0], layout: { cwd: '', id: 'pane-one', type: 'pane' } }],
+    })
+  ).resolves.toEqual({ status: 'saved', revision: 1, savedRevision: 1 })
+  expect(await t.query(api.terminalWorkspaces.getWorkspace)).toEqual(before)
+  expect(await t.run(ctx => ctx.db.query('terminalWorkspaces').collect())).toHaveLength(1)
+})
+
+test('a stale native save preserves the newer Electron layout', async () => {
+  const t = convexTest(schema, modules)
+  await t.mutation(api.terminalWorkspaces.saveWorkspace, {
+    nodes: workspaceNodes(),
+    activeNodeId: 'child',
+  })
+  const before = await t.query(api.terminalWorkspaces.getWorkspace)
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+      nodes: nativeNodes(),
+      expectedRevision: 0,
+      requestId: 'stale',
+    })
+  ).resolves.toEqual({ status: 'conflict', revision: 1, savedRevision: null })
+  expect(await t.query(api.terminalWorkspaces.getWorkspace)).toEqual(before)
+})
+
+test('reusing a request ID with different content or base revision cannot mutate data', async () => {
+  const t = convexTest(schema, modules)
+  const args = { nodes: nativeNodes(), expectedRevision: 0, requestId: 'immutable' }
+  await t.mutation(api.terminalWorkspaces.saveWorkspaceNative, args)
+  const before = await t.query(api.terminalWorkspaces.getWorkspace)
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, { ...args, nodes: [] })
+  ).rejects.toThrow('cannot be reused')
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, { ...args, expectedRevision: 1 })
+  ).rejects.toThrow('cannot be reused')
+  expect(await t.query(api.terminalWorkspaces.getWorkspace)).toEqual(before)
+})
+
+test('a known native receipt remains superseded after later Electron node and selection writes', async () => {
+  const t = convexTest(schema, modules)
+  const args = {
+    nodes: nativeNodes(),
+    activeNodeId: 'native',
+    expectedRevision: 0,
+    requestId: 'receipt',
+  }
+  await t.mutation(api.terminalWorkspaces.saveWorkspaceNative, args)
+  await t.mutation(api.terminalWorkspaces.updateNode, {
+    nodeId: 'native',
+    patch: { name: 'Electron edit' },
+  })
+  await t.mutation(api.terminalWorkspaces.setActiveNode, {})
+  await t.mutation(api.terminalWorkspaces.removeNode, { nodeId: 'not-present' })
+  const before = await t.query(api.terminalWorkspaces.getWorkspace)
+  expect(before?.revision).toBe(4)
+  await expect(t.mutation(api.terminalWorkspaces.saveWorkspaceNative, args)).resolves.toEqual({
+    status: 'superseded',
+    revision: 4,
+    savedRevision: 1,
+  })
+  expect(await t.query(api.terminalWorkspaces.getWorkspace)).toEqual(before)
+})
+
+test('an older uncertain request cannot overwrite a later accepted native request', async () => {
+  const t = convexTest(schema, modules)
+  const first = { nodes: nativeNodes(), expectedRevision: 0, requestId: 'first' }
+  await t.mutation(api.terminalWorkspaces.saveWorkspaceNative, first)
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+      nodes: [],
+      expectedRevision: 1,
+      requestId: 'second',
+    })
+  ).resolves.toEqual({ status: 'saved', revision: 2, savedRevision: 2 })
+  await expect(t.mutation(api.terminalWorkspaces.saveWorkspaceNative, first)).resolves.toEqual({
+    status: 'conflict',
+    revision: 2,
+    savedRevision: null,
+  })
+  expect((await t.query(api.terminalWorkspaces.getWorkspace))?.nodes).toEqual([])
+})
+
+test('legacy records start at revision zero and retain their creation metadata', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(ctx =>
+    ctx.db.insert('terminalWorkspaces', {
+      key: 'default',
+      nodes: workspaceNodes(),
+      createdAt: 123,
+      updatedAt: 456,
+    })
+  )
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+      nodes: nativeNodes(),
+      expectedRevision: 0,
+      requestId: 'legacy',
+    })
+  ).resolves.toEqual({ status: 'saved', revision: 1, savedRevision: 1 })
+  expect((await t.query(api.terminalWorkspaces.getWorkspace))?.createdAt).toBe(123)
+})
+
+test.each([-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER])(
+  'invalid or exhausted revision %s leaves the singleton absent',
+  async expectedRevision => {
+    const t = convexTest(schema, modules)
+    await expect(
+      t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+        nodes: nativeNodes(),
+        expectedRevision,
+        requestId: 'invalid-revision',
+      })
+    ).rejects.toThrow('revision')
+    expect(await t.query(api.terminalWorkspaces.getWorkspace)).toBeNull()
+  }
+)
+
+test('invalid request IDs and non-JSON, oversized, or too-deep payloads are rejected', async () => {
+  const t = convexTest(schema, modules)
+  const args = { nodes: nativeNodes(), expectedRevision: 0, requestId: 'valid' }
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, { ...args, requestId: ' ' })
+  ).rejects.toThrow('request ID')
+  for (const layout of [new ArrayBuffer(4), 1n, Infinity]) {
+    await expect(
+      t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+        ...args,
+        nodes: [{ ...args.nodes[0], layout }],
+      })
+    ).rejects.toThrow('JSON values')
+  }
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+      ...args,
+      nodes: [{ ...args.nodes[0], layout: 'x'.repeat(1024 * 1024) }],
+    })
+  ).rejects.toThrow('one MiB')
+  let deep: unknown = null
+  for (let i = 0; i < 66; i++) deep = [deep]
+  await expect(
+    t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+      ...args,
+      nodes: [{ ...args.nodes[0], layout: deep }],
+    })
+  ).rejects.toThrow('nesting')
+  expect(await t.query(api.terminalWorkspaces.getWorkspace)).toBeNull()
+})
 function workspaceNodes() {
   return [
     { id: 'root', name: 'Root', sortOrder: 0, layout: paneLayout },

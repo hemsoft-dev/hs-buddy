@@ -16,6 +16,7 @@ use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::settings_view::{SettingsEvent, SettingsView};
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
+use crate::terminal_view::TerminalView;
 use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
 
@@ -109,6 +110,7 @@ pub struct BuddyApp {
     dashboard: Entity<DashboardView>,
     settings_view: Entity<SettingsView>,
     github_view: Entity<GitHubView>,
+    terminal_view: Entity<TerminalView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -137,6 +139,9 @@ impl BuddyApp {
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        self.terminal_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Terminal), cx)
+        });
         self.github_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::GitHub), cx)
         });
@@ -301,6 +306,10 @@ impl BuddyApp {
 
         let settings_view = cx.new(|cx| SettingsView::new(window, cx));
         let github_view = cx.new(|cx| GitHubView::new(window, cx));
+        let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
+        terminal_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Terminal), cx)
+        });
         github_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::GitHub), cx)
         });
@@ -318,6 +327,7 @@ impl BuddyApp {
             dashboard,
             settings_view,
             github_view,
+            terminal_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -332,6 +342,7 @@ impl BuddyApp {
             None => container.child(self.dashboard.clone()),
             Some(Section::Settings) => container.child(self.settings_view.clone()),
             Some(Section::GitHub) => container.child(self.github_view.clone()),
+            Some(Section::Terminal) => container.child(self.terminal_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -411,6 +422,7 @@ mod tests {
                         dashboard,
                         settings_view: cx.new(|cx| SettingsView::new(window, cx)),
                         github_view: cx.new(|cx| GitHubView::new(window, cx)),
+                        terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

@@ -114,6 +114,14 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Build headless terminal transport probes
+        run: cargo build --locked -p buddy-core --example terminal-host --example terminal-smoke
+
+      - name: Qualify PTY input, output, resize, interrupt, and process cleanup
+        working-directory: .
+        timeout-minutes: 5
+        run: python scripts/native-smoke/terminal-transport.py --expected-source ${{ github.event.pull_request.head.sha || github.sha }}
+
       - uses: ./.github/actions/setup-bun
 
       - name: Install the shared credential adapter
