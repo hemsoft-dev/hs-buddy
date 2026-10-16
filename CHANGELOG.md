@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1396] - 2026-10-16
+
+### Fixed
+
+- Focus terminal paste confirmation and route edit actions
+
 ## [0.1.1395] - 2026-10-16
 
 ### Fixed

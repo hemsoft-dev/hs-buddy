@@ -29,7 +29,11 @@ impl TerminalGrid {
             cx.notify();
             return;
         }
-        if !self.visible || !self.selected || !self.focus.is_focused(window) {
+        if !self.visible
+            || !self.selected
+            || !self.focus.is_focused(window)
+            || self.confirmation.is_some()
+        {
             self.unsent_text = Some(text);
             self.status =
                 Some("The input target changed. Text was retained without being sent.".into());

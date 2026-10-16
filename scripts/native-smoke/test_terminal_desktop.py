@@ -61,6 +61,22 @@ class TerminalDesktopOwnershipTests(unittest.TestCase):
             desktop.stop_sentinel(child, None)
         self.assertIs(caught.exception, cleanup)
 
+    def test_child_completion_cannot_use_another_invocations_old_receipt(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root)
+            path = output / "owned-children.jsonl"
+            path.write_text(json.dumps(dict(run="old", pids=[10, 20])) + "\n", encoding="utf-8")
+            sentinel = Mock()
+            sentinel.poll.return_value = None
+            with patch.object(desktop, "pid_running", return_value=False) as observe:
+                with self.assertRaisesRegex(RuntimeError, "this command invocation"):
+                    desktop.verify_children(output, sentinel, "fresh")
+                observe.assert_not_called()
+                path.write_text(json.dumps(dict(run="fresh", pids=[10, 20])) + "\n", encoding="utf-8")
+                desktop.verify_children(output, sentinel, "fresh")
+                self.assertEqual([call.args for call in observe.call_args_list], [(10,), (20,)])
+                sentinel.poll.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

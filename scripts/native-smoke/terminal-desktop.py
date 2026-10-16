@@ -212,6 +212,7 @@ def qualify(executable, output, session, version, backend):
         saved = backend.query("terminalWorkspaces:getWorkspace")
         if saved["nodes"][0]["name"] != "Native restored" or saved["nodes"][0]["layout"].get("name") != "Build shell":
             raise RuntimeError("Workspace and shell names did not reach the shared layout")
+        qualify_multiline_cancel(driver, backend, prompt, config)
         github.mutate(backend, "terminalPrompts:remove", dict(id=prompt))
         qualify_prompt_crud(driver, backend)
         if sentinel.poll() is not None:
@@ -227,7 +228,28 @@ def qualify(executable, output, session, version, backend):
         checks=["prompt insertion waits for Enter", "Unicode and ANSI output", "Unicode working directory",
             "split resize and persisted layout", "compact window", "invalid shell", "closed shell", "explicit restart",
             "workspace and shell rename", "prompt create/update/delete", "app child cleanup", "unrelated process preserved",
-            "workspace create/switch/close", "light/dark", "native Return key and interrupt"]), indent=2), encoding="utf-8")
+            "workspace create/switch/close", "multiline confirmation/cancel without input or metadata replay",
+            "light/dark", "native Return key and interrupt"]), indent=2), encoding="utf-8")
+
+
+def qualify_multiline_cancel(driver, backend, prompt, config):
+    program = str(Path(os.environ["SystemRoot"]) / "System32/cmd.exe") if os.name == "nt" else "/bin/sh"
+    arguments = ["/D", "/Q", "/K"] if os.name == "nt" else ["-i"]
+    def select_shell(value):
+        value["native"].setdefault("terminalShells", {})[platform_key()] = dict(program=program, arguments=arguments)
+    write_config(config, select_shell)
+    github.mutate(backend, "terminalPrompts:update", dict(id=prompt, content="echo NATIVE_UNCONFIRMED_ONE\necho NATIVE_UNCONFIRMED_TWO"))
+    before = backend.query("terminalPrompts:list")[0].get("lastUsedAt")
+    result = driver.drive("multiline-cancel-light", [
+        ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+        ("capture", "multiline-confirm-light"), ("key", "Escape"), ("sleep", 1),
+        ("capture", "multiline-cancel-light"),
+    ])
+    github.check(result / "multiline-confirm-light.png", "Paste 2 lines", "Paste these lines", absent=("UNCONFIRMED",))
+    github.check(result / "multiline-cancel-light.png", "Prompt was not sent", absent=("UNCONFIRMED",))
+    if backend.query("terminalPrompts:list")[0].get("lastUsedAt") != before:
+        raise RuntimeError("Cancelling an unsent prompt changed its last-used time")
+    write_config(config, lambda value: value["native"]["terminalShells"].pop(platform_key()))
 
 
 def qualify_prompt_crud(driver, backend):

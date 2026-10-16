@@ -104,6 +104,10 @@ Terminal selection copies with Ctrl+Shift+C on Windows/Linux or Command+C on
 macOS; paste uses Ctrl+Shift+V or Command+V. Native committed Unicode and IME
 text enter through the platform input handler. An interrupted composition is
 retained as unsent input when its target loses focus.
+The Edit menu routes Copy, Paste, and Select All to the focused terminal.
+Select All selects the visible terminal output. A multiline confirmation takes
+keyboard focus; Enter confirms the paste and Escape cancels it, without sending
+that key to the shell.
 
 ## Implementation and qualification
 

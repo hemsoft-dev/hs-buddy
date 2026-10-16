@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use buddy_core::terminal::{
     InputError, InputStatus, InputTicket, Key, Modifiers, ScreenSnapshot, Session, SessionStatus,
 };
+use gpui_kit::base::input::{Copy as MenuCopy, Paste as MenuPaste, SelectAll as MenuSelectAll};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::{
@@ -58,6 +59,8 @@ pub struct TerminalGrid {
     screen: Arc<ScreenSnapshot>,
     revision: u64,
     focus: FocusHandle,
+    confirmation_focus: FocusHandle,
+    focus_confirmation: bool,
     visible: bool,
     selected: bool,
     bounds: Option<gpui_kit::Bounds<Pixels>>,
@@ -95,6 +98,8 @@ impl TerminalGrid {
             screen: Arc::new(snapshot.screen),
             revision: snapshot.revision,
             focus: cx.focus_handle(),
+            confirmation_focus: cx.focus_handle(),
+            focus_confirmation: false,
             visible: false,
             selected: false,
             bounds: None,
@@ -121,6 +126,7 @@ impl TerminalGrid {
             if let Some(paste) = self.confirmation.take() {
                 cx.emit(GridEvent::PasteNotSent { tag: paste.tag });
             }
+            self.focus_confirmation = false;
             self.dragging = false;
             if !self.composition.is_empty() {
                 self.unsent_text = Some(std::mem::take(&mut self.composition));
@@ -208,7 +214,10 @@ impl TerminalGrid {
                 self.status = Some("Waiting for the terminal write acknowledgement…".into());
                 self.selection = None;
             }
-            Err(InputError::ConfirmMultiline) => self.confirmation = Some(paste),
+            Err(InputError::ConfirmMultiline) => {
+                self.confirmation = Some(paste);
+                self.focus_confirmation = true;
+            }
             Err(error) => {
                 self.unsent_text = Some(paste.text);
                 self.status = Some(error.to_string());
@@ -246,6 +255,11 @@ impl TerminalGrid {
 
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !self.visible || !self.selected {
+            return;
+        }
+        if self.confirmation.is_some() {
+            window.focus(&self.confirmation_focus, cx);
+            cx.stop_propagation();
             return;
         }
         let stroke = &event.keystroke;
@@ -328,19 +342,32 @@ impl TerminalGrid {
 }
 
 impl Render for TerminalGrid {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.focus_confirmation && self.confirmation.is_some() {
+            window.focus(&self.confirmation_focus, cx);
+            self.focus_confirmation = false;
+        }
         let mut root = v_flex().size_full().min_h_0();
         if let Some(paste) = &self.confirmation {
             root = root.child(v_flex().gap_2().p_2().border_1().border_color(cx.theme().border)
+                .track_focus(&self.confirmation_focus).key_context("BuddyTerminalPaste")
+                .on_key_down(cx.listener(|this,event:&KeyDownEvent,window,cx| {
+                    match event.keystroke.key.as_str() {
+                        "escape"=>{if let Some(paste)=this.confirmation.take(){cx.emit(GridEvent::PasteNotSent{tag:paste.tag});}this.focus(window,cx);cx.stop_propagation();cx.notify();}
+                        "enter"|"return"=>{if this.visible&&this.selected&&let Some(paste)=this.confirmation.take(){this.send_paste(paste,true,cx);}this.focus(window,cx);cx.stop_propagation();cx.notify();}
+                        _=>{}
+                    }
+                }))
                 .child(format!("Paste {} lines? This shell does not bracket pastes, so line breaks may execute commands immediately.", paste.text.lines().count()))
                 .child(h_flex().gap_2()
-                    .child(Button::new("confirm-terminal-paste").label("Paste these lines").on_click(cx.listener(|this, _, _, cx| {
+                    .child(Button::new("confirm-terminal-paste").label("Paste these lines").on_click(cx.listener(|this, _, window, cx| {
                         if this.visible && this.selected && let Some(paste) = this.confirmation.take() {
                             this.send_paste(paste, true, cx);
+                            this.focus(window,cx);
                         }
                     })))
-                    .child(Button::new("cancel-terminal-paste").label("Cancel").on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(paste)=this.confirmation.take(){cx.emit(GridEvent::PasteNotSent{tag:paste.tag});} cx.notify();
+                    .child(Button::new("cancel-terminal-paste").label("Cancel").on_click(cx.listener(|this, _, window, cx| {
+                        if let Some(paste)=this.confirmation.take(){cx.emit(GridEvent::PasteNotSent{tag:paste.tag});} this.focus(window,cx);cx.notify();
                     })))));
         }
         let body = div()
@@ -354,7 +381,34 @@ impl Render for TerminalGrid {
             .aria_description(self.screen.text())
             .track_focus(&self.focus)
             .key_context("BuddyTerminal")
-            .on_action(cx.listener(|this, _: &ShellTab, _, cx| {
+            .on_action(cx.listener(|this, _: &MenuCopy, _, cx| {
+                if this.visible && this.selected {
+                    this.copy(cx);
+                }
+                cx.stop_propagation();
+            }))
+            .on_action(cx.listener(|this, _: &MenuPaste, _, cx| {
+                if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                    this.paste(text, None, false, cx);
+                }
+                cx.stop_propagation();
+            }))
+            .on_action(cx.listener(|this, _: &MenuSelectAll, _, cx| {
+                if this.visible && this.selected {
+                    let cells = usize::from(this.screen.size.columns())
+                        * usize::from(this.screen.size.rows());
+                    this.selection = Some((0, cells.saturating_sub(1)));
+                    this.status = Some("Visible terminal output selected.".into());
+                    cx.notify();
+                }
+                cx.stop_propagation();
+            }))
+            .on_action(cx.listener(|this, _: &ShellTab, window, cx| {
+                if this.confirmation.is_some() {
+                    window.focus(&this.confirmation_focus, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.visible
                     && this.selected
                     && this.composition.is_empty()
@@ -365,7 +419,12 @@ impl Render for TerminalGrid {
                 cx.stop_propagation();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ShellBackTab, _, cx| {
+            .on_action(cx.listener(|this, _: &ShellBackTab, window, cx| {
+                if this.confirmation.is_some() {
+                    window.focus(&this.confirmation_focus, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.visible
                     && this.selected
                     && this.composition.is_empty()
