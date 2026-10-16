@@ -79,6 +79,9 @@ jobs:
           swift package describe
           swift build --configuration release --product buddy-window-info
           cp .build/release/buddy-window-info "$RUNNER_TEMP/buddy-window-info"
+          swift build --configuration release --product buddy-ocr-words
+          cp .build/release/buddy-ocr-words "$RUNNER_TEMP/buddy-ocr-words"
+          printf 'BUDDY_SETTINGS_OCR_HELPER=%s\n' "$RUNNER_TEMP/buddy-ocr-words" >> "$GITHUB_ENV"
 
       - name: Install Windows OCR
         if: runner.os == 'Windows'

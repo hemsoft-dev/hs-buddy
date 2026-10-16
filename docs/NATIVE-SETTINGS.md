@@ -179,7 +179,11 @@ extra text and ambiguous glyphs fail. Full-window OCR can omit a correctly
 rendered focused input on both macOS and Linux.
 Label checks retain the original PNG and try Tesseract layouts plus a 3x
 analysis copy. When those miss a control, Windows uses its native OCR engine
-and macOS uses Vision through `macos-ocr-words.swift` on the same saved image.
+and macOS uses Vision through the compiled `buddy-ocr-words` Swift package
+product on the same saved image. Setup builds it once and exports its absolute
+path as `BUDDY_SETTINGS_OCR_HELPER`; image requests retain their 30-second limit
+without invoking the Swift interpreter. Punctuation-only OCR tokens are excluded
+from label spans, while distinct matching controls remain ambiguous.
 Both return coordinates in the original image and use the same exact-label
 rules. Competing visible matches stop the check before another engine can
 replace an ambiguous result. The image-only fallbacks need no desktop capture

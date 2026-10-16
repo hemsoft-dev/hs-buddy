@@ -6,11 +6,16 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "buddy-window-info", targets: ["BuddyWindowInfo"]),
+        .executable(name: "buddy-ocr-words", targets: ["BuddyOcrWords"]),
     ],
     targets: [
         .executableTarget(
             name: "BuddyWindowInfo",
             path: "scripts/native-smoke/macos-window-info"
+        ),
+        .executableTarget(
+            name: "BuddyOcrWords",
+            path: "scripts/native-smoke/macos-ocr-words"
         ),
     ]
 )

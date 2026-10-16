@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1420] - 2026-10-16
+
+### Changed
+
+- Compile native OCR once and ignore border tokens
+
 ## [0.1.1419] - 2026-10-16
 
 ### Fixed

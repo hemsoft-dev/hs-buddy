@@ -3,6 +3,7 @@ import argparse
 import csv
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -21,6 +22,9 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
     wanted = normalize(label)
     if not wanted:
         raise RuntimeError("A nonempty visible label is required")
+    # Borders and punctuation have no label characters. Keeping them in a
+    # span can count one word twice, such as Interrupt and Interrupt + '('.
+    words = [word for word in words if normalize(word["text"])]
     if field:
         try:
             heading = find_label(words, "Settings", exact_line=True)
@@ -96,7 +100,10 @@ def recognize_windows(image):
 
 
 def recognize_macos(image):
-    result = subprocess.run(["swift", str(Path(__file__).with_name("macos-ocr-words.swift")), str(image)],
+    helper = Path(os.environ.get("BUDDY_SETTINGS_OCR_HELPER", ""))
+    if not helper.is_absolute() or not helper.is_file():
+        raise RuntimeError("macOS OCR requires an existing absolute compiled helper")
+    result = subprocess.run([str(helper), str(image)],
         capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
     return json.loads(result.stdout)
 

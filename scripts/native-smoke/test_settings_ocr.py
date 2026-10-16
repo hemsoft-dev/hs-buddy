@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,37 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_border_punctuation_does_not_create_two_matches_for_one_interrupt_button(self):
+        words = [dict(text="Interrupt", left=499, top=151, width=61, height=30, line="16/1/1"),
+            dict(text="(", left=584, top=155, width=4, height=30, line="16/1/1"),
+            dict(text="Close", left=595, top=163, width=37, height=11, line="16/1/1"),
+            dict(text="shell", left=637, top=163, width=31, height=11, line="16/1/1")]
+        self.assertEqual(ocr.find_label(words, "Interrupt"), dict(left=499, top=151, width=61, height=30))
+
+    def test_punctuation_filter_never_combines_competing_controls(self):
+        words = [word("Interrupt", 140, 188, "one"), word("(", 172, 188, "one"),
+            word("Interrupt", 400, 188, "two"), word(")", 432, 188, "two")]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Interrupt")
+
+    def test_macos_ocr_runs_the_declared_compiled_helper_without_swift_interpretation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            helper, image = Path(folder) / "buddy-ocr-words", Path(folder) / "owned.png"
+            helper.write_bytes(b"synthetic prepared helper")
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(helper)}), \
+                    patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")) as run:
+                self.assertEqual(ocr.recognize_macos(image), [])
+            self.assertEqual(run.call_args.args[0], [str(helper), str(image)])
+            self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
+    def test_missing_prepared_macos_helper_fails_before_spawning_a_process(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(Path(folder) / "missing")}), \
+                    patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")) as run:
+                with self.assertRaisesRegex(RuntimeError, "compiled"):
+                    ocr.recognize_macos(Path(folder) / "owned.png")
+            run.assert_not_called()
+
     def test_macos_native_ocr_uses_the_untouched_capture_and_same_label_rules(self):
         native = [dict(text="Run and save", left=197, top=760, width=86, height=13, line="save")]
         with tempfile.TemporaryDirectory() as folder:

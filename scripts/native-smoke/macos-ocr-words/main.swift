@@ -1,4 +1,4 @@
-// Headless OCR of a supplied image file. No window capture or input APIs.
+// Compiled headless OCR of a supplied image file. No window capture or input APIs.
 import Foundation
 import ImageIO
 import Vision
