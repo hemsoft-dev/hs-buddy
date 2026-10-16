@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1416] - 2026-10-16
+
+### Changed
+
+- Add native OCR fallback for missed controls
+
 ## [0.1.1415] - 2026-10-16
 
 ### Changed

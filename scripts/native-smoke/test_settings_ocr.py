@@ -16,6 +16,85 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_macos_native_ocr_uses_the_untouched_capture_and_same_label_rules(self):
+        native = [dict(text="Run and save", left=197, top=760, width=86, height=13, line="save")]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "owned.png"
+            image.write_bytes(b"untouched original capture")
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "darwin"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_macos", return_value=native) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                self.assertEqual(ocr.locate_image(image, "Run and save"),
+                    dict(left=197, top=760, width=86, height=13))
+            recognize_native.assert_called_once_with(image)
+            self.assertEqual(image.read_bytes(), b"untouched original capture")
+
+    def test_macos_native_fallback_cannot_select_between_competing_controls(self):
+        duplicate = [word("Refresh", 140, 188, "one"), word("Refresh", 400, 188, "two")]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "darwin"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_macos", return_value=duplicate) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            recognize_native.assert_called_once()
+
+    def test_windows_native_ocr_recovers_a_legible_button_missed_by_tesseract(self):
+        missed = [word("response", 359, 724, "cancel")]
+        native = [dict(text="Run and save", left=201, top=721, width=81, height=10, line="save")]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "owned.png"
+            image.write_bytes(b"untouched original capture")
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "win32"), \
+                    patch.object(ocr, "recognize", return_value=missed), \
+                    patch.object(ocr, "recognize_windows", return_value=native, create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                self.assertEqual(ocr.locate_image(image, "Run and save"),
+                    dict(left=201, top=721, width=81, height=10))
+            recognize_native.assert_called_once_with(image)
+            self.assertEqual(image.read_bytes(), b"untouched original capture")
+
+    def test_an_ambiguous_engine_result_cannot_be_replaced_by_a_later_unique_result(self):
+        duplicate = [word("Refresh", 140, 188, "one"), word("Refresh", 400, 188, "two")]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "win32"), \
+                    patch.object(ocr, "recognize", return_value=duplicate) as recognize, \
+                    patch.object(ocr, "recognize_windows", return_value=duplicate[:1], create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            self.assertEqual(recognize.call_count, 1)
+            recognize_native.assert_not_called()
+
+    def test_windows_native_fallback_keeps_competing_controls_ambiguous(self):
+        duplicate = [word("Refresh", 140, 188, "one"), word("Refresh", 400, 188, "two")]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "win32"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_windows", return_value=duplicate, create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            recognize_native.assert_called_once()
+
+    def test_non_windows_hosts_never_invoke_the_windows_fallback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "linux"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_windows", create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            recognize_native.assert_not_called()
+
     def test_tesseract_literal_quotes_do_not_consume_following_tsv_rows(self):
         output = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
             "5\t1\t1\t1\t1\t1\t10\t10\t8\t10\t90\t\"y\n"

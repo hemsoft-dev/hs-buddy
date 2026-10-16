@@ -177,6 +177,13 @@ adjacent Save glyph's measured pixel bounds to exclude its focus border. The
 analysis is scaled with nearest-neighbor pixels and must read the exact draft;
 extra text and ambiguous glyphs fail. Full-window OCR can omit a correctly
 rendered focused input on both macOS and Linux.
+Label checks retain the original PNG and try Tesseract layouts plus a 3x
+analysis copy. When those miss a control, Windows uses its native OCR engine
+and macOS uses Vision through `macos-ocr-words.swift` on the same saved image.
+Both return coordinates in the original image and use the same exact-label
+rules. Competing visible matches stop the check before another engine can
+replace an ambiguous result. The image-only fallbacks need no desktop capture
+or input permissions.
 The fixture tabs out after entering its last draft so a blinking insertion
 caret cannot be mistaken for an additional letter in the captured value.
 The backend fixture snapshots its generated selector after the CLI reports
