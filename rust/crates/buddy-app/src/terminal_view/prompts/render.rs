@@ -209,32 +209,38 @@ impl Render for PromptView {
                 let insert = prompt.clone();
                 let copy = prompt.content.clone();
                 body = body.child(
-                    h_flex()
-                        .flex_wrap()
+                    v_flex()
                         .gap_2()
-                        .child(div().flex_1().min_w_0().child(prompt.title.clone()))
+                        .child(div().whitespace_normal().child(prompt.title.clone()))
                         .child(
-                            Button::new(format!("terminal-prompt-insert-{index}"))
-                                .label("Insert + copy")
-                                .disabled(!can_insert)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.insert(insert.clone(), cx)
-                                })),
-                        )
-                        .child(
-                            Button::new(format!("terminal-prompt-copy-{index}"))
-                                .label("Copy")
-                                .on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                                }),
-                        )
-                        .child(
-                            Button::new(format!("terminal-prompt-edit-{index}"))
-                                .label("Edit prompt")
-                                .disabled(blocked)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.edit(Some(edit.clone()), cx)
-                                })),
+                            h_flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .child(
+                                    Button::new(format!("terminal-prompt-insert-{index}"))
+                                        .label("Insert + copy")
+                                        .disabled(!can_insert)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.insert(insert.clone(), cx)
+                                        })),
+                                )
+                                .child(
+                                    Button::new(format!("terminal-prompt-copy-{index}"))
+                                        .label("Copy")
+                                        .on_click(move |_, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                copy.clone(),
+                                            ))
+                                        }),
+                                )
+                                .child(
+                                    Button::new(format!("terminal-prompt-edit-{index}"))
+                                        .label("Edit prompt")
+                                        .disabled(blocked)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.edit(Some(edit.clone()), cx)
+                                        })),
+                                ),
                         ),
                 );
             }
