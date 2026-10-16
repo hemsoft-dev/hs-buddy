@@ -51,7 +51,7 @@ impl EventEmitter<PromptEvent> for PromptView {}
 
 impl PromptView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let title = cx.new(|cx| InputState::new(window, cx).placeholder("Prompt name"));
+        let title = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. Build project"));
         let content = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder("Prompt text. Inserting never adds Enter.")
         });

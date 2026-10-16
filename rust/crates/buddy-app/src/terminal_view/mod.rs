@@ -4,6 +4,8 @@ mod io;
 mod organization;
 mod prompts;
 mod sessions;
+#[cfg(test)]
+mod tests;
 mod workspace;
 
 use std::collections::BTreeMap;

@@ -78,35 +78,75 @@ impl PromptView {
             return;
         }
         let deployment = backend.deployment().to_string();
-        self.run(cx,async move {
-            let local=tokio::task::spawn_blocking(move|| {
-                let mut restored=None;
-                let path=buddy_core::config::config_path().map_err(|_|"The prompt recovery location is unavailable.".to_string())?;
-                let (store,snapshot)=RecoveryStore::open(&path,&deployment,JournalKind::Prompts,|bytes| {
-                    match PromptRecovery::restore(&deployment,bytes){Ok(record)=>{restored=Some(record);true},Err(_)=>false}
-                }).map_err(|error|error.to_string())?;
-                Ok::<_,String>((Arc::new(store),snapshot.needs_recovery,restored))
-            });
-            let (local,remote)=tokio::join!(local,backend.load_prompts());(local,remote)
-        },|this,(local,remote),cx| {
-            this.loading=false;this.initialized=true;
-            match local {
-                Ok(Ok((store,unsupported,record)))=>{
-                    this.store=Some(store);this.unsupported=unsupported;
-                    this.record=record.or_else(||this.backend.as_ref().and_then(|backend|PromptRecovery::new(backend.deployment()).ok()));
-                    this.populate=true;
-                    if unsupported {this.error=Some("The existing prompt recovery format needs attention. Retain its original before replacing it.".into());}
-                    else if this.record.as_ref().is_some_and(|record|record.pending.is_some()||record.paste.is_some()) {
-                        this.status=Some("A prompt action was recovered. Retry the saved write explicitly; terminal insertion is never replayed.".into());
-                    }
+        self.run(
+            cx,
+            async move {
+                let local = tokio::task::spawn_blocking(move || {
+                    let mut restored = None;
+                    let path = buddy_core::config::config_path()
+                        .map_err(|_| "The prompt recovery location is unavailable.".to_string())?;
+                    let (store, snapshot) =
+                        RecoveryStore::open(&path, &deployment, JournalKind::Prompts, |bytes| {
+                            match PromptRecovery::restore(&deployment, bytes) {
+                                Ok(record) => {
+                                    restored = Some(record);
+                                    true
+                                }
+                                Err(_) => false,
+                            }
+                        })
+                        .map_err(|error| error.to_string())?;
+                    Ok::<_, String>((Arc::new(store), snapshot.needs_recovery, restored))
+                });
+                let (local, remote) = tokio::join!(local, backend.load_prompts());
+                (local, remote)
+            },
+            |this, (local, remote), cx| {
+                this.loading = false;
+                this.finish_recovery_load(
+                    local.unwrap_or_else(|_| {
+                        Err("The prompt recovery reader did not finish.".into())
+                    }),
+                );
+                match remote {
+                    Ok(prompts) => this.prompts = prompts,
+                    Err(error) => this.error = Some(error.to_string()),
                 }
-                Ok(Err(error))=>this.error=Some(error),
-                Err(_)=>this.error=Some("The prompt recovery reader did not finish.".into()),
+                // Loading is read-only. Neither recovered writes nor insertions run here.
+                cx.notify();
+            },
+        );
+    }
+
+    pub(super) fn finish_recovery_load(
+        &mut self,
+        local: Result<(Arc<RecoveryStore>, bool, Option<PromptRecovery>), String>,
+    ) {
+        self.initialized = false;
+        match local {
+            Ok((store, unsupported, record)) => {
+                self.store = Some(store);
+                self.unsupported = unsupported;
+                self.record = record.or_else(|| {
+                    self.backend
+                        .as_ref()
+                        .and_then(|backend| PromptRecovery::new(backend.deployment()).ok())
+                });
+                self.initialized = self.record.is_some();
+                self.error = None;
+                self.populate = true;
+                if unsupported {
+                    self.error=Some("The existing prompt recovery format needs attention. Retain its original before replacing it.".into());
+                } else if self
+                    .record
+                    .as_ref()
+                    .is_some_and(|record| record.pending.is_some() || record.paste.is_some())
+                {
+                    self.status=Some("A prompt action was recovered. Retry the saved write explicitly; terminal insertion is never replayed.".into());
+                }
             }
-            match remote {Ok(prompts)=>this.prompts=prompts,Err(error)=>this.error=Some(error.to_string())}
-            // Loading is read-only. Neither recovered writes nor insertions run here.
-            cx.notify();
-        });
+            Err(error) => self.error = Some(error),
+        }
     }
 
     pub(super) fn queue(&mut self, cx: &mut Context<Self>) {
@@ -195,19 +235,52 @@ impl PromptView {
         self.write_ready = None;
         self.write_busy = true;
         self.error = None;
-        self.run(cx,async move{backend.write_prompt(&request).await},move|this,result,cx| {
-            this.write_busy=false;
-            let Some(record)=this.record.as_mut().filter(|record|record.pending.as_ref().is_some_and(|request|request.id()==id)) else{return};
-            match result {
-                Ok(receipt)=>{
-                    record.pending=None;
-                    if receipt.status!=PromptWriteStatus::Conflict {record.draft=None;this.status=Some("Prompt write acknowledged. Reloading the current list…".into());}
-                    else{this.error=Some("The prompt changed elsewhere. Your draft is retained. Reload and compare before editing again.".into());}
-                    this.delete_confirm=false;this.queue(cx);this.load(cx);
+        self.run(
+            cx,
+            async move { backend.write_prompt(&request).await },
+            move |this, result, cx| this.finish_write(id, result, cx),
+        );
+    }
+
+    pub(super) fn finish_write(
+        &mut self,
+        id: uuid::Uuid,
+        result: Result<
+            buddy_core::terminal_prompts::PromptReceipt,
+            buddy_core::terminal_backend::BackendError,
+        >,
+        cx: &mut Context<Self>,
+    ) {
+        self.write_busy = false;
+        let Some(record) = self.record.as_mut().filter(|record| {
+            record
+                .pending
+                .as_ref()
+                .is_some_and(|request| request.id() == id)
+        }) else {
+            return;
+        };
+        match result {
+            Ok(receipt) => {
+                record.pending = None;
+                if receipt.status != PromptWriteStatus::Conflict {
+                    record.draft = None;
+                    self.status =
+                        Some("Prompt write acknowledged. Reloading the current list…".into());
+                } else {
+                    self.error=Some("The prompt changed elsewhere. Your draft is retained. Reload and compare before editing again.".into());
                 }
-                Err(error)=>{this.error=Some(format!("{error} The immutable request is retained. Retry it explicitly."));this.queue(cx);}
+                self.delete_confirm = false;
+                self.queue(cx);
+                self.load(cx);
             }
-        });
+            Err(error) => {
+                self.error = Some(format!(
+                    "{error} The immutable request is retained. Retry it explicitly."
+                ));
+                self.queue(cx);
+            }
+        }
     }
 
     fn send_paste(&mut self, id: uuid::Uuid, cx: &mut Context<Self>) {

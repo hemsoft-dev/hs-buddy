@@ -93,7 +93,7 @@ impl TerminalView {
                             this.edit_workspace(
                                 |document| document.move_workspace(&root_id, None, root_order),
                                 cx,
-                            )
+                            );
                         })),
                 ),
         );
@@ -117,7 +117,7 @@ impl TerminalView {
                         this.edit_workspace(
                             |document| document.recolor_workspace(&workspace, color),
                             cx,
-                        )
+                        );
                     })),
             );
         }
@@ -146,7 +146,7 @@ impl TerminalView {
                                 document.move_workspace(&workspace, parent.as_deref(), order)
                             },
                             cx,
-                        )
+                        );
                     })),
             );
         }
@@ -183,7 +183,7 @@ impl TerminalView {
                                     document.move_workspace(&workspace, Some(&parent), order)
                                 },
                                 cx,
-                            )
+                            );
                         })),
                 );
             }

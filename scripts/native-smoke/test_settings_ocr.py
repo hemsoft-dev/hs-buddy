@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,37 @@ def word(text, left, top, line):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_tesseract_literal_quotes_do_not_consume_following_tsv_rows(self):
+        output = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t10\t10\t8\t10\t90\t\"y\n"
+            "5\t1\t2\t1\t1\t1\t100\t50\t30\t12\t90\tSave\n"
+            "5\t1\t2\t1\t1\t2\t136\t50\t60\t12\t90\tdirectory\n")
+        with patch.object(ocr.shutil, "which", return_value="tesseract"), patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=output)):
+            words = ocr.recognize(Path("owned-capture.png"))
+        self.assertEqual([item["text"] for item in words], ['"y', "Save", "directory"])
+        self.assertEqual(ocr.locate_label(words, "Save directory")["left"], 100)
+
+    def test_scaled_label_analysis_returns_original_window_coordinates_and_keeps_ambiguity_guards(self):
+        scaled = [dict(text="Save", left=300, top=600, width=90, height=36, line="1"),
+            dict(text="directory", left=408, top=600, width=180, height=36, line="1")]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "owned.png"
+            image.write_bytes(b"untouched original capture")
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr, "recognize", side_effect=[[], [], [], scaled]) as recognize, \
+                    patch.object(ocr.subprocess, "run") as scale:
+                self.assertEqual(ocr.locate_image(image, "Save directory"), dict(left=100, top=200, width=96, height=12))
+            self.assertEqual(image.read_bytes(), b"untouched original capture")
+            self.assertIn("scale=iw*3:ih*3:flags=neighbor", scale.call_args.args[0])
+            self.assertEqual(recognize.call_args.args[1], 11)
+            duplicate = scaled + [dict(text="Save", left=900, top=600, width=90, height=36, line="2"),
+                dict(text="directory", left=1008, top=600, width=180, height=36, line="2")]
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr, "recognize", side_effect=[[], [], [], duplicate]), \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(image, "Save directory")
+
     def test_button_label_wins_over_the_same_word_in_status_prose(self):
         words = [word("Refresh", 142, 188, "button"),
             word("Comment", 64, 282, "status"), word("posted.", 99, 282, "status"),

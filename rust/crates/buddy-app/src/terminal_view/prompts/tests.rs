@@ -35,6 +35,51 @@ fn prompt() -> Prompt {
         sort_order: None,
     }
 }
+
+#[gpui_kit::test]
+fn prompt_recovery_open_failure_can_retry_and_restore_the_original_draft(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let view = view(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let (store, _) = buddy_core::terminal_recovery::RecoveryStore::open(
+        &directory.path().join("config.json"),
+        "https://example.convex.cloud",
+        buddy_core::terminal_recovery::JournalKind::Prompts,
+        |_| true,
+    )
+    .unwrap();
+    let mut recovered = PromptRecovery::new("https://example.convex.cloud").unwrap();
+    recovered.draft = Some(PromptDraft {
+        original: None,
+        title: "Recovered".into(),
+        content: "kept after retry 資料".into(),
+    });
+    cx.update(|cx| {
+        view.update(cx, |view, _| {
+            view.initialized = false;
+            view.record = None;
+            view.backend = Some(TerminalBackend::new("https://example.convex.cloud").unwrap());
+            view.finish_recovery_load(Err("Recovery file is temporarily unreadable".into()));
+            assert!(!view.initialized);
+            assert!(view.record.is_none());
+            assert!(view.store.is_none());
+            view.finish_recovery_load(Ok((Arc::new(store), false, Some(recovered))));
+            assert!(view.initialized);
+            assert!(view.store.is_some());
+            assert_eq!(
+                view.record
+                    .as_ref()
+                    .unwrap()
+                    .draft
+                    .as_ref()
+                    .unwrap()
+                    .content,
+                "kept after retry 資料"
+            );
+        })
+    });
+}
 fn registry() -> SessionRegistry<()> {
     let document=WorkspaceDocument::restore(Arc::from(&br#"{"nodes":[{"id":"w","name":"Work","sortOrder":0,"layout":{"type":"pane","id":"p","cwd":""}}],"activeNodeId":"w"}"#[..])).unwrap();
     let mut registry = SessionRegistry::default();
@@ -156,5 +201,33 @@ fn editing_disabled_fields_cannot_change_a_captured_prompt_request(
                 })
             })
             .unwrap();
+    });
+}
+
+#[gpui_kit::test]
+fn an_update_to_a_deleted_prompt_keeps_the_edited_text_in_recovery(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let view = view(cx);
+    cx.update(|cx| {
+        cx.windows()[0].update(cx, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                view.edit(Some(prompt()), cx);
+                drop(view.render(window, cx));
+                let edited = "unsaved edited text\n資料界é";
+                view.content.update(cx, |input, cx| input.set_value(edited, window, cx));
+                view.retain_draft(cx);
+                view.save(false, cx);
+                let request = view.record.as_ref().unwrap().pending.clone().unwrap();
+                let receipt = request.receipt(serde_json::json!({"status":"deleted","id":"opaque-prompt","revision":0})).unwrap();
+                view.finish_write(request.id(), Ok(receipt), cx);
+                let record = view.record.as_ref().unwrap();
+                assert!(record.pending.is_none());
+                assert_eq!(record.draft.as_ref().expect("edited draft must remain").content, edited);
+                assert!(view.error.as_ref().unwrap().contains("draft is retained"));
+                let restored = PromptRecovery::restore("https://example.convex.cloud", &record.bytes().unwrap()).unwrap();
+                assert_eq!(restored.draft.unwrap().content, edited);
+            });
+        }).unwrap();
     });
 }

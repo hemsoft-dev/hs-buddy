@@ -253,6 +253,9 @@ impl PromptRequest {
             revision,
             status: match status {
                 "saved" => PromptWriteStatus::Saved,
+                "deleted" if matches!(&self.operation, Operation::Update { .. }) => {
+                    PromptWriteStatus::Conflict
+                }
                 "deleted" => PromptWriteStatus::Deleted,
                 _ => PromptWriteStatus::Conflict,
             },
@@ -330,6 +333,23 @@ mod tests {
                 .unwrap()
                 .status,
             PromptWriteStatus::Conflict
+        );
+    }
+
+    #[test]
+    fn deletion_is_a_conflict_for_an_update_but_acknowledges_a_removal() {
+        let update =
+            PromptRequest::update(&prompt(), "Edited".into(), "retained draft 資料".into())
+                .unwrap();
+        let deleted = json!({"status":"deleted","id":"opaque:prompt","revision":0});
+        assert_eq!(
+            update.receipt(deleted.clone()).unwrap().status,
+            PromptWriteStatus::Conflict
+        );
+        let remove = PromptRequest::remove(&prompt()).unwrap();
+        assert_eq!(
+            remove.receipt(deleted).unwrap().status,
+            PromptWriteStatus::Deleted
         );
     }
 

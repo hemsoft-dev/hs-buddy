@@ -18,6 +18,9 @@ struct LocalLoad {
     error: Option<String>,
 }
 
+#[cfg(test)]
+mod tests;
+
 fn local_load(deployment: &str) -> LocalLoad {
     let mut restored = None;
     let open = buddy_core::config::config_path()
@@ -75,63 +78,114 @@ impl TerminalView {
         }
         self.status = Some("Loading saved workspaces and local recovery…".into());
         let deployment = backend.deployment().to_string();
-        self.run(cx, async move {
-            let local = tokio::task::spawn_blocking(move || local_load(&deployment));
-            let (local, remote) = tokio::join!(local, backend.load_workspace());
-            let local = local.unwrap_or_else(|_| LocalLoad { store: None, editor: None, unsupported: false,
-                error: Some("The local recovery reader did not finish.".into()) });
-            (local, remote)
-        }, move |this, (local, remote), cx| {
-            if this.load_ticket != ticket { return; }
-            this.loading = false; this.initialized = true;
-            this.store = local.store; this.unsupported_recovery = local.unsupported;
-            this.error = local.error;
-            let backend = this.backend.as_ref().expect("bound backend");
-            let deployment = backend.deployment().to_string();
-            let snapshot = match remote {
-                Ok(snapshot) => Some(snapshot),
-                Err(error) => { this.error = Some(error.to_string()); None }
-            };
-            if this.unsupported_recovery {
-                this.remote = snapshot;
-                this.status = Some("A local recovery file needs attention. Retain its original before replacing it.".into());
-                return;
+        self.run(
+            cx,
+            async move {
+                let local = tokio::task::spawn_blocking(move || local_load(&deployment));
+                let (local, remote) = tokio::join!(local, backend.load_workspace());
+                let local = local.unwrap_or_else(|_| LocalLoad {
+                    store: None,
+                    editor: None,
+                    unsupported: false,
+                    error: Some("The local recovery reader did not finish.".into()),
+                });
+                (local, remote)
+            },
+            move |this, (local, remote), cx| {
+                if this.load_ticket != ticket {
+                    return;
+                }
+                this.finish_initial_load(local, remote, cx);
+            },
+        );
+    }
+
+    fn finish_initial_load(
+        &mut self,
+        local: LocalLoad,
+        remote: Result<WorkspaceSnapshot, buddy_core::terminal_backend::BackendError>,
+        cx: &mut Context<Self>,
+    ) {
+        self.loading = false;
+        self.initialized = local.store.is_some();
+        self.store = local.store;
+        self.unsupported_recovery = local.unsupported;
+        self.error = local.error;
+        if !self.initialized {
+            self.status = Some(
+                "Local recovery is unavailable. Reload to retry before editing workspaces.".into(),
+            );
+            return;
+        }
+        let backend = self.backend.as_ref().expect("bound backend");
+        let deployment = backend.deployment().to_string();
+        let snapshot = match remote {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => {
+                self.error = Some(error.to_string());
+                None
             }
-            match (local.editor, snapshot) {
-                (Some(editor), Some(snapshot)) if editor.status() != SaveStatus::Clean => {
-                    this.editor = Some(editor); this.remote = Some(snapshot); this.backend_checked = false;
-                    this.status = Some("A local draft was recovered. Choose how to reconcile it with the saved layout.".into());
-                }
-                (_, Some(snapshot)) => {
-                    this.editor = WorkspaceEditor::new(&deployment, snapshot).ok(); this.backend_checked = true;
-                    this.status = Some("Saved workspace loaded.".into());
-                }
-                (Some(editor), None) => {
-                    this.editor = Some(editor); this.backend_checked = false;
-                    this.status = Some("Local workspace recovered. Reload the service before saving shared changes.".into());
-                }
-                (None, None) => {
-                    let document = WorkspaceDocument::restore(Arc::from(&b"null"[..])).expect("empty workspace");
-                    this.editor = WorkspaceEditor::new(&deployment, WorkspaceSnapshot { document, revision: 0 }).ok();
-                    this.backend_checked = false;
-                    this.status = Some("Work locally. Reload and compare before saving to the workspace service.".into());
-                }
+        };
+        if self.unsupported_recovery {
+            self.remote = snapshot;
+            self.status = Some(
+                "A local recovery file needs attention. Retain its original before replacing it."
+                    .into(),
+            );
+            return;
+        }
+        match (local.editor, snapshot) {
+            (Some(editor), Some(snapshot)) if editor.status() != SaveStatus::Clean => {
+                self.editor = Some(editor);
+                self.remote = Some(snapshot);
+                self.backend_checked = false;
+                self.status = Some("A local draft was recovered. Choose how to reconcile it with the saved layout.".into());
             }
-            this.populate_fields = true;
-            this.synchronize_sessions(cx);
-            this.queue_journal(cx);
-        });
+            (_, Some(snapshot)) => {
+                self.editor = WorkspaceEditor::new(&deployment, snapshot).ok();
+                self.backend_checked = true;
+                self.status = Some("Saved workspace loaded.".into());
+            }
+            (Some(editor), None) => {
+                self.editor = Some(editor);
+                self.backend_checked = false;
+                self.status = Some(
+                    "Local workspace recovered. Reload the service before saving shared changes."
+                        .into(),
+                );
+            }
+            (None, None) => {
+                let document =
+                    WorkspaceDocument::restore(Arc::from(&b"null"[..])).expect("empty workspace");
+                self.editor = WorkspaceEditor::new(
+                    &deployment,
+                    WorkspaceSnapshot {
+                        document,
+                        revision: 0,
+                    },
+                )
+                .ok();
+                self.backend_checked = false;
+                self.status = Some(
+                    "Work locally. Reload and compare before saving to the workspace service."
+                        .into(),
+                );
+            }
+        }
+        self.populate_fields = true;
+        self.synchronize_sessions(cx);
+        self.queue_journal(cx);
     }
 
     pub(super) fn edit_workspace(
         &mut self,
         edit: impl FnOnce(&WorkspaceDocument) -> Result<WorkspaceDocument, LayoutError>,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let Some(editor) = self.editor.as_mut() else {
-            return;
+            return false;
         };
-        match edit(editor.document()).and_then(|document| {
+        let changed = match edit(editor.document()).and_then(|document| {
             editor.edit(document).map_err(|_| LayoutError {
                 path: "$".into(),
                 reason: "workspace edit could not be retained",
@@ -142,10 +196,15 @@ impl TerminalView {
                 self.synchronize_sessions(cx);
                 self.prepare_save(cx);
                 self.queue_journal(cx);
+                true
             }
-            Err(error) => self.error = Some(error.to_string()),
-        }
+            Err(error) => {
+                self.error = Some(error.to_string());
+                false
+            }
+        };
         cx.notify();
+        changed
     }
 
     pub(super) fn prepare_save(&mut self, cx: &mut Context<Self>) {

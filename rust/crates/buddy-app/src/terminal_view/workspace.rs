@@ -270,7 +270,10 @@ impl TerminalView {
                         this.populate_fields = true;
                         match action {
                             "widen" => {
-                                this.edit_workspace(|document| document.resize_pane(&pane, 0.6), cx)
+                                this.edit_workspace(
+                                    |document| document.resize_pane(&pane, 0.6),
+                                    cx,
+                                );
                             }
                             "interrupt" => {
                                 this.focus_grid = true;
@@ -299,10 +302,7 @@ impl TerminalView {
                                 this.update_grid_visibility(cx);
                             }
                             direction => {
-                                this.focus_grid = true;
-                                let next = uuid::Uuid::new_v4().to_string();
-                                this.selected_pane = Some(next.clone());
-                                this.edit_workspace(|d| d.split_pane(&pane, &next, direction), cx);
+                                this.split_selected_pane(&pane, direction, cx);
                             }
                         }
                         this.update_grid_visibility(cx);
@@ -311,6 +311,21 @@ impl TerminalView {
             );
         }
         actions.into_any_element()
+    }
+
+    pub(super) fn split_selected_pane(
+        &mut self,
+        pane: &str,
+        direction: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let next = uuid::Uuid::new_v4().to_string();
+        if self.edit_workspace(|document| document.split_pane(pane, &next, direction), cx) {
+            self.selected_pane = Some(next);
+            self.populate_fields = true;
+            self.focus_grid = true;
+            self.update_grid_visibility(cx);
+        }
     }
 
     fn pane(&self, layout: &Value, cx: &mut Context<Self>) -> AnyElement {
