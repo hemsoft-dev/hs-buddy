@@ -1,7 +1,9 @@
 import importlib.util
 import json
 from pathlib import Path
+import socket
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -11,6 +13,16 @@ spec.loader.exec_module(backend)
 
 
 class GitHubBackendTests(unittest.TestCase):
+    def test_loopback_server_serves_real_requests_without_hostname_discovery(self):
+        with patch.object(socket, "getfqdn", side_effect=AssertionError("The numeric loopback fixture must not discover local hostnames")):
+            with backend.GitHubBackend() as server:
+                self.assertEqual(server.server.server_address[0], "127.0.0.1")
+                self.assertEqual(server.server.server_name, "127.0.0.1")
+                self.assertGreater(server.server.server_port, 0)
+                status, response, _ = self.request(server, "/users/fixture-author")
+                self.assertEqual((status, response["login"]), (200, "fixture-author"))
+                self.assertEqual(len(server.requests), 1)
+
     def request(self, server, path, body=None, account="fixture-one"):
         request = Request(server.url.rstrip("/") + path,
             data=None if body is None else json.dumps(body).encode(),

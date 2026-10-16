@@ -393,10 +393,7 @@ impl GitHubView {
             item = item.child(
                 Button::new(format!("github-item-{index}"))
                     .label(row.title.clone())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        crate::logging::fixture_row_click(index);
-                        this.navigate(route.clone(), cx)
-                    })),
+                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(route.clone(), cx))),
             );
         } else {
             item = item.child(

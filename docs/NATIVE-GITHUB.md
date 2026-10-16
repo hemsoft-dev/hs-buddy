@@ -97,6 +97,11 @@ empty data, both themes, keyboard navigation, and compact windows.
 Each backend reserves fresh loopback ports and preserves its owned project-local
 database outside the checkout after shutdown, giving consecutive fixtures fresh
 state. Existing deployment selectors or local databases are preserved and refused.
+The synthetic GitHub server binds directly to numeric `127.0.0.1` and keeps that
+numeric server name instead of resolving a hostname. Python's default HTTP server
+lookup opened a macOS local-network permission dialog that covered app controls
+while window-only captures hid the dialog. A real loopback HTTP regression
+forbids hostname discovery; qualification needs no local-network privacy grant.
 GitHub evidence records the installed executable's exact CLI version and SHA-256;
 the GitHub screen itself has no visible version label.
 Tab locators use the toolbar context, and qualification requires the underlying
@@ -119,13 +124,6 @@ the combined session state. Audio drafts are read back before Save; failed
 exits retain the owned window, input state, and sampled native stacks.
 Mac input receipts include event-posting access, pointer/button state, and the
 focused accessibility element's role and geometry. They never read field values.
-The opted-in CI fixture also records mouse events at GPUI's capture phase and
-row-click callbacks. The observer paints before the app's controls so their
-capture handlers cannot hide events from it. Trace output errors do not interrupt
-event handling. It requires `GITHUB_ACTIONS=true`, `BUDDY_SETTINGS_FIXTURE=1`, and
-`BUDDY_NATIVE_INPUT_TRACE=1`. Each process logs at
-most 2,048 records containing mouse geometry, buttons, modifiers, or row indices.
-It does not record keyboard events or field values and does not consume input.
 Audio draft captures move keyboard focus past Save before the exact readback;
 its focus outline otherwise hides the Save glyphs used to measure the editor.
 Headless view tests run fake I/O on GPUI's deterministic scheduler. Production

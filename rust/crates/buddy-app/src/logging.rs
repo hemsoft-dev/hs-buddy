@@ -6,69 +6,7 @@
 //! monorepo layout). Paths into the registry have none, so those records
 //! arrive with an empty target and are matched by source file instead.
 
-use gpui_kit::{
-    DispatchPhase, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Styled, canvas,
-};
 use log::{Level, Log, Metadata, Record};
-use std::io::Write as _;
-use std::sync::{
-    OnceLock,
-    atomic::{AtomicUsize, Ordering},
-};
-
-fn fixture_input_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
-            && std::env::var("BUDDY_SETTINGS_FIXTURE").as_deref() == Ok("1")
-            && std::env::var("BUDDY_NATIVE_INPUT_TRACE").as_deref() == Ok("1")
-    })
-}
-
-fn fixture_input_record(kind: &str, event: &dyn std::fmt::Debug) {
-    static RECORDS: AtomicUsize = AtomicUsize::new(0);
-    if fixture_input_enabled() && RECORDS.fetch_add(1, Ordering::Relaxed) < 2048 {
-        let _ = writeln!(
-            std::io::stderr().lock(),
-            "[native-fixture-input] pid={} {kind} {event:?}",
-            std::process::id()
-        );
-    }
-}
-
-/// Observe mouse geometry and buttons only. Never inspect keys or field values.
-/// Capture-phase registration observes events before a child can consume them.
-pub fn fixture_mouse_listener() -> impl IntoElement {
-    canvas(
-        |_, _, _| {},
-        |_, _, window, _| {
-            if !fixture_input_enabled() {
-                return;
-            }
-            window.on_mouse_event(|event: &MouseMoveEvent, phase, _, _| {
-                if phase == DispatchPhase::Capture {
-                    fixture_input_record("move", event);
-                }
-            });
-            window.on_mouse_event(|event: &MouseDownEvent, phase, _, _| {
-                if phase == DispatchPhase::Capture {
-                    fixture_input_record("down", event);
-                }
-            });
-            window.on_mouse_event(|event: &MouseUpEvent, phase, _, _| {
-                if phase == DispatchPhase::Capture {
-                    fixture_input_record("up", event);
-                }
-            });
-        },
-    )
-    .absolute()
-    .size_0()
-}
-
-pub fn fixture_row_click(index: usize) {
-    fixture_input_record("row-click", &index);
-}
 
 /// Debug builds of `gpui-pre-windows` probe the DXGI debug layer
 /// (`directx_devices.rs`). Without the Windows "Graphics Tools" optional

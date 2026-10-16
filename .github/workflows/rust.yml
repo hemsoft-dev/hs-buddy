@@ -55,7 +55,6 @@ jobs:
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: 4
       PYTHONDONTWRITEBYTECODE: '1'
-      BUDDY_NATIVE_INPUT_TRACE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
