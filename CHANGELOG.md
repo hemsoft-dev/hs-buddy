@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1405] - 2026-10-16
+
+### Fixed
+
+- Preserve uncertain save retries during layout reconciliation
+
 ## [0.1.1404] - 2026-10-16
 
 ### Fixed

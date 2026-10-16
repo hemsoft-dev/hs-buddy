@@ -288,7 +288,11 @@ impl TerminalView {
             self.queue_journal(cx);
             return;
         }
-        if !self.backend_checked {
+        let retrying_uncertain = self
+            .editor
+            .as_ref()
+            .is_some_and(|editor| editor.status() == SaveStatus::Uncertain);
+        if !self.backend_checked && !retrying_uncertain {
             self.status =
                 Some("Reload and compare the saved layout before saving shared changes.".into());
             self.load(cx);

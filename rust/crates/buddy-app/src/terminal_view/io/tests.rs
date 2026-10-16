@@ -21,6 +21,39 @@ fn draft(name: &str) -> WorkspaceEditor {
 }
 
 #[gpui_kit::test]
+fn an_uncertain_request_can_retry_before_the_remote_comparison_is_chosen(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let view = super::super::tests::view(cx);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            let mut editor = draft("uncertain");
+            let request = editor.begin_save().unwrap();
+            editor
+                .complete(
+                    request.id(),
+                    Err(buddy_core::terminal_backend::BackendError::UnknownWrite),
+                )
+                .unwrap();
+            view.editor = Some(editor);
+            view.backend_checked = false;
+            view.remote = Some(WorkspaceSnapshot {
+                document: WorkspaceDocument::restore(Arc::from(&b"null"[..])).unwrap(),
+                revision: 0,
+            });
+            view.save_now(cx);
+            let retry = view.pending_send.as_ref().expect(
+                "explicit retry must resolve the immutable request before choosing a layout",
+            );
+            assert_eq!(retry.id(), request.id());
+            assert_eq!(retry.arguments(), request.arguments());
+            assert_eq!(view.editor.as_ref().unwrap().status(), SaveStatus::Saving);
+            assert!(view.remote.is_some());
+        })
+    });
+}
+
+#[gpui_kit::test]
 fn a_blocked_remote_choice_keeps_the_comparison_and_pending_send(
     cx: &mut gpui_kit::TestAppContext,
 ) {

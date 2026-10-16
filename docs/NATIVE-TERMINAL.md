@@ -75,6 +75,9 @@ Recovered uncertain writes never run automatically.
 A pending save must be resolved before choosing a fetched layout at the same
 revision. Retry that exact save, then reload. A fetched later revision can be
 chosen because the earlier compare-and-swap can no longer overwrite it.
+An acknowledgment of a newer server revision invalidates an older comparison.
+A failed retry does not clear uncertainty from an earlier attempt; retry the
+retained request again or compare a later server revision.
 
 Recovery files live beside the shared `config.json`, under names beginning
 `native-terminal-workspaces-` or `native-terminal-prompts-`, followed by the

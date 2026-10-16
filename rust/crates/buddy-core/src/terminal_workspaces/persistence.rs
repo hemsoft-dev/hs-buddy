@@ -26,6 +26,7 @@ pub struct SaveRequest {
     expected_revision: u64,
     generation: u64,
     document: WorkspaceDocument,
+    may_have_committed: bool,
 }
 
 impl std::fmt::Debug for SaveRequest {
@@ -154,6 +155,7 @@ impl WorkspaceEditor {
             expected_revision: self.base_revision,
             generation: self.generation,
             document: self.document.clone(),
+            may_have_committed: false,
         };
         self.pending = Some(request.clone());
         self.status = SaveStatus::Saving;
@@ -167,9 +169,10 @@ impl WorkspaceEditor {
         }
         let request = self
             .pending
-            .as_ref()
-            .ok_or(EditorError("Missing immutable save request."))?
-            .clone();
+            .as_mut()
+            .ok_or(EditorError("Missing immutable save request."))?;
+        request.may_have_committed = true;
+        let request = request.clone();
         self.status = SaveStatus::Saving;
         Ok(request)
     }
@@ -217,12 +220,24 @@ impl WorkspaceEditor {
                     remote_revision: revision,
                 };
             }
-            Err(BackendError::Unavailable | BackendError::Rejected) => {
+            Err(BackendError::Unavailable | BackendError::Rejected)
+                if !pending.may_have_committed =>
+            {
                 self.pending = None;
                 self.status = SaveStatus::Rejected;
             }
-            Err(_) => self.status = SaveStatus::Uncertain,
+            Err(_) => {
+                self.pending
+                    .as_mut()
+                    .expect("matching request")
+                    .may_have_committed = true;
+                self.status = SaveStatus::Uncertain;
+            }
             Ok(_) => {
+                self.pending
+                    .as_mut()
+                    .expect("matching request")
+                    .may_have_committed = true;
                 self.status = SaveStatus::Uncertain;
                 return Err(EditorError(
                     "The save acknowledgement does not match its immutable request.",
@@ -271,6 +286,15 @@ impl WorkspaceEditor {
     fn validate_reconciliation(&self, snapshot: &WorkspaceSnapshot) -> Result<(), EditorError> {
         if snapshot.revision > MAX_REVISION {
             return Err(EditorError("Invalid remote revision."));
+        }
+        let acknowledged_revision = match self.status {
+            SaveStatus::Conflict { remote_revision } => self.base_revision.max(remote_revision),
+            _ => self.base_revision,
+        };
+        if snapshot.revision < acknowledged_revision {
+            return Err(EditorError(
+                "The saved comparison is older than an acknowledged server revision. Reload before choosing a layout.",
+            ));
         }
         if self
             .pending
@@ -362,6 +386,8 @@ impl WorkspaceEditor {
                     expected_revision: pending.expected_revision,
                     generation: pending.generation,
                     document,
+                    // A crash can happen after sending but before retaining an acknowledgement.
+                    may_have_committed: true,
                 })
             })
             .transpose()?;
@@ -552,6 +578,82 @@ mod tests {
             .unwrap();
         assert_eq!(editor.status(), SaveStatus::Clean);
         assert!(editor.document().pane_ids().is_empty());
+    }
+
+    #[test]
+    fn an_early_retry_failure_cannot_clear_an_earlier_uncertain_attempt() {
+        for restore in [false, true] {
+            for rejected in [false, true] {
+                let error = || {
+                    if rejected {
+                        BackendError::Rejected
+                    } else {
+                        BackendError::Unavailable
+                    }
+                };
+                let mut first = editor();
+                add(&mut first, "definitely-unsent");
+                let request = first.begin_save().unwrap();
+                first.complete(request.id(), Err(error())).unwrap();
+                assert_eq!(first.status(), SaveStatus::Rejected);
+
+                let mut uncertain = editor();
+                add(&mut uncertain, "possibly-committed");
+                let request = uncertain.begin_save().unwrap();
+                uncertain
+                    .complete(request.id(), Err(BackendError::UnknownWrite))
+                    .unwrap();
+                if restore {
+                    uncertain = WorkspaceEditor::restore_journal(
+                        "http://127.0.0.1:3210",
+                        uncertain.journal().unwrap().into(),
+                    )
+                    .unwrap();
+                }
+                let retry = uncertain.retry_uncertain().unwrap();
+                uncertain.complete(retry.id(), Err(error())).unwrap();
+                assert_eq!(uncertain.status(), SaveStatus::Uncertain);
+                let stale = WorkspaceSnapshot::parse(json!({"nodes":[],"revision":0})).unwrap();
+                assert!(uncertain.use_remote_after_reload(stale).is_err());
+                assert_eq!(
+                    uncertain.retry_uncertain().unwrap().arguments(),
+                    request.arguments()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn acknowledged_server_revisions_invalidate_an_older_remote_comparison() {
+        for receipt in [
+            SaveReceipt::Saved { revision: 1 },
+            SaveReceipt::Conflict { revision: 4 },
+            SaveReceipt::Superseded {
+                revision: 4,
+                saved_revision: 1,
+            },
+        ] {
+            let mut editor = editor();
+            add(&mut editor, "local");
+            let request = editor.begin_save().unwrap();
+            editor.complete(request.id(), Ok(receipt)).unwrap();
+            let before = editor.journal().unwrap();
+            let stale = WorkspaceSnapshot::parse(json!({"nodes":[],"revision":0})).unwrap();
+            assert!(editor.use_remote_after_reload(stale.clone()).is_err());
+            assert!(editor.keep_local_after_reload(&stale).is_err());
+            assert_eq!(editor.journal().unwrap(), before);
+            let revision = match receipt {
+                SaveReceipt::Saved { revision }
+                | SaveReceipt::Conflict { revision }
+                | SaveReceipt::Superseded { revision, .. } => revision,
+            };
+            editor
+                .use_remote_after_reload(
+                    WorkspaceSnapshot::parse(json!({"nodes":[],"revision":revision})).unwrap(),
+                )
+                .unwrap();
+            assert_eq!(editor.status(), SaveStatus::Clean);
+        }
     }
 
     #[test]
