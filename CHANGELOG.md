@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1398] - 2026-10-16
+
+### Changed
+
+- Make installed terminal output readable in qualification
+
 ## [0.1.1397] - 2026-10-16
 
 ### Fixed

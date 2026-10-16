@@ -37,7 +37,7 @@ cp /etc/os-release /evidence/runtime-os-release.txt
 dpkg-query -W > /evidence/runtime-packages-before-test-tools.txt
 apt-get install -y --no-install-recommends \
   python3 xvfb xauth openbox xdotool imagemagick sway grim wtype \
-  tesseract-ocr desktop-file-utils ffmpeg dbus-x11 sudo fonts-dejavu-core
+  tesseract-ocr desktop-file-utils ffmpeg dbus-x11 sudo fonts-dejavu-core fonts-noto-cjk
 useradd --create-home --uid 12345 qualification
 install -d -m 700 -o qualification -g qualification /tmp/buddy-runtime
 chown qualification:qualification /evidence

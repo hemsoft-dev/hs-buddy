@@ -53,10 +53,12 @@ def command_proof(output, nonce):
     proof, children = output / "command-proof.json", output / "owned-children.jsonl"
     # The markers are assembled by Python after Enter. The visible command line
     # cannot itself satisfy the screenshot's output assertions.
+    # Clear the long echoed Python command and inset the real output. OCR must
+    # read these complete markers, without terminal-border/command-line noise.
     code = ("import os,sys,json,subprocess,time,signal;from pathlib import Path;"
-        "signal.signal(signal.SIGINT,lambda *_:(print('NATIVE'+'INTERRUPTED',flush=True),sys.exit(0)));"
-        "print(chr(27)+'[31m'+'NATIVE'+'COLOR'+chr(27)+'[0m');"
-        "print('NATIVE'+'READY');print('資料界é');"
+        "signal.signal(signal.SIGINT,lambda *_:(print('  NATIVE'+'INTERRUPTED',flush=True),sys.exit(0)));"
+        "print(chr(27)+'[2J'+chr(27)+'[H'+chr(27)+'[31m'+'  NATIVE'+'COLOR'+chr(27)+'[0m');"
+        "print('  NATIVE'+'READY');print('  資料界é');"
         "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']);"
         f"Path({str(proof)!r}).write_text(json.dumps(dict(run={nonce!r},cwd=os.getcwd(),unicode='資料界é')),encoding='utf-8');"
         f"open({str(children)!r},'a',encoding='utf-8').write(json.dumps(dict(run={nonce!r},pids=[os.getpid(),child.pid]))+'\\n');"

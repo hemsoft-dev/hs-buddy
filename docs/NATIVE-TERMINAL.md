@@ -130,6 +130,11 @@ and terminal hyperlinks are not activated. Cursor keys and bracketed paste
 use the live emulator state. Theme and code-font changes
 use the app's existing appearance settings.
 
+Glyph coverage follows the installed system fonts. Minimal Linux desktops need
+CJK fonts to display Chinese and Japanese characters. The Ubuntu qualification
+image installs [Noto CJK](https://packages.ubuntu.com/noble/fonts-noto-cjk) for
+the Unicode terminal and directory fixtures.
+
 Run the Rust workspace's formatting, Clippy, and tests from `rust/`. The
 [transport probe](../scripts/native-smoke/terminal-transport.py) tests ANSI,
 Unicode, real PTY resize and interrupt, Unicode executable/directory paths,
