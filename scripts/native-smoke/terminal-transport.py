@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 
-CHECKS = ("ansiColor", "unicode", "cwd", "unicodeExecutable", "actualPtyResize", "interrupt",
+CHECKS = ("ansiColor", "unicode", "cwd", "unicodeExecutable", "naturalExitCleanup", "actualPtyResize", "interrupt",
           "ownedChildExited", "unrelatedSentinelAlive", "inputWriteAcknowledgements")
 
 

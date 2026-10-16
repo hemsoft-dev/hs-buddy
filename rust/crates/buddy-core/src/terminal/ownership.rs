@@ -86,6 +86,35 @@ impl Drop for HostJob {
 }
 
 #[cfg(unix)]
+pub(super) fn shell_exited(pid: i32) -> std::io::Result<bool> {
+    if pid <= 1 {
+        return Err(std::io::Error::other("Invalid owned shell identity."));
+    }
+    // WNOWAIT observes our actual child without reaping it. Its reserved PID
+    // must remain held until owned-session cleanup has finished.
+    // https://man7.org/linux/man-pages/man2/waitpid.2.html
+    // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exit.c
+    let mut information: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    if unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut information,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    } != 0
+    {
+        let error = std::io::Error::last_os_error();
+        return if error.kind() == std::io::ErrorKind::Interrupted {
+            Ok(false)
+        } else {
+            Err(error)
+        };
+    }
+    Ok(unsafe { information.si_pid() } == pid)
+}
+
+#[cfg(unix)]
 pub(super) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result<()> {
     use std::collections::BTreeMap;
     if session <= 1 || session == unsafe { libc::getsid(0) } {
@@ -137,6 +166,30 @@ fn process_ids() -> std::io::Result<Vec<i32>> {
         }
     }
     Ok(pids)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    #[test]
+    fn observing_shell_exit_leaves_its_original_child_identity_waitable() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 7"])
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !super::shell_exited(pid).unwrap() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Owned child exit was not observed"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(super::shell_exited(pid).unwrap());
+        assert_eq!(child.wait().unwrap().code(), Some(7));
+        assert!(super::shell_exited(pid).is_err());
+        assert!(super::shell_exited(1).is_err());
+    }
 }
 
 #[cfg(target_os = "macos")]

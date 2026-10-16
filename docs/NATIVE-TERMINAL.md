@@ -114,7 +114,10 @@ Each session runs an owned instance of the same native binary in its private
 Windows assigns the held host to a kill-on-close Job before starting the user
 shell. Unix starts an owned session and revalidates its process groups during
 shutdown while retaining its original child identity. The cleanup probes check
-an owned background child and an unrelated sentinel process.
+an owned background child and an unrelated sentinel process. Unix observes
+shell exit without reaping it first, so a background child retaining the PTY
+cannot keep an exited shell reported as running. The transport fixture also
+checks cleanup after a natural shell exit.
 
 There are at most 16 live or retiring hosts. Output has 2,000 scrollback lines,
 a 240-by-100 maximum grid, bounded OSC strings and combining characters, and

@@ -158,7 +158,7 @@ fn unicode_executable(host: &Path, directory: &Path) -> io::Result<()> {
         }
         ShellSpec {
             program,
-            arguments: vec!["/Q".into(), "/K".into()],
+            arguments: vec!["/D".into(), "/Q".into(), "/K".into()],
             directory: directory.into(),
         }
     };
@@ -199,6 +199,63 @@ fn unicode_executable(host: &Path, directory: &Path) -> io::Result<()> {
             .any(|line| line.trim() == "BUDDY_UNICODE_EXECUTABLE_OK")
     })?;
     session.close()
+}
+
+fn natural_exit(host: &Path, cwd: &Path) -> io::Result<()> {
+    let mut shell = ShellSpec::configured(None, cwd).map_err(io::Error::other)?;
+    #[cfg(windows)]
+    {
+        shell.arguments.insert(1, "-NoProfile".into());
+    }
+    #[cfg(unix)]
+    {
+        shell.program = "/bin/sh".into();
+        shell.arguments = vec!["-i".into()];
+    }
+    let session = Session::spawn(
+        host,
+        shell,
+        TerminalSize::new(100, 24).map_err(io::Error::other)?,
+    )?;
+    until(&session, |snapshot| {
+        snapshot.status == SessionStatus::Running
+    })?;
+    #[cfg(windows)]
+    command(
+        &session,
+        "$owned=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 120' -PassThru;[Console]::WriteLine('NATURAL_CHILD:'+$owned.Id)",
+    )?;
+    #[cfg(unix)]
+    command(&session, r#"sleep 120 & printf 'NATURAL_CHILD:%s\n' "$!""#)?;
+    let snapshot = until(&session, |snapshot| {
+        snapshot.screen.text().lines().any(|line| {
+            line.trim()
+                .strip_prefix("NATURAL_CHILD:")
+                .is_some_and(|pid| pid.parse::<u32>().is_ok())
+        })
+    })?;
+    let pid = snapshot
+        .screen
+        .text()
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("NATURAL_CHILD:")
+                .and_then(|pid| pid.parse::<u32>().ok())
+        })
+        .ok_or_else(|| io::Error::other("Natural-exit child identity missing"))?;
+    let child = ChildIdentity::open(pid)?;
+    command(&session, "exit")?;
+    until(&session, |snapshot| {
+        snapshot.status == SessionStatus::Exited(0)
+    })?;
+    session.close()?;
+    if !child.exited() {
+        return Err(io::Error::other(
+            "Background child survived natural shell exit.",
+        ));
+    }
+    Ok(())
 }
 
 fn main() -> io::Result<()> {
@@ -372,8 +429,14 @@ fn main() -> io::Result<()> {
         return Err(io::Error::other("Unrelated sentinel was terminated."));
     }
     unicode_executable(&host, &cwd)?;
+    natural_exit(&host, &cwd)?;
+    if sentinel.0.try_wait()?.is_some() {
+        return Err(io::Error::other(
+            "Natural shell exit stopped the unrelated sentinel.",
+        ));
+    }
     println!(
-        "{{\"result\":\"passed\",\"ansiColor\":true,\"unicode\":true,\"cwd\":true,\"unicodeExecutable\":true,\"actualPtyResize\":true,\"interrupt\":true,\"ownedChildExited\":true,\"unrelatedSentinelAlive\":true,\"inputWriteAcknowledgements\":true}}"
+        "{{\"result\":\"passed\",\"ansiColor\":true,\"unicode\":true,\"cwd\":true,\"unicodeExecutable\":true,\"naturalExitCleanup\":true,\"actualPtyResize\":true,\"interrupt\":true,\"ownedChildExited\":true,\"unrelatedSentinelAlive\":true,\"inputWriteAcknowledgements\":true}}"
     );
     Ok(())
 }

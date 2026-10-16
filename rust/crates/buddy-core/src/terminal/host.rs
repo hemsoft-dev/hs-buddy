@@ -50,6 +50,18 @@ struct ShellChild {
 
 impl ShellChild {
     fn cleanup(&mut self) -> io::Result<u32> {
+        if self.reaped {
+            return Ok(0);
+        }
+        #[cfg(unix)]
+        if !self.reaped
+            && let Err(error) = super::ownership::shell_exited(self.pid as i32)
+        {
+            // If another actor reaped the child, its numeric PID is no longer
+            // authority to signal a session or call Child::kill.
+            self.reaped = true;
+            return Err(error);
+        }
         #[cfg(unix)]
         let cleanup = super::ownership::signal_shell_session(self.pid as i32, libc::SIGKILL);
         if !self.reaped {
@@ -260,6 +272,10 @@ fn run() -> io::Result<()> {
         if let Some(status) = child.child.try_wait()? {
             child.reaped = true;
             exit_code = Some(status.exit_code());
+            break;
+        }
+        #[cfg(unix)]
+        if super::ownership::shell_exited(pid as i32)? {
             break;
         }
     }

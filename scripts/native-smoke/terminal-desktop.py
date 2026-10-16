@@ -53,12 +53,14 @@ def command_proof(output, nonce):
     proof, children = output / "command-proof.json", output / "owned-children.jsonl"
     # The markers are assembled by Python after Enter. The visible command line
     # cannot itself satisfy the screenshot's output assertions.
-    code = ("import os,sys,json,subprocess;from pathlib import Path;"
+    code = ("import os,sys,json,subprocess,time,signal;from pathlib import Path;"
+        "signal.signal(signal.SIGINT,lambda *_:(print('NATIVE'+'INTERRUPTED',flush=True),sys.exit(0)));"
         "print(chr(27)+'[31m'+'NATIVE'+'COLOR'+chr(27)+'[0m');"
         "print('NATIVE'+'READY');print('資料界é');"
         "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)']);"
         f"Path({str(proof)!r}).write_text(json.dumps(dict(run={nonce!r},cwd=os.getcwd(),unicode='資料界é')),encoding='utf-8');"
-        f"open({str(children)!r},'a',encoding='utf-8').write(str(child.pid)+'\\n')")
+        f"open({str(children)!r},'a',encoding='utf-8').write(json.dumps(dict(run={nonce!r},pids=[os.getpid(),child.pid]))+'\\n');"
+        "time.sleep(120)")
     if os.name == "nt":
         return "python -c '" + code.replace("'", "''") + "'"
     return "python3 -c " + shlex.quote(code)
@@ -95,8 +97,14 @@ def pid_running(pid):
     return bool(result.stdout.strip()) and not result.stdout.strip().startswith("Z")
 
 
-def verify_children(output, sentinel):
-    pids = [int(value) for value in (output / "owned-children.jsonl").read_text().splitlines()]
+def verify_children(output, sentinel, nonce):
+    records = [json.loads(value) for value in (output / "owned-children.jsonl").read_text().splitlines()]
+    current = [record for record in records if record.get("run") == nonce]
+    if len(current) != 1:
+        raise RuntimeError("Child completion requires exactly this command invocation's receipt")
+    pids = current[0]["pids"]
+    if any(type(pid) is not int or pid <= 0 for pid in pids):
+        raise RuntimeError("Invalid owned child identity receipt")
     if not pids or len(set(pids)) != len(pids):
         raise RuntimeError("Expected distinct actual child identities from this fixture")
     deadline = time.monotonic() + 5
@@ -137,15 +145,17 @@ def qualify(executable, output, session, version, backend):
         dark = driver.drive("interactive-dark", [
             ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
             ("capture", "prompt-before-enter-dark"), ("key", "Return"), ("sleep", 1),
-            ("capture", "unicode-color-dark"), ("click", "Hide prompts"), ("click", "Split right"),
+            ("capture", "unicode-color-dark"), ("click", "Hide prompts"), ("click", "Interrupt"),
+            ("sleep", 1), ("capture", "interrupted-dark"), ("click", "Split right"),
             ("sleep", 2), ("click", "More space"), ("capture", "split-dark"), ("resize", 900, 650), ("capture", "compact-dark"),
         ], record=True)
         github.check(dark / "prompt-before-enter-dark.png", "Prompt library", absent=("NATIVEREADY",))
         github.check(dark / "unicode-color-dark.png", "NATIVEREADY", "NATIVECOLOR")
+        github.check(dark / "interrupted-dark.png", "NATIVEINTERRUPTED")
         github.check(dark / "split-dark.png", "Shell 1", "Shell 2")
         github.check(dark / "compact-dark.png", "Split right", "Shell 1", "Shell 2")
         verify_proof(output, nonce, workspace)
-        verify_children(output, sentinel)
+        verify_children(output, sentinel, nonce)
         saved = backend.query("terminalWorkspaces:getWorkspace")
         layout = saved["nodes"][0]["layout"]
         if layout.get("type") != "split" or len(layout.get("children", [])) != 2 or any(child.get("cwd") != str(workspace) for child in layout["children"]):
@@ -167,7 +177,7 @@ def qualify(executable, output, session, version, backend):
         github.check(management / "new-workspace-dark.png", "Scratch workspace", "Shell 1")
         github.check(management / "switched-split-dark.png", "Native terminal", "Shell 1", "Shell 2", "NATIVEREADY")
         verify_proof(output, nonce, workspace)
-        verify_children(output, sentinel)
+        verify_children(output, sentinel, nonce)
         retained = backend.query("terminalWorkspaces:getWorkspace")
         if len(retained["nodes"]) != 1 or retained["nodes"][0]["id"] != "native-work" or retained.get("activeNodeId") != "native-work":
             raise RuntimeError("Workspace creation, switching, or confirmed closure changed the wrong layout")
@@ -198,7 +208,7 @@ def qualify(executable, output, session, version, backend):
         ])
         github.check(restored / "restarted-unicode-light.png", "Native restored", "Build shell", "NATIVEREADY", "NATIVECOLOR")
         verify_proof(output, nonce, workspace)
-        verify_children(output, sentinel)
+        verify_children(output, sentinel, nonce)
         saved = backend.query("terminalWorkspaces:getWorkspace")
         if saved["nodes"][0]["name"] != "Native restored" or saved["nodes"][0]["layout"].get("name") != "Build shell":
             raise RuntimeError("Workspace and shell names did not reach the shared layout")
@@ -217,7 +227,7 @@ def qualify(executable, output, session, version, backend):
         checks=["prompt insertion waits for Enter", "Unicode and ANSI output", "Unicode working directory",
             "split resize and persisted layout", "compact window", "invalid shell", "closed shell", "explicit restart",
             "workspace and shell rename", "prompt create/update/delete", "app child cleanup", "unrelated process preserved",
-            "workspace create/switch/close", "light/dark", "native Return key"]), indent=2), encoding="utf-8")
+            "workspace create/switch/close", "light/dark", "native Return key and interrupt"]), indent=2), encoding="utf-8")
 
 
 def qualify_prompt_crud(driver, backend):

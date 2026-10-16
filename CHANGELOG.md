@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1395] - 2026-10-16
+
+### Fixed
+
+- Observe terminal shell exit before reaping its identity
+
 ## [0.1.1394] - 2026-10-16
 
 ### Added
