@@ -248,6 +248,8 @@ export default defineSchema({
    * Generic: supports PR reviews, code analysis, or any free-text prompt.
    */
   copilotResults: defineTable({
+    nativeRequestId: v.optional(v.string()),
+    nativeFinishDigest: v.optional(v.string()),
     prompt: v.string(),
     status: v.union(
       v.literal('pending'),
@@ -267,6 +269,13 @@ export default defineSchema({
     .index('by_status', ['status'])
     .index('by_category', ['category'])
     .index('by_created', ['createdAt']),
+
+  // Retain request identities after result deletion, without retaining prompts.
+  copilotNativeRequests: defineTable({
+    requestId: v.string(),
+    payloadDigest: v.string(),
+    resultId: v.id('copilotResults'),
+  }).index('by_request', ['requestId']),
 
   /**
    * Exact active Copilot result counts used by activity badges.

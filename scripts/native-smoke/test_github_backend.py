@@ -13,6 +13,11 @@ spec.loader.exec_module(backend)
 
 
 class GitHubBackendTests(unittest.TestCase):
+    def test_explicit_synthetic_account_is_scoped_to_its_owned_server(self):
+        with backend.GitHubBackend(accounts=("synthetic-account",)) as server:
+            self.assertEqual(self.request(server, "/users/fixture-author", account="synthetic-account")[0], 200)
+            self.assertEqual(self.request(server, "/users/fixture-author", account="fixture-one")[0], 401)
+            self.assertEqual(self.request(server, "/users/fixture-author", account="real-account")[0], 401)
     def test_loopback_server_serves_real_requests_without_hostname_discovery(self):
         with patch.object(socket, "getfqdn", side_effect=AssertionError("The numeric loopback fixture must not discover local hostnames")):
             with backend.GitHubBackend() as server:

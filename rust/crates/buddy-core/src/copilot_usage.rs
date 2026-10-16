@@ -9,6 +9,11 @@ use serde::Deserialize;
 use crate::config::{GitHubAccount, GitHubConfig, UsageProvider};
 use crate::gh;
 
+pub mod budget;
+pub mod enterprise;
+pub mod history;
+mod transport;
+
 /// Cost of one AI Credit beyond the included allotment (`quotaUtils.ts`).
 pub const OVERAGE_COST_PER_CREDIT: f64 = 0.01;
 const SECONDS_PER_DAY: f64 = 86_400.0;
@@ -313,14 +318,14 @@ fn is_personal_namespace(account: &GitHubAccount) -> bool {
     account.username.eq_ignore_ascii_case(&account.org)
 }
 
-async fn fetch_seat_count(org: &str, token: Option<&str>) -> Option<f64> {
-    let body = gh::api(
-        &format!("/orgs/{org}/copilot/billing"),
-        token,
-        &["X-GitHub-Api-Version: 2022-11-28"],
-    )
-    .await
-    .ok()?;
+async fn fetch_seat_count(org: &str, reader: &transport::Reader) -> Option<f64> {
+    let body = reader
+        .api(
+            &format!("/orgs/{org}/copilot/billing"),
+            &["X-GitHub-Api-Version: 2022-11-28"],
+        )
+        .await
+        .ok()?;
     serde_json::from_str::<CopilotBillingResponse>(&body)
         .ok()?
         .seat_breakdown
@@ -333,13 +338,13 @@ async fn fetch_billing_usage_body(
     org: &str,
     year: i32,
     month: u32,
-    token: Option<&str>,
+    reader: &transport::Reader,
 ) -> Result<String, String> {
     let query = format!("settings/billing/usage?year={year}&month={month}");
-    match gh::api(&format!("/orgs/{org}/{query}"), token, &[]).await {
+    match reader.api(&format!("/orgs/{org}/{query}"), &[]).await {
         Ok(body) => Ok(body),
         Err(err) if err.is_not_found() => {
-            match gh::api(&format!("/users/{org}/{query}"), token, &[]).await {
+            match reader.api(&format!("/users/{org}/{query}"), &[]).await {
                 Ok(body) => Ok(body),
                 Err(err) if err.is_not_found() => Err(format!(
                     "No billing access for '{org}'. This may be a user account — billing data requires the 'user' token scope, or '{org}' may not be a valid org."
@@ -349,6 +354,46 @@ async fn fetch_billing_usage_body(
         }
         Err(err) => Err(err.to_string()),
     }
+}
+
+/// Separate billing figures from the allowance pool: unavailable spend is never zero.
+#[derive(Debug, Clone)]
+pub struct BillingSnapshot {
+    pub usage: ParsedBillingUsage,
+    pub budget_amount: Option<f64>,
+    pub budget_unavailable: bool,
+    pub prevent_further_usage: bool,
+    pub fetched_at: DateTime<Utc>,
+    pub year: i32,
+    pub month: u32,
+}
+
+pub async fn fetch_billing(
+    account: &GitHubAccount,
+    now: DateTime<Utc>,
+    enterprise: Option<&str>,
+) -> Result<BillingSnapshot, String> {
+    gh::assert_valid_slug(&account.username).map_err(|_| "Invalid GitHub account.".to_string())?;
+    gh::assert_valid_slug(&account.org)
+        .map_err(|_| "Configure an organization to read billing usage.".to_string())?;
+    let reader = transport::Reader::new(account).await?;
+    let body = fetch_billing_usage_body(&account.org, now.year(), now.month(), &reader)
+        .await
+        .map_err(|_| {
+            "Billing usage is unavailable for this account and organization.".to_string()
+        })?;
+    let response: BillingUsageResponse = serde_json::from_str(&body)
+        .map_err(|_| "The billing usage response is invalid.".to_string())?;
+    let (budget, budget_unavailable) = budget::fetch(&account.org, enterprise, &reader).await;
+    Ok(BillingSnapshot {
+        usage: parse_billing_usage(&response.usage_items, now.year(), now.month()),
+        budget_amount: budget.as_ref().map(|budget| budget.amount),
+        budget_unavailable,
+        prevent_further_usage: budget.as_ref().is_some_and(|budget| budget.blocked),
+        fetched_at: now,
+        year: now.year(),
+        month: now.month(),
+    })
 }
 
 /// One account's AI Credit pool (`doFetchQuota`).
@@ -362,15 +407,17 @@ pub async fn fetch_account_pool(
     }
     gh::assert_valid_slug(&account.org).map_err(|e| e.to_string())?;
 
-    let token = gh::auth_token(&account.username).await;
+    let reader = transport::Reader::new(account).await?;
 
     if is_personal_namespace(account) {
         // `/copilot_internal/user` answers for whoever the token belongs to, so a
         // personal account must use its own credential; never fall back to the
         // active login and show another user's quota (`getCopilotQuota`).
-        let token =
-            token.map_err(|e| format!("No token for account '{}': {e}", account.username))?;
-        let body = gh::api("/copilot_internal/user", Some(&token), &[])
+        if !reader.selected() {
+            return Err("Sign in with GitHub CLI for the selected account.".into());
+        }
+        let body = reader
+            .api("/copilot_internal/user", &[])
             .await
             .map_err(|e| e.to_string())?;
         return parse_personal_quota(&body, now);
@@ -378,15 +425,13 @@ pub async fn fetch_account_pool(
 
     // Org billing: like `tryGetCliToken`, a missing per-account token falls
     // back to the active login, which may still have org access.
-    let token = token.ok();
-    let token = token.as_deref();
 
     let (year, month) = (now.year(), now.month());
-    let body = fetch_billing_usage_body(&account.org, year, month, token).await?;
+    let body = fetch_billing_usage_body(&account.org, year, month, &reader).await?;
     let response: BillingUsageResponse =
         serde_json::from_str(&body).map_err(|_| "Unreadable billing usage response".to_string())?;
     let parsed = parse_billing_usage(&response.usage_items, year, month);
-    let seats = fetch_seat_count(&account.org, token)
+    let seats = fetch_seat_count(&account.org, &reader)
         .await
         .unwrap_or(parsed.business_seats);
     if seats <= 0.0 {

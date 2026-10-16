@@ -1,6 +1,7 @@
 //! Commands that must work without opening a window or reading user settings.
 
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -8,6 +9,8 @@ pub enum Command {
     Help,
     Version,
     TerminalHost,
+    PrepareCopilotRuntime(PathBuf),
+    QualifyCopilot(PathBuf),
 }
 
 pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &'static str> {
@@ -15,6 +18,20 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
     let Some(argument) = arguments.next() else {
         return Ok(Command::Open);
     };
+    if argument == "--prepare-copilot-runtime" || argument == "--qualify-copilot" {
+        let root = arguments
+            .next()
+            .map(PathBuf::from)
+            .ok_or("A private runtime directory is required.")?;
+        if !root.is_absolute() || arguments.next().is_some() {
+            return Err("A single absolute private runtime directory is required.");
+        }
+        return Ok(if argument == "--qualify-copilot" {
+            Command::QualifyCopilot(root)
+        } else {
+            Command::PrepareCopilotRuntime(root)
+        });
+    }
     if arguments.next().is_some() {
         return Err("Unexpected arguments. Use --help for usage.");
     }
@@ -57,6 +74,54 @@ mod tests {
     fn private_terminal_host_is_a_separate_non_gui_command() {
         assert_eq!(parse(["--terminal-host".into()]), Ok(Command::TerminalHost));
         assert!(parse(["--terminal-host".into(), "unexpected".into()]).is_err());
+    }
+
+    #[test]
+    fn private_runtime_helper_requires_one_absolute_path_without_echoing_it() {
+        let root = std::env::temp_dir().join("synthetic-runtime-界");
+        assert_eq!(
+            parse([
+                "--prepare-copilot-runtime".into(),
+                root.clone().into_os_string()
+            ]),
+            Ok(Command::PrepareCopilotRuntime(root))
+        );
+        for arguments in [
+            vec!["--prepare-copilot-runtime".into()],
+            vec![
+                "--prepare-copilot-runtime".into(),
+                "private-relative".into(),
+            ],
+            vec![
+                "--prepare-copilot-runtime".into(),
+                std::env::temp_dir().into_os_string(),
+                "private-extra".into(),
+            ],
+        ] {
+            let error = parse(arguments).unwrap_err();
+            assert!(!error.contains("private-relative") && !error.contains("private-extra"));
+        }
+    }
+
+    #[test]
+    fn offline_qualification_requires_a_single_absolute_root_before_runtime_guard() {
+        let root = std::env::temp_dir().join("synthetic-qualification-界");
+        assert_eq!(
+            parse(["--qualify-copilot".into(), root.clone().into_os_string()]),
+            Ok(Command::QualifyCopilot(root))
+        );
+        for arguments in [
+            vec!["--qualify-copilot".into()],
+            vec!["--qualify-copilot".into(), "private-relative".into()],
+            vec![
+                "--qualify-copilot".into(),
+                std::env::temp_dir().into_os_string(),
+                "private-extra".into(),
+            ],
+        ] {
+            let error = parse(arguments).unwrap_err();
+            assert!(!error.contains("private-relative") && !error.contains("private-extra"));
+        }
     }
 
     #[test]

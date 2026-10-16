@@ -5,6 +5,7 @@
 mod app;
 mod assets;
 mod command_line;
+mod copilot_view;
 mod dashboard;
 mod github_view;
 mod logging;
@@ -290,6 +291,12 @@ fn main() {
         Ok(command_line::Command::Open) => {}
         Ok(command_line::Command::TerminalHost) => {
             std::process::exit(buddy_core::terminal::run_terminal_host());
+        }
+        Ok(command_line::Command::PrepareCopilotRuntime(root)) => {
+            std::process::exit(buddy_core::copilot_runtime::helper_main(&root));
+        }
+        Ok(command_line::Command::QualifyCopilot(root)) => {
+            std::process::exit(buddy_core::copilot_assistant::qualification::main(root));
         }
         Ok(command_line::Command::Help) => {
             command_line::print_help();

@@ -28,6 +28,10 @@ use crate::settings::Settings;
 use crate::zoom::zpx;
 use data::{PageData, PullTab, RepoTab, Route, UserTab};
 
+pub enum GitHubEvent {
+    PrepareAssistantReview(github::GitHubClient, github::PullRef),
+}
+impl gpui_kit::EventEmitter<GitHubEvent> for GitHubView {}
 pub struct GitHubView {
     clients: GitHubClients,
     account: Option<AccountScope>,

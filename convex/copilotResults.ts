@@ -3,6 +3,7 @@ import type { Id } from './_generated/dataModel'
 import { mutation, query, type MutationCtx } from './_generated/server'
 import { MS_PER_DAY } from './lib/constants'
 import { copilotResultStatusValidator, isPendingOrRunning, notFoundError } from './lib/domain'
+import { transitionResultCount } from './lib/copilotResultCounts'
 
 /**
  * Copilot SDK Results — CRUD operations for captured Copilot prompt results.
@@ -19,46 +20,6 @@ async function deleteResultWithReviewRuns(ctx: MutationCtx, resultId: Id<'copilo
     await ctx.db.delete(reviewRun._id)
   }
   await ctx.db.delete(resultId)
-}
-
-type ActiveStatus = 'pending' | 'running'
-
-function getActiveStatus(
-  status: 'pending' | 'running' | 'completed' | 'failed' | undefined
-): ActiveStatus | undefined {
-  return status === 'pending' || status === 'running' ? status : undefined
-}
-
-async function getActiveCounts(ctx: MutationCtx) {
-  return ctx.db
-    .query('copilotResultCounts')
-    .withIndex('by_key', q => q.eq('key', 'default'))
-    .unique()
-}
-
-async function adjustActiveCount(ctx: MutationCtx, status: ActiveStatus, delta: number) {
-  const counts = await getActiveCounts(ctx)
-  const next = {
-    pending: counts?.pending ?? 0,
-    running: counts?.running ?? 0,
-  }
-  next[status] = Math.max(0, next[status] + delta)
-
-  if (counts) {
-    await ctx.db.patch(counts._id, next)
-  } else {
-    await ctx.db.insert('copilotResultCounts', { key: 'default', ...next })
-  }
-}
-
-async function transitionActiveCount(
-  ctx: MutationCtx,
-  fromStatus: ActiveStatus | undefined,
-  toStatus: ActiveStatus | undefined
-) {
-  if (fromStatus === toStatus) return
-  if (fromStatus) await adjustActiveCount(ctx, fromStatus, -1)
-  if (toStatus) await adjustActiveCount(ctx, toStatus, 1)
 }
 
 // List recent results (newest first)
@@ -139,7 +100,7 @@ export const create = mutation({
       metadata: args.metadata,
       createdAt: Date.now(),
     })
-    await adjustActiveCount(ctx, 'pending', 1)
+    await transitionResultCount(ctx, undefined, 'pending')
     return id
   },
 })
@@ -154,7 +115,7 @@ export const markRunning = mutation({
     const doc = await ctx.db.get(args.id)
     if (!doc) throw notFoundError('CopilotResult', args.id)
 
-    await transitionActiveCount(ctx, getActiveStatus(doc.status), 'running')
+    await transitionResultCount(ctx, doc.status, 'running')
     await ctx.db.patch(args.id, {
       status: 'running',
       model: args.model,
@@ -174,7 +135,7 @@ export const complete = mutation({
     if (!doc) throw notFoundError('CopilotResult', args.id)
 
     const completedAt = Date.now()
-    await transitionActiveCount(ctx, getActiveStatus(doc.status), undefined)
+    await transitionResultCount(ctx, doc.status, undefined)
     await ctx.db.patch(args.id, {
       status: 'completed',
       result: args.result,
@@ -196,7 +157,7 @@ export const fail = mutation({
     if (!doc) throw notFoundError('CopilotResult', args.id)
 
     const completedAt = Date.now()
-    await transitionActiveCount(ctx, getActiveStatus(doc.status), undefined)
+    await transitionResultCount(ctx, doc.status, undefined)
     await ctx.db.patch(args.id, {
       status: 'failed',
       error: args.error,
@@ -212,7 +173,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.id)
     if (doc) {
-      await transitionActiveCount(ctx, getActiveStatus(doc.status), undefined)
+      await transitionResultCount(ctx, doc.status, undefined)
     }
     await deleteResultWithReviewRuns(ctx, args.id)
   },

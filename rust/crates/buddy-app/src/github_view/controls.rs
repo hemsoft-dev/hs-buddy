@@ -129,6 +129,21 @@ impl GitHubView {
             );
             let disabled =
                 self.write_busy || self.must_reload || self.loading || self.pending.is_some();
+            if let Some(account) = self.account.clone() {
+                let client = self.clients.for_account(account);
+                let target = target.clone();
+                actions = actions.child(
+                    Button::new("github-native-assistant-review")
+                        .label("Review with Buddy assistant…")
+                        .disabled(disabled)
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.emit(super::GitHubEvent::PrepareAssistantReview(
+                                client.clone(),
+                                target.clone(),
+                            ))
+                        })),
+                );
+            }
             let approve = WriteAction::Approve {
                 pull: target.clone(),
                 head_sha: pull.head_sha.clone(),

@@ -76,9 +76,10 @@ def commit():
 
 
 class GitHubBackend:
-    def __init__(self):
+    def __init__(self, accounts=("fixture-one", "fixture-two")):
         self.requests = []
-        self.comments = {account: [] for account in ("fixture-one", "fixture-two")}
+        self.comments = {account: [] for account in accounts}
+        identities = {"Bearer native-fixture-" + account: account for account in accounts}
         self.scenario = "normal"
         self.lock = threading.Lock()
         owner = self
@@ -104,8 +105,7 @@ class GitHubBackend:
 
             def handle_api(self, body):
                 authorization = self.headers.get("Authorization", "")
-                accounts = {"Bearer native-fixture-fixture-one": "fixture-one", "Bearer native-fixture-fixture-two": "fixture-two"}
-                account = accounts.get(authorization)
+                account = identities.get(authorization)
                 # Record identity, never an arbitrary authorization value.
                 with owner.lock:
                     owner.requests.append(dict(method=self.command, path=self.path, account=account,

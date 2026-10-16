@@ -137,7 +137,8 @@ try {
             [Environment]::SetEnvironmentVariable($name, $environment[$name], 'Process')
         }
     }
-    $app = Start-OwnedProcess $Exe ''
+    $appLog = if ($env:BUDDY_COPILOT_FIXTURE -eq '1') { Join-Path $OutDir 'app.log' } else { '' }
+    $app = Start-OwnedProcess $Exe '' $appLog
     $hwnd = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(45)
     while ([DateTime]::UtcNow -lt $deadline) {

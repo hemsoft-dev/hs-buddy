@@ -32,12 +32,49 @@ struct BuddyLogger {
     inner: env_logger::Logger,
 }
 
+fn private_transport_target(target: &str) -> bool {
+    [
+        "github_copilot_sdk",
+        "convex",
+        "tungstenite",
+        "tokio_tungstenite",
+    ]
+    .iter()
+    .any(|root| {
+        target == *root
+            || target
+                .strip_prefix(root)
+                .is_some_and(|suffix| suffix.starts_with("::"))
+    })
+}
+
+fn private_transport_record(record: &Record) -> bool {
+    private_transport_target(record.target())
+        || record.file().is_some_and(|file| {
+            file.replace('\\', "/").split('/').any(|part| {
+                [
+                    "github-copilot-sdk-",
+                    "convex-",
+                    "tungstenite-",
+                    "tokio-tungstenite-",
+                ]
+                .iter()
+                .any(|prefix| part.starts_with(prefix))
+            })
+        })
+}
+
 impl Log for BuddyLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        self.inner.enabled(metadata)
+        !private_transport_target(metadata.target()) && self.inner.enabled(metadata)
     }
 
     fn log(&self, record: &Record) {
+        // SDK and backend transports can carry remote bodies, prompts or credentials.
+        // Reject them before formatting; the app reports fixed failure messages.
+        if private_transport_record(record) {
+            return;
+        }
         // Only ERROR and WARN can be demoted; skip formatting the rest.
         if record.level() > Level::Warn
             || !demoted(
@@ -81,6 +118,7 @@ pub fn init() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     const SDK_MISSING: &str = "The application requested an operation that depends on an SDK component that is missing or mismatched. (0x887A002D)";
     const NO_DEBUG_LAYER: &str =
@@ -88,6 +126,66 @@ mod tests {
 
     const PROBE_FILE: &str = r"C:\Users\me\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\gpui-pre-windows-0.3.8\src\directx_devices.rs";
     const DEVICES: &str = "gpui_windows::directx_devices";
+
+    #[test]
+    fn private_transport_diagnostics_are_rejected_before_arguments_are_formatted() {
+        struct Sentinel<'a>(&'a AtomicBool);
+        impl std::fmt::Display for Sentinel<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.store(true, Ordering::SeqCst);
+                f.write_str("synthetic-private-sentinel")
+            }
+        }
+        let mut builder = env_logger::Builder::new();
+        builder.filter_level(log::LevelFilter::Trace);
+        let logger = BuddyLogger {
+            inner: builder.build(),
+        };
+        let formatted = AtomicBool::new(false);
+        for (target, file) in [
+            ("github_copilot_sdk", "sdk.rs"),
+            ("github_copilot_sdk::transport", "sdk.rs"),
+            ("convex::sync::web_socket_manager", "transport.rs"),
+            ("tungstenite::protocol", "transport.rs"),
+            ("tokio_tungstenite", "transport.rs"),
+            ("", "/registry/convex-0.10.4/src/sync/web_socket_manager.rs"),
+            ("", r"C:\registry\tungstenite-0.28.0\src\protocol\mod.rs"),
+            (
+                "",
+                "/registry/github-copilot-sdk-1.0.23-preview.2/src/transport.rs",
+            ),
+            (
+                "",
+                r"C:\registry\github-copilot-sdk-1.0.23-preview.2\src\transport.rs",
+            ),
+        ] {
+            logger.log(
+                &Record::builder()
+                    .target(target)
+                    .file(Some(file))
+                    .level(Level::Warn)
+                    .args(format_args!("{}", Sentinel(&formatted)))
+                    .build(),
+            );
+            assert!(!formatted.load(Ordering::SeqCst));
+        }
+        assert!(
+            !logger.enabled(
+                &Metadata::builder()
+                    .target("github_copilot_sdk::transport")
+                    .level(Level::Error)
+                    .build()
+            )
+        );
+        assert!(!private_transport_target("github_copilot_sdk_unrelated"));
+        assert!(!private_transport_target("convex_unrelated"));
+        assert!(!private_transport_record(
+            &Record::builder()
+                .target("buddy")
+                .file(Some("src/copilot_sdk.rs"))
+                .build()
+        ));
+    }
 
     #[test]
     fn demotes_the_dxgi_debug_layer_probe() {

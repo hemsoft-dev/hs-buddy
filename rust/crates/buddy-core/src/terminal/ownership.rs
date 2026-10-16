@@ -1,5 +1,5 @@
 #[cfg(windows)]
-pub(super) struct HostJob(windows_sys::Win32::Foundation::HANDLE);
+pub(crate) struct HostJob(windows_sys::Win32::Foundation::HANDLE);
 
 // The unnamed kernel handle may move between threads. It is closed by its sole owner.
 #[cfg(windows)]
@@ -127,7 +127,7 @@ fn group_has_live_member(
 }
 
 #[cfg(unix)]
-pub(super) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result<()> {
+pub(crate) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result<()> {
     use std::collections::BTreeMap;
     if session <= 1 || session == unsafe { libc::getsid(0) } {
         return Err(std::io::Error::other(
