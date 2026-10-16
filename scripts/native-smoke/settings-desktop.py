@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import uuid
 
 from desktop import UnixWindow, encode_recording, fixture, recording, run
 
@@ -38,6 +39,42 @@ def planned_large_size(width, height):
     if size[0] < 900 or size[1] < 650:
         raise RuntimeError("The desktop cannot fit the supported minimum window")
     return size
+
+
+def prepare_companion(profile):
+    if (profile / ".buddy-settings-fixture").read_text() != "buddy settings fixture v1":
+        raise RuntimeError("Owned settings fixture marker required")
+    for name in ("request", "ready", "stop", "complete", "failed"):
+        (profile / f"companion-{name}.json").unlink(missing_ok=True)
+    request = dict(runId=str(uuid.uuid4()))
+    (profile / "companion-request.json").write_text(json.dumps(request), encoding="utf-8")
+    return request
+
+
+def current_companion(profile, name):
+    request = json.loads((profile / "companion-request.json").read_text())
+    receipt = json.loads((profile / f"companion-{name}.json").read_text())
+    if receipt.get("runId") != request.get("runId"):
+        raise RuntimeError("Companion receipt belongs to another run")
+    return receipt
+
+
+def stop_companion(profile):
+    ready = current_companion(profile, "ready")
+    target = profile / "companion-stop.json"
+    temporary = target.with_suffix(f".{ready['runId']}.tmp")
+    temporary.write_text(json.dumps(dict(runId=ready["runId"])), encoding="utf-8")
+    temporary.replace(target)
+
+
+def verify_companion_overlap(ready, receipt, captured):
+    observed = receipt.get("observedNativeSaveAt")
+    if (ready.get("runId") != receipt.get("runId") or observed is None
+            or not ready["startedAt"] <= observed <= receipt["completedAt"]
+            or not ready["startedAt"] <= captured <= receipt["completedAt"]
+            or receipt.get("writesBeforeNativeSave", 0) < 1
+            or receipt.get("writesAfterNativeSave", 0) < 1):
+        raise RuntimeError("Native save was not observed during actual Electron writes")
 
 
 def windows_large_size():
@@ -70,6 +107,8 @@ class Driver:
     def drive(self, name, actions, concurrent=False, record=False):
         directory = self.profile / name
         directory.mkdir()
+        if concurrent:
+            prepare_companion(self.profile)
         if self.session == "windows":
             commands = [f"resize:80:40:{self.large_size[0]}:{self.large_size[1]}"]
             if record:
@@ -141,6 +180,7 @@ class Driver:
                         if companion.poll() is not None or time.monotonic() > deadline:
                             raise RuntimeError("Electron config companion did not become ready")
                         time.sleep(0.1)
+                    current_companion(self.profile, "ready")
                 with recording(window, directory / "frames") if record else nullcontext():
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
@@ -158,6 +198,8 @@ class Driver:
                             self.scroll(window, values[0])
                         else:
                             self.interact(window, directory, kind, values)
+                if companion is not None:
+                    stop_companion(self.profile)
                 if self.session == "macos":
                     state = OwnedMacInput(process).release_modifiers()
                     (directory / "exit-input-state.json").write_text(json.dumps(state), encoding="utf-8")
@@ -385,11 +427,10 @@ def qualify(executable, output, session, checkout, backend):
         ("field", "Accent color", "not-a-color"), ("save", "Accent color"), ("capture", "invalid-color-light"),
         ("resize", 900, 650), ("key", "Tab"), ("capture", "keyboard-compact-light")], concurrent=True, record=True)
     saved = json.loads(config.read_text(encoding="utf-8-sig"))
-    receipt = json.loads((output / "companion-complete.json").read_text())
-    ready = json.loads((output / "companion-ready.json").read_text())
+    receipt = current_companion(output, "complete")
+    ready = current_companion(output, "ready")
     captured = (appearance / "appearance-light.png").stat().st_mtime * 1000
-    if not ready["startedAt"] <= captured <= receipt["completedAt"]:
-        raise RuntimeError("Native save was not observed during actual Electron writes")
+    verify_companion_overlap(ready, receipt, captured)
     if saved["ui"]["accentColor"] != "#8246af" or saved["ui"]["enterpriseSlug"] != "fixture-concurrent-complete" or receipt["writes"] < 2:
         if session == "macos":
             # Preserve the failed concurrent result. These bounded comparisons

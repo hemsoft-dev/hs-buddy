@@ -164,6 +164,9 @@ try {
             if ([DateTime]::UtcNow -gt $deadline) { throw 'Electron companion readiness timed out' }
             Start-Sleep -Milliseconds 100
         }
+        $companionRequest = Get-Content (Join-Path ([IO.Path]::GetDirectoryName($ConfigPath)) 'companion-request.json') -Raw | ConvertFrom-Json
+        $companionReady = Get-Content $ready -Raw | ConvertFrom-Json
+        if ($companionRequest.runId -cne $companionReady.runId) { throw 'Companion readiness belongs to another run' }
     }
     $expectedIconPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../public/icon.ico'))
     foreach ($value in @($Actions, $OutDir, $PSScriptRoot, $expectedIconPath)) {
@@ -183,6 +186,10 @@ try {
         throw "App failed with exit $appExit"
     }
     if ($companion) {
+        $stop = Join-Path ([IO.Path]::GetDirectoryName($ConfigPath)) 'companion-stop.json'
+        $stopTemporary = $stop + '.' + $companionReady.runId + '.tmp'
+        @{ runId = $companionReady.runId } | ConvertTo-Json | Set-Content -LiteralPath $stopTemporary -Encoding utf8NoBOM
+        Move-Item -LiteralPath $stopTemporary -Destination $stop
         if ([HiddenDesktop]::WaitForSingleObject($companion.hProcess, 30000) -ne 0) { throw 'Electron companion timed out' }
         $companionExit = [uint32]0
         if (-not [HiddenDesktop]::GetExitCodeProcess($companion.hProcess, [ref]$companionExit) -or $companionExit -ne 0) {

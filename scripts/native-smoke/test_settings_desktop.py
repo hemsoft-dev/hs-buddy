@@ -4,12 +4,57 @@ import json
 import os
 from pathlib import Path
 import struct
+import tempfile
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 spec = importlib.util.spec_from_file_location("settings_desktop", Path(__file__).with_name("settings-desktop.py"))
 desktop = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(desktop)
+
+
+class CompanionHandshake(unittest.TestCase):
+    def test_preparation_retires_old_signals_and_stop_echoes_only_current_readiness(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-companion-protocol-") as root:
+            profile = Path(root)
+            (profile / ".buddy-settings-fixture").write_text("buddy settings fixture v1")
+            for name in ("ready", "stop", "complete", "failed"):
+                (profile / f"companion-{name}.json").write_text('{"runId":"stale"}')
+            request = desktop.prepare_companion(profile)
+            self.assertFalse((profile / "companion-stop.json").exists())
+            self.assertFalse((profile / "companion-complete.json").exists())
+            (profile / "companion-ready.json").write_text(json.dumps(request))
+            desktop.stop_companion(profile)
+            self.assertEqual(json.loads((profile / "companion-stop.json").read_text()), request)
+
+    def test_another_runs_readiness_cannot_receive_a_stop_signal(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-companion-protocol-") as root:
+            profile = Path(root)
+            (profile / "companion-request.json").write_text('{"runId":"current"}')
+            (profile / "companion-ready.json").write_text('{"runId":"other"}')
+            with self.assertRaisesRegex(RuntimeError, "another run"):
+                desktop.stop_companion(profile)
+            self.assertFalse((profile / "companion-stop.json").exists())
+
+    def test_receipt_requires_current_run_and_observed_writes_on_both_sides(self):
+        ready = dict(runId="current", startedAt=100)
+        receipt = dict(runId="current", completedAt=30_000, observedNativeSaveAt=25_000,
+            writesBeforeNativeSave=5, writesAfterNativeSave=2)
+        desktop.verify_companion_overlap(ready, receipt, 26_000)
+        for bad in (dict(runId="other"), dict(observedNativeSaveAt=None),
+                dict(observedNativeSaveAt=99), dict(writesBeforeNativeSave=0),
+                dict(writesAfterNativeSave=0), dict(completedAt=24_000)):
+            with self.subTest(bad=bad), self.assertRaisesRegex(RuntimeError, "not observed"):
+                desktop.verify_companion_overlap(ready, {**receipt, **bad}, 26_000)
+        with self.assertRaisesRegex(RuntimeError, "not observed"):
+            desktop.verify_companion_overlap(ready, receipt, 30_001)
+
+    def test_preparation_requires_the_owned_fixture_marker(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-companion-protocol-") as root:
+            profile = Path(root)
+            (profile / ".buddy-settings-fixture").write_text("not owned")
+            with self.assertRaisesRegex(RuntimeError, "Owned settings fixture"):
+                desktop.prepare_companion(profile)
 
 
 class DesktopLimits(unittest.TestCase):

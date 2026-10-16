@@ -153,6 +153,13 @@ with an empty GitHub CLI profile. It creates two accounts through native inputs,
 checks backend receipts, edits appearance and preferences, rejects invalid input,
 and restarts the app. A headless Electron companion runs the real config module
 and `electron-store` during native saves. Its credential adapter rejects access.
+The input controller assigns a fresh request ID, waits for matching readiness,
+and signals completion after the native interaction. The companion writes until
+that signal or its 120-second deadline. Its receipt records the first observation
+of the changed native accent and real config writes before and after it. Stale
+signals, an unchanged initial accent, missing overlap, and a missing stop signal
+fail qualification. This avoids the former 20-second window ending before a slow
+Intel Mac interaction reached Save.
 On macOS the companion uses a prohibited activation policy so it cannot take
 keyboard focus from the native fixture. Text replacement keeps selection,
 modifier release, deletion, and typing in one owned System Events script.
