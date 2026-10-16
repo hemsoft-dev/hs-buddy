@@ -13,7 +13,7 @@ def normalize(text):
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
-def find_label(words, label, navigation=False, field=False, exact_line=False):
+def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False):
     wanted = normalize(label)
     if not wanted:
         raise RuntimeError("A nonempty visible label is required")
@@ -63,11 +63,21 @@ def find_label(words, label, navigation=False, field=False, exact_line=False):
                 right = max(word["left"] + word["width"] for word in span)
                 bottom = max(word["top"] + word["height"] for word in span)
                 matches.append(dict(left=left, top=top, width=right-left, height=bottom-top, exact=exact))
-    if field and any(match["exact"] for match in matches):
-        matches = [match for match in matches if match["exact"]]
     if navigation:
         heading = find_label(words, "Settings", exact_line=True)
         matches = [match for match in matches if heading["top"] < match["top"] < heading["top"] + heading["height"] + 70]
+    if tab:
+        anchor = find_label(words, "Filter loaded items", field=True)
+        bottom = anchor["top"] + anchor["height"]
+        matches = [match for match in matches if bottom < match["top"] < bottom + 16 * anchor["height"]]
+        if matches:
+            first = min(match["top"] for match in matches)
+            matches = [match for match in matches if match["top"] < first + max(2, anchor["height"] // 2)]
+    # A complete spatial label identifies the control more precisely than
+    # the same word embedded in status/help prose. Two complete labels still
+    # fail below; never resolve competing controls by their discovery order.
+    if any(match["exact"] for match in matches):
+        matches = [match for match in matches if match["exact"]]
     if len(matches) != 1:
         raise RuntimeError(f"Expected exactly one visible '{label}' label, observed {len(matches)}")
     matches[0].pop("exact")
@@ -85,10 +95,10 @@ def recognize(image, mode=11):
     raise RuntimeError("Native settings qualification requires Tesseract")
 
 
-def locate_label(words, labels, navigation=False, field=False):
+def locate_label(words, labels, navigation=False, field=False, tab=False):
     for label in labels.split("|"):
         try:
-            return find_label(words, label, navigation, field)
+            return find_label(words, label, navigation, field, tab=tab)
         except RuntimeError:
             pass
     raise RuntimeError("None of the requested visible labels was unambiguous")
@@ -140,11 +150,11 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False):
     for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
-            label = locate_label(words, labels, navigation, field)
+            label = locate_label(words, labels, navigation, field, tab)
             if save_row:
                 label["save"] = aligned_save(words, label)
             return label
@@ -161,8 +171,9 @@ def main():
     parser.add_argument("--label", required=True)
     parser.add_argument("--navigation", action="store_true")
     parser.add_argument("--field", action="store_true")
+    parser.add_argument("--tab", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab)))
 
 
 if __name__ == "__main__":

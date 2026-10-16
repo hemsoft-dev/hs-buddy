@@ -7,7 +7,13 @@ use futures::channel::oneshot;
 use gpui_kit::{App, Global};
 
 pub struct Runtime {
-    handle: tokio::runtime::Handle,
+    executor: Executor,
+}
+
+enum Executor {
+    Io(tokio::runtime::Handle),
+    #[cfg(test)]
+    Test(gpui_kit::BackgroundExecutor),
 }
 
 impl Global for Runtime {}
@@ -25,7 +31,17 @@ impl Runtime {
             .name("buddy-tokio".into())
             .spawn(move || runtime.block_on(std::future::pending::<()>()))
             .expect("tokio driver thread");
-        Self { handle }
+        Self {
+            executor: Executor::Io(handle),
+        }
+    }
+
+    /// Keep fake I/O on GPUI's deterministic scheduler in headless view tests.
+    #[cfg(test)]
+    pub fn for_test(executor: gpui_kit::BackgroundExecutor) -> Self {
+        Self {
+            executor: Executor::Test(executor),
+        }
     }
 
     pub fn global(cx: &App) -> &Self {
@@ -39,7 +55,7 @@ impl Runtime {
         F::Output: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
-        self.handle.spawn(async move {
+        self.spawn_detached(async move {
             let _ = tx.send(future.await);
         });
         rx
@@ -50,6 +66,12 @@ impl Runtime {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.handle.spawn(future);
+        match &self.executor {
+            Executor::Io(handle) => {
+                handle.spawn(future);
+            }
+            #[cfg(test)]
+            Executor::Test(executor) => executor.spawn(future).detach(),
+        }
     }
 }

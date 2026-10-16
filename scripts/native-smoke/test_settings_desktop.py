@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import struct
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 spec = importlib.util.spec_from_file_location("settings_desktop", Path(__file__).with_name("settings-desktop.py"))
 desktop = importlib.util.module_from_spec(spec)
@@ -65,6 +65,57 @@ class DraftReadVerification(unittest.TestCase):
             desktop.verify_draft(self.capture(), "Notification audio file", "draft audio")
 
 
+class LabeledInputs(unittest.TestCase):
+    def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
+        def word(text, left, top, line, width=40):
+            return dict(text=text, left=left, top=top, line=line, width=width, height=12)
+        words = [word("Filter", 200, 170, "1"), word("loaded", 245, 170, "1"),
+            word("items", 290, 170, "1"), word("Reviews", 200, 245, "2", 60),
+            word("Check", 200, 480, "3"), word("Reviews", 245, 480, "3", 60),
+            word("and", 310, 480, "3"), word("Conversation", 355, 480, "3", 90)]
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "x11"
+        directory = MagicMock()
+        image = directory.__truediv__.return_value
+        image.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200, 820)
+        window = Mock()
+        with patch.object(desktop.ocr, "recognize", return_value=words), \
+                patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+            driver.interact(window, directory, "tab", ["Reviews"])
+        self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
+            window.window, 230, 251, "click", 1), run.call_args_list)
+
+    def test_input_without_save_uses_its_label_and_replaces_text(self):
+        for session, scale in (("macos", 2), ("x11", 1)):
+            with self.subTest(session=session):
+                driver = desktop.Driver.__new__(desktop.Driver)
+                driver.session = session
+                directory = MagicMock()
+                image = directory.__truediv__.return_value
+                image.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200 * scale, 820 * scale)
+                image.with_suffix.return_value.read_text.return_value = json.dumps(dict(
+                    kCGWindowBounds=dict(X=100, Y=50), capturePixelsPerWindowPoint=scale))
+                label = dict(left=800 * scale, top=100 * scale, width=120 * scale, height=14 * scale)
+                window, helper = Mock(), Mock()
+                helper.focus_state.return_value = dict(flags="owned fixture window")
+                with patch.object(desktop.ocr, "locate_image", return_value=label) as locate, \
+                        patch.object(desktop, "OwnedMacInput", return_value=helper), \
+                        patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+                    driver.interact(window, directory, "input", ["Filter loaded items", "First private"])
+                self.assertEqual(locate.call_count, 2 if session == "macos" else 1)
+                locate.assert_called_with(image, "Filter loaded items", navigation=False,
+                    field=True, save_row=False, tab=False)
+                if session == "macos":
+                    helper.click.assert_called_once_with(920, 184)
+                    helper.replace_text.assert_called_once_with("First private")
+                else:
+                    self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
+                        window.window, 820, 134, "click", 1), run.call_args_list)
+                    window.key.assert_called_once_with("a")
+                    self.assertIn(unittest.mock.call("xdotool", "type", "--clearmodifiers",
+                        "--delay", 10, "--", "First private"), run.call_args_list)
+
+
 class MacInputOwnership(unittest.TestCase):
     def test_normal_environment_cannot_load_input_frameworks(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "", "BUDDY_SETTINGS_FIXTURE": ""}):
@@ -101,6 +152,57 @@ class MacInputOwnership(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
                 helper.focus_state()
             self.assertEqual(run.call_count, 1)
+
+
+class MacInputDelivery(unittest.TestCase):
+    def helper(self):
+        helper = desktop.OwnedMacInput.__new__(desktop.OwnedMacInput)
+        helper.process = Mock(pid=123, poll=Mock(return_value=None))
+        helper.graphics, helper.core = Mock(), Mock()
+        helper.require_focus = Mock()
+        return helper
+
+    def test_click_releases_inherited_modifiers_and_marks_a_single_click(self):
+        helper = self.helper()
+        helper.graphics.CGEventSourceFlagsState.side_effect = [1 << 20, 0]
+        helper.click(100, 200)
+        self.assertEqual(helper.graphics.CGEventCreateKeyboardEvent.call_count, 8)
+        self.assertEqual(helper.graphics.CGEventSetIntegerValueField.call_count, 2)
+        for call in helper.graphics.CGEventSetIntegerValueField.call_args_list:
+            self.assertEqual(call.args[1:], (1, 1))
+
+    def test_stuck_modifiers_fail_before_any_mouse_event(self):
+        helper = self.helper()
+        helper.graphics.CGEventSourceFlagsState.return_value = 1 << 20
+        with self.assertRaisesRegex(RuntimeError, "modifier"):
+            helper.click(100, 200)
+        helper.graphics.CGEventCreateMouseEvent.assert_not_called()
+
+    def test_denied_post_access_releases_the_event_without_injecting_it(self):
+        helper = self.helper()
+        helper.graphics.CGPreflightPostEventAccess.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "cannot post input"):
+            helper.post(1234)
+        helper.graphics.CGEventPost.assert_not_called()
+        helper.core.CFRelease.assert_called_once_with(1234)
+
+    def test_locator_waits_for_the_feedback_row_to_stop_moving(self):
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "macos"
+        old = dict(left=72, top=248, width=100, height=11, save=dict(left=1133, top=282, width=32, height=11))
+        new = dict(old, top=290, save=dict(old["save"], top=324))
+        window, image = Mock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[old, new, new]):
+            self.assertEqual(driver.locate(window, image, "field", "Notification audio file"), new)
+        self.assertEqual(window.screenshot.call_count, 3)
+
+    def test_a_continuously_moving_target_is_never_clicked(self):
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "macos"
+        window, image = Mock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[dict(top=i) for i in range(4)]):
+            with self.assertRaisesRegex(RuntimeError, "stable"):
+                driver.locate(window, image, "field", "Notification audio file")
 
 
 if __name__ == "__main__":

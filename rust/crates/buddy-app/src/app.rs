@@ -10,6 +10,7 @@ use gpui_kit::{
 };
 
 use crate::dashboard::{DashboardEvent, DashboardView};
+use crate::github_view::GitHubView;
 use crate::platform_placement;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
@@ -107,6 +108,7 @@ pub struct BuddyApp {
     pub active_account: Option<String>,
     dashboard: Entity<DashboardView>,
     settings_view: Entity<SettingsView>,
+    github_view: Entity<GitHubView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -135,6 +137,9 @@ impl BuddyApp {
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        self.github_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::GitHub), cx)
+        });
         if section == Some(Section::Settings) && self.active_section != section {
             self.settings_view
                 .update(cx, |settings, cx| settings.activate(cx));
@@ -295,10 +300,16 @@ impl BuddyApp {
         .detach();
 
         let settings_view = cx.new(|cx| SettingsView::new(window, cx));
+        let github_view = cx.new(|cx| GitHubView::new(window, cx));
+        github_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::GitHub), cx)
+        });
         cx.subscribe(&settings_view, |this, _, event, cx| match event {
-            SettingsEvent::ClearCache => this
-                .dashboard
-                .update(cx, |dashboard, cx| dashboard.clear_cached_data(cx)),
+            SettingsEvent::ClearCache => {
+                this.dashboard
+                    .update(cx, |dashboard, cx| dashboard.clear_cached_data(cx));
+                this.github_view.update(cx, |view, cx| view.clear_cache(cx));
+            }
         })
         .detach();
         let mut this = Self {
@@ -306,6 +317,7 @@ impl BuddyApp {
             active_account: None,
             dashboard,
             settings_view,
+            github_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -319,6 +331,7 @@ impl BuddyApp {
         match self.active_section {
             None => container.child(self.dashboard.clone()),
             Some(Section::Settings) => container.child(self.settings_view.clone()),
+            Some(Section::GitHub) => container.child(self.github_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -397,6 +410,7 @@ mod tests {
                         active_account: None,
                         dashboard,
                         settings_view: cx.new(|cx| SettingsView::new(window, cx)),
+                        github_view: cx.new(|cx| GitHubView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

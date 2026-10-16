@@ -14,6 +14,20 @@ const workflows = readdirSync(directory).filter(
 )
 
 describe('handwritten workflow action pins', () => {
+  it('uses the declared Bun version in CI and the Aspire workspace', () => {
+    const rootPackage = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      packageManager: string
+    }
+    const appHost = JSON.parse(readFileSync('aspire-apphost/package.json', 'utf8')) as {
+      packageManager: string
+    }
+    const setup = readFileSync('.github/actions/setup-bun/action.yml', 'utf8')
+    const version = rootPackage.packageManager.match(/^bun@(\d+\.\d+\.\d+)$/)?.[1]
+    expect(version).toBeDefined()
+    expect(setup.match(/^ {4}default: (\S+)$/m)?.[1]).toBe(version)
+    expect(appHost.packageManager).toBe(rootPackage.packageManager)
+  })
+
   it('records the verified setup-node release beside every immutable pin', () => {
     let count = 0
     for (const file of workflows) {

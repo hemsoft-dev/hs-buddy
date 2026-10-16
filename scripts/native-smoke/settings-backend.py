@@ -20,8 +20,10 @@ class SettingsBackend:
         self.checkout = Path(checkout).resolve()
         self.child, self.log, self.generated_hash = None, None, None
         self.profile = Path(tempfile.mkdtemp(prefix="buddy-settings-backend-", dir=os.environ["RUNNER_TEMP"]))
-        self.url = "http://127.0.0.1:8130"
+        self.url = None
         self.generated = self.checkout / ".env.local"
+        self.local_state = self.checkout / ".convex" / "local" / "default"
+        self.owns_local_state = False
 
     def query(self, path):
         body = json.dumps(dict(path=path, args={}, format="json")).encode()
@@ -37,9 +39,17 @@ class SettingsBackend:
             for name in (".env", ".env.local"):
                 if (self.checkout / name).exists():
                     raise RuntimeError("Preserve existing deployment selectors")
-            for port in (8130, 8131):
-                with socket.socket() as probe:
-                    probe.bind(("127.0.0.1", port))
+            if (self.local_state.exists() or self.local_state.is_symlink()
+                    or not self.local_state.resolve().is_relative_to(self.checkout)):
+                raise RuntimeError("Preserve existing local backend state")
+            # Consecutive fixtures must not depend on the preceding backend's
+            # fixed ports leaving TIME_WAIT. Reserve two distinct fresh ports
+            # together, then release them for this owned CLI's startup.
+            with socket.socket() as cloud, socket.socket() as site:
+                cloud.bind(("127.0.0.1", 0))
+                site.bind(("127.0.0.1", 0))
+                cloud_port, site_port = cloud.getsockname()[1], site.getsockname()[1]
+            self.url = f"http://127.0.0.1:{cloud_port}"
             node = shutil.which("node")
             if not node:
                 raise RuntimeError("Node is required for the disposable backend")
@@ -52,8 +62,9 @@ class SettingsBackend:
                 GH_CONFIG_DIR=str(self.profile / "empty-gh"), CONVEX_AGENT_MODE="anonymous", NO_COLOR="1")
             self.log = (self.profile / "backend.log").open("w", encoding="utf-8")
             options = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == "nt" else dict(start_new_session=True)
-            self.child = subprocess.Popen([node, str(self.checkout / "node_modules/convex/bin/main.js"), "dev", "--local-cloud-port", "8130", "--local-site-port", "8131"],
+            self.child = subprocess.Popen([node, str(self.checkout / "node_modules/convex/bin/main.js"), "dev", "--local-cloud-port", str(cloud_port), "--local-site-port", str(site_port)],
                 cwd=self.checkout, env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT, **options)
+            self.owns_local_state = True
             deadline = time.monotonic() + 180
             while time.monotonic() < deadline:
                 if self.generated.exists() and self.generated_hash is None:
@@ -116,6 +127,21 @@ class SettingsBackend:
                 self.generated.unlink()
             else:
                 cleanup_error = RuntimeError("Generated fixture environment changed; preserve it")
+        if cleanup_error is None and self.owns_local_state and self.local_state.exists():
+            try:
+                # Convex stores anonymous databases in the checkout, even with
+                # an isolated HOME. Preserve our completed database separately
+                # so the next fixture starts empty, without deleting user data.
+                source = self.local_state.resolve()
+                destination = (self.profile / "backend-state").resolve()
+                if (not source.is_relative_to(self.checkout)
+                        or not destination.is_relative_to(self.profile.resolve())
+                        or destination.exists()):
+                    raise RuntimeError("Owned backend state boundaries changed; preserve it")
+                source.rename(destination)
+                self.owns_local_state = False
+            except BaseException as failure:
+                cleanup_error = failure
         if cleanup_error is not None:
             if error is None:
                 raise cleanup_error

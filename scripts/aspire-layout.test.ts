@@ -21,7 +21,7 @@ describe('Aspire AppHost isolation', () => {
     expect(rootPackage.devDependencies).not.toHaveProperty('vscode-jsonrpc')
     expect(appHostPackage).toMatchObject({
       private: true,
-      packageManager: 'bun@1.3.7',
+      packageManager: rootPackage.packageManager,
       engines: { node: '>=22.0.0' },
       dependencies: { 'vscode-jsonrpc': '^9.0.1' },
       devDependencies: { '@types/node': '^22.0.0' },

@@ -9,6 +9,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1390] - 2026-10-16
+
+### Fixed
+
+- Retain readable native GitHub typography
+
+## [0.1.1389] - 2026-10-16
+
+### Fixed
+
+- Avoid hostname discovery in native loopback fixtures
+
+## [0.1.1388] - 2026-10-15
+
+### Fixed
+
+- Preserve exact small-glyph OCR checks with bounded analysis
+
+## [0.1.1387] - 2026-10-15
+
+### Fixed
+
+- Verify exact GitHub text across bounded OCR layouts
+
+## [0.1.1386] - 2026-10-15
+
+### Fixed
+
+- Observe fixture mouse events before child capture handlers
+
+## [0.1.1385] - 2026-10-15
+
+### Changed
+
+- Trace guarded native fixture mouse delivery
+
+## [0.1.1384] - 2026-10-15
+
+### Fixed
+
+- Decode native OCR evidence consistently as UTF-8
+
+## [0.1.1383] - 2026-10-15
+
+### Fixed
+
+- Show commit subjects once in native lists
+
+## [0.1.1382] - 2026-10-15
+
+### Fixed
+
+- Keep Save focus outline out of native draft readback
+
+## [0.1.1381] - 2026-10-15
+
+### Fixed
+
+- Qualify exact controls and retain native input diagnostics
+
+## [0.1.1380] - 2026-10-15
+
+### Fixed
+
+- Stabilize Mac qualification input and GPUI tests
+
+## [0.1.1379] - 2026-10-15
+
+### Fixed
+
+- Qualify GitHub tabs and update Bun installer pin
+
+## [0.1.1378] - 2026-10-15
+
+### Fixed
+
+- Preserve GitHub profile drafts and independent review watches
+
+## [0.1.1377] - 2026-10-15
+
+### Fixed
+
+- Verify installed GitHub evidence against binary provenance
+
+## [0.1.1376] - 2026-10-15
+
+### Fixed
+
+- Isolate native GitHub qualification inputs and backend ports
+
+## [0.1.1375] - 2026-10-15
+
+### Fixed
+
+- Preserve native GitHub search and review state
+
+## [0.1.1374] - 2026-10-15
+
+### Added
+
+- Port GitHub repository and PR workflows to GPUI
+
 ## [0.1.1373] - 2026-10-15
 
 ### Changed

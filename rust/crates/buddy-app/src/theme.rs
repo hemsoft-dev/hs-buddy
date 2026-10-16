@@ -184,8 +184,11 @@ fn apply_user_overrides(config: &AppConfig, palette: &mut BuddyPalette, cx: &mut
         .then(|| SharedString::from(ui.font_family.clone()));
     let mono_font_family = installed
         .iter()
-        .any(|name| name.eq_ignore_ascii_case(&ui.mono_font_family))
-        .then(|| SharedString::from(ui.mono_font_family.clone()));
+        .find(|name| name.eq_ignore_ascii_case(&ui.mono_font_family))
+        .map(|name| SharedString::from(name.clone()))
+        // Theme::update resolves the Kit's platform default against installed
+        // alternatives. Do not retain the bundled Cascadia name when absent.
+        .unwrap_or_else(|| gpui_kit::base::TypographyTokens::default().mono);
 
     if let Some(color) = font_color {
         palette.text_heading = lighten(color, 20.0);
@@ -225,15 +228,31 @@ fn apply_user_overrides(config: &AppConfig, palette: &mut BuddyPalette, cx: &mut
         if let Some(family) = font_family {
             theme.font_family = family;
         }
-        if let Some(family) = mono_font_family {
-            theme.mono_font_family = family;
-        }
+        theme.mono_font_family = mono_font_family;
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui_kit::test]
+    fn unavailable_code_font_uses_resolved_platform_default(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            Theme::change(ThemeMode::Dark, None, cx);
+            let expected = Theme::global(cx).mono_font_family.clone();
+            let mut config = AppConfig::default();
+            config.ui.mono_font_family = "__Buddy_Uninstalled_Mono_Fixture__".into();
+
+            install(&config, cx);
+            assert_eq!(Theme::global(cx).mono_font_family, expected);
+
+            config.ui.theme = ThemeName::Light;
+            install(&config, cx);
+            assert_eq!(Theme::global(cx).mono_font_family, expected);
+        });
+    }
 
     #[test]
     fn light_palette_gold_meets_small_text_contrast() {

@@ -76,7 +76,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "click", "field", "leftfield", "rightfield", "save"):
+                if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
                     commands.append(kind + "64:" + ":".join(map(b64, values)))
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
@@ -145,7 +145,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "click", "field", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -158,8 +158,26 @@ class Driver:
                             self.scroll(window, values[0])
                         else:
                             self.interact(window, directory, kind, values)
+                if self.session == "macos":
+                    state = OwnedMacInput(process).release_modifiers()
+                    (directory / "exit-input-state.json").write_text(json.dumps(state), encoding="utf-8")
                 window.key("q")
-                if process.wait(timeout=20) != 0:
+                try:
+                    exit_code = process.wait(timeout=20)
+                except subprocess.TimeoutExpired as failure:
+                    if self.session == "macos":
+                        # Keep the owned window and native stacks when input or
+                        # application shutdown stalls on a disposable runner.
+                        for diagnose in (
+                            lambda: window.screenshot(directory / "exit-timeout.png"),
+                            lambda: run("sample", process.pid, 2, 1, "-file", directory / "exit-timeout.sample.txt", timeout=10),
+                        ):
+                            try:
+                                diagnose()
+                            except Exception as diagnostic_error:
+                                failure.add_note(f"Exit diagnostic failed: {type(diagnostic_error).__name__}")
+                    raise
+                if exit_code != 0:
                     raise RuntimeError("Installed settings app failed on exit")
                 if companion is not None and companion.wait(timeout=30) != 0:
                     raise RuntimeError("Electron config companion failed")
@@ -180,12 +198,28 @@ class Driver:
                 bounds["Y"] + bounds["Height"] / 2, delta)
         time.sleep(0.7)
 
+    def locate(self, window, image, kind, text):
+        previous = None
+        for _ in range(4 if self.session == "macos" else 1):
+            window.screenshot(image)
+            label = ocr.locate_image(image, text, navigation=kind == "nav",
+                field=kind in ("input", "field", "leftfield", "rightfield", "save"),
+                save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            # A pending save can insert feedback while OCR runs, moving every
+            # content control. Measure twice before emitting any Mac input.
+            if self.session != "macos" or label == previous:
+                return label
+            previous = label
+        raise RuntimeError("The visible Mac input target did not become stable")
+
+    def input_receipt(self, helper, directory, stage, kind, label, target):
+        with (directory / "input-state.jsonl").open("a", encoding="utf-8") as receipt:
+            receipt.write(json.dumps(dict(stage=stage, kind=kind, label=label,
+                target=target, state=helper.focus_state())) + "\n")
+
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
-        window.screenshot(image)
-        label = ocr.locate_image(image, values[0], navigation=kind == "nav",
-            field=kind in ("field", "leftfield", "rightfield", "save"),
-            save_row=self.session == "macos" and kind in ("field", "save"))
+        label = self.locate(window, image, kind, values[0])
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)
@@ -196,13 +230,17 @@ class Driver:
             origin = (bounds["X"], bounds["Y"])
         x = (label["left"] + label["width"] / 2) / scale
         y = (label["top"] + label["height"] / 2) / scale
-        if kind in ("field", "leftfield", "rightfield", "save"):
+        if kind in ("input", "field", "leftfield", "rightfield", "save"):
             y = (label["top"] + label["height"]) / scale + 20
             x = width / scale - 49 if kind == "save" else width / scale / 2
             if kind == "leftfield":
                 x = width / scale / 4
             elif kind == "rightfield":
                 x = width / scale * 3 / 4
+            elif kind == "input":
+                # GitHub fields can occupy a narrow column and have no Save
+                # control. Target the editor immediately below its own label.
+                x = label["left"] / scale + 20
         if "save" in label:
             # Label glyph bottoms do not locate the editor: on Mac the old
             # offset hit the frame's padding, which shows a focus ring while
@@ -216,17 +254,29 @@ class Driver:
                 targets.write(json.dumps(dict(kind=kind, label=values[0], bounds=label,
                     windowPoint=[x, y])) + "\n")
             run("osascript", "-e", window.apple("set frontmost to true"))
-            OwnedMacInput(window.process).click(origin[0] + x, origin[1] + y)
+            helper = OwnedMacInput(window.process)
+            target = [origin[0] + x, origin[1] + y]
+            try:
+                helper.click(*target)
+            except Exception as failure:
+                try:
+                    self.input_receipt(helper, directory, "failed-click", kind, values[0], target)
+                    window.screenshot(directory / "failed-click.png")
+                except Exception as diagnostic_error:
+                    failure.add_note(f"Input diagnostic failed: {type(diagnostic_error).__name__}")
+                raise
+            self.input_receipt(helper, directory, "after-click", kind, values[0], target)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
         time.sleep(0.4)
-        if kind in ("field", "leftfield", "rightfield"):
+        if kind in ("input", "field", "leftfield", "rightfield"):
             if self.session == "macos":
                 helper = OwnedMacInput(window.process)
                 if kind == "field" and values[0] == "Accent color":
                     (directory / "accent-focus-before.json").write_text(json.dumps(helper.focus_state()), encoding="utf-8")
                 helper.replace_text(values[1])
+                self.input_receipt(helper, directory, "after-typing", kind, values[0], target)
             else:
                 window.key("a")
                 run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
@@ -236,14 +286,29 @@ class Driver:
             window.screenshot(directory / f"typed-{name}-accent-draft.png")
             (directory / f"accent-focus-after-{name}.json").write_text(
                 json.dumps(OwnedMacInput(window.process).focus_state()), encoding="utf-8")
+        if self.session == "macos" and kind == "field" and values[0] == "Notification audio file":
+            # Leave the editor and its adjacent Save button unfocused. Save's
+            # focus outline hides its OCR glyphs, which locate the input row.
+            window.key("Tab", control=False)
+            window.key("Tab", control=False)
+            image = directory / "typed-audio-draft.png"
+            window.screenshot(image)
+            (directory / "audio-input-state.json").write_text(
+                json.dumps(OwnedMacInput(window.process).focus_state()), encoding="utf-8")
+            verify_draft(image, values[0], values[1])
 
 
-def verify_text(path, *markers):
-    text = run("tesseract", path, "stdout", "--psm", 11).casefold()
+class MissingVisibleText(RuntimeError):
+    """An OCR result lacks required text; engine and I/O errors remain distinct."""
+
+
+def verify_text(path, *markers, mode=11):
+    text = run("tesseract", path, "stdout", "--psm", mode, encoding="utf-8").casefold()
     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
+    path.with_suffix(f".ocr-{mode}.txt").write_text(text, encoding="utf-8")
     for marker in markers:
         if marker.casefold() not in text:
-            raise RuntimeError(f"Settings screenshot is missing {marker!r}")
+            raise MissingVisibleText(f"Settings screenshot is missing {marker!r}")
 
 
 def verify_color(path, expected, session):

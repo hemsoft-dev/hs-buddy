@@ -337,7 +337,7 @@ pub async fn apply(url: &str, command: BackendCommand) -> Result<MutationReceipt
     Ok(MutationReceipt { snapshot })
 }
 
-async fn connect(url: &str) -> Result<ConvexClient, BackendError> {
+pub(crate) async fn connect(url: &str) -> Result<ConvexClient, BackendError> {
     let parsed = reqwest::Url::parse(url).map_err(|_| BackendError::Unavailable)?;
     if !matches!(parsed.scheme(), "http" | "https")
         || parsed.host_str().is_none()
@@ -380,7 +380,7 @@ async fn snapshot(client: &mut ConvexClient) -> Result<SettingsSnapshot, Backend
     })
 }
 
-fn result_json(result: FunctionResult) -> Result<Value, BackendError> {
+pub(crate) fn result_json(result: FunctionResult) -> Result<Value, BackendError> {
     let message = match result {
         FunctionResult::Value(value) => return Ok(value.export()),
         FunctionResult::ErrorMessage(message) => message,
