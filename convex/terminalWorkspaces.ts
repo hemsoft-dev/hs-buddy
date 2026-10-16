@@ -19,27 +19,13 @@ function currentRevision(value: number | undefined): number {
   return revision
 }
 
-function isJsonPrimitive(value: unknown): boolean {
-  return value === null || typeof value === 'boolean' || typeof value === 'string'
-}
-
-function canonicalJson(value: unknown, depth = 0): string {
+function canonicalJson(value: ReturnType<typeof convexToJson>, depth = 0): string {
   if (depth > 64) throw new Error('Native workspace nesting exceeds its limit')
-  if (isJsonPrimitive(value)) {
-    return JSON.stringify(value)
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value)
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value))
     return `[${value.map(item => canonicalJson(item, depth + 1)).join(',')}]`
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    Object.getPrototypeOf(value) === Object.prototype
-  ) {
-    const fields = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    return `{${fields.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item, depth + 1)}`).join(',')}}`
-  }
-  throw new Error('Native workspace layouts must contain JSON values')
+  const fields = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return `{${fields.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item, depth + 1)}`).join(',')}}`
 }
 
 function retainedNativeReceipt(

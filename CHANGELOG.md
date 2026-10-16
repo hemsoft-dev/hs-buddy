@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1409] - 2026-10-16
+
+### Fixed
+
+- Simplify canonical hashing after Convex encoding
+
 ## [0.1.1408] - 2026-10-16
 
 ### Fixed
