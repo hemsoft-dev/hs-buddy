@@ -12,6 +12,44 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class CopilotQualificationTests(unittest.TestCase):
+    def test_fresh_review_selects_the_offline_model_before_dispatch(self):
+        # The actual failed Mac capture starts a fresh review app with this
+        # configured model. Chat's earlier, view-local choice does not carry over.
+        class FreshReviewDriver:
+            def __init__(self):
+                self.model = 'claude-sonnet-4.5'
+                self.catalog = False
+                self.context = False
+                self.dispatched = False
+
+            def drive(self, name, actions):
+                self.assert_name = name
+                for action in actions:
+                    if action == ('click', 'Review with Buddy assistant'):
+                        self.context = True
+                    elif action == ('click', 'Load available models'):
+                        self.catalog = True
+                    elif action == ('wait_text', 'Synthetic offline model'):
+                        if not self.catalog:
+                            raise AssertionError('Model discovery was not requested')
+                    elif action == ('click', 'Synthetic offline model'):
+                        if not self.catalog:
+                            raise AssertionError('Cannot select a model before discovery')
+                        self.model = 'gpt-4.1'
+                    elif action == ('click', 'Run and save'):
+                        if not self.context or self.model != 'gpt-4.1':
+                            raise AssertionError('Fresh review dispatch reaches the offline identity guard with model=' + self.model)
+                        self.dispatched = True
+                return Path('unused-synthetic-review-output')
+
+        driver = FreshReviewDriver()
+        with patch.object(copilot.github, 'check') as screenshots:
+            copilot.review_pull_request(driver)
+        self.assertEqual(driver.assert_name, 'review-dark')
+        self.assertTrue(driver.dispatched)
+        self.assertEqual(driver.model, 'gpt-4.1')
+        self.assertEqual(screenshots.call_count, 2)
+
     def test_privacy_gate_requires_app_logs_and_rejects_private_transport_content(self):
         with TemporaryDirectory() as temporary:
             output = Path(temporary)

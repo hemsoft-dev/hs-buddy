@@ -151,6 +151,19 @@ def headless(executable, output, config, backend):
         raise RuntimeError('Actual SDK request/cancellation counts differ from the five explicit turns')
     return receipt
 
+def review_pull_request(driver):
+    review = driver.drive('review-dark', [
+        ('click', '#7 Second private navigation review'), ('click', 'Review with Buddy assistant'),
+        ('wait_text', 'Reviewing fixture-org/native-demo'),
+        ('click', 'Load available models'), ('wait_text', 'Synthetic offline model'), ('click', 'Synthetic offline model'),
+        ('capture', 'review-context-dark'),
+        ('click', 'Run and save'), ('wait_scroll_text', 'Saved to results'), ('click', 'Inspect saved result'),
+        ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
+    ])
+    github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
+    github.check(review / 'review-result-dark.png', 'Captured review', 'Freshness has not been checked')
+
+
 def qualify(executable, output, session, version, backend, api):
     binary = github.installed_binary(executable, version)
     config = fixture(output, 'dark')
@@ -195,14 +208,7 @@ def qualify(executable, output, session, version, backend, api):
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
             assert_no_owned_children(output)
             write_section(config, 'github')
-            review = driver.drive('review-dark', [
-                ('click', '#7 Second private navigation review'), ('click', 'Review with Buddy assistant'),
-                ('wait_text', 'Reviewing fixture-org/native-demo'), ('capture', 'review-context-dark'),
-                ('click', 'Run and save'), ('wait_scroll_text', 'Saved to results'), ('click', 'Inspect saved result'),
-                ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
-            ])
-            github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
-            github.check(review / 'review-result-dark.png', 'Captured review', 'Freshness has not been checked')
+            review_pull_request(driver)
             light = json.loads(fixture(output / 'light-template', 'light').read_text())['ui']
             write_section(config, 'copilot', light)
             usage = driver.drive('usage-light', [

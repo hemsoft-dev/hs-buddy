@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1423] - 2026-10-16
+
+### Changed
+
+- Select an available model for fresh PR reviews
+
 ## [0.1.1422] - 2026-10-16
 
 ### Changed
