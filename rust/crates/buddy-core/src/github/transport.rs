@@ -205,7 +205,10 @@ pub(crate) fn fixture_transport(
         fn token<'a>(&'a self, account: &'a AccountScope) -> CredentialFuture<'a> {
             Box::pin(async move {
                 if account.organization() != "fixture-org"
-                    || !matches!(account.username(), "fixture-one" | "fixture-two")
+                    || !matches!(
+                        account.username(),
+                        "fixture-one" | "fixture-two" | "synthetic-account"
+                    )
                 {
                     return Err(GitHubError::Authentication);
                 }
@@ -414,6 +417,46 @@ mod tests {
             client: github_http_client(),
             base,
             credentials: FixtureCredentials,
+        }
+    }
+
+    #[tokio::test]
+    async fn installed_fixture_transport_scopes_fake_tokens_and_rejects_other_identities() {
+        let (base, worker) = server(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}"
+                .to_vec(),
+            3,
+        );
+        let transport = fixture_transport(base).unwrap();
+        let usernames = ["fixture-one", "fixture-two", "synthetic-account"];
+        for username in usernames {
+            let scope = AccountScope::new(username, "fixture-org").unwrap();
+            transport
+                .request(&scope, ApiRequest::get("/user"))
+                .await
+                .unwrap()
+                .checked(false)
+                .unwrap();
+        }
+        let requests = worker.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        for (request, username) in requests.iter().zip(usernames) {
+            assert!(request.starts_with("GET /user HTTP/1.1"));
+            assert!(request.contains(&format!(
+                "authorization: Bearer native-fixture-{username}\r\n"
+            )));
+            assert_eq!(request.matches("authorization:").count(), 1);
+        }
+        for (username, organization) in [
+            ("HemSoft", "fixture-org"),
+            ("synthetic-other", "fixture-org"),
+            ("synthetic-account", "other-org"),
+        ] {
+            let scope = AccountScope::new(username, organization).unwrap();
+            assert!(matches!(
+                transport.request(&scope, ApiRequest::get("/user")).await,
+                Err(GitHubError::Authentication)
+            ));
         }
     }
 
