@@ -157,9 +157,12 @@ the OS window bounds and PNG pixel dimensions to identify backing scale.
 Mixed-display coordinate conversions retain their existing Rust tests.
 Physical multi-monitor hardware coverage remains distinct from these CI
 scenarios. Wayland captures the owned window's compositor rectangle directly.
-OCR tries at most three page layouts on each untouched PNG. One result must
-contain every required marker and exact version; partial results are never
-combined. A title bar or empty window fails. Windows also rejects missing class
+OCR tries at most three page layouts on each untouched PNG. If all fail, it
+tries sparse text once on a 3× nearest-neighbor analysis copy. The original
+capture stays unchanged, and the receipt records the chosen layout and scale.
+One result must contain every required marker and exact version; partial results
+are never combined, and digits or punctuation are never substituted. A title bar
+or empty window fails. Windows also rejects missing class
 icons and compares their pixels against the bundled Buddy icon.
 Unobstructed dashboard captures require the card heading and account control.
 The menu overlay has its own File, Exit, and exact-version assertion, so OCR

@@ -55,9 +55,16 @@ def inspect_screenshot(path, version, menu=False):
     # Sparse text can split a version number at 110% scale. Try bounded page
     # layouts on the SAME untouched PNG, requiring every marker in ONE result.
     # No digit substitutions, substring matches, action replay, or merged OCR.
-    for mode in (11, 3, 6):
-        text = run("tesseract", path, "stdout", "--psm", mode)
-        attempts.append(dict(mode=mode, text=text))
+    for mode, scale in ((11, 1), (3, 1), (6, 1), (11, 3)):
+        source = path
+        if scale != 1:
+            # Analysis only: retain the original window pixels for review.
+            # Small version glyphs can acquire punctuation at native resolution.
+            source = path.with_suffix(".ocr-analysis-3x.png")
+            run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+                "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", source)
+        text = run("tesseract", source, "stdout", "--psm", mode)
+        attempts.append(dict(mode=mode, scale=scale, text=text))
         try:
             if menu:
                 # Assert this state's content. Dashboard/card content is checked
@@ -71,13 +78,13 @@ def inspect_screenshot(path, version, menu=False):
             failures.append(error)
             continue
         path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
-        path.with_suffix(".ocr-mode.json").write_text(json.dumps(dict(mode=mode)), encoding="utf-8")
+        path.with_suffix(".ocr-mode.json").write_text(json.dumps(dict(mode=mode, scale=scale)), encoding="utf-8")
         return
     primary = failures[0]
     finish_cleanup(lambda: path.with_suffix(".ocr.txt").write_text(
-        "\n\n".join(f'PSM {item["mode"]}\n{item["text"]}' for item in attempts), encoding="utf-8"),
+        "\n\n".join(f'PSM {item["mode"]}, scale {item["scale"]}\n{item["text"]}' for item in attempts), encoding="utf-8"),
         primary, "Rejected OCR evidence")
-    finish_cleanup(lambda: print(f"Dashboard OCR rejected {path.name} in modes 11, 3, 6", file=sys.stderr),
+    finish_cleanup(lambda: print(f"Dashboard OCR rejected {path.name} at original scale and 3x analysis", file=sys.stderr),
                    primary, "OCR diagnostics")
     raise primary
 

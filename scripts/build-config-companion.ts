@@ -10,6 +10,14 @@ if (
   throw new Error('An owned settings fixture directory is required')
 }
 const modulePath = join(directory, 'config-companion-module.mjs')
+const protocolPath = join(directory, 'config-companion-protocol.mjs')
+await build({
+  entryPoints: ['scripts/native-smoke/config-companion-protocol.ts'],
+  outfile: protocolPath,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+})
 await build({
   entryPoints: ['electron/config.ts'],
   outfile: modulePath,
@@ -41,6 +49,7 @@ await build({
 const bootstrap = `import {app} from 'electron';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
+import {runConfigCompanion} from ${JSON.stringify(pathToFileURL(protocolPath).href)};
 app.disableHardwareAcceleration();
 const profile=dirname(resolve(process.env.BUDDY_CONFIG_PATH));
 if(readFileSync(join(profile,'.buddy-settings-fixture'),'utf8')!=='buddy settings fixture v1') throw new Error('Missing fixture marker');
@@ -48,14 +57,9 @@ app.setPath('userData',profile);
 app.whenReady().then(async()=>{
   if(process.platform==='darwin') app.setActivationPolicy('prohibited');
   const {configManager}=await import(${JSON.stringify(pathToFileURL(modulePath).href)});
-  writeFileSync(join(profile,'companion-ready.json'),JSON.stringify({ready:true,electron:process.versions.electron,startedAt:Date.now()}));
-  const started=Date.now();let writes=0;
-  while(Date.now()-started<20000){
-    configManager.setUiValue('enterpriseSlug','fixture-concurrent-'+writes++);
-    await new Promise(resolve=>setTimeout(resolve,25));
-  }
-  configManager.setUiValue('enterpriseSlug','fixture-concurrent-complete');
-  writeFileSync(join(profile,'companion-complete.json'),JSON.stringify({result:'passed',writes,electron:process.versions.electron,credentialAccess:false,completedAt:Date.now()}));
+  await runConfigCompanion({profile,electron:process.versions.electron,
+    write:slug=>configManager.setUiValue('enterpriseSlug',slug),
+    readAccent:()=>JSON.parse(readFileSync(process.env.BUDDY_CONFIG_PATH,'utf8').replace(/^\\uFEFF/,'')).ui.accentColor});
   app.exit(0);
 }).catch(error=>{
   writeFileSync(join(dirname(resolve(process.env.BUDDY_CONFIG_PATH)),'companion-failed.json'),JSON.stringify({stage:'fixture config initialization or write',type:error?.name,message:error?.message}));

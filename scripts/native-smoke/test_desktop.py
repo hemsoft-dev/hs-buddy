@@ -71,10 +71,31 @@ class DashboardGate(unittest.TestCase):
 
     def test_partial_ocr_results_cannot_be_combined_to_qualify(self):
         with TemporaryDirectory() as temporary, patch("desktop.run", side_effect=[
-                f"{BODY} 0.1.20", "Version 0.1.2", BODY]) as recognize:
+                f"{BODY} 0.1.20", "Version 0.1.2", BODY, "", f"{BODY} 0.1.20"]) as recognize:
             with self.assertRaises(RuntimeError):
                 inspect_screenshot(Path(temporary) / "dashboard.png", "0.1.2")
-            self.assertEqual(recognize.call_count, 3)
+            self.assertEqual(recognize.call_count, 5)
+
+    def test_scaled_analysis_still_requires_exact_version_and_every_marker_in_one_result(self):
+        with TemporaryDirectory() as temporary, patch("desktop.run", side_effect=[
+                f"{BODY} 0.1.2.", "Version 0.1.2", BODY, "", f"{BODY} 0.1.2"]) as recognize:
+            path = Path(temporary) / "dashboard.png"
+            path.write_bytes(b"original window pixels")
+            inspect_screenshot(path, "0.1.2")
+            self.assertEqual(recognize.call_count, 5)
+            self.assertEqual(path.read_bytes(), b"original window pixels")
+            self.assertEqual(json.loads(path.with_suffix(".ocr-mode.json").read_text()), dict(mode=11, scale=3))
+            scale = recognize.call_args_list[3].args
+            self.assertEqual(scale[0], "ffmpeg")
+            self.assertIn("scale=iw*3:ih*3:flags=neighbor", scale)
+            self.assertEqual(recognize.call_args_list[4].args[1], path.with_suffix(".ocr-analysis-3x.png"))
+
+    def test_scaled_analysis_does_not_repair_misread_digits_or_accept_a_longer_version(self):
+        for version in ("0.1.20", "0.1.2.1", "0.1.2l", "0.1.2."):
+            with self.subTest(version=version), TemporaryDirectory() as temporary, patch("desktop.run", side_effect=[
+                    "Version 0.1.2", BODY, BODY, "", f"{BODY} {version}"]):
+                with self.assertRaises(RuntimeError):
+                    inspect_screenshot(Path(temporary) / "dashboard.png", "0.1.2")
 
     def test_fallback_requires_a_complete_current_result_and_stops_on_success(self):
         with TemporaryDirectory() as temporary, patch("desktop.run", side_effect=[
