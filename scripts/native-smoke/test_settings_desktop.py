@@ -111,6 +111,54 @@ class DraftReadVerification(unittest.TestCase):
 
 
 class LabeledInputs(unittest.TestCase):
+    def test_status_barrier_waits_for_an_observed_acknowledgment_without_posting_input(self):
+        window, directory = Mock(), MagicMock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("not ready"), dict(left=10)]) as locate, \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 1]), patch.object(desktop.time, "sleep"):
+            desktop.wait_visible(window, directory, "Paste written. No Enter key was added.")
+        self.assertEqual(window.screenshot.call_count, 2)
+        self.assertEqual(locate.call_count, 2)
+        window.key.assert_not_called()
+
+    def test_missing_acknowledgment_times_out_without_posting_return(self):
+        window, directory = Mock(), MagicMock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=RuntimeError("not ready")), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 16]), patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not show the expected status"):
+                desktop.wait_visible(window, directory, "Paste written. No Enter key was added.")
+        window.key.assert_not_called()
+
+    def test_status_capture_failure_is_not_retried_as_an_absent_label(self):
+        window = Mock()
+        window.screenshot.side_effect = OSError("capture failed")
+        with patch.object(desktop.ocr, "locate_image") as locate:
+            with self.assertRaisesRegex(OSError, "capture failed"):
+                desktop.wait_visible(window, MagicMock(), "NATIVEREADY")
+            locate.assert_not_called()
+        window.key.assert_not_called()
+
+    def test_windows_sequence_waits_for_paste_acknowledgment_before_return_and_output_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(root)
+            driver.config = Path(root) / "config.json"
+            driver.executable = Path(root) / "owned-app.exe"
+            driver.checkout = Path(root)
+            driver.session = "windows"
+            driver.large_size = (1200, 820)
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            with patch.object(desktop, "run") as execute:
+                driver.drive("acknowledged", [("click", "Insert + copy"),
+                    ("wait_text", "Paste written. No Enter key was added."), ("key", "Return"),
+                    ("wait_text", "NATIVEREADY"), ("capture", "result")])
+            args = execute.call_args.args
+            commands = args[args.index("-Actions") + 1].split(",")
+            self.assertEqual([command.split(":")[0] for command in commands],
+                ["resize", "click64", "waittext64", "key", "waittext64", "capture", "ctrlkey"])
+            self.assertEqual(commands[2], "waittext64:" + desktop.b64("Paste written. No Enter key was added."))
+            self.assertEqual(commands[3], "key:13")
+            self.assertEqual(commands[4], "waittext64:" + desktop.b64("NATIVEREADY"))
+
     def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
         def word(text, left, top, line, width=40):
             return dict(text=text, left=left, top=top, line=line, width=width, height=12)

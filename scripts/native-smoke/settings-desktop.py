@@ -84,6 +84,25 @@ def b64(value):
     return base64.b64encode(str(value).encode()).decode()
 
 
+def wait_visible(window, directory, text, timeout=15):
+    """Read an owned window until one OCR layout has the exact visible status.
+
+    This never posts input. A missing acknowledgment must fail before the
+    fixture can advance to Return or capture an unexecuted command as output.
+    """
+    image = directory / "wait-status.png"
+    deadline = time.monotonic() + timeout
+    while True:
+        window.screenshot(image)
+        try:
+            ocr.locate_image(image, text)
+            return
+        except RuntimeError as failure:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"The owned window did not show the expected status {text!r}") from failure
+        time.sleep(0.1)
+
+
 def planned_large_size(width, height):
     size = (min(1200, int(width)), min(820, int(height)))
     if size[0] < 900 or size[1] < 650:
@@ -174,6 +193,8 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
+                elif kind == "wait_text":
+                    commands.append("waittext64:" + b64(values[0]))
                 elif kind == "sleep":
                     commands.append("sleep:" + str(int(values[0] * 1000)))
                 elif kind == "wheel":
@@ -242,6 +263,8 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
+                        elif kind == "wait_text":
+                            wait_visible(window, directory, values[0])
                         elif kind == "sleep":
                             time.sleep(values[0])
                         elif kind == "wheel":

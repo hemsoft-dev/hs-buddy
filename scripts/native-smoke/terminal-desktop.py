@@ -166,9 +166,10 @@ def qualify(executable, output, session, version, backend):
     try:
         dark = driver.drive("interactive-dark", [
             ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
-            ("capture", "prompt-before-enter-dark"), ("key", "Return"), ("sleep", 1),
+            ("wait_text", "Paste written. No Enter key was added."),
+            ("capture", "prompt-before-enter-dark"), ("key", "Return"), ("wait_text", "NATIVEREADY"),
             ("capture", "unicode-color-dark"), ("click", "Hide prompts"), ("click", "Interrupt"),
-            ("sleep", 1), ("capture", "interrupted-dark"), ("click", "Split right"),
+            ("wait_text", "NATIVEINTERRUPTED"), ("capture", "interrupted-dark"), ("click", "Split right"),
             ("sleep", 2), ("click", "More space"), ("capture", "split-dark"), ("resize", 900, 650), ("capture", "compact-dark"),
         ], record=True)
         github.check(dark / "prompt-before-enter-dark.png", "Prompt library", absent=("NATIVEREADY",))
@@ -187,8 +188,9 @@ def qualify(executable, output, session, version, backend):
         nonce = str(uuid.uuid4())
         github.mutate(backend, "terminalPrompts:update", dict(id=prompt, content=command_proof(output, nonce)))
         management = driver.drive("workspace-management-dark", [
-            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"), ("key", "Return"),
-            ("sleep", 1), ("click", "Hide prompts"),
+            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+            ("wait_text", "Paste written. No Enter key was added."), ("key", "Return"),
+            ("wait_text", "NATIVEREADY"), ("click", "Hide prompts"),
             ("click", "New workspace"), ("sleep", 1), ("click", "Workspace details"),
             ("input", "Workspace name", "Scratch workspace"), ("click", "Rename"),
             ("click", "Hide workspace details"), ("capture", "new-workspace-dark"),
@@ -225,8 +227,9 @@ def qualify(executable, output, session, version, backend):
             ("input", "Selected shell name", "Build shell"), ("click", "Rename shell"),
             ("input", "Working directory", str(workspace)), ("click", "Save directory"),
             ("click", "Hide workspace details"), ("click", "Restart shell"), ("sleep", 3),
-            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"), ("key", "Return"),
-            ("sleep", 1), ("capture", "restarted-unicode-light"),
+            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+            ("wait_text", "Paste written. No Enter key was added."), ("key", "Return"),
+            ("wait_text", "NATIVEREADY"), ("capture", "restarted-unicode-light"),
         ])
         github.check(restored / "restarted-unicode-light.png", "Native restored", "Build shell", "NATIVEREADY", "NATIVECOLOR")
         verify_proof(output, nonce, workspace)
@@ -263,6 +266,7 @@ def qualify_multiline_cancel(driver, backend, prompt, config):
     before = backend.query("terminalPrompts:list")[0].get("lastUsedAt")
     result = driver.drive("multiline-cancel-light", [
         ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+        ("wait_text", "Paste 2 lines"),
         ("capture", "multiline-confirm-light"), ("key", "Escape"), ("sleep", 1),
         ("capture", "multiline-cancel-light"),
     ])

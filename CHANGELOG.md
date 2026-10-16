@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1406] - 2026-10-16
+
+### Fixed
+
+- Wait for terminal paste acknowledgments in desktop qualification
+
 ## [0.1.1405] - 2026-10-16
 
 ### Fixed
