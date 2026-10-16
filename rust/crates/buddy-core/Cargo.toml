@@ -19,6 +19,10 @@ futures.workspace = true
 sha2 = "0.10"
 chrono.workspace = true
 sys-locale = "0.3"
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+unicode-width = "0.2"
+portable-pty = "=0.9.0"
+uuid = { version = "1", features = ["v4", "serde"] }
 icu_decimal = "2"
 fixed_decimal = { version = "0.7", features = ["ryu"] }
 icu_locale_core = "2"
@@ -30,3 +34,9 @@ icu_time = "2"
 [dev-dependencies]
 env_logger = "0.11"
 tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

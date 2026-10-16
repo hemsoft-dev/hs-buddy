@@ -157,6 +157,20 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
+            'waittext64' {
+                # Read-only acknowledgment barrier on this owned hidden HWND.
+                # Never post the following key until the exact status is visible.
+                $timer = [Diagnostics.Stopwatch]::StartNew()
+                while ($true) {
+                    try {
+                        Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
+                        break
+                    } catch {
+                        if ($timer.Elapsed.TotalSeconds -ge 15) { throw }
+                        Start-Sleep -Milliseconds 100
+                    }
+                }
+            }
             'ctrlkey' {
                 $vk = [int]$parts[1]
                 [Drive]::Ctrl($true)

@@ -98,10 +98,15 @@ class OwnedMacInput:
         # Keep replacement in one System Events transaction. A separate
         # select-all process left prefilled fields unchanged during the real
         # headless Electron exercise. Explicitly release Command before typing.
-        script = (f'tell application "System Events" to tell first application process '
+        # System Events keystroke maps CJK text through the active keyboard
+        # layout (the real fixture produced "aa"). Paste Unicode as native text.
+        unicode_text = not text.isascii()
+        clipboard = f'set the clipboard to {json.dumps(text, ensure_ascii=False)}\n' if unicode_text else ""
+        insertion = 'keystroke "v" using command down\nkey up command' if unicode_text else f'keystroke {json.dumps(text)}'
+        script = (clipboard + f'tell application "System Events" to tell first application process '
             f'whose unix id is {self.process.pid}\nkeystroke "a" using command down\n'
             f'key up command\ndelay 0.1\nkey code 51\n'
-            f'keystroke {json.dumps(text, ensure_ascii=False)}\nend tell')
+            f'{insertion}\nend tell')
         try:
             subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True, timeout=10)
         finally:

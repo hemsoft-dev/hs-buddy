@@ -475,7 +475,7 @@ pub struct FileStamp {
 
 impl FileStamp {
     /// `None` when the file does not exist (or cannot be inspected).
-    fn of(path: &std::path::Path) -> Option<Self> {
+    pub(crate) fn of(path: &std::path::Path) -> Option<Self> {
         let meta = std::fs::metadata(path).ok()?;
         Some(Self {
             len: meta.len(),

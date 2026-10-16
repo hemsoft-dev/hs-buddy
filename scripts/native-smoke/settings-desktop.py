@@ -1,18 +1,19 @@
 """Qualify real installed settings against a disposable anonymous backend."""
 import argparse
 import base64
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
 import uuid
 
-from desktop import UnixWindow, encode_recording, fixture, recording, run
+from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run
 
 
 HERE = Path(__file__).resolve().parent
@@ -30,8 +31,76 @@ SettingsBackend = load("settings-backend").SettingsBackend
 OwnedMacInput = load("macos-input").OwnedMacInput
 
 
+@contextmanager
+def unicode_clipboard(text):
+    """Serve an exact UTF-8 selection only on an owned disposable X11 desktop."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1" or sys.platform != "linux":
+        raise RuntimeError("Unicode clipboard input requires a disposable Linux runner")
+    if shutil.which("xclip") is None:
+        raise RuntimeError("The Linux desktop fixture requires xclip; install its shared desktop test tools first")
+    payload = text.encode("utf-8")
+    if len(payload) > 32768:
+        raise RuntimeError("Fixture clipboard text exceeds its bounded input size")
+    # -quiet keeps the selection owner in the foreground, so it can be reaped.
+    # https://github.com/astrand/xclip
+    owner = subprocess.Popen(["xclip", "-selection", "clipboard", "-in", "-quiet"],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        owner.stdin.write(payload)
+        owner.stdin.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if owner.poll() is not None:
+                raise RuntimeError("The owned clipboard process exited before paste")
+            try:
+                current = subprocess.run(["xclip", "-selection", "clipboard", "-out"],
+                    capture_output=True, timeout=1)
+            except subprocess.TimeoutExpired:
+                continue
+            if current.returncode == 0 and current.stdout == payload:
+                break
+            time.sleep(0.05)
+        else:
+            raise RuntimeError("The owned clipboard did not offer the exact Unicode text")
+        yield
+    finally:
+        primary = sys.exc_info()[1]
+        def stop():
+            try:
+                if owner.poll() is None:
+                    owner.terminate()
+                try:
+                    owner.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    owner.kill()
+                    owner.wait(timeout=3)
+            finally:
+                owner.stdin.close()
+                owner.stderr.close()
+        finish_cleanup(stop, primary, "Unicode clipboard owner")
+
+
 def b64(value):
     return base64.b64encode(str(value).encode()).decode()
+
+
+def wait_visible(window, directory, text, timeout=15):
+    """Read an owned window until one OCR layout has the exact visible status.
+
+    This never posts input. A missing acknowledgment must fail before the
+    fixture can advance to Return or capture an unexecuted command as output.
+    """
+    image = directory / "wait-status.png"
+    deadline = time.monotonic() + timeout
+    while True:
+        window.screenshot(image)
+        try:
+            ocr.locate_image(image, text)
+            return
+        except RuntimeError as failure:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"The owned window did not show the expected status {text!r}") from failure
+        time.sleep(0.1)
 
 
 def planned_large_size(width, height):
@@ -124,6 +193,8 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
+                elif kind == "wait_text":
+                    commands.append("waittext64:" + b64(values[0]))
                 elif kind == "sleep":
                     commands.append("sleep:" + str(int(values[0] * 1000)))
                 elif kind == "wheel":
@@ -192,6 +263,8 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
+                        elif kind == "wait_text":
+                            wait_visible(window, directory, values[0])
                         elif kind == "sleep":
                             time.sleep(values[0])
                         elif kind == "wheel":
@@ -321,7 +394,12 @@ class Driver:
                 self.input_receipt(helper, directory, "after-typing", kind, values[0], target)
             else:
                 window.key("a")
-                run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
+                if values[1].isascii():
+                    run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
+                else:
+                    with unicode_clipboard(values[1]):
+                        window.key("v")
+                        time.sleep(0.7)
         time.sleep(0.7)
         if self.session == "macos" and kind == "field" and values[0] == "Accent color":
             name = "valid" if values[1].startswith("#") else "invalid"

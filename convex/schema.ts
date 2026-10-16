@@ -73,9 +73,23 @@ export default defineSchema({
     lastUsedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    revision: v.optional(v.number()),
   })
     .index('by_created', ['createdAt'])
     .index('by_last_used', ['lastUsedAt']),
+
+  // Durable request receipts outlive prompt deletion. A delayed retry must not
+  // recreate a deleted prompt or apply an old edit to a newer revision.
+  terminalPromptWrites: defineTable({
+    requestId: v.string(),
+    digest: v.string(),
+    result: v.object({
+      status: v.union(v.literal('saved'), v.literal('deleted'), v.literal('conflict')),
+      id: v.id('terminalPrompts'),
+      revision: v.number(),
+    }),
+    createdAt: v.number(),
+  }).index('by_request', ['requestId']),
 
   /**
    * Job definitions - the tasks that can be scheduled or run manually
@@ -478,6 +492,15 @@ export default defineSchema({
    */
   terminalWorkspaces: defineTable({
     key: v.literal('default'),
+    revision: v.optional(v.number()),
+    nativeWrite: v.optional(
+      v.object({
+        requestId: v.string(),
+        digest: v.string(),
+        baseRevision: v.number(),
+        revision: v.number(),
+      })
+    ),
     /** Flat array of tree nodes with parentId references. Layout is recursive TerminalLayout. */
     nodes: v.array(
       v.object({

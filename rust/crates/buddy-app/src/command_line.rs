@@ -7,6 +7,7 @@ pub enum Command {
     Open,
     Help,
     Version,
+    TerminalHost,
 }
 
 pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &'static str> {
@@ -20,6 +21,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
     match argument.to_str() {
         Some("--help" | "-h") => Ok(Command::Help),
         Some("--version" | "-V") => Ok(Command::Version),
+        Some("--terminal-host") => Ok(Command::TerminalHost),
         _ => Err("Unknown argument. Use --help for usage."),
     }
 }
@@ -49,6 +51,12 @@ mod tests {
         for argument in ["--version", "-V"] {
             assert_eq!(parse([argument.into()]), Ok(Command::Version));
         }
+    }
+
+    #[test]
+    fn private_terminal_host_is_a_separate_non_gui_command() {
+        assert_eq!(parse(["--terminal-host".into()]), Ok(Command::TerminalHost));
+        assert!(parse(["--terminal-host".into(), "unexpected".into()]).is_err());
     }
 
     #[test]

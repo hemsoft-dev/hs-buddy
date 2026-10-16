@@ -87,7 +87,7 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
 def recognize(image, mode=11):
     if shutil.which("tesseract"):
         result = subprocess.run(["tesseract", str(image), "stdout", "--psm", str(mode), "tsv"], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
-        rows = csv.DictReader(result.stdout.splitlines(), delimiter="\t")
+        rows = csv.DictReader(result.stdout.splitlines(), delimiter="\t", quoting=csv.QUOTE_NONE)
         return [dict(text=row["text"], left=int(row["left"]), top=int(row["top"]), width=int(row["width"]), height=int(row["height"]), line="/".join(row[key] for key in ("block_num", "par_num", "line_num"))) for row in rows if row["level"] == "5" and row["text"].strip()]
     if sys.platform == "win32":
         result = subprocess.run(["powershell.exe", "-NoProfile", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
@@ -162,6 +162,22 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
             # Retain the actual native engine output with the already-owned
             # screenshot, so a failure can be diagnosed without guessing.
             image.with_suffix(f".ocr-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+    if shutil.which("tesseract"):
+        # Keep the original capture. One exact 3x analysis handles small glyphs
+        # while all label matching and returned bounds stay in window pixels.
+        analysis = image.with_suffix(".ocr-analysis-3x.png")
+        subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
+            "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", str(analysis)],
+            capture_output=True, check=True, timeout=30)
+        raw = recognize(analysis, 11)
+        words = [dict(word, **{key: word[key] / 3 for key in ("left", "top", "width", "height")}) for word in raw]
+        try:
+            label = locate_label(words, labels, navigation, field, tab)
+            if save_row:
+                label["save"] = aligned_save(words, label)
+            return label
+        except RuntimeError:
+            analysis.with_suffix(".ocr-11.json").write_text(json.dumps(raw), encoding="utf-8")
     raise RuntimeError(f"No OCR mode found the visible label {labels!r} unambiguously")
 
 

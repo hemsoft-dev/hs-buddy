@@ -9,6 +9,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1409] - 2026-10-16
+
+### Fixed
+
+- Simplify canonical hashing after Convex encoding
+
+## [0.1.1408] - 2026-10-16
+
+### Fixed
+
+- Preserve Convex values and surviving shell groups
+
+## [0.1.1407] - 2026-10-16
+
+### Fixed
+
+- Clarify native terminal recovery and command hierarchy
+
+## [0.1.1406] - 2026-10-16
+
+### Fixed
+
+- Wait for terminal paste acknowledgments in desktop qualification
+
+## [0.1.1405] - 2026-10-16
+
+### Fixed
+
+- Preserve uncertain save retries during layout reconciliation
+
+## [0.1.1404] - 2026-10-16
+
+### Fixed
+
+- Share Linux fixture tools and bind sentinel lifetime to its owner
+
+## [0.1.1403] - 2026-10-16
+
+### Fixed
+
+- Protect terminal reconciliation and flush recovery on exit
+
+## [0.1.1402] - 2026-10-16
+
+### Changed
+
+- Preserve Unicode text in native field qualification
+
+## [0.1.1401] - 2026-10-16
+
+### Fixed
+
+- Retain terminal drafts and recover from transient failures
+
+## [0.1.1400] - 2026-10-16
+
+### Fixed
+
+- Keep saved prompt titles readable beside terminal controls
+
+## [0.1.1399] - 2026-10-16
+
+### Fixed
+
+- Let terminal workspace controls use their natural height
+
+## [0.1.1398] - 2026-10-16
+
+### Changed
+
+- Make installed terminal output readable in qualification
+
+## [0.1.1397] - 2026-10-16
+
+### Fixed
+
+- Make terminal process probes portable across shells
+
+## [0.1.1396] - 2026-10-16
+
+### Fixed
+
+- Focus terminal paste confirmation and route edit actions
+
+## [0.1.1395] - 2026-10-16
+
+### Fixed
+
+- Observe terminal shell exit before reaping its identity
+
+## [0.1.1394] - 2026-10-16
+
+### Added
+
+- Port terminal workspaces and prompt tools to GPUI
+
 ## [0.1.1393] - 2026-10-16
 
 ### Fixed
