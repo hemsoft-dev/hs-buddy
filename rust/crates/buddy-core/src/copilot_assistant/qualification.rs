@@ -43,7 +43,9 @@ async fn turn(owned: &std::path::Path, saved: bool, cancel: bool) -> Result<Snap
         executable: std::env::current_exe().map_err(|_| ())?,
         owned_directory: owned.to_owned(),
     };
-    let (handle, future) = start(options).map_err(|_| ())?;
+    let (handle, future) = start(options).map_err(|failure| {
+        eprintln!("Offline SDK turn could not start: {failure:?}");
+    })?;
     let mut updates = handle.subscribe();
     let mut task = tokio::spawn(future);
     let mut distinct = 0;
@@ -69,6 +71,10 @@ async fn turn(owned: &std::path::Path, saved: bool, cancel: bool) -> Result<Snap
     })
     .await;
     if !matches!(result, Ok(Ok(()))) {
+        eprintln!(
+            "{}",
+            failure_details(&handle.snapshot(), distinct, cancelled, "turn-task")
+        );
         handle.cancel();
         if !task.is_finished()
             && tokio::time::timeout(Duration::from_secs(30), &mut task)
@@ -80,25 +86,29 @@ async fn turn(owned: &std::path::Path, saved: bool, cancel: bool) -> Result<Snap
         return Err(());
     }
     let snapshot = handle.snapshot();
+    let failed = |check| {
+        eprintln!("{}", failure_details(&snapshot, distinct, cancelled, check));
+        Err(())
+    };
     if snapshot.busy || snapshot.cleanup_warning || snapshot.progress != Progress::Finished {
-        return Err(());
+        return failed("turn-cleanup");
     }
     if cancel {
         if snapshot.phase != Phase::Cancelled
             || snapshot.output != "Partial synthetic answer 界"
             || !cancelled
         {
-            return Err(());
+            return failed("cancel-outcome");
         }
     } else if snapshot.phase != Phase::Completed
         || !snapshot.output.contains("Unicode: 界 ✓")
         || distinct < 2
     {
-        return Err(());
+        return failed("stream-outcome");
     }
     if saved {
         if snapshot.save != SaveState::Saved {
-            return Err(());
+            return failed("save-acknowledgment");
         }
         let record = backend
             .ok_or(())?
@@ -114,13 +124,32 @@ async fn turn(owned: &std::path::Path, saved: bool, cancel: bool) -> Result<Snap
                     crate::copilot_results::Status::Completed
                 }
         {
-            return Err(());
+            return failed("save-readback");
         }
     } else if snapshot.save != SaveState::NotRequested || snapshot.result_id.is_some() {
-        return Err(());
+        return failed("unsaved-record-absence");
     }
     Ok(snapshot)
 }
+
+/// Qualification errors expose state codes, never the private Snapshot fields.
+fn failure_details(
+    snapshot: &Snapshot,
+    deltas: usize,
+    cancelled: bool,
+    check: &'static str,
+) -> String {
+    format!(
+        "Offline SDK turn check {check}: phase={:?}, progress={:?}, failure={:?}, save={:?}, busy={}, cleanup_warning={}, deltas={deltas}, cancellation_requested={cancelled}",
+        snapshot.phase,
+        snapshot.progress,
+        snapshot.failure,
+        snapshot.save,
+        snapshot.busy,
+        snapshot.cleanup_warning
+    )
+}
+
 async fn exercise(owned: PathBuf) -> Result<serde_json::Value, ()> {
     eprintln!("Offline SDK qualification: unsaved stream");
     turn(&owned, false, false).await?;
@@ -232,4 +261,27 @@ async fn exercise(owned: PathBuf) -> Result<serde_json::Value, ()> {
     Ok(
         serde_json::json!({"offline":true,"actualSdkStream":true,"unicodeDeltas":true,"unsavedNoRecord":true,"cancelPartialRetained":true,"savedOutputReadBack":true,"savedCancellationReadBack":true,"activeHandleDropStopped":true,"unauthenticatedSessionRejected":true,"retainedSessionTransportStopped":true,"temporaryTurnDirectories":remaining,"upstreamForwarder":false}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_diagnostics_include_state_codes_without_output_or_record_identity() {
+        let private = "synthetic-private-answer-and-record";
+        let snapshot = Snapshot {
+            phase: Phase::Failed,
+            progress: Progress::Finished,
+            output: private.into(),
+            failure: Some(Failure::ServiceUnavailable),
+            result_id: Some(private.into()),
+            save: SaveState::NotRequested,
+            busy: false,
+            cleanup_warning: false,
+        };
+        let text = failure_details(&snapshot, 0, false, "cancel-outcome");
+        assert!(text.contains("cancel-outcome") && text.contains("ServiceUnavailable"));
+        assert!(!text.contains(private));
+    }
 }

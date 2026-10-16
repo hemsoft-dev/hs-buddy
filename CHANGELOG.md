@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1418] - 2026-10-16
+
+### Changed
+
+- Report safe installed SDK failure states
+
 ## [0.1.1417] - 2026-10-16
 
 ### Changed
