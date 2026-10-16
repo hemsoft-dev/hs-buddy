@@ -40,6 +40,7 @@ pub struct TerminalView {
     visible: bool,
     initialized: bool,
     loading: bool,
+    reload_after_journal: bool,
     load_ticket: uuid::Uuid,
     backend_checked: bool,
     journal_sequence: u64,
@@ -85,6 +86,13 @@ impl TerminalView {
         .detach();
         let backend = TerminalBackend::new(&buddy_core::convex_data::convex_url()).ok();
         let prompts = cx.new(|cx| PromptView::new(window, cx));
+        // Finish the latest journal synchronously, before GPUI's bounded
+        // asynchronous shutdown wait can expire. This also joins an active writer.
+        cx.on_app_quit(|this, _| {
+            this.flush_on_quit();
+            std::future::ready(())
+        })
+        .detach();
         cx.subscribe(&prompts, |this, _, event, cx| {
             match event {
                 PromptEvent::Paste { id, target, text } => {
@@ -120,6 +128,7 @@ impl TerminalView {
             visible: false,
             initialized: false,
             loading: false,
+            reload_after_journal: false,
             load_ticket: uuid::Uuid::new_v4(),
             backend_checked: false,
             journal_sequence: 0,

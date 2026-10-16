@@ -72,6 +72,10 @@ rebases the retained draft onto the fetched revision. Use saved layout replaces
 the local layout and closes only sessions whose pane IDs were removed.
 Recovered uncertain writes never run automatically.
 
+A pending save must be resolved before choosing a fetched layout at the same
+revision. Retry that exact save, then reload. A fetched later revision can be
+chosen because the earlier compare-and-swap can no longer overwrite it.
+
 Recovery files live beside the shared `config.json`, under names beginning
 `native-terminal-workspaces-` or `native-terminal-prompts-`, followed by the
 deployment URL's SHA-256 digest. Different deployments have separate files.
@@ -79,6 +83,17 @@ Writes use the existing private atomic writer, a file lock, and a content check
 against concurrent editors. An unsupported recovery document stays protected
 until Retain original saves its exact bytes under a fresh `.retained-*.json`
 name. A failed disk save pauses shared mutations and keeps the in-memory draft.
+Reload reopens local recovery too. If another app changed it, the current draft
+stays in memory and the changed original must be retained before continuing.
+Retaining that original does not select a replacement workspace.
+
+Quitting synchronously flushes the latest workspace and prompt records after any
+active writer. Older queued writes cannot replace them. If a changed, locked,
+or unsupported recovery file prevents that flush, Buddy retains the current
+draft separately beside it as `.unsaved-<id>.json` and logs that path. These
+copies are not replayed automatically. Keep the copies and compare their
+contents before manually restoring a recovery file while Buddy is closed.
+An unavailable disk can still prevent both writes; the failure is logged.
 
 ## Prompt library
 

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1403] - 2026-10-16
+
+### Fixed
+
+- Protect terminal reconciliation and flush recovery on exit
+
 ## [0.1.1402] - 2026-10-16
 
 ### Changed

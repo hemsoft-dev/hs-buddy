@@ -188,6 +188,56 @@ impl RecoveryStore {
         &self.path
     }
 
+    /// Compare the snapshots captured at open, without replacing either file.
+    pub fn has_same_snapshot(&self, other: &Self) -> bool {
+        let expected = self
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .expected;
+        let other_expected = other
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .expected;
+        self.path == other.path && expected == other_expected
+    }
+
+    /// Called synchronously by the quit observer. The store mutex orders this
+    /// latest sequence after an active writer; older queued writes cannot win.
+    /// If another instance owns newer recovery, retain our draft separately.
+    pub fn flush_on_quit(
+        &self,
+        sequence: u64,
+        bytes: &[u8],
+    ) -> Result<Option<PathBuf>, RecoveryError> {
+        if bytes.len() > MAX_BYTES || !valid(bytes, &self.deployment) {
+            return Err(RecoveryError::InvalidPayload);
+        }
+        match self.write(sequence, bytes) {
+            Ok(JournalWrite::Stored | JournalWrite::Unchanged) => Ok(None),
+            Ok(JournalWrite::Superseded) | Err(_) => self.retain_bytes(bytes, "unsaved").map(Some),
+        }
+    }
+
+    fn retain_bytes(&self, bytes: &[u8], kind: &str) -> Result<PathBuf, RecoveryError> {
+        let archive = self
+            .path
+            .with_extension(format!("{kind}-{}.json", uuid::Uuid::new_v4()));
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&archive).map_err(|_| RecoveryError::Io)?;
+        file.write_all(bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| RecoveryError::Io)?;
+        Ok(archive)
+    }
+
     pub fn write(&self, sequence: u64, bytes: &[u8]) -> Result<JournalWrite, RecoveryError> {
         if bytes.len() > MAX_BYTES {
             return Err(RecoveryError::TooLarge);
@@ -254,20 +304,7 @@ impl RecoveryStore {
             state.needs_recovery = false;
             return Ok(None);
         };
-        let archive = self
-            .path
-            .with_extension(format!("retained-{}.json", uuid::Uuid::new_v4()));
-        let mut options = OpenOptions::new();
-        options.create_new(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&archive).map_err(|_| RecoveryError::Io)?;
-        file.write_all(&bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|_| RecoveryError::Io)?;
+        let archive = self.retain_bytes(&bytes, "retained")?;
         if !lock.is_held() {
             return Err(RecoveryError::Changed);
         }
@@ -292,6 +329,53 @@ mod tests {
     fn body(text: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({"version":1,"deployment":URL,"draft":{"text":text}}))
             .unwrap()
+    }
+
+    #[test]
+    fn quit_preserves_both_an_external_recovery_and_the_latest_local_draft() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let (ours, _) = open(&config, URL, JournalKind::Prompts).unwrap();
+        ours.write(1, &body("earlier")).unwrap();
+        let (other, _) = open(&config, URL, JournalKind::Prompts).unwrap();
+        let external = body("other instance 資料");
+        other.write(1, &external).unwrap();
+        let local = body("latest local unsaved 資料");
+        let archive = ours.flush_on_quit(2, &local).unwrap().unwrap();
+        assert_eq!(std::fs::read(ours.path()).unwrap(), external);
+        assert_eq!(std::fs::read(&archive).unwrap(), local);
+        assert!(
+            archive
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".unsaved-")
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(archive).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn quit_does_not_replace_an_unsupported_recovery_original() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let (first, _) = open(&config, URL, JournalKind::Workspaces).unwrap();
+        std::fs::write(first.path(), b"unsupported original").unwrap();
+        let (store, snapshot) = open(&config, URL, JournalKind::Workspaces).unwrap();
+        assert!(snapshot.needs_recovery);
+        let local = body("current draft");
+        let retained = store.flush_on_quit(1, &local).unwrap().unwrap();
+        assert_eq!(
+            std::fs::read(store.path()).unwrap(),
+            b"unsupported original"
+        );
+        assert_eq!(std::fs::read(retained).unwrap(), local);
     }
 
     #[test]

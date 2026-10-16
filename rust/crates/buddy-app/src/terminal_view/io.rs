@@ -58,6 +58,11 @@ impl TerminalView {
         if self.loading || !cx.has_global::<Runtime>() {
             return;
         }
+        if self.journal_busy {
+            self.reload_after_journal = true;
+            return;
+        }
+        self.reload_after_journal = false;
         let Some(backend) = self.backend.clone() else {
             self.error = Some("The configured workspace service address is invalid.".into());
             return;
@@ -65,17 +70,6 @@ impl TerminalView {
         self.loading = true;
         let ticket = uuid::Uuid::new_v4();
         self.load_ticket = ticket;
-        if self.initialized {
-            self.run(cx, async move { backend.load_workspace().await }, move |this, result, _| {
-                if this.load_ticket != ticket { return; }
-                this.loading = false;
-                match result {
-                    Ok(snapshot) => { this.remote = Some(snapshot); this.status = Some("Compare the saved layout with your local workspace before choosing a version.".into()); }
-                    Err(error) => this.error = Some(error.to_string()),
-                }
-            });
-            return;
-        }
         self.status = Some("Loading saved workspaces and local recovery…".into());
         let deployment = backend.deployment().to_string();
         self.run(
@@ -107,6 +101,13 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         self.loading = false;
+        if self.initialized {
+            self.finish_reload(local, remote);
+            if self.journal_sequence > self.journal_durable {
+                self.flush_journal(cx);
+            }
+            return;
+        }
         self.initialized = local.store.is_some();
         self.store = local.store;
         self.unsupported_recovery = local.unsupported;
@@ -175,6 +176,62 @@ impl TerminalView {
         self.populate_fields = true;
         self.synchronize_sessions(cx);
         self.queue_journal(cx);
+    }
+
+    fn finish_reload(
+        &mut self,
+        local: LocalLoad,
+        remote: Result<WorkspaceSnapshot, buddy_core::terminal_backend::BackendError>,
+    ) {
+        self.backend_checked = false;
+        if let Some(store) = local.store {
+            let changed = self
+                .store
+                .as_ref()
+                .is_some_and(|old| !old.has_same_snapshot(&store));
+            self.store = Some(store);
+            self.unsupported_recovery |= changed || local.unsupported;
+            self.error = local.error;
+            self.status = Some(if self.unsupported_recovery {
+                "Local recovery changed or needs attention. Your current draft is retained. Retain the recovery original before choosing a layout."
+            } else {
+                "Compare the saved layout with your local workspace before choosing a version."
+            }.into());
+        } else {
+            self.error = local.error;
+        }
+        match remote {
+            Ok(snapshot) => self.remote = Some(snapshot),
+            Err(error) => self.error = Some(error.to_string()),
+        }
+    }
+
+    pub(super) fn flush_on_quit(&mut self) {
+        let (Some(store), Some(editor)) = (&self.store, &self.editor) else {
+            return;
+        };
+        let result = editor
+            .journal()
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                let sequence = self
+                    .journal_sequence
+                    .checked_add(1)
+                    .ok_or_else(|| "Workspace recovery sequence exhausted.".to_string())?;
+                store
+                    .flush_on_quit(sequence, &bytes)
+                    .map_err(|error| error.to_string())
+            });
+        match result {
+            Ok(Some(path)) => log::warn!(
+                "Latest workspace recovery retained separately at {}",
+                path.display()
+            ),
+            Ok(None) => {}
+            Err(error) => {
+                log::error!("Could not flush workspace recovery before quitting: {error}")
+            }
+        }
     }
 
     pub(super) fn edit_workspace(
@@ -267,6 +324,7 @@ impl TerminalView {
 
     fn flush_journal(&mut self, cx: &mut Context<Self>) {
         if self.journal_busy
+            || self.loading
             || self.unsupported_recovery
             || self.editor.is_none()
             || !cx.has_global::<Runtime>()
@@ -319,6 +377,8 @@ impl TerminalView {
                 }
                 if this.journal_sequence > sequence {
                     this.flush_journal(cx);
+                } else if this.reload_after_journal {
+                    this.load(cx);
                 }
             },
         );
@@ -372,14 +432,12 @@ impl TerminalView {
     }
 
     pub(super) fn use_remote(&mut self, cx: &mut Context<Self>) {
-        let Some(snapshot) = self.remote.take() else {
+        let Some(snapshot) = self.remote.clone() else {
             return;
         };
         let Some(backend) = self.backend.as_ref() else {
             return;
         };
-        self.pending_send = None;
-        self.backend_checked = true;
         if let Some(editor) = self.editor.as_mut() {
             if let Err(error) = editor.use_remote_after_reload(snapshot) {
                 self.error = Some(error.to_string());
@@ -388,6 +446,9 @@ impl TerminalView {
         } else {
             self.editor = WorkspaceEditor::new(backend.deployment(), snapshot).ok();
         }
+        self.pending_send = None;
+        self.backend_checked = true;
+        self.remote = None;
         self.populate_fields = true;
         self.synchronize_sessions(cx);
         self.queue_journal(cx);
@@ -409,7 +470,11 @@ impl TerminalView {
                 match result {
                     Ok(Ok(_)) => {
                         this.unsupported_recovery = false;
-                        if this.remote.is_some() {
+                        if this.editor.is_some() {
+                            this.backend_checked = false;
+                            this.status = Some("The recovery original was retained. Your current workspace is unchanged. Choose a layout from the saved comparison, or reload it.".into());
+                            this.queue_journal(cx);
+                        } else if this.remote.is_some() {
                             this.use_remote(cx);
                         } else if let Some(backend) = &this.backend {
                             let document = WorkspaceDocument::restore(Arc::from(&b"null"[..]))

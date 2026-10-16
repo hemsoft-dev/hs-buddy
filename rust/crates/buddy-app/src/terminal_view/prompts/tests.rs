@@ -37,6 +37,113 @@ fn prompt() -> Prompt {
 }
 
 #[gpui_kit::test]
+fn reloading_changed_prompt_recovery_preserves_the_in_memory_draft(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use buddy_core::terminal_recovery::{JournalKind, RecoveryStore};
+    let view = view(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let record = |text: &str| {
+        let mut record = PromptRecovery::new("https://example.convex.cloud").unwrap();
+        record.draft = Some(PromptDraft {
+            original: None,
+            title: "Draft".into(),
+            content: text.into(),
+        });
+        record
+    };
+    let (old, _) = RecoveryStore::open(
+        &config,
+        "https://example.convex.cloud",
+        JournalKind::Prompts,
+        |_| true,
+    )
+    .unwrap();
+    old.write(1, &record("original").bytes().unwrap()).unwrap();
+    let (other, _) = RecoveryStore::open(
+        &config,
+        "https://example.convex.cloud",
+        JournalKind::Prompts,
+        |_| true,
+    )
+    .unwrap();
+    let external = record("other-instance").bytes().unwrap();
+    other.write(1, &external).unwrap();
+    let (fresh, _) = RecoveryStore::open(
+        &config,
+        "https://example.convex.cloud",
+        JournalKind::Prompts,
+        |_| true,
+    )
+    .unwrap();
+    cx.update(|cx| {
+        view.update(cx, |view, _| {
+            view.store = Some(Arc::new(old));
+            view.record = Some(record("in-memory"));
+            view.finish_recovery_load(Ok((Arc::new(fresh), false, Some(record("other-instance")))));
+            assert_eq!(
+                view.record
+                    .as_ref()
+                    .unwrap()
+                    .draft
+                    .as_ref()
+                    .unwrap()
+                    .content,
+                "in-memory"
+            );
+            assert!(view.unsupported);
+            let store = view.store.as_ref().unwrap();
+            let archive = store.retain_original().unwrap().unwrap();
+            assert_eq!(std::fs::read(archive).unwrap(), external);
+            store
+                .write(2, &view.record.as_ref().unwrap().bytes().unwrap())
+                .unwrap();
+        })
+    });
+}
+
+#[gpui_kit::test]
+fn quitting_flushes_the_latest_prompt_even_with_a_queued_writer(cx: &mut gpui_kit::TestAppContext) {
+    use buddy_core::terminal_recovery::{JournalKind, JournalWrite, RecoveryStore};
+    let view = view(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let (store, _) = RecoveryStore::open(
+        &directory.path().join("config.json"),
+        "https://example.convex.cloud",
+        JournalKind::Prompts,
+        |_| true,
+    )
+    .unwrap();
+    let earlier = PromptRecovery::new("https://example.convex.cloud")
+        .unwrap()
+        .bytes()
+        .unwrap();
+    store.write(1, &earlier).unwrap();
+    let store = Arc::new(store);
+    cx.update(|cx| {
+        view.update(cx, |view, _| {
+            view.store = Some(store.clone());
+            view.record.as_mut().unwrap().draft = Some(PromptDraft {
+                original: None,
+                title: "Quit".into(),
+                content: "latest Unicode 資料".into(),
+            });
+            view.sequence = 2;
+            view.journal_busy = true;
+        });
+        cx.shutdown();
+    });
+    let restored = PromptRecovery::restore(
+        "https://example.convex.cloud",
+        &std::fs::read(store.path()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(restored.draft.unwrap().content, "latest Unicode 資料");
+    assert_eq!(store.write(2, &earlier).unwrap(), JournalWrite::Superseded);
+}
+
+#[gpui_kit::test]
 fn prompt_recovery_open_failure_can_retry_and_restore_the_original_draft(
     cx: &mut gpui_kit::TestAppContext,
 ) {

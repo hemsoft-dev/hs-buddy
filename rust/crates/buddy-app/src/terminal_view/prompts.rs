@@ -32,6 +32,7 @@ pub(super) struct PromptView {
     initialized: bool,
     visible: bool,
     loading: bool,
+    reload_after_journal: bool,
     target: Option<LaunchTicket>,
     title: Entity<InputState>,
     content: Entity<TextareaState>,
@@ -55,6 +56,11 @@ impl PromptView {
         let content = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder("Prompt text. Inserting never adds Enter.")
         });
+        cx.on_app_quit(|this, _| {
+            this.flush_on_quit();
+            std::future::ready(())
+        })
+        .detach();
         cx.subscribe(&title, |this, _, _: &InputEvent, cx| this.retain_draft(cx))
             .detach();
         cx.subscribe(&content, |this, _, _: &InputEvent, cx| {
@@ -70,6 +76,7 @@ impl PromptView {
             initialized: false,
             visible: false,
             loading: false,
+            reload_after_journal: false,
             target: None,
             title,
             content,

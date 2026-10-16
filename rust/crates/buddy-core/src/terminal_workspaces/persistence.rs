@@ -239,9 +239,7 @@ impl WorkspaceEditor {
         &mut self,
         snapshot: &WorkspaceSnapshot,
     ) -> Result<(), EditorError> {
-        if snapshot.revision > MAX_REVISION {
-            return Err(EditorError("Invalid remote revision."));
-        }
+        self.validate_reconciliation(snapshot)?;
         let generation = self
             .generation
             .checked_add(1)
@@ -257,9 +255,7 @@ impl WorkspaceEditor {
         &mut self,
         snapshot: WorkspaceSnapshot,
     ) -> Result<(), EditorError> {
-        if snapshot.revision > MAX_REVISION {
-            return Err(EditorError("Invalid remote revision."));
-        }
+        self.validate_reconciliation(&snapshot)?;
         let generation = self
             .generation
             .checked_add(1)
@@ -269,6 +265,22 @@ impl WorkspaceEditor {
         self.base_revision = snapshot.revision;
         self.generation = generation;
         self.status = SaveStatus::Clean;
+        Ok(())
+    }
+
+    fn validate_reconciliation(&self, snapshot: &WorkspaceSnapshot) -> Result<(), EditorError> {
+        if snapshot.revision > MAX_REVISION {
+            return Err(EditorError("Invalid remote revision."));
+        }
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|request| snapshot.revision <= request.expected_revision)
+        {
+            return Err(EditorError(
+                "The pending save can still change this revision. Retry the same save to resolve it, then reload before choosing a layout.",
+            ));
+        }
         Ok(())
     }
 
@@ -540,6 +552,35 @@ mod tests {
             .unwrap();
         assert_eq!(editor.status(), SaveStatus::Clean);
         assert!(editor.document().pane_ids().is_empty());
+    }
+
+    #[test]
+    fn reconciliation_cannot_discard_a_save_that_can_still_commit() {
+        for uncertain in [false, true] {
+            let mut editor = editor();
+            add(&mut editor, "pending-local");
+            let request = editor.begin_save().unwrap();
+            if uncertain {
+                editor
+                    .complete(request.id(), Err(BackendError::UnknownWrite))
+                    .unwrap();
+            }
+            let before = editor.journal().unwrap();
+            let stale = WorkspaceSnapshot::parse(json!({"nodes":[],"revision":0})).unwrap();
+            assert!(editor.use_remote_after_reload(stale.clone()).is_err());
+            assert_eq!(editor.journal().unwrap(), before);
+            assert!(editor.keep_local_after_reload(&stale).is_err());
+            assert_eq!(editor.journal().unwrap(), before);
+            // Once the revision advanced, the old CAS can no longer overwrite this choice.
+            let advanced = WorkspaceSnapshot::parse(json!({"nodes":[],"revision":1})).unwrap();
+            editor.use_remote_after_reload(advanced).unwrap();
+            assert_eq!(editor.status(), SaveStatus::Clean);
+            assert!(
+                !editor
+                    .complete(request.id(), Ok(SaveReceipt::Saved { revision: 1 }))
+                    .unwrap()
+            );
+        }
     }
 
     #[test]

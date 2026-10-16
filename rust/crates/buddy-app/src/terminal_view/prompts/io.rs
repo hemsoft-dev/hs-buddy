@@ -54,29 +54,16 @@ impl PromptView {
         if self.loading || !cx.has_global::<Runtime>() {
             return;
         }
+        if self.journal_busy || self.write_busy {
+            self.reload_after_journal = true;
+            return;
+        }
+        self.reload_after_journal = false;
         let Some(backend) = self.backend.clone() else {
             self.error = Some("The prompt service address is invalid.".into());
             return;
         };
         self.loading = true;
-        if self.initialized {
-            self.run(
-                cx,
-                async move { backend.load_prompts().await },
-                |this, result, _| {
-                    this.loading = false;
-                    match result {
-                        Ok(prompts) => {
-                            this.prompts = prompts;
-                            this.status =
-                                Some("Prompt list refreshed. Your draft is retained.".into());
-                        }
-                        Err(error) => this.error = Some(error.to_string()),
-                    }
-                },
-            );
-            return;
-        }
         let deployment = backend.deployment().to_string();
         self.run(
             cx,
@@ -113,6 +100,9 @@ impl PromptView {
                     Err(error) => this.error = Some(error.to_string()),
                 }
                 // Loading is read-only. Neither recovered writes nor insertions run here.
+                if this.sequence > this.durable {
+                    this.flush(cx);
+                }
                 cx.notify();
             },
         );
@@ -122,6 +112,24 @@ impl PromptView {
         &mut self,
         local: Result<(Arc<RecoveryStore>, bool, Option<PromptRecovery>), String>,
     ) {
+        if self.initialized {
+            match local {
+                Ok((store, unsupported, _)) => {
+                    let changed = self
+                        .store
+                        .as_ref()
+                        .is_some_and(|old| !old.has_same_snapshot(&store));
+                    self.store = Some(store);
+                    self.unsupported |= changed || unsupported;
+                    self.error = None;
+                    self.status = Some(if self.unsupported {
+                        "Local prompt recovery changed or needs attention. Your current draft is retained. Retain the original before continuing."
+                    } else { "Prompt list refreshed. Your draft is retained." }.into());
+                }
+                Err(error) => self.error = Some(error),
+            }
+            return;
+        }
         self.initialized = false;
         match local {
             Ok((store, unsupported, record)) => {
@@ -149,6 +157,32 @@ impl PromptView {
         }
     }
 
+    pub(super) fn flush_on_quit(&mut self) {
+        let (Some(store), Some(record)) = (&self.store, &self.record) else {
+            return;
+        };
+        let result = record
+            .bytes()
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                let sequence = self
+                    .sequence
+                    .checked_add(1)
+                    .ok_or_else(|| "Prompt recovery sequence exhausted.".to_string())?;
+                store
+                    .flush_on_quit(sequence, &bytes)
+                    .map_err(|error| error.to_string())
+            });
+        match result {
+            Ok(Some(path)) => log::warn!(
+                "Latest prompt recovery retained separately at {}",
+                path.display()
+            ),
+            Ok(None) => {}
+            Err(error) => log::error!("Could not flush prompt recovery before quitting: {error}"),
+        }
+    }
+
     pub(super) fn queue(&mut self, cx: &mut Context<Self>) {
         let Some(next) = self.sequence.checked_add(1) else {
             self.error = Some("Prompt recovery sequencing is exhausted.".into());
@@ -159,7 +193,7 @@ impl PromptView {
     }
 
     fn flush(&mut self, cx: &mut Context<Self>) {
-        if self.journal_busy || self.unsupported || !cx.has_global::<Runtime>() {
+        if self.journal_busy || self.loading || self.unsupported || !cx.has_global::<Runtime>() {
             return;
         }
         let (Some(store), Some(record)) = (self.store.clone(), self.record.as_ref()) else {
@@ -212,6 +246,8 @@ impl PromptView {
                 }
                 if this.sequence > sequence {
                     this.flush(cx);
+                } else if this.reload_after_journal {
+                    this.load(cx);
                 }
             },
         );
