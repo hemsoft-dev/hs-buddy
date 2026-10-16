@@ -150,20 +150,53 @@ test.each([-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER])(
   }
 )
 
-test('invalid request IDs and non-JSON, oversized, or too-deep payloads are rejected', async () => {
+test.each([
+  { name: 'Int64', value: 1n, changed: 2n },
+  { name: 'Int64 minimum', value: -(2n ** 63n), changed: 0n },
+  { name: 'Int64 maximum', value: 2n ** 63n - 1n, changed: 0n },
+  { name: 'Bytes', value: new Uint8Array([1, 2]).buffer, changed: new Uint8Array([1, 3]).buffer },
+  { name: 'NaN', value: NaN, changed: null },
+  { name: 'infinity', value: Infinity, changed: -Infinity },
+  { name: 'negative zero', value: -0, changed: 0 },
+])(
+  'native saves preserve $name and bind replay to its exact Convex value',
+  async ({ value, changed }) => {
+    const t = convexTest(schema, modules)
+    const original = nativeNodes()[0]
+    const args = {
+      nodes: [{ ...original, layout: { ...original.layout, future: value } }],
+      expectedRevision: 0,
+      requestId: 'preserved-value',
+    }
+    await expect(t.mutation(api.terminalWorkspaces.saveWorkspaceNative, args)).resolves.toEqual({
+      status: 'saved',
+      revision: 1,
+      savedRevision: 1,
+    })
+    const before = await t.query(api.terminalWorkspaces.getWorkspace)
+    expect(before?.nodes[0].layout.future).toEqual(value)
+    await expect(
+      t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+        ...args,
+        nodes: [{ ...original, layout: { future: value, ...original.layout } }],
+      })
+    ).resolves.toEqual({ status: 'saved', revision: 1, savedRevision: 1 })
+    await expect(
+      t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
+        ...args,
+        nodes: [{ ...original, layout: { ...original.layout, future: changed } }],
+      })
+    ).rejects.toThrow('cannot be reused')
+    expect(await t.query(api.terminalWorkspaces.getWorkspace)).toEqual(before)
+  }
+)
+
+test('invalid request IDs and oversized or too-deep payloads are rejected', async () => {
   const t = convexTest(schema, modules)
   const args = { nodes: nativeNodes(), expectedRevision: 0, requestId: 'valid' }
   await expect(
     t.mutation(api.terminalWorkspaces.saveWorkspaceNative, { ...args, requestId: ' ' })
   ).rejects.toThrow('request ID')
-  for (const layout of [new ArrayBuffer(4), 1n, Infinity]) {
-    await expect(
-      t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
-        ...args,
-        nodes: [{ ...args.nodes[0], layout }],
-      })
-    ).rejects.toThrow('JSON values')
-  }
   await expect(
     t.mutation(api.terminalWorkspaces.saveWorkspaceNative, {
       ...args,

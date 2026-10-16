@@ -114,6 +114,18 @@ pub(super) fn shell_exited(pid: i32) -> std::io::Result<bool> {
     Ok(unsafe { information.si_pid() } == pid)
 }
 
+#[cfg(any(unix, test))]
+fn group_has_live_member(
+    session: i32,
+    group: i32,
+    members: &[i32],
+    mut identity: impl FnMut(i32) -> (i32, i32),
+) -> bool {
+    members
+        .iter()
+        .any(|member| identity(*member) == (session, group))
+}
+
 #[cfg(unix)]
 pub(super) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result<()> {
     use std::collections::BTreeMap;
@@ -129,12 +141,16 @@ pub(super) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result
         if pid > 1 && unsafe { libc::getsid(pid) } == session {
             let group = unsafe { libc::getpgid(pid) };
             if group > 1 {
-                groups.insert(group, pid);
+                groups.entry(group).or_insert_with(Vec::new).push(pid);
             }
         }
     }
-    for (group, member) in groups {
-        if unsafe { libc::getsid(member) } != session || unsafe { libc::getpgid(member) } != group {
+    for (group, members) in groups {
+        if !group_has_live_member(session, group, &members, |member| {
+            (unsafe { libc::getsid(member) }, unsafe {
+                libc::getpgid(member)
+            })
+        }) {
             continue;
         }
         if unsafe { libc::kill(-group, signal) } != 0 {
@@ -145,6 +161,32 @@ pub(super) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod group_revalidation_tests {
+    use super::group_has_live_member;
+
+    #[test]
+    fn a_vanished_representative_does_not_hide_a_live_owned_group_member() {
+        // The last enumerated PID previously replaced the other group's PID.
+        // It has now exited, while the earlier member still belongs to this session.
+        assert!(group_has_live_member(100, 200, &[201, 202], |pid| {
+            if pid == 201 { (100, 200) } else { (-1, -1) }
+        }));
+    }
+
+    #[test]
+    fn vanished_foreign_and_moved_members_never_authorize_signalling() {
+        assert!(!group_has_live_member(100, 200, &[201, 202, 203], |pid| {
+            match pid {
+                201 => (-1, -1),
+                202 => (999, 200),
+                _ => (100, 999),
+            }
+        }));
+        assert!(!group_has_live_member(100, 200, &[], |_| unreachable!()));
+    }
 }
 
 #[cfg(target_os = "linux")]

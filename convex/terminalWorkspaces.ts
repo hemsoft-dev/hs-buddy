@@ -1,5 +1,5 @@
 import { query, mutation } from './_generated/server'
-import { v } from 'convex/values'
+import { convexToJson, v } from 'convex/values'
 import type { Doc } from './_generated/dataModel'
 
 const nodeValidator = v.object({
@@ -58,9 +58,12 @@ function retainedNativeReceipt(
   }
 }
 
-async function payloadDigest(nodes: unknown, activeNodeId: string | undefined): Promise<string> {
+async function payloadDigest(
+  nodes: Doc<'terminalWorkspaces'>['nodes'],
+  activeNodeId: string | undefined
+): Promise<string> {
   const bytes = new TextEncoder().encode(
-    canonicalJson({ nodes, activeNodeId: activeNodeId ?? null })
+    canonicalJson(convexToJson({ nodes, activeNodeId: activeNodeId ?? null }))
   )
   if (bytes.byteLength > 1024 * 1024) throw new Error('Native workspace exceeds one MiB')
   const digest = await crypto.subtle.digest('SHA-256', bytes)
