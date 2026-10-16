@@ -213,7 +213,7 @@ fn invalid_contexts_and_unpersisted_reviews_are_rejected_before_execution() {
                 Execution::new(invalid, "prompt".into(), false),
                 Err(Failure::InvalidContext)
             ),
-            "invalid account accepted: {account}"
+            "invalid account accepted"
         );
     }
     let mut review = context();

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1411] - 2026-10-16
+
+### Fixed
+
+- Preserve Copilot results during save recovery
+
 ## [0.1.1410] - 2026-10-16
 
 ### Added

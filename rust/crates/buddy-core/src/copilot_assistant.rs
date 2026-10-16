@@ -177,6 +177,7 @@ impl RunHandle {
             return None;
         }
         state.save = SaveState::Saving;
+        state.busy = true;
         let captured = state.captured.clone();
         drop(state);
         self.shared.changed();
@@ -187,6 +188,8 @@ impl RunHandle {
             } else {
                 reconcile(&shared).await;
             }
+            lock(&shared.state).busy = false;
+            shared.changed();
         }))
     }
 }
@@ -485,7 +488,11 @@ async fn persist(shared: &Shared, captured: Arc<CapturedOutcome>) {
     let mut state = lock(&shared.state);
     let key = state.execution.key();
     if result.is_ok() {
-        state.save = SaveState::Saved;
+        state.save = if state.execution.failure() == Some(Failure::RecordUnknown) {
+            SaveState::Reconciled
+        } else {
+            SaveState::Saved
+        };
         state.execution.persisted(key, &captured.id);
     } else {
         state.save = SaveState::Unconfirmed;
@@ -500,16 +507,39 @@ async fn reconcile(shared: &Shared) {
         return;
     };
     let result = backend.reconcile(request).await;
+    if let Ok(Some((id, status))) = result {
+        // A begin acknowledgement was lost before any inference could start.
+        // Capture a failure once, so a lost finish acknowledgement can retry
+        // the identical storage operation without claiming or sending a turn.
+        if let Some(captured) = reconciled_record(shared, id, status) {
+            persist(shared, captured).await;
+        }
+    } else {
+        lock(&shared.state).save = SaveState::Unconfirmed;
+    }
+    shared.changed();
+}
+
+fn reconciled_record(
+    shared: &Shared,
+    id: String,
+    status: RecordStatus,
+) -> Option<Arc<CapturedOutcome>> {
     let mut state = lock(&shared.state);
     let key = state.execution.key();
-    if let Ok(Some((id, _))) = result {
-        state.execution.record_created(key, id);
-        state.save = SaveState::Reconciled;
+    state.execution.record_created(key, id.clone());
+    if status == RecordStatus::Pending {
+        let captured = Arc::new(CapturedOutcome {
+            id,
+            output: String::new(),
+            failure: Some("delivery-unknown"),
+        });
+        state.captured = Some(captured.clone());
+        Some(captured)
     } else {
-        state.save = SaveState::Unconfirmed;
+        state.save = SaveState::Reconciled;
+        None
     }
-    drop(state);
-    shared.changed();
 }
 
 #[cfg(test)]

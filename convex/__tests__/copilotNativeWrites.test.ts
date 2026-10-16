@@ -135,6 +135,30 @@ test('preflight failure closes pending result; an unstarted success is rejected'
   })
 })
 
+test('a lost begin acknowledgement can close its pending result without claiming or replaying', async () => {
+  const t = convexTest(schema, modules)
+  await t.mutation(begin, { ...input, review })
+  const reconciled = await t.query(reconcile, { requestId })
+  expect(reconciled).toMatchObject({ status: 'pending' })
+  const id = reconciled!.id
+  const outcome = { id, requestId, result: '', failure: 'delivery-unknown' as const }
+  await t.mutation(finish, outcome)
+  const stored = await t.query(api.copilotResults.get, { id })
+  expect(stored).toMatchObject({ status: 'failed', error: 'delivery-unknown', result: '' })
+  await t.mutation(finish, outcome)
+  expect(await t.query(api.copilotResults.get, { id })).toEqual(stored)
+  expect(await t.query(api.copilotResults.countActive, {})).toEqual({ pending: 0, running: 0 })
+  expect(await t.mutation(claim, { id, requestId })).toEqual({ claimed: false, status: 'failed' })
+  expect(
+    await t.query(api.prReviewRuns.latestByPr, {
+      owner: review.owner,
+      repo: review.repo,
+      prNumber: review.prNumber,
+    })
+  ).toMatchObject({ resultId: id, status: 'failed', error: 'delivery-unknown' })
+  expect(await t.run(async ctx => await ctx.db.query('copilotResults').collect())).toHaveLength(1)
+})
+
 test('creation retries cannot substitute prompt, account, model or PR head', async () => {
   const t = convexTest(schema, modules)
   await t.mutation(begin, { ...input, review })
