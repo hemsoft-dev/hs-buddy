@@ -76,6 +76,8 @@ credential is unavailable; personal allowance always requires the selected
 account's credential. Enterprise budget fallback uses the configured enterprise
 slug and bounded pagination. Projections retain the existing UTC billing-period
 rules. Unavailable spend or budgets are not displayed as zero.
+Refreshing hides earlier live figures, and failed reads leave those figures
+unavailable. Explicitly loaded billing history remains separate from live usage.
 
 A successful billing read makes one immutable snapshot-save attempt. A lost save
 reply is reported as unconfirmed and is not automatically retried. Billing history
@@ -102,6 +104,8 @@ including standard platform locations and custom/portable installations. Scannin
 and detail reads run off the UI thread through a read-only directory capability.
 Issued file keys remain bound to that source. Links cannot escape it, and file
 identity is checked again when details open.
+An entry whose identity cannot be read within its bounded preview is omitted
+and counted as skipped. It cannot issue a detail key for a later replacement file.
 
 Scans are bounded to 512 workspace entries, 2,000 file entries and 8 MiB of preview
 reads; detail parsing is bounded to 16 MiB. Limit and malformed-record warnings

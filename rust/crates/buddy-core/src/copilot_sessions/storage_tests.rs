@@ -183,7 +183,8 @@ fn total_preview_budget_and_entry_count_report_truncation() {
         .unwrap();
     assert!(scan.truncated);
     assert_eq!(scan.preview_bytes_read, 150);
-    assert_eq!(scan.sessions.len(), 2);
+    assert_eq!(scan.sessions.len(), 1);
+    assert_eq!(scan.skipped, 1);
     assert!(scan.sessions.iter().all(|session| session.preview_partial));
     let scan = root
         .scan(ScanLimits {
@@ -218,12 +219,28 @@ fn empty_missing_malformed_and_non_file_entries_are_distinguished() {
     fs::write(chat.join("bad.jsonl"), "invalid JSON\n").unwrap();
     fs::create_dir(chat.join("directory.jsonl")).unwrap();
     let scan = root.scan(ScanLimits::default()).unwrap();
-    assert_eq!(scan.sessions.len(), 1);
+    assert!(scan.sessions.is_empty());
+    assert_eq!(scan.skipped, 2);
+}
+
+#[test]
+fn an_initial_record_beyond_the_preview_limit_never_issues_an_unbound_key() {
+    let (_temp, chat, root) = fixture();
+    let path = chat.join("same-path.jsonl");
+    let original = serde_json::json!({"kind":0,"v":{"sessionId":"original","customTitle":"x".repeat(40 * 1024)}}).to_string() + "\n";
+    fs::write(&path, &original).unwrap();
+    let scan = root.scan(ScanLimits::default()).unwrap();
+    assert!(scan.sessions.is_empty());
     assert_eq!(scan.skipped, 1);
-    assert!(scan.sessions[0].preview_partial);
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    fs::write(&path, content("replacement")).unwrap();
+    let fresh = root.scan(ScanLimits::default()).unwrap();
+    assert_eq!(fresh.sessions.len(), 1);
     assert_eq!(
-        root.detail(&scan.sessions[0].file, Limits::default()),
-        Err(StorageError::Parse(ParseError::MissingSession))
+        root.detail(&fresh.sessions[0].file, Limits::default())
+            .unwrap()
+            .session_id,
+        "replacement"
     );
 }
 

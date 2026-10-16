@@ -15,6 +15,16 @@ use gpui_kit::{
 use super::markdown;
 use crate::runtime::Runtime;
 use crate::zoom::zpx;
+#[cfg(test)]
+#[path = "results_tests.rs"]
+mod tests;
+
+#[derive(Clone, Copy)]
+enum Loading {
+    List(uuid::Uuid),
+    Detail(uuid::Uuid),
+    Delete,
+}
 
 pub(super) struct ResultsView {
     backend: Option<CopilotBackend>,
@@ -108,16 +118,54 @@ impl ResultsView {
     fn run<T: Send + 'static>(
         &self,
         cx: &mut Context<Self>,
+        loading: Loading,
         future: impl Future<Output = T> + Send + 'static,
         done: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
     ) {
         let rx = Runtime::global(cx).spawn(future);
+        self.receive(cx, loading, rx, done);
+    }
+    fn receive<T: Send + 'static>(
+        &self,
+        cx: &mut Context<Self>,
+        loading: Loading,
+        rx: futures::channel::oneshot::Receiver<T>,
+        done: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+    ) {
         cx.spawn(async move |this, cx| {
-            if let Ok(value) = rx.await {
-                this.update(cx, |this, cx| done(this, value, cx)).ok();
-            }
+            let result = rx.await;
+            this.update(cx, |this, cx| match result {
+                Ok(value) => done(this, value, cx),
+                Err(_) => this.stopped(loading, cx),
+            })
+            .ok();
         })
         .detach();
+    }
+    fn stopped(&mut self, loading: Loading, cx: &mut Context<Self>) {
+        match loading {
+            Loading::List(ticket) if ticket == self.list_ticket => {
+                self.list_loading = false;
+                self.initialized = true;
+                self.filter = self.shown_filter.clone();
+                self.list_error = Some("The history request stopped. Try refreshing.".into());
+            }
+            Loading::Detail(ticket) if ticket == self.detail_ticket => {
+                self.detail_loading = false;
+                self.detail_error =
+                    Some("The detail request stopped. Try opening this record again.".into());
+            }
+            Loading::Delete => {
+                self.write_loading = false;
+                self.delete_confirm = false;
+                self.detail_error = Some(
+                    "Deletion is unconfirmed. Refresh this record before trying again.".into(),
+                );
+            }
+            _ => return,
+        }
+        self.flush_open(cx);
+        cx.notify();
     }
     fn load(&mut self, newest: bool, cx: &mut Context<Self>) {
         if self.busy() || !cx.has_global::<Runtime>() {
@@ -136,6 +184,7 @@ impl ResultsView {
         let ticket = self.list_ticket;
         self.run(
             cx,
+            Loading::List(ticket),
             async move {
                 let page = backend.history(cursor.as_deref(), 10, &filter).await?;
                 let page = if page.can_append() {
@@ -205,6 +254,7 @@ impl ResultsView {
         let ticket = self.detail_ticket;
         self.run(
             cx,
+            Loading::Detail(ticket),
             async move { backend.detail(&id).await },
             move |this, result, cx| {
                 if this.detail_ticket != ticket {
@@ -237,6 +287,7 @@ impl ResultsView {
         self.delete_confirm = false;
         self.run(
             cx,
+            Loading::Delete,
             async move { (id.clone(), backend.remove(&id).await) },
             |this, (id, result), cx| {
                 this.write_loading = false;

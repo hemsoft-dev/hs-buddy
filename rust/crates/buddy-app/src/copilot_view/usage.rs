@@ -1,6 +1,9 @@
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::zoom::zpx;
+#[cfg(test)]
+#[path = "usage_tests.rs"]
+mod tests;
 use buddy_core::codex_usage::{self, UsageSnapshot};
 use buddy_core::config::{GitHubAccount, GitHubConfig, UsageProvider};
 use buddy_core::copilot_usage::history::{History, Page};
@@ -14,6 +17,13 @@ use gpui_kit::{
     AppContext as _, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div,
 };
+
+type RefreshReply = (
+    Option<Result<UsageSnapshot, codex_usage::FetchError>>,
+    Option<Result<UsagePool, String>>,
+    Option<Result<BillingSnapshot, String>>,
+    Option<Result<(), String>>,
+);
 
 pub(super) struct UsageView {
     enterprise: Entity<super::enterprise::EnterpriseView>,
@@ -107,6 +117,9 @@ impl UsageView {
             return;
         }
         self.busy = true;
+        self.pool = None;
+        self.billing = None;
+        self.codex = None;
         self.error = None;
         self.notice = None;
         let backend = History::new(&buddy_core::convex_data::convex_url());
@@ -130,25 +143,67 @@ impl UsageView {
             };
             (None, Some(pool), Some(billing), save)
         });
-        cx.spawn(async move |this,cx| {
-            let result=rx.await;
-            this.update(cx,|this,cx| {
-                this.busy=false;
-                match result {
-                    Ok((codex,pool,billing,save))=>{
-                        let mut errors=Vec::new();
-                        if let Some(result)=codex {match result {Ok(data)=>this.codex=Some(data),Err(error)=>errors.push(error.to_string())}}
-                        if let Some(result)=pool {match result {Ok(data)=>this.pool=Some(data),Err(_)=>errors.push("Copilot allowance is unavailable for this account and organization.".into())}}
-                        if let Some(result)=billing {match result {Ok(data)=>this.billing=Some(data),Err(error)=>errors.push(error)}}
-                        if let Some(result)=save {this.notice=Some(match result {Ok(())=>"Billing snapshot saved to history.".into(),Err(error)=>error});}
-                        if !errors.is_empty() {this.error=Some(errors.join(" "));}
-                    },
-                    Err(_)=>this.error=Some("The usage request stopped. Try refreshing.".into()),
-                }
+        cx.spawn(async move |this, cx| {
+            let result = rx.await;
+            this.update(cx, |this, cx| {
+                this.finish_refresh(result);
                 cx.notify();
-            }).ok();
-        }).detach();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
+    }
+    fn finish_refresh(
+        &mut self,
+        result: Result<RefreshReply, futures::channel::oneshot::Canceled>,
+    ) {
+        self.busy = false;
+        match result {
+            Ok((codex, pool, billing, save)) => {
+                let mut errors = Vec::new();
+                if let Some(result) = codex {
+                    self.codex = match result {
+                        Ok(data) => Some(data),
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            None
+                        }
+                    };
+                }
+                if let Some(result) = pool {
+                    self.pool = match result {
+                        Ok(data) => Some(data),
+                        Err(_) => {
+                            errors.push("Copilot allowance is unavailable for this account and organization.".into());
+                            None
+                        }
+                    };
+                }
+                if let Some(result) = billing {
+                    self.billing = match result {
+                        Ok(data) => Some(data),
+                        Err(error) => {
+                            errors.push(error);
+                            None
+                        }
+                    };
+                }
+                if let Some(result) = save {
+                    self.notice = Some(match result {
+                        Ok(()) => "Billing snapshot saved to history.".into(),
+                        Err(error) => error,
+                    });
+                }
+                self.error = (!errors.is_empty()).then(|| errors.join(" "));
+            }
+            Err(_) => {
+                self.pool = None;
+                self.billing = None;
+                self.codex = None;
+                self.error = Some("The usage request stopped. Try refreshing.".into());
+            }
+        }
     }
     fn load_history(&mut self, older: bool, cx: &mut Context<Self>) {
         if self.busy || !cx.has_global::<Runtime>() {

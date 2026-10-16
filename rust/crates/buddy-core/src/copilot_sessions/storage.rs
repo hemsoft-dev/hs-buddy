@@ -51,7 +51,7 @@ impl std::error::Error for StorageError {}
 pub struct SessionFile {
     root_id: u64,
     relative: PathBuf,
-    expected_session_id: Option<String>,
+    expected_session_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -146,10 +146,7 @@ fn regular_file(directory: &Dir, path: &Path) -> Result<std::fs::File, StorageEr
     Ok(file)
 }
 
-fn init_preview(prefix: &[u8], expected_id: Option<&str>) -> (String, String, usize) {
-    let Some(expected_id) = expected_id else {
-        return Default::default();
-    };
+fn init_preview(prefix: &[u8], expected_id: &str) -> (String, String, usize) {
     for line in prefix.split(|byte| *byte == b'\n') {
         let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
             continue;
@@ -257,11 +254,7 @@ impl SessionRoot {
         // sentinel so the parser can distinguish exact-limit files.
         let take = file.take((limits.max_bytes as u64).saturating_add(1));
         let detail = parse(&mut BufReader::new(take), limits).map_err(StorageError::Parse)?;
-        if key
-            .expected_session_id
-            .as_ref()
-            .is_some_and(|id| *id != detail.session_id)
-        {
+        if key.expected_session_id != detail.session_id {
             return Err(StorageError::ChangedIdentity);
         }
         Ok(detail)
@@ -372,17 +365,16 @@ impl SessionRoot {
                             .map_or(0, |i| i + 1),
                     );
                 }
-                let preview = parse(&mut Cursor::new(&prefix), Limits::default()).ok();
-                let expected_session_id = preview.as_ref().map(|detail| detail.session_id.clone());
+                let Ok(preview) = parse(&mut Cursor::new(&prefix), Limits::default()) else {
+                    // An unidentified row must not issue a key that accepts an
+                    // arbitrary later file identity at the same relative path.
+                    result.skipped += 1;
+                    continue;
+                };
+                let expected_session_id = preview.session_id.clone();
                 let (first_prompt, agent, preview_request_count) =
-                    init_preview(&prefix, expected_session_id.as_deref());
-                let session_id = expected_session_id.clone().unwrap_or_else(|| {
-                    Path::new(&name)
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned()
-                });
+                    init_preview(&prefix, &expected_session_id);
+                let session_id = expected_session_id.clone();
                 let modified_at = metadata
                     .modified()
                     .ok()
@@ -398,18 +390,12 @@ impl SessionRoot {
                     },
                     workspace: hash.to_string_lossy().into_owned(),
                     workspace_name: workspace_name.clone(),
-                    title: preview.as_ref().map_or_else(
-                        || format!("Session {}", session_id.chars().take(8).collect::<String>()),
-                        |detail| detail.title.clone(),
-                    ),
+                    title: preview.title.clone(),
                     first_prompt,
                     agent,
-                    created_at: preview.as_ref().map_or(0, |detail| detail.start_time),
+                    created_at: preview.start_time,
                     preview_request_count,
-                    preview_partial: partial
-                        || preview
-                            .as_ref()
-                            .is_none_or(|detail| detail.malformed_lines > 0),
+                    preview_partial: partial || preview.malformed_lines > 0,
                     session_id,
                     modified_at,
                     size_bytes: metadata.len(),
