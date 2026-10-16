@@ -1,7 +1,7 @@
 """Qualify real installed settings against a disposable anonymous backend."""
 import argparse
 import base64
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
 import json
@@ -12,7 +12,7 @@ import sys
 import time
 import uuid
 
-from desktop import UnixWindow, encode_recording, fixture, recording, run
+from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run
 
 
 HERE = Path(__file__).resolve().parent
@@ -28,6 +28,53 @@ def load(name):
 ocr = load("settings-ocr")
 SettingsBackend = load("settings-backend").SettingsBackend
 OwnedMacInput = load("macos-input").OwnedMacInput
+
+
+@contextmanager
+def unicode_clipboard(text):
+    """Serve an exact UTF-8 selection only on an owned disposable X11 desktop."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1" or sys.platform != "linux":
+        raise RuntimeError("Unicode clipboard input requires a disposable Linux runner")
+    payload = text.encode("utf-8")
+    if len(payload) > 32768:
+        raise RuntimeError("Fixture clipboard text exceeds its bounded input size")
+    # -quiet keeps the selection owner in the foreground, so it can be reaped.
+    # https://github.com/astrand/xclip
+    owner = subprocess.Popen(["xclip", "-selection", "clipboard", "-in", "-quiet"],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        owner.stdin.write(payload)
+        owner.stdin.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if owner.poll() is not None:
+                raise RuntimeError("The owned clipboard process exited before paste")
+            try:
+                current = subprocess.run(["xclip", "-selection", "clipboard", "-out"],
+                    capture_output=True, timeout=1)
+            except subprocess.TimeoutExpired:
+                continue
+            if current.returncode == 0 and current.stdout == payload:
+                break
+            time.sleep(0.05)
+        else:
+            raise RuntimeError("The owned clipboard did not offer the exact Unicode text")
+        yield
+    finally:
+        primary = sys.exc_info()[1]
+        def stop():
+            try:
+                if owner.poll() is None:
+                    owner.terminate()
+                try:
+                    owner.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    owner.kill()
+                    owner.wait(timeout=3)
+            finally:
+                owner.stdin.close()
+                owner.stderr.close()
+        finish_cleanup(stop, primary, "Unicode clipboard owner")
 
 
 def b64(value):
@@ -321,7 +368,12 @@ class Driver:
                 self.input_receipt(helper, directory, "after-typing", kind, values[0], target)
             else:
                 window.key("a")
-                run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
+                if values[1].isascii():
+                    run("xdotool", "type", "--clearmodifiers", "--delay", 10, "--", values[1])
+                else:
+                    with unicode_clipboard(values[1]):
+                        window.key("v")
+                        time.sleep(0.7)
         time.sleep(0.7)
         if self.session == "macos" and kind == "field" and values[0] == "Accent color":
             name = "valid" if values[1].startswith("#") else "invalid"

@@ -184,10 +184,11 @@ class MacInputOwnership(unittest.TestCase):
         helper = desktop.OwnedMacInput.__new__(desktop.OwnedMacInput)
         helper.process = Mock(pid=123)
         subprocess_module = desktop.OwnedMacInput.require_focus.__globals__["subprocess"]
-        with patch.object(subprocess_module, "run", return_value=Mock(stdout="456\n")) as run:
-            with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
-                helper.replace_text("owned fixture text")
-            self.assertEqual(run.call_count, 1)  # Only the focus query ran.
+        for text in ("owned fixture text", "owned Unicode 資料"):
+            with patch.object(subprocess_module, "run", return_value=Mock(stdout="456\n")) as run:
+                with self.assertRaisesRegex(RuntimeError, "must be frontmost"):
+                    helper.replace_text(text)
+                self.assertEqual(run.call_count, 1)  # Only the focus query ran.
 
     def test_focus_diagnostics_never_read_another_frontmost_apps_ui(self):
         helper = desktop.OwnedMacInput.__new__(desktop.OwnedMacInput)
@@ -248,6 +249,45 @@ class MacInputDelivery(unittest.TestCase):
         with patch.object(desktop.ocr, "locate_image", side_effect=[dict(top=i) for i in range(4)]):
             with self.assertRaisesRegex(RuntimeError, "stable"):
                 driver.locate(window, image, "field", "Notification audio file")
+
+
+class UnicodeClipboardOwnership(unittest.TestCase):
+    def test_non_runner_is_refused_before_clipboard_or_process_access(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}), patch.object(desktop.subprocess, "Popen") as launch:
+            with self.assertRaisesRegex(RuntimeError, "disposable Linux"):
+                with desktop.unicode_clipboard("資料"):
+                    self.fail("An unowned clipboard must not be used")
+            launch.assert_not_called()
+
+    def test_clipboard_owner_is_reaped_after_the_native_paste_raises(self):
+        owner = Mock()
+        owner.poll.return_value = None
+        payload = "workspace with spaces 資料".encode("utf-8")
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1"}), \
+                patch.object(desktop.sys, "platform", "linux"), \
+                patch.object(desktop.subprocess, "Popen", return_value=owner), \
+                patch.object(desktop.subprocess, "run", return_value=Mock(returncode=0, stdout=payload)):
+            with self.assertRaisesRegex(ValueError, "native paste failure"):
+                with desktop.unicode_clipboard(payload.decode("utf-8")):
+                    raise ValueError("native paste failure")
+        owner.terminate.assert_called_once()
+        owner.wait.assert_called_once_with(timeout=3)
+        owner.stderr.close.assert_called_once()
+
+    def test_an_old_clipboard_cannot_authorize_pasting_different_text(self):
+        owner = Mock()
+        owner.poll.return_value = None
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1"}), \
+                patch.object(desktop.sys, "platform", "linux"), \
+                patch.object(desktop.subprocess, "Popen", return_value=owner), \
+                patch.object(desktop.subprocess, "run", return_value=Mock(returncode=0, stdout=b"old data")), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 1, 6]), \
+                patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "exact Unicode"):
+                with desktop.unicode_clipboard("資料"):
+                    self.fail("A mismatched clipboard must never reach paste")
+        owner.terminate.assert_called_once()
+        owner.wait.assert_called_once_with(timeout=3)
 
 
 if __name__ == "__main__":
