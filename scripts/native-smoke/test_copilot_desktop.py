@@ -12,6 +12,36 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class CopilotQualificationTests(unittest.TestCase):
+    def test_saved_status_does_not_prove_its_offscreen_controls_are_visible(self):
+        class ClippedConversationDriver:
+            def __init__(self):
+                self.visible = set()
+                self.clicked = []
+
+            def drive(self, name, actions, record=False):
+                for action in actions:
+                    if action == ('wait_scroll_text', 'Saved to results'):
+                        # The captured Linux viewport shows this status at the
+                        # bottom while both following buttons remain clipped.
+                        self.visible = {'Saved to results'}
+                    elif action[0] == 'reveal_text' and action[1] in ('Copy answer', 'Inspect saved result'):
+                        if action[2] not in self.visible:
+                            raise AssertionError('Scroll anchor is not in the visible conversation')
+                        self.visible.add(action[1])
+                    elif action[0] == 'click' and action[1] in ('Copy answer', 'Inspect saved result'):
+                        if action[1] not in self.visible:
+                            raise AssertionError('Saved status did not reveal the requested control: ' + action[1])
+                        self.clicked.append(action[1])
+                return Path('unused-synthetic-conversation-output')
+
+        for flow, expected in ((copilot.chat_turns, ['Copy answer', 'Inspect saved result']),
+                (copilot.review_pull_request, ['Inspect saved result'])):
+            with self.subTest(flow=flow.__name__):
+                driver = ClippedConversationDriver()
+                with patch.object(copilot.github, 'check'):
+                    flow(driver)
+                self.assertEqual(driver.clicked, expected)
+
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this
         # configured model. Chat's earlier, view-local choice does not carry over.
