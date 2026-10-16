@@ -58,6 +58,26 @@ class CompanionHandshake(unittest.TestCase):
 
 
 class DesktopLimits(unittest.TestCase):
+    def test_anchored_mac_scroll_uses_one_line_while_legacy_scroll_keeps_its_step(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        window = Mock()
+        owned = object.__new__(desktop.OwnedMacInput)
+        owned.require_focus = Mock()
+        owned.graphics = Mock()
+        owned.post = Mock()
+        metadata = json.dumps(dict(kCGWindowBounds=dict(X=10, Y=20, Width=900, Height=650)))
+        with patch.dict(os.environ, {"RUNNER_TEMP": "owned-fixture"}), \
+                patch.object(desktop, "run", return_value=metadata), \
+                patch.object(desktop, "OwnedMacInput", return_value=owned), \
+                patch.object(desktop.time, "sleep"):
+            for point, expected, position in [((95, 360), -1, (105, 380)), (None, -10, (460, 345))]:
+                owned.graphics.reset_mock()
+                driver.scroll(window, -120, point)
+                self.assertEqual(owned.graphics.CGEventCreateScrollWheelEvent.call_args.args, (None, 1, 1, expected))
+                observed = owned.graphics.CGEventSetLocation.call_args.args[1]
+                self.assertEqual((observed.x, observed.y), position)
+
     def test_scroll_anchor_uses_the_measured_label_instead_of_the_old_wheel_position(self):
         driver = object.__new__(desktop.Driver)
         driver.session = "x11"

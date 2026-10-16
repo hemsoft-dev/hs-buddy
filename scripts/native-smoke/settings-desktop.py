@@ -328,7 +328,7 @@ class Driver:
             metadata = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", window.process.pid))
             bounds = metadata["kCGWindowBounds"]
             x, y = point if point is not None else (bounds["Width"] / 2, bounds["Height"] / 2)
-            OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta)
+            OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta, precise=point is not None)
         time.sleep(0.7)
 
     def locate(self, window, image, kind, text):
