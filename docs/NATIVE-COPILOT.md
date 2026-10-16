@@ -129,3 +129,6 @@ or a paid model. Passing compilation alone does not constitute installed UI or
 SDK qualification; current-head workflow receipts and captures supply that proof.
 Hosted Codex cases also use guarded loopback snapshots and a deterministic
 missing-login response, without reading a local Codex credential.
+The chat fixture scrolls its owned conversation to expose completion and
+cancellation feedback, then requires the exact visible status before advancing.
+It does not infer a successful save from a finished stream or a scroll action.

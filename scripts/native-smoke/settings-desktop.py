@@ -84,11 +84,11 @@ def b64(value):
     return base64.b64encode(str(value).encode()).decode()
 
 
-def wait_visible(window, directory, text, timeout=15):
+def wait_visible(window, directory, text, timeout=15, scroll=None):
     """Read an owned window until one OCR layout has the exact visible status.
 
-    This never posts input. A missing acknowledgment must fail before the
-    fixture can advance to Return or capture an unexecuted command as output.
+    By default this never posts input. A caller may explicitly scroll its
+    owned content to reveal an offscreen status, while still requiring OCR.
     """
     image = directory / "wait-status.png"
     deadline = time.monotonic() + timeout
@@ -100,6 +100,8 @@ def wait_visible(window, directory, text, timeout=15):
         except RuntimeError as failure:
             if time.monotonic() >= deadline:
                 raise RuntimeError(f"The owned window did not show the expected status {text!r}") from failure
+            if scroll is not None:
+                scroll()
         time.sleep(0.1)
 
 
@@ -193,8 +195,8 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
-                elif kind == "wait_text":
-                    commands.append("waittext64:" + b64(values[0]))
+                elif kind in ("wait_text", "wait_scroll_text"):
+                    commands.append(("waitscrolltext64:" if kind == "wait_scroll_text" else "waittext64:") + b64(values[0]))
                 elif kind == "sleep":
                     commands.append("sleep:" + str(int(values[0] * 1000)))
                 elif kind == "wheel":
@@ -263,8 +265,9 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
-                        elif kind == "wait_text":
-                            wait_visible(window, directory, values[0])
+                        elif kind in ("wait_text", "wait_scroll_text"):
+                            scroll = (lambda: self.scroll(window, -1200)) if kind == "wait_scroll_text" else None
+                            wait_visible(window, directory, values[0], scroll=scroll)
                         elif kind == "sleep":
                             time.sleep(values[0])
                         elif kind == "wheel":

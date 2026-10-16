@@ -111,6 +111,30 @@ class DraftReadVerification(unittest.TestCase):
 
 
 class LabeledInputs(unittest.TestCase):
+    def test_scrolling_reveals_feedback_but_requires_a_new_observation(self):
+        window, directory, scroll = Mock(), MagicMock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("offscreen"), dict(left=10)]), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 1]), patch.object(desktop.time, "sleep"):
+            desktop.wait_visible(window, directory, "Saved to results", scroll=scroll)
+        self.assertEqual(window.screenshot.call_count, 2)
+        scroll.assert_called_once_with()
+        window.key.assert_not_called()
+
+    def test_scroll_success_never_substitutes_for_missing_feedback(self):
+        window, directory, scroll = Mock(), MagicMock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=RuntimeError("absent")), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 1, 16]), patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not show the expected status"):
+                desktop.wait_visible(window, directory, "Saved to results", scroll=scroll)
+        self.assertEqual(window.screenshot.call_count, 2)
+        scroll.assert_called_once_with()
+
+    def test_visible_feedback_does_not_move_the_conversation(self):
+        scroll = Mock()
+        with patch.object(desktop.ocr, "locate_image", return_value=dict(left=10)):
+            desktop.wait_visible(Mock(), MagicMock(), "Saved to results", scroll=scroll)
+        scroll.assert_not_called()
+
     def test_status_barrier_waits_for_an_observed_acknowledgment_without_posting_input(self):
         window, directory = Mock(), MagicMock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("not ready"), dict(left=10)]) as locate, \

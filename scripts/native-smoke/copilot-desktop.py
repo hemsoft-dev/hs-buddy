@@ -181,14 +181,14 @@ def qualify(executable, output, session, version, backend, api):
                 ('input', 'GitHub account', 'synthetic-account'), ('click', 'Load available models'),
                 ('wait_text', 'Synthetic offline model'), ('click', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
                 ('click', 'Run and save'), ('wait_text', 'Assistant is responding'), ('capture', 'streaming-dark'),
-                ('wait_text', 'Saved to results'), ('click', 'Copy answer'), ('capture', 'completed-dark'),
+                ('wait_scroll_text', 'Saved to results'), ('click', 'Copy answer'), ('capture', 'completed-dark'),
                 ('click', 'Inspect saved result'), ('wait_text', 'Synthetic assistant'), ('capture', 'saved-result-dark'),
                 ('click', 'Chat'), ('click', 'New conversation'), ('input', 'Message', 'BUDDYCANCEL73429'),
                 ('click', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('click', 'Cancel response'),
-                ('wait_text', 'Cancelled'), ('wait_text', 'Saved to results'), ('resize', 900, 650), ('capture', 'cancelled-compact-dark'),
+                ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650), ('capture', 'cancelled-compact-dark'),
             ], record=True)
             github.check(dark / 'streaming-dark.png', 'Assistant is responding')
-            github.check(dark / 'completed-dark.png', 'Answer copied', 'Synthetic assistant')
+            github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results')
             github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant')
             github.check(dark / 'cancelled-compact-dark.png', 'Cancelled', 'Partial synthetic answer')
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
@@ -197,7 +197,7 @@ def qualify(executable, output, session, version, backend, api):
             review = driver.drive('review-dark', [
                 ('click', '#7 Second private navigation review'), ('click', 'Review with Buddy assistant'),
                 ('wait_text', 'Reviewing fixture-org/native-demo'), ('capture', 'review-context-dark'),
-                ('click', 'Run and save'), ('wait_text', 'Saved to results'), ('click', 'Inspect saved result'),
+                ('click', 'Run and save'), ('wait_scroll_text', 'Saved to results'), ('click', 'Inspect saved result'),
                 ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
             ])
             github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')

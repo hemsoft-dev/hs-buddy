@@ -83,6 +83,13 @@ function Click-OwnedPoint([int] $X, [int] $Y) {
     [Drive]::PostMessageW($h, 0x202, 0, $lp) | Out-Null
     Start-Sleep -Milliseconds 600
 }
+function Scroll-OwnedWindow([int] $Delta) {
+    $pt = New-Object Drive+POINT; $pt.x = 600; $pt.y = 400
+    [Drive]::ClientToScreen($h, [ref]$pt) | Out-Null
+    $wparam = [IntPtr]([int64]($Delta -band 0xFFFF) -shl 16)
+    [Drive]::PostMessageW($h, 0x20A, $wparam, [Drive]::MakeLParam($pt.x, $pt.y)) | Out-Null
+    Start-Sleep -Milliseconds 700
+}
 function Write-OwnedText([string] $Encoded) {
     $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
     if ($text.Length -gt 8192) { throw 'Fixture text exceeds the bounded input size' }
@@ -157,9 +164,9 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            'waittext64' {
-                # Read-only acknowledgment barrier on this owned hidden HWND.
-                # Never post the following key until the exact status is visible.
+            { $_ -in 'waittext64', 'waitscrolltext64' } {
+                # Explicit scroll waits may reveal content on this owned HWND.
+                # Never advance until the exact status is visibly observed.
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 while ($true) {
                     try {
@@ -167,6 +174,7 @@ try {
                         break
                     } catch {
                         if ($timer.Elapsed.TotalSeconds -ge 15) { throw }
+                        if ($parts[0] -eq 'waitscrolltext64') { Scroll-OwnedWindow -1200 }
                         Start-Sleep -Milliseconds 100
                     }
                 }
