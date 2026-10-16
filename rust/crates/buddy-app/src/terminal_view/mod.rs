@@ -8,7 +8,7 @@ mod sessions;
 mod tests;
 mod workspace;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::sync::Arc;
 
@@ -61,6 +61,8 @@ pub struct TerminalView {
     show_prompts: bool,
     show_properties: bool,
     show_organization: bool,
+    failure_details: BTreeSet<String>,
+    copied_failure: Option<String>,
     status: Option<String>,
     error: Option<String>,
 }
@@ -149,6 +151,8 @@ impl TerminalView {
             show_prompts: false,
             show_properties: false,
             show_organization: false,
+            failure_details: BTreeSet::new(),
+            copied_failure: None,
             status: None,
             error: None,
         }
@@ -191,6 +195,7 @@ impl TerminalView {
 
     fn grid_event(&mut self, pane: &str, event: &GridEvent, cx: &mut Context<Self>) {
         match event {
+            GridEvent::StatusChanged => {}
             GridEvent::WorkingDirectory(cwd) => {
                 if let Some((_, previous)) =
                     self.visible_panes().into_iter().find(|(id, _)| id == pane)

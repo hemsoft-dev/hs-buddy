@@ -62,6 +62,14 @@ impl TerminalView {
         let wanted = editor.document().pane_ids();
         let retired = self.sessions.synchronize(editor.document());
         self.grids.retain(|pane, _| wanted.contains(pane));
+        self.failure_details.retain(|pane| wanted.contains(pane));
+        if self
+            .copied_failure
+            .as_ref()
+            .is_some_and(|pane| !wanted.contains(pane))
+        {
+            self.copied_failure = None;
+        }
         for session in retired {
             self.close_owned(session, cx);
         }
@@ -100,6 +108,10 @@ impl TerminalView {
     }
 
     pub(super) fn restart_pane(&mut self, pane: &str, cx: &mut Context<Self>) {
+        self.failure_details.remove(pane);
+        if self.copied_failure.as_deref() == Some(pane) {
+            self.copied_failure = None;
+        }
         self.grids.remove(pane);
         if let Some(session) = self.sessions.retire(pane) {
             self.close_owned(session, cx);

@@ -1,12 +1,14 @@
 //! Workspace controls and recursive layout. Process handles remain keyed by pane ID.
 use buddy_core::terminal_workspaces::SaveStatus;
 use gpui_kit::base::{Disableable, Selectable};
-use gpui_kit::component::button::Button;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
-use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
+use gpui_kit::{
+    AnyElement, ClipboardItem, Context, IntoElement, ParentElement, Styled, Window, div,
+};
 use serde_json::Value;
 
 use super::TerminalView;
@@ -149,9 +151,10 @@ impl TerminalView {
     }
 
     fn toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        h_flex()
+        let mut toolbar = h_flex()
             .flex_wrap()
             .gap_2()
+            .child(self.workspace_tabs(cx))
             .child(
                 Button::new("terminal-properties-toggle")
                     .label(if self.show_properties {
@@ -210,14 +213,32 @@ impl TerminalView {
                     .label("Reload saved layout")
                     .disabled(self.loading)
                     .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
-            )
-            .child(
+            );
+        let save = self.editor.as_ref().and_then(|editor| {
+            if self.journal_busy || self.unsupported_recovery {
+                return None;
+            }
+            if self.pending_send.is_some() {
+                return Some("Retry local recovery");
+            }
+            match editor.status() {
+                SaveStatus::Dirty | SaveStatus::Rejected if !self.backend_checked => {
+                    Some("Compare before saving")
+                }
+                SaveStatus::Dirty => Some("Save layout"),
+                SaveStatus::Rejected => Some("Retry layout save"),
+                SaveStatus::Uncertain => Some("Retry captured save"),
+                _ => None,
+            }
+        });
+        if let Some(label) = save {
+            toolbar = toolbar.child(
                 Button::new("terminal-save")
-                    .label("Retry / save layout")
-                    .disabled(self.editor.is_none() || self.journal_busy)
+                    .label(label)
                     .on_click(cx.listener(|this, _, _, cx| this.save_now(cx))),
-            )
-            .into_any_element()
+            );
+        }
+        toolbar.into_any_element()
     }
 
     fn workspace_fields(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -251,18 +272,20 @@ impl TerminalView {
         let Some(id) = self.selected_pane.clone() else {
             return div().into_any_element();
         };
-        let mut actions = h_flex().flex_wrap().gap_1();
-        for (action, label) in [
-            ("horizontal", "Split right"),
-            ("vertical", "Split below"),
-            ("restart", "Restart shell"),
-            ("close", "Close shell"),
-            ("interrupt", "Interrupt"),
-            ("widen", "More space"),
+        let mut actions = h_flex().flex_wrap().gap_3().px_3().pb_2();
+        for group in [
+            vec![
+                ("horizontal", "Split right"),
+                ("vertical", "Split below"),
+                ("widen", "More space"),
+            ],
+            vec![("restart", "Restart shell"), ("interrupt", "Interrupt")],
+            vec![("close", "Close shell")],
         ] {
-            let pane = id.clone();
-            actions = actions.child(
-                Button::new(format!("terminal-{action}-{id}"))
+            let mut buttons = h_flex().gap_1();
+            for (action, label) in group {
+                let pane = id.clone();
+                let button = Button::new(format!("terminal-{action}-{id}"))
                     .label(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.remember_fields(cx);
@@ -307,8 +330,14 @@ impl TerminalView {
                         }
                         this.update_grid_visibility(cx);
                         cx.notify();
-                    })),
-            );
+                    }));
+                buttons = buttons.child(if action == "close" {
+                    button.danger().outline()
+                } else {
+                    button
+                });
+            }
+            actions = actions.child(buttons);
         }
         actions.into_any_element()
     }
@@ -344,7 +373,7 @@ impl TerminalView {
         let selected = id.clone();
         actions = actions.child(
             Button::new(format!("terminal-focus-{id}"))
-                .label(label)
+                .label(label.clone())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.remember_fields(cx);
                     this.selected_pane = Some(selected.clone());
@@ -354,17 +383,23 @@ impl TerminalView {
                     cx.notify();
                 })),
         );
-        let content = if let Some(grid) = self.grids.get(&id) {
+        let failure = self.sessions.failure(&id).map(str::to_string).or_else(|| {
+            self.grids
+                .get(&id)
+                .and_then(|grid| grid.read(cx).launch_failure().map(str::to_string))
+        });
+        let content = if let Some(error) = failure {
+            self.launch_failure(&id, &label, &error, cx)
+        } else if let Some(grid) = self.grids.get(&id) {
             grid.clone().into_any_element()
         } else {
             div()
                 .p_3()
-                .child(
-                    self.sessions
-                        .failure(&id)
-                        .unwrap_or("Shell is starting or closed. Use Restart shell to launch it.")
-                        .to_string(),
-                )
+                .child(if self.sessions.closed(&id) {
+                    "Shell closed. Use Restart shell to launch it."
+                } else {
+                    "Shell is starting."
+                })
                 .into_any_element()
         };
         v_flex()
@@ -379,6 +414,93 @@ impl TerminalView {
             })
             .child(actions)
             .child(div().flex_1().min_h_0().min_w_0().child(content))
+            .into_any_element()
+    }
+
+    fn launch_failure(
+        &self,
+        id: &str,
+        name: &str,
+        error: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let expanded = self.failure_details.contains(id);
+        let restart = id.to_string();
+        let details = id.to_string();
+        let copied = id.to_string();
+        let diagnostic = error.to_string();
+        let mut panel = v_flex()
+            .gap_2()
+            .p_3()
+            .w_full()
+            .child(
+                div()
+                    .text_color(cx.theme().danger)
+                    .child("Shell unavailable"),
+            )
+            .child(format!(
+                "Could not start {name}. Check its executable and working directory, then restart."
+            ))
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        Button::new(format!("terminal-recover-{id}"))
+                            .primary()
+                            .label("Restart this shell")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remember_fields(cx);
+                                this.selected_pane = Some(restart.clone());
+                                this.populate_fields = true;
+                                this.focus_grid = true;
+                                this.restart_pane(&restart, cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("terminal-failure-details-{id}"))
+                            .label(if expanded {
+                                "Hide launch details"
+                            } else {
+                                "Show launch details"
+                            })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.failure_details.remove(&details) {
+                                    this.failure_details.insert(details.clone());
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("terminal-copy-failure-{id}"))
+                            .label("Copy launch details")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    diagnostic.clone(),
+                                ));
+                                this.copied_failure = Some(copied.clone());
+                                cx.notify();
+                            })),
+                    ),
+            );
+        if expanded {
+            panel = panel.child(
+                div()
+                    .max_h(zpx(180.0))
+                    .overflow_y_scrollbar()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .child(error.to_string()),
+            );
+        }
+        if self.copied_failure.as_deref() == Some(id) {
+            panel = panel.child("Launch details copied.");
+        }
+        div()
+            .size_full()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .child(panel)
             .into_any_element()
     }
 
@@ -475,11 +597,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.populate(window, cx);
-        let mut header = v_flex()
-            .gap_2()
-            .p_3()
-            .child(self.toolbar(cx))
-            .child(self.workspace_tabs(cx));
+        let mut header = v_flex().gap_2().p_3().child(self.toolbar(cx));
         if let Some(status) = &self.status {
             header = header.child(div().child(status.clone()));
         }

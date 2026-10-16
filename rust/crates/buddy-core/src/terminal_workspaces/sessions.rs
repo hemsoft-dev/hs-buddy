@@ -23,6 +23,7 @@ enum Phase<T> {
     Starting,
     Ready(T),
     Failed(String),
+    Closed,
 }
 struct Slot<T> {
     ticket: LaunchTicket,
@@ -150,16 +151,19 @@ impl<T> SessionRegistry<T> {
             .is_some_and(|slot| matches!(slot.phase, Phase::Starting))
     }
 
+    pub fn closed(&self, pane: &str) -> bool {
+        self.slots
+            .get(pane)
+            .is_some_and(|slot| matches!(slot.phase, Phase::Closed))
+    }
+
     /// Keep an explicit closed slot so switching sections cannot relaunch a
     /// final pane. A later user-requested restart retires this slot.
     #[must_use = "Close the suspended resource on the I/O worker"]
     pub fn suspend(&mut self, pane: &str) -> Option<T> {
         let resource = self.retire(pane);
         if let Some(ticket) = self.begin_start(pane) {
-            let _ = self.complete_start(
-                &ticket,
-                Err("Shell closed. Use Restart shell to launch it.".into()),
-            );
+            self.slots.get_mut(&ticket.pane).expect("new slot").phase = Phase::Closed;
         }
         resource
     }
@@ -224,9 +228,11 @@ mod tests {
                 .is_empty()
         );
         assert!(sessions.begin_start("a").is_none());
-        assert!(sessions.failure("a").unwrap().contains("closed"));
+        assert!(sessions.closed("a"));
+        assert!(sessions.failure("a").is_none());
         assert!(sessions.retire("a").is_none());
         let restart = sessions.begin_start("a").unwrap();
+        assert!(!sessions.closed("a"));
         assert_ne!(restart.generation(), ticket.generation());
     }
 

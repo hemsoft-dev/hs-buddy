@@ -215,9 +215,13 @@ def qualify(executable, output, session, version, backend):
         write_config(config, invalid)
         errors = driver.drive("shell-errors-light", [
             ("resize", 900, 650), ("sleep", 1), ("capture", "invalid-shell-light"),
-            ("click", "Close shell"), ("click", "Close shell"), ("capture", "closed-shell-light"),
+            ("click", "Close shell"), ("click", "Show launch details"),
+            ("click", "Copy launch details"), ("wait_text", "Launch details copied."), ("capture", "launch-details-light"),
+            ("click", "Hide launch details"), ("click", "Close shell"), ("capture", "closed-shell-light"),
         ])
-        github.check(errors / "invalid-shell-light.png", "Shell unavailable", "Restart shell")
+        github.check(errors / "invalid-shell-light.png", "Shell unavailable", "Restart this shell", "Show launch details",
+                     absent=("CreateProcessW", "ENOENT", "missing shell executable"))
+        github.check(errors / "launch-details-light.png", "Shell unavailable", "Hide launch details", "missing shell executable", "Launch details copied.")
         github.check(errors / "closed-shell-light.png", "Shell closed", "Restart shell")
         write_config(config, lambda value: value["native"]["terminalShells"].pop(platform_key()))
         nonce = str(uuid.uuid4())

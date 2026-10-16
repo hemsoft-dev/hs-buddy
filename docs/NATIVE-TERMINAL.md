@@ -129,6 +129,11 @@ that key to the shell.
 
 ## Implementation and qualification
 
+An unavailable shell has a recovery panel at the top of its pane. Restart this
+shell retries that pane; Show launch details reveals the full platform error,
+and Copy launch details preserves its executable and directory text. Workspace
+save actions appear only when a change or retained request needs attention.
+
 The [terminal core](../rust/crates/buddy-core/src/terminal/mod.rs) uses
 `portable-pty` and `alacritty_terminal` for ConPTY/Unix PTYs and ANSI state.
 Each session runs an owned instance of the same native binary in its private

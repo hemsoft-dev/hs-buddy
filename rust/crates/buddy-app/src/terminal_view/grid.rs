@@ -20,6 +20,7 @@ use gpui_kit::{
 use crate::zoom::zpx;
 
 pub enum GridEvent {
+    StatusChanged,
     FocusControls,
     WorkingDirectory(String),
     Selected,
@@ -121,6 +122,13 @@ impl TerminalGrid {
         window.focus(&self.focus, cx);
     }
 
+    pub fn launch_failure(&self) -> Option<&str> {
+        match &self.session_status {
+            SessionStatus::Failed(error) => Some(error),
+            _ => None,
+        }
+    }
+
     pub fn set_visibility(&mut self, visible: bool, selected: bool, cx: &mut Context<Self>) {
         if !visible || !selected {
             if let Some(paste) = self.confirmation.take() {
@@ -156,6 +164,9 @@ impl TerminalGrid {
                 || self.screen.scroll_offset != snapshot.screen.scroll_offset
             {
                 self.selection = None;
+            }
+            if self.session_status != snapshot.status {
+                cx.emit(GridEvent::StatusChanged);
             }
             self.screen = Arc::new(snapshot.screen);
             self.session_status = snapshot.status;
@@ -497,11 +508,8 @@ impl Render for TerminalGrid {
             SessionStatus::Exited(code) => {
                 root=root.child(div().p_2().child(format!("Shell exited with code {code}. Its output is retained; use Restart shell to launch again.")));
             }
-            SessionStatus::Failed(error) => {
-                root = root.child(div().p_2().child(format!(
-                    "Shell unavailable. {error} Use Restart shell to try again."
-                )));
-            }
+            // The pane presents launch failures with its own recovery controls.
+            SessionStatus::Failed(_) => {}
             SessionStatus::Closed => {
                 root = root.child(
                     div()
