@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1412] - 2026-10-16
+
+### Fixed
+
+- Clarify Copilot account and cancellation controls
+
 ## [0.1.1411] - 2026-10-16
 
 ### Fixed

@@ -80,7 +80,7 @@ impl ChatView {
         }
     }
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let account = cx.new(|cx| InputState::new(window, cx).placeholder("GitHub account"));
+        let account = cx.new(|cx| InputState::new(window, cx).placeholder("Enter a GitHub login"));
         let model = cx.new(|cx| InputState::new(window, cx).placeholder("Copilot model ID"));
         let prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -396,6 +396,13 @@ impl Render for ChatView {
         let danger = theme.danger;
         let snapshot = self.run.as_ref().map(RunHandle::snapshot);
         let busy = snapshot.as_ref().is_some_and(|state| state.busy);
+        let can_cancel = snapshot.as_ref().is_some_and(|state| {
+            state.busy
+                && matches!(
+                    state.phase,
+                    Phase::AwaitingRecord | Phase::Prepared | Phase::Sending | Phase::Streaming
+                )
+        });
         let uncertain = snapshot
             .as_ref()
             .is_some_and(|state| state.save == SaveState::Unconfirmed);
@@ -652,7 +659,7 @@ impl Render for ChatView {
                     .child(
                         Button::new("copilot-cancel")
                             .label("Cancel response")
-                            .disabled(!busy)
+                            .disabled(!can_cancel)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(run) = &this.run {
                                     run.cancel();
