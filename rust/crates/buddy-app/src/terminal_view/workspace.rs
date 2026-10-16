@@ -571,7 +571,14 @@ impl TerminalView {
             .min_w_0()
             .h_full()
             .min_h_0()
-            .child(div().max_h(zpx(300.0)).overflow_y_scrollbar().child(header))
+            .child(
+                div()
+                    .h_auto()
+                    .flex_shrink_0()
+                    .max_h(zpx(300.0))
+                    .overflow_y_scrollbar()
+                    .child(header),
+            )
             .child(self.pane_actions(cx))
             .child(div().flex_1().min_h_0().min_w_0().child(content))
             .child(
