@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -35,6 +36,8 @@ def unicode_clipboard(text):
     """Serve an exact UTF-8 selection only on an owned disposable X11 desktop."""
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1" or sys.platform != "linux":
         raise RuntimeError("Unicode clipboard input requires a disposable Linux runner")
+    if shutil.which("xclip") is None:
+        raise RuntimeError("The Linux desktop fixture requires xclip; install its shared desktop test tools first")
     payload = text.encode("utf-8")
     if len(payload) > 32768:
         raise RuntimeError("Fixture clipboard text exceeds its bounded input size")

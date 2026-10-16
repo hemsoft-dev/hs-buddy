@@ -252,6 +252,16 @@ class MacInputDelivery(unittest.TestCase):
 
 
 class UnicodeClipboardOwnership(unittest.TestCase):
+    def test_missing_xclip_is_reported_before_clipboard_process_access(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1"}), \
+                patch.object(desktop.sys, "platform", "linux"), \
+                patch("shutil.which", return_value=None), \
+                patch.object(desktop.subprocess, "Popen", side_effect=FileNotFoundError("xclip")) as launch:
+            with self.assertRaisesRegex(RuntimeError, "requires xclip"):
+                with desktop.unicode_clipboard("資料"):
+                    self.fail("A missing clipboard tool must be rejected before input")
+            launch.assert_not_called()
+
     def test_non_runner_is_refused_before_clipboard_or_process_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}), patch.object(desktop.subprocess, "Popen") as launch:
             with self.assertRaisesRegex(RuntimeError, "disposable Linux"):
@@ -265,6 +275,7 @@ class UnicodeClipboardOwnership(unittest.TestCase):
         payload = "workspace with spaces 資料".encode("utf-8")
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.sys, "platform", "linux"), \
+                patch.object(desktop.shutil, "which", return_value="/fixture/xclip"), \
                 patch.object(desktop.subprocess, "Popen", return_value=owner), \
                 patch.object(desktop.subprocess, "run", return_value=Mock(returncode=0, stdout=payload)):
             with self.assertRaisesRegex(ValueError, "native paste failure"):
@@ -279,6 +290,7 @@ class UnicodeClipboardOwnership(unittest.TestCase):
         owner.poll.return_value = None
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.sys, "platform", "linux"), \
+                patch.object(desktop.shutil, "which", return_value="/fixture/xclip"), \
                 patch.object(desktop.subprocess, "Popen", return_value=owner), \
                 patch.object(desktop.subprocess, "run", return_value=Mock(returncode=0, stdout=b"old data")), \
                 patch.object(desktop.time, "monotonic", side_effect=[0, 1, 6]), \

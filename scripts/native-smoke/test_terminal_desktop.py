@@ -12,6 +12,34 @@ spec.loader.exec_module(desktop)
 
 
 class TerminalDesktopOwnershipTests(unittest.TestCase):
+    def test_sentinel_lifetime_is_owned_by_the_parent_pipe(self):
+        child = desktop.start_sentinel()
+        try:
+            self.assertIsNotNone(child.stdin, "Sentinel must wait for its parent's EOF, not expire during a slow desktop flow")
+            self.assertIsNone(child.poll())
+            child.stdin.close()
+            self.assertEqual(child.wait(timeout=10), 0)
+        finally:
+            desktop.stop_sentinel(child, None)
+
+    def test_every_sentinel_exit_still_fails_and_retains_its_exit_status(self):
+        for code in (0, -15, 1):
+            with self.subTest(code=code):
+                child = Mock()
+                child.poll.return_value = code
+                with self.assertRaisesRegex(RuntimeError, f"full terminal exercise; exit status {code}"):
+                    desktop.verify_sentinel(child, "the full terminal exercise")
+
+    def test_a_slow_sentinel_cleanup_is_killed_and_reaped(self):
+        child = Mock()
+        child.poll.return_value = None
+        child.wait.side_effect = [desktop.subprocess.TimeoutExpired("owned sentinel", 10), 0]
+        desktop.stop_sentinel(child, None)
+        child.terminate.assert_called_once()
+        child.kill.assert_called_once()
+        self.assertEqual(child.wait.call_count, 2)
+        child.stdin.close.assert_called_once()
+
     def test_non_runner_is_refused_before_argument_file_backend_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.argparse, "ArgumentParser") as parser, \

@@ -35,9 +35,9 @@ if grep -q 'not found' /evidence/runtime-before-test-tools.txt; then
 fi
 cp /etc/os-release /evidence/runtime-os-release.txt
 dpkg-query -W > /evidence/runtime-packages-before-test-tools.txt
-apt-get install -y --no-install-recommends \
-  python3 xvfb xauth openbox xdotool xclip imagemagick sway grim wtype \
-  tesseract-ocr desktop-file-utils ffmpeg dbus-x11 sudo fonts-dejavu-core fonts-noto-cjk
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$script_directory/linux-desktop-tools.sh"
+buddy_install_linux_desktop_tools apt-get
 useradd --create-home --uid 12345 qualification
 install -d -m 700 -o qualification -g qualification /tmp/buddy-runtime
 chown qualification:qualification /evidence

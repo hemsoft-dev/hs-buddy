@@ -114,15 +114,36 @@ def verify_children(output, sentinel, nonce):
         if time.monotonic() >= deadline:
             raise RuntimeError("An owned terminal child survived app shutdown")
         time.sleep(0.1)
-    if sentinel.poll() is not None:
-        raise RuntimeError("The terminal app stopped an unrelated sentinel")
+    verify_sentinel(sentinel, "app child cleanup")
+
+
+def start_sentinel():
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    # Stay alive for the parent's full exercise, regardless of OCR/host speed.
+    # EOF also retires the process if the fixture itself exits unexpectedly.
+    return subprocess.Popen([sys.executable, "-c", "import sys;sys.stdin.buffer.read()"],
+        stdin=subprocess.PIPE, creationflags=flags, start_new_session=os.name != "nt")
+
+
+def verify_sentinel(sentinel, stage):
+    status = sentinel.poll()
+    if status is not None:
+        raise RuntimeError(f"The unrelated sentinel exited before {stage}; exit status {status}")
 
 
 def stop_sentinel(sentinel, primary):
     try:
-        if sentinel.poll() is None:
-            sentinel.terminate()
-        sentinel.wait(timeout=10)
+        try:
+            if sentinel.poll() is None:
+                sentinel.terminate()
+            try:
+                sentinel.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                sentinel.kill()
+                sentinel.wait(timeout=10)
+        finally:
+            if sentinel.stdin is not None:
+                sentinel.stdin.close()
     except BaseException as failure:
         if primary is None:
             raise
@@ -140,8 +161,7 @@ def qualify(executable, output, session, version, backend):
     nonce = str(uuid.uuid4())
     prompt = github.mutate(backend, "terminalPrompts:create", dict(title="Qualification command", content=command_proof(output, nonce)))
     driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
-    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    sentinel = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(240)"], creationflags=flags)
+    sentinel = start_sentinel()
     primary = None
     try:
         dark = driver.drive("interactive-dark", [
@@ -217,8 +237,7 @@ def qualify(executable, output, session, version, backend):
         qualify_multiline_cancel(driver, backend, prompt, config)
         github.mutate(backend, "terminalPrompts:remove", dict(id=prompt))
         qualify_prompt_crud(driver, backend)
-        if sentinel.poll() is not None:
-            raise RuntimeError("An unrelated sentinel did not survive the full terminal exercise")
+        verify_sentinel(sentinel, "the full terminal exercise")
     except BaseException as failure:
         primary = failure
         raise

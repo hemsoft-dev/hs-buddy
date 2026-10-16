@@ -35,8 +35,9 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
   # The clean runtime container above proves dependency closure independently.
   # This additional installed host copy exercises the same binary with the
   # anonymous backend and the existing Electron file-store implementation.
-  sudo apt-get install -y --no-install-recommends "$package_directory/"*.deb \
-    xvfb openbox xdotool imagemagick tesseract-ocr ffmpeg
+  sudo apt-get install -y --no-install-recommends "$package_directory/"*.deb
+  source "$script_directory/linux-desktop-tools.sh"
+  buddy_install_linux_desktop_tools sudo apt-get
   cmp "$(command -v buddy-native)" "$source_directory/rust/target/release/buddy"
   # Configure Electron's supplied sandbox rather than disabling it for the
   # real config companion. Only this disposable checkout's binary is changed.
