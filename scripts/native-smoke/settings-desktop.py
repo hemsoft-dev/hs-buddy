@@ -193,10 +193,16 @@ class Driver:
             for action in actions:
                 kind, *values = action
                 if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
-                    # Unix OCR may name the adjacent row control. Windows
-                    # resolves the input semantically and only needs its value.
+                    # An adjacent Unix row control is not part of the Windows
+                    # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
-                    commands.append(kind + "64:" + ":".join(map(b64, encoded)))
+                    command = kind + "64:" + ":".join(map(b64, encoded))
+                    if kind == "input" and len(values) > 2 and isinstance(values[2], dict):
+                        hint = values[2]
+                        if set(hint) != {"labelBottomOffset"} or type(hint["labelBottomOffset"]) is not int or not 20 <= hint["labelBottomOffset"] <= 40:
+                            raise RuntimeError("The input needs a bounded label-to-editor offset")
+                        command += ":" + str(hint["labelBottomOffset"])
+                    commands.append(command)
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
                 elif kind == "resize":

@@ -542,7 +542,28 @@ class SessionInputRows(unittest.TestCase):
                     self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
                         window.window, 85, 220, "click", 1), run.call_args_list)
 
-    def test_windows_semantic_input_does_not_receive_the_unix_geometry_hint(self):
+    def test_windows_spaced_token_input_preserves_the_explicit_interior_offset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(temporary)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.executable = Path("owned-buddy.exe")
+            driver.config = driver.profile / "config.json"
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            driver.checkout = driver.profile
+            with patch.object(desktop, "run") as execute:
+                driver.drive("token", [("input", "Todoist API token", "public synthetic token", {"labelBottomOffset": 32})])
+                for index, bad in enumerate((True, 19, 41, 32.0, "32")):
+                    with self.subTest(offset=bad), self.assertRaisesRegex(RuntimeError, "bounded label-to-editor"):
+                        driver.drive("invalid-" + str(index), [("input", "Todoist API token", "public synthetic token", {"labelBottomOffset": bad})])
+                self.assertEqual(execute.call_count, 1, "Invalid offsets must fail before launching the driver")
+            arguments = execute.call_args.args
+            commands = arguments[arguments.index("-Actions") + 1].split(",")
+            expected = "input64:" + desktop.b64("Todoist API token") + ":" + desktop.b64("public synthetic token") + ":32"
+            self.assertIn(expected, commands)
+
+    def test_windows_input_does_not_receive_the_adjacent_unix_row_control(self):
         with tempfile.TemporaryDirectory() as temporary:
             driver = desktop.Driver.__new__(desktop.Driver)
             driver.profile = Path(temporary)
