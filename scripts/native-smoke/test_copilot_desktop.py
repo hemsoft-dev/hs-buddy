@@ -12,6 +12,46 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class CopilotQualificationTests(unittest.TestCase):
+    def verify_usage_capture(self, history_text):
+        class CapturedUsageDriver:
+            def __init__(self, output):
+                self.output = output
+
+            def drive(self, _name, _actions):
+                return self.output
+
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            original = output / 'usage-history-light.png'
+            original.write_bytes(b'unchanged owned capture')
+
+            def recognize(*arguments, **_kwargs):
+                if arguments[0] == 'ffmpeg':
+                    return ''
+                if Path(arguments[1]).name.startswith('usage-history-light'):
+                    return history_text
+                return 'Enterprise users fixture-member Weekly allowance 5-hour allowance remaining'
+
+            with patch.object(copilot.github.settings, 'run', side_effect=recognize):
+                copilot.usage_pages(CapturedUsageDriver(output))
+            self.assertEqual(original.read_bytes(), b'unchanged owned capture')
+
+    def test_actual_billing_capture_requires_the_complete_numeric_credits_line(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('usage-history-credits-ocr.json').read_text(encoding='utf-8'))
+        self.assertNotIn('ai credits', evidence['text'].casefold())
+        self.verify_usage_capture(evidence['text'])
+
+    def test_billing_capture_rejects_wrong_credit_values_or_missing_projection_and_history(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('usage-history-credits-ocr.json').read_text(encoding='utf-8'))
+        text = evidence['text']
+        for original, replacement in [('1200 used', '1201 used'), ('3900 included', '3901 included'),
+                                      ('projected period spend', 'missing projection'),
+                                      ('copilot billing history', 'missing history')]:
+            with self.subTest(original=original):
+                self.assertIn(original, text)
+                with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
+                    self.verify_usage_capture(text.replace(original, replacement))
+
     def test_loaded_enterprise_user_must_be_revealed_below_the_captured_viewport(self):
         class ClippedUsageDriver:
             def __init__(self):

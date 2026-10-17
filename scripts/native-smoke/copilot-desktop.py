@@ -202,7 +202,9 @@ def usage_pages(driver):
         ('wheel', 1200), ('click', 'codex-fixture'), ('click', 'Refresh usage'),
         ('wait_text', 'Weekly allowance'), ('capture', 'codex-allowances-light'),
     ])
-    github.check(usage / 'usage-history-light.png', 'AI Credits', 'Projected period spend', 'Copilot billing history')
+    # Both OCR engines read this font's "AI" prefix as "Al" on the actual
+    # Mac capture. Require the complete fixture allowance and used count.
+    github.check(usage / 'usage-history-light.png', 'Credits: 1200 used / 3900 included', 'Projected period spend', 'Copilot billing history')
     github.check(usage / 'enterprise-users-light.png', 'Enterprise users', 'fixture-member')
     github.check(usage / 'codex-allowances-light.png', 'Weekly allowance', '5-hour allowance', 'remaining')
 
