@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1443] - 2026-10-17
+
+### Fixed
+
+- Complete Mac session scrolling within its existing wait
+
 ## [0.1.1442] - 2026-10-17
 
 ### Fixed

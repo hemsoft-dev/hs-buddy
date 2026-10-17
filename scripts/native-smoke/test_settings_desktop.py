@@ -139,11 +139,52 @@ class DesktopLimits(unittest.TestCase):
         driver.scroll_anchor.assert_called_once_with(window, directory, 'Output / prompt tokens')
         self.assertEqual(state['progress'], 2)
 
+    def test_slow_ocr_does_not_starve_scroll_to_the_last_request(self):
+        for never_visible in (False, True):
+            with self.subTest(never_visible=never_visible):
+                driver = object.__new__(desktop.Driver)
+                driver.session = 'macos'
+                clock = {'now': 0.}
+                moves = []
+
+                def anchor(*_args, **_kwargs):
+                    clock['now'] += 2
+                    return 537.5, 530
+
+                def scroll(_window, delta, point=None, *, precise=None):
+                    self.assertEqual((delta, point, precise), (-1200, (537.5, 530), False))
+                    moves.append(delta)
+                    clock['now'] += .7
+
+                def recognize(_image, text):
+                    self.assertEqual(text, 'Inspect synthetic request 20')
+                    if never_visible or len(moves) < 2:
+                        # Retained Intel OCR outputs span about eight seconds.
+                        clock['now'] += 8
+                        raise RuntimeError('The last request is still offscreen')
+                    clock['now'] += .4
+                    return dict(left=341, top=450, width=161, height=13)
+
+                driver.scroll_anchor = anchor
+                driver.scroll = scroll
+                with patch.object(desktop.ocr, 'locate_image', side_effect=recognize), \
+                        patch.object(desktop.time, 'monotonic', side_effect=lambda: clock['now']), \
+                        patch.object(desktop.time, 'sleep', side_effect=lambda seconds: clock.__setitem__('now', clock['now'] + seconds)):
+                    if never_visible:
+                        with self.assertRaisesRegex(RuntimeError, 'did not show the expected status'):
+                            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Inspect synthetic request 20', 'Next requests', above_anchor=True)
+                        self.assertGreaterEqual(clock['now'], 15)
+                    else:
+                        driver.wait_scrolled(Mock(), Path('owned-capture'), 'Inspect synthetic request 20', 'Next requests', above_anchor=True)
+                        self.assertEqual(len(moves), 2)
+                        self.assertLess(clock['now'], 15)
+
     def test_an_already_visible_request_does_not_measure_an_offscreen_anchor_or_scroll(self):
         driver = object.__new__(desktop.Driver)
+        driver.session = 'macos'
         driver.scroll_anchor = Mock(side_effect=AssertionError('No scroll needed'))
         driver.scroll = Mock()
-        with patch.object(desktop, 'wait_visible'):
+        with patch.object(desktop.ocr, 'locate_image', return_value=dict(left=340, top=450, width=180, height=13)):
             driver.wait_scrolled(Mock(), Path('owned-capture'), 'Final synthetic request twenty one', 'Request 21')
         driver.scroll_anchor.assert_not_called()
         driver.scroll.assert_not_called()
@@ -202,6 +243,7 @@ class DesktopLimits(unittest.TestCase):
 
     def test_pager_scrolling_is_lazy_coarse_and_requires_a_measured_control(self):
         driver = object.__new__(desktop.Driver)
+        driver.session = 'x11'
         driver.scroll_anchor = Mock(return_value=(536, 524))
         driver.scroll = Mock()
         window, directory = Mock(), Path("owned-capture")

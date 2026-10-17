@@ -147,6 +147,8 @@ the pane two measured glyph heights above it. The compact Mac window centre
 falls above that pane, and a request header may scroll out of view or be
 misread. Keep the coarse scroll step and exact visible-request assertions;
 nearby chat feedback retains its separate fine reveal gestures.
+Mac request waits send two ordinary coarse gestures between OCR reads, with
+the same 15-second wait and exact visible-request assertions.
 The Mac OCR helper excludes zero-area Vision tokens after validating their
 finite, in-bounds geometry. Such tokens cannot locate a control. Invalid bounds,
 missing bounds and recognition failures remain errors, and requested labels
