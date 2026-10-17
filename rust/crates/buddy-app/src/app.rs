@@ -18,6 +18,7 @@ use crate::settings::Settings;
 use crate::settings_view::{SettingsEvent, SettingsView};
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
 use crate::terminal_view::TerminalView;
+use crate::todoist_view::TodoistView;
 use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
 use crate::zoom::{self, zpx};
 
@@ -113,6 +114,7 @@ pub struct BuddyApp {
     github_view: Entity<GitHubView>,
     terminal_view: Entity<TerminalView>,
     copilot_view: Entity<CopilotView>,
+    todoist_view: Entity<TodoistView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -141,6 +143,9 @@ impl BuddyApp {
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        if section == Some(Section::Tasks) {
+            self.todoist_view.update(cx, |view, cx| view.activate(cx));
+        }
         self.terminal_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Terminal), cx)
         });
@@ -316,6 +321,10 @@ impl BuddyApp {
         let github_view = cx.new(|cx| GitHubView::new(window, cx));
         let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
         let copilot_view = cx.new(|cx| CopilotView::new(window, cx));
+        let todoist_view = cx.new(|cx| TodoistView::new(window, cx));
+        if section == Some(Section::Tasks) {
+            todoist_view.update(cx, |view, cx| view.activate(cx));
+        }
         cx.subscribe(
             &github_view,
             |this, _, event: &crate::github_view::GitHubEvent, cx| {
@@ -352,6 +361,7 @@ impl BuddyApp {
             github_view,
             terminal_view,
             copilot_view,
+            todoist_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -368,6 +378,7 @@ impl BuddyApp {
             Some(Section::GitHub) => container.child(self.github_view.clone()),
             Some(Section::Terminal) => container.child(self.terminal_view.clone()),
             Some(Section::Copilot) => container.child(self.copilot_view.clone()),
+            Some(Section::Tasks) => container.child(self.todoist_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -449,6 +460,7 @@ mod tests {
                         github_view: cx.new(|cx| GitHubView::new(window, cx)),
                         terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
                         copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
+                        todoist_view: cx.new(|cx| TodoistView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

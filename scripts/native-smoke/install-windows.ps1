@@ -49,6 +49,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed terminal qualification failed' }
     & python (Join-Path $PSScriptRoot 'copilot-desktop.py') --executable $exe --output (Join-Path $Output 'copilot') --session windows --version $metadata.version
     if ($LASTEXITCODE -ne 0) { throw 'Installed Copilot qualification failed' }
+    & python (Join-Path $PSScriptRoot 'todoist-desktop.py') --executable $exe --output (Join-Path $Output 'todoist') --session windows --version $metadata.version
+    if ($LASTEXITCODE -ne 0) { throw 'Installed Todoist qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

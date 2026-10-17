@@ -101,7 +101,8 @@ function Write-OwnedText([string] $Encoded) {
     }
     Start-Sleep -Milliseconds 400
 }
-function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {
+function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBottomOffset = 20) {
+    if ($LabelBottomOffset -lt 20 -or $LabelBottomOffset -gt 40) { throw 'Owned input offset is outside its bounded range' }
     $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'settings-locator.png'
     Save-OwnedImage $image
     $label = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
@@ -119,7 +120,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {
     $scale = [Drive]::GetDpiForWindow($h) / 96.0
     $x = $box.left + $box.width / 2
     $y = $box.top + $box.height / 2
-    if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $y = $box.top + $box.height + 20 * $scale; $x = $box.left + 20 * $scale }
+    if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $y = $box.top + $box.height + $LabelBottomOffset * $scale; $x = $box.left + 20 * $scale }
     if ($Mode -eq 'leftfield') { $x = ($rect.r-$rect.l) / 4 }
     if ($Mode -eq 'rightfield') { $x = 3 * ($rect.r-$rect.l) / 4 }
     if ($Mode -eq 'save') { $x = ($rect.r-$rect.l) - 49 * $scale }
@@ -171,7 +172,8 @@ try {
             { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
-                $scrollPoint = if ($parts[0] -eq 'revealtext64') { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
+                $hasAnchor = $parts[0] -eq 'revealtext64' -or ($parts[0] -eq 'waitscrolltext64' -and $parts.Count -eq 3)
+                $scrollPoint = if ($hasAnchor) { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
                 $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } else { -1200 }
                 # Model discovery includes the existing bounded cold SDK bootstrap.
                 $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
@@ -225,7 +227,11 @@ try {
             }
             { $_ -in 'nav64', 'tab64', 'click64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
                 $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
-                $point = Find-OwnedLabelPoint $parts[1] $mode
+                $offset = 20
+                if ($mode -eq 'input' -and $parts.Count -gt 3) {
+                    if ($parts.Count -ne 4 -or -not [int]::TryParse($parts[3], [ref]$offset)) { throw 'Owned input offset is invalid' }
+                }
+                $point = Find-OwnedLabelPoint $parts[1] $mode $offset
                 Click-OwnedPoint $point.X $point.Y
                 if ($mode -in @('input', 'field', 'leftfield', 'rightfield')) {
                     [Drive]::Ctrl($true)

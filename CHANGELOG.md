@@ -9,6 +9,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1456] - 2026-10-17
+
+### Fixed
+
+- Normalize native input and reveal task confirmation (#817)
+
+## [0.1.1455] - 2026-10-17
+
+### Changed
+
+- Reveal confirmed task after recovery (#817)
+
+## [0.1.1454] - 2026-10-17
+
+### Changed
+
+- Trace native account focus and reveal undated task details (#817)
+
+## [0.1.1453] - 2026-10-17
+
+### Changed
+
+- Preserve native qualification trace filters (#817)
+
+## [0.1.1452] - 2026-10-17
+
+### Changed
+
+- Retain Windows Todoist input spacing (#817)
+
+## [0.1.1451] - 2026-10-17
+
+### Fixed
+
+- Isolate Todoist task scope scroll positions (#817)
+
+## [0.1.1450] - 2026-10-17
+
+### Changed
+
+- Reveal offscreen Todoist tasks during qualification (#817)
+
+## [0.1.1449] - 2026-10-17
+
+### Changed
+
+- Identify offline SDK qualification failure stages (#817)
+
+## [0.1.1448] - 2026-10-17
+
+### Fixed
+
+- Validate Todoist cursor reads and credential replacement (#817)
+
+## [0.1.1447] - 2026-10-17
+
+### Fixed
+
+- Refresh Todoist account dates and reconnect scopes (#817)
+
+## [0.1.1446] - 2026-10-17
+
+### Fixed
+
+- Report unavailable Mac focus diagnostics
+
+## [0.1.1445] - 2026-10-17
+
+### Fixed
+
+- Preserve Todoist recovery and scoped planning (#817)
+
+## [0.1.1444] - 2026-10-17
+
+### Added
+
+- Port Todoist task planning to Rust and GPUI (#817)
+
 ## [0.1.1443] - 2026-10-17
 
 ### Fixed

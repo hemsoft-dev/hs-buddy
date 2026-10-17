@@ -1,5 +1,6 @@
 """Choose supported fixtures before requesting sizes; never accept clamping."""
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
@@ -475,6 +476,43 @@ class LabeledInputs(unittest.TestCase):
 
 
 class SessionInputRows(unittest.TestCase):
+    def test_spaced_form_hint_does_not_move_compact_workspace_inputs(self):
+        for hint, expected in ((None, 326), ({"labelBottomOffset": 32}, 338)):
+            with self.subTest(hint=hint):
+                driver = desktop.Driver.__new__(desktop.Driver)
+                driver.session = "x11"
+                directory = MagicMock()
+                directory.__truediv__.return_value.read_bytes.return_value = bytes(16) + struct.pack(">II",1200,820)
+                window = Mock()
+                values = ["Workspace name", "Scratch workspace"]
+                if hint is not None:
+                    values.append(hint)
+                with patch.object(desktop.ocr,"locate_image",return_value=dict(left=64,top=295,width=110,height=11)) as locate, \
+                        patch.object(desktop,"run") as execute, patch.object(desktop.time,"sleep"):
+                    driver.interact(window,directory,"input",values)
+                self.assertNotIn("row_control",locate.call_args.kwargs)
+                clicks=[call.args for call in execute.call_args_list if call.args[:2]==("xdotool","mousemove")]
+                self.assertEqual(clicks[0][4:6],(84,expected))
+
+    def test_stacked_todoist_token_targets_the_input_interior_without_a_disabled_save_anchor(self):
+        # Original installed X11 capture: label y295..306, input y324..356,
+        # text interior y334..346. The disabled Save button below y401 has no
+        # OCR glyphs and cannot locate this input's row.
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "x11"
+        directory = MagicMock()
+        image = directory.__truediv__.return_value
+        image.read_bytes.return_value = bytes(16) + struct.pack(">II",1200,820)
+        window = Mock()
+        with patch.object(desktop.ocr,"locate_image",return_value=dict(left=64,top=295,width=110,height=11)) as locate, \
+                patch.object(desktop,"run") as execute, patch.object(desktop.time,"sleep"):
+            driver.interact(window,directory,"input",["Todoist API token","public synthetic token",{"labelBottomOffset":32}])
+        self.assertNotIn("row_control",locate.call_args.kwargs)
+        clicks=[call.args for call in execute.call_args_list if call.args[:2]==("xdotool","mousemove")]
+        self.assertEqual(len(clicks),1)
+        x,y=clicks[0][4:6]
+        self.assertTrue(76<x<1172 and 334<=y<=346)
+
     def test_session_input_uses_the_measured_button_row_instead_of_border_padding(self):
         # Actual Intel failure: label bottom190 produced y210; the adjacent
         # Scan folder glyph spans215..225 and centers the editor at y220.
@@ -504,7 +542,28 @@ class SessionInputRows(unittest.TestCase):
                     self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
                         window.window, 85, 220, "click", 1), run.call_args_list)
 
-    def test_windows_semantic_input_does_not_receive_the_unix_geometry_hint(self):
+    def test_windows_spaced_token_input_preserves_the_explicit_interior_offset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(temporary)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.executable = Path("owned-buddy.exe")
+            driver.config = driver.profile / "config.json"
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            driver.checkout = driver.profile
+            with patch.object(desktop, "run") as execute:
+                driver.drive("token", [("input", "Todoist API token", "public synthetic token", {"labelBottomOffset": 32})])
+                for index, bad in enumerate((True, 19, 41, 32.0, "32")):
+                    with self.subTest(offset=bad), self.assertRaisesRegex(RuntimeError, "bounded label-to-editor"):
+                        driver.drive("invalid-" + str(index), [("input", "Todoist API token", "public synthetic token", {"labelBottomOffset": bad})])
+                self.assertEqual(execute.call_count, 1, "Invalid offsets must fail before launching the driver")
+            arguments = execute.call_args.args
+            commands = arguments[arguments.index("-Actions") + 1].split(",")
+            expected = "input64:" + desktop.b64("Todoist API token") + ":" + desktop.b64("public synthetic token") + ":32"
+            self.assertIn(expected, commands)
+
+    def test_windows_input_does_not_receive_the_adjacent_unix_row_control(self):
         with tempfile.TemporaryDirectory() as temporary:
             driver = desktop.Driver.__new__(desktop.Driver)
             driver.profile = Path(temporary)
@@ -571,11 +630,24 @@ class MacInputDelivery(unittest.TestCase):
     def test_click_releases_inherited_modifiers_and_marks_a_single_click(self):
         helper = self.helper()
         helper.graphics.CGEventSourceFlagsState.side_effect = [1 << 20, 0]
+        helper.graphics.CGEventSourceButtonState.side_effect = [False, True, False]
         helper.click(100, 200)
+        self.assertEqual(helper.last_click_trace, [dict(eventType=5, leftButtonDown=False),
+            dict(eventType=1, leftButtonDown=True), dict(eventType=2, leftButtonDown=False)])
+        self.assertEqual(helper.graphics.CGEventCreateMouseEvent.call_count, 3)
         self.assertEqual(helper.graphics.CGEventCreateKeyboardEvent.call_count, 8)
         self.assertEqual(helper.graphics.CGEventSetIntegerValueField.call_count, 2)
         for call in helper.graphics.CGEventSetIntegerValueField.call_args_list:
             self.assertEqual(call.args[1:], (1, 1))
+
+    def test_unavailable_button_telemetry_does_not_omit_mouse_up_or_invent_state(self):
+        helper = self.helper()
+        helper.graphics.CGEventSourceFlagsState.return_value = 0
+        helper.graphics.CGEventSourceButtonState.side_effect = [False, RuntimeError("Unavailable telemetry"), False]
+        helper.click(100, 200)
+        self.assertEqual(helper.graphics.CGEventCreateMouseEvent.call_count, 3)
+        self.assertEqual(helper.last_click_trace, [dict(eventType=5, leftButtonDown=False),
+            dict(eventType=1, leftButtonDown=None), dict(eventType=2, leftButtonDown=False)])
 
     def test_stuck_modifiers_fail_before_any_mouse_event(self):
         helper = self.helper()
@@ -662,5 +734,49 @@ class UnicodeClipboardOwnership(unittest.TestCase):
         owner.wait.assert_called_once_with(timeout=3)
 
 
+class WindowsScrollAnchors(unittest.TestCase):
+    def test_scroll_wait_preserves_its_measured_content_anchor_for_the_owned_window(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-scroll-command-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            target, anchor = "Synthetic upcoming task", "Synthetic today task"
+            with patch.object(desktop, "run") as run:
+                driver.drive("upcoming", [("wait_scroll_text", target, anchor)])
+            arguments = list(run.call_args.args)
+            commands = arguments[arguments.index("-Actions") + 1].split(",")
+            encoded = [base64.b64encode(value.encode()).decode() for value in (target, anchor)]
+            self.assertIn("waitscrolltext64:" + ":".join(encoded), commands)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+class DiagnosticsEnvironment(unittest.TestCase):
+    def test_unix_launch_preserves_caller_trace_filters_and_keeps_secrets_scrubbed(self):
+        # Every process/window operation is mocked. The fixture flag exercises
+        # only environment construction and never authorizes a real desktop.
+        caller = "warn,reqwest=trace,hyper=trace,github_copilot_sdk=trace"
+        with tempfile.TemporaryDirectory(prefix="buddy-diagnostic-env-") as temporary:
+            directory = Path(temporary)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "x11", (1200, 820)
+            driver.executable, driver.config = directory / "unused-owned.exe", directory / "config.json"
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            process = Mock(pid=123, poll=Mock(return_value=None), wait=Mock(return_value=0))
+            window = Mock(ready=Mock(return_value=True))
+            with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "RUST_LOG": caller,
+                    "GH_TOKEN": "synthetic-gh-token", "GITHUB_TOKEN": "synthetic-github-token", "ELECTRON_RUN_AS_NODE": "1"}), \
+                    patch.object(desktop.subprocess, "Popen", return_value=process) as launch, \
+                    patch.object(desktop, "UnixWindow", return_value=window), \
+                    patch.object(desktop, "run"), patch.object(desktop.time, "sleep"):
+                driver.unix(directory, [], concurrent=False, record=False)
+                observed = launch.call_args.kwargs["env"]
+                self.assertEqual(launch.call_count, 1)
+                self.assertIn(caller, observed["RUST_LOG"])
+                self.assertIn("buddy::settings_view=debug", observed["RUST_LOG"])
+                self.assertEqual(os.environ["RUST_LOG"], caller)
+                for key in ("GH_TOKEN", "GITHUB_TOKEN", "ELECTRON_RUN_AS_NODE"):
+                    self.assertNotIn(key, observed)

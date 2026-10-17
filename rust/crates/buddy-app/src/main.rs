@@ -17,6 +17,7 @@ mod settings_view;
 mod shell;
 mod terminal_view;
 mod theme;
+mod todoist_view;
 mod window_geometry;
 mod window_persistence;
 #[cfg(any(windows, test))]
