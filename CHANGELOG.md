@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1450] - 2026-10-17
+
+### Changed
+
+- Reveal offscreen Todoist tasks during qualification (#817)
+
 ## [0.1.1449] - 2026-10-17
 
 ### Changed

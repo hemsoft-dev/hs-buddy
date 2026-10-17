@@ -131,6 +131,15 @@ def posts(api):
     return [row for row in api.snapshot()['traffic'] if row['method'] == 'POST' and not row.get('syncRead', False)]
 
 
+def check_read_only_navigation(api, initial):
+    current = api.snapshot()
+    before = json.dumps({name: initial[name] for name in ('tasks', 'projects', 'created')}, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    after = json.dumps({name: current[name] for name in ('tasks', 'projects', 'created')}, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    if posts(api) or before != after:
+        raise RuntimeError('Read-only Todoist navigation changed fixture data or sent a mutation')
+    return current
+
+
 def pending_bytes(config):
     paths = list(config.parent.glob('native-todoist-change-*.json'))
     if len(paths) != 1 or paths[0].is_symlink():
@@ -180,15 +189,16 @@ def qualify(executable, output, session, version, backend):
                 ('wait_text', 'No API token is saved'), ('capture', 'missing-token-dark'),
                 ('input', 'Todoist API token', todoist.TOKEN, {'labelBottomOffset': 32}), ('click', 'Save and connect'),
                 ('wait_text', 'Synthetic today task'), ('capture', 'today-dark'),
-                ('click', 'Upcoming'), ('wait_text', 'Synthetic upcoming task'), ('capture', 'upcoming-dark'),
+                ('click', 'Upcoming'), ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'upcoming-dark'),
                 ('click', 'Projects'), ('click', 'Synthetic Beta'), ('wait_text', 'Synthetic undated task'),
                 ('capture', 'project-undated-dark'), ('resize', 900, 650), ('key', 'Tab'),
                 ('capture', 'projects-compact-keyboard-dark'),
             ])
             github.check(connected / 'today-dark.png', 'America/Winnipeg', 'Synthetic today task', 'Overdue')
             github.check(connected / 'project-undated-dark.png', 'Synthetic undated task', 'No due date')
-            if posts(api):
-                raise RuntimeError('Read-only Todoist navigation sent a mutation')
+            navigation = check_read_only_navigation(api, initial)
+            navigation_path = output / 'navigation-state.json'
+            navigation_path.write_text(json.dumps(navigation, indent=2), encoding='utf-8')
 
             api.arm('cursor-change')
             changed = driver.drive('cursor-change-dark', [
@@ -316,7 +326,7 @@ def qualify(executable, output, session, version, backend):
             scoped = driver.drive('large-account-scopes-light', [
                 ('wait_text', 'Choose a smaller scope'), ('capture', 'large-account-limit-light'),
                 ('click', 'Load calendar tasks'), ('wait_text', 'Task scope loaded'),
-                ('wait_text', 'Synthetic upcoming task'), ('capture', 'calendar-scope-light'),
+                ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'calendar-scope-light'),
                 ('click', 'Projects'), ('click', 'Synthetic Alpha'), ('wait_text', 'Synthetic created task'),
                 ('capture', 'project-scope-undated-light'),
             ])
@@ -331,7 +341,7 @@ def qualify(executable, output, session, version, backend):
                 ('wait_text', 'Task scope loaded'), ('click', 'Projects'), ('click', 'Synthetic Empty'),
                 ('wait_text', 'No tasks in this view'), ('click', 'Connection'),
                 ('click', 'Recheck saved connection'), ('wait_text', 'The previous project is unavailable'),
-                ('wait_text', 'Synthetic upcoming task'), ('capture', 'scope-fallback-light'),
+                ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'scope-fallback-light'),
             ])
             github.check(fallback / 'scope-fallback-light.png', 'previous project is unavailable', 'Synthetic upcoming task', 'Loaded scope:')
             if not next(project for project in api.snapshot()['projects'] if project['id'] == 'project-empty')['is_archived'] or len(posts(api)) != 7:
@@ -362,6 +372,8 @@ def qualify(executable, output, session, version, backend):
             receipt = dict(result='passed', version=version, session=session, **binary,
                 largeWindow=driver.large_size, compactWindow=[900, 650], screenshots=captures(output),
                 readOnlyNavigationCommandPosts=0, taskWriteAttempts=7, createdTasks=1,
+                readOnlyNavigationServiceStateUnchanged=True,
+                navigationStateSha256=hashlib.sha256(navigation_path.read_bytes()).hexdigest(),
                 readOnlySyncRequests=len(sync_reads), readOnlySyncWatermarksVerified=True,
                 concurrentCursorChangeRetainedCompleteTasks=True,
                 restrictedProjectCompletionVerified=True, unknownProjectRoleReadOnly=True,

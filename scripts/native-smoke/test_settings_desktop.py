@@ -1,5 +1,6 @@
 """Choose supported fixtures before requesting sizes; never accept clamping."""
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
@@ -697,6 +698,23 @@ class UnicodeClipboardOwnership(unittest.TestCase):
                     self.fail("A mismatched clipboard must never reach paste")
         owner.terminate.assert_called_once()
         owner.wait.assert_called_once_with(timeout=3)
+
+
+class WindowsScrollAnchors(unittest.TestCase):
+    def test_scroll_wait_preserves_its_measured_content_anchor_for_the_owned_window(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-scroll-command-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            target, anchor = "Synthetic upcoming task", "Synthetic today task"
+            with patch.object(desktop, "run") as run:
+                driver.drive("upcoming", [("wait_scroll_text", target, anchor)])
+            arguments = list(run.call_args.args)
+            commands = arguments[arguments.index("-Actions") + 1].split(",")
+            encoded = [base64.b64encode(value.encode()).decode() for value in (target, anchor)]
+            self.assertIn("waitscrolltext64:" + ":".join(encoded), commands)
 
 
 if __name__ == "__main__":

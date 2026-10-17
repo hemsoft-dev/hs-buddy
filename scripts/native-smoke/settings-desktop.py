@@ -205,7 +205,8 @@ class Driver:
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above"):
-                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + b64(values[0]))
+                    encoded = values[:2] if kind == "wait_scroll_text" else values[:1]
+                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + ":".join(map(b64, encoded)))
                 elif kind == "wait_models":
                     commands.append("waitmodeltext64:" + b64(values[0]))
                 elif kind == "reveal_text":

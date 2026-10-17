@@ -37,6 +37,30 @@ class FailureScenarios(unittest.TestCase):
         request=urllib.request.Request(self.api.url+'sync',data=body,headers={'Authorization':'Bearer '+desktop.todoist.TOKEN})
         with self.http.open(request,timeout=3) as response:return json.load(response)
 
+    def test_navigation_guard_preserves_actual_changed_bytes_even_without_a_command_attempt(self):
+        initial=self.api.snapshot()
+        self.complete_read()
+        desktop.check_read_only_navigation(self.api,initial)
+        with self.api.lock:
+            row=next(task for task in self.api.tasks if task['id']=='task-today')
+            row['content']='Unexpected changed synthetic task'
+        with self.assertRaisesRegex(RuntimeError,'changed fixture data'):
+            desktop.check_read_only_navigation(self.api,initial)
+        self.assertEqual(desktop.posts(self.api),[])
+        self.assertEqual(next(task for task in self.api.snapshot()['tasks'] if task['id']=='task-today')['content'],'Unexpected changed synthetic task')
+        self.assertNotEqual(initial['tasks'],self.api.snapshot()['tasks'])
+
+    def test_navigation_guard_does_not_accept_a_boolean_replaced_by_an_equal_integer(self):
+        initial=self.api.snapshot()
+        with self.api.lock:
+            row=next(task for task in self.api.tasks if task['id']=='task-today')
+            self.assertIs(row['checked'],False)
+            row['checked']=0
+        with self.assertRaisesRegex(RuntimeError,'changed fixture data'):
+            desktop.check_read_only_navigation(self.api,initial)
+        self.assertIs(type(next(task for task in self.api.snapshot()['tasks'] if task['id']=='task-today')['checked']),int)
+        self.assertEqual(desktop.posts(self.api),[])
+
     def test_cursor_mutation_skips_an_unseen_row_and_is_reported_by_the_real_sync_delta(self):
         self.api.arm('cursor-change')
         self.complete_read()

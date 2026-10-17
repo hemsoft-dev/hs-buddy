@@ -171,7 +171,8 @@ try {
             { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
-                $scrollPoint = if ($parts[0] -eq 'revealtext64') { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
+                $hasAnchor = $parts[0] -eq 'revealtext64' -or ($parts[0] -eq 'waitscrolltext64' -and $parts.Count -eq 3)
+                $scrollPoint = if ($hasAnchor) { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
                 $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } else { -1200 }
                 # Model discovery includes the existing bounded cold SDK bootstrap.
                 $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
