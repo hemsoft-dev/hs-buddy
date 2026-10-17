@@ -282,7 +282,7 @@ class Driver:
                             wait_visible(window, directory, values[0], timeout=timeout, scroll=scroll)
                         elif kind == "reveal_text":
                             point = self.scroll_anchor(window, directory, values[1])
-                            wait_visible(window, directory, values[0], scroll=lambda: self.scroll(window, -120, point))
+                            wait_visible(window, directory, values[0], scroll=lambda: self.reveal_scroll(window, point))
                         elif kind == "sleep":
                             time.sleep(values[0])
                         elif kind == "wheel":
@@ -328,6 +328,13 @@ class Driver:
             scale = json.loads(image.with_suffix(".window.json").read_text())["capturePixelsPerWindowPoint"]
         return ((label["left"] + label["width"] / 2) / scale,
                 (label["top"] + label["height"] / 2) / scale)
+
+    def reveal_scroll(self, window, point):
+        # One Mac line left the compact cancellation status clipped, and slow
+        # OCR exhausted the wait before a second correction. Keep each event
+        # small, but complete both lines before inspecting the next frame.
+        for _ in range(2 if self.session == "macos" else 1):
+            self.scroll(window, -120, point)
 
     def scroll(self, window, delta, point=None):
         if self.session == "x11":

@@ -58,6 +58,36 @@ class CompanionHandshake(unittest.TestCase):
 
 
 class DesktopLimits(unittest.TestCase):
+    def test_compact_mac_reveal_posts_two_small_line_events_before_the_next_ocr_attempt(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'macos'
+        owned = object.__new__(desktop.OwnedMacInput)
+        owned.require_focus = Mock()
+        owned.graphics = Mock()
+        owned.post = Mock()
+        metadata = json.dumps(dict(kCGWindowBounds=dict(X=80, Y=80, Width=900, Height=650)))
+        with patch.dict(os.environ, {'RUNNER_TEMP': 'owned-fixture'}), \
+                patch.object(desktop, 'run', return_value=metadata), \
+                patch.object(desktop, 'OwnedMacInput', return_value=owned), \
+                patch.object(desktop.time, 'sleep'):
+            driver.reveal_scroll(Mock(), (90, 357))
+        # The actual Intel capture moved by just one line before slow OCR
+        # exhausted the ordinary wait. Keep each event small, but send both
+        # before taking the next frame and requiring the exact visible status.
+        self.assertEqual([call.args for call in owned.graphics.CGEventCreateScrollWheelEvent.call_args_list],
+            [(None, 1, 1, -1), (None, 1, 1, -1)])
+        self.assertEqual(owned.post.call_count, 2)
+        self.assertEqual(owned.require_focus.call_count, 2)
+        self.assertEqual([(call.args[1].x, call.args[1].y) for call in owned.graphics.CGEventSetLocation.call_args_list],
+            [(170, 437), (170, 437)])
+        driver.session = 'x11'
+        with patch.object(desktop, 'run') as run, patch.object(desktop.time, 'sleep'):
+            driver.reveal_scroll(Mock(window='owned-window'), (90, 357))
+        self.assertEqual([call.args for call in run.call_args_list], [
+            ('xdotool', 'mousemove', '--window', 'owned-window', 90, 357),
+            ('xdotool', 'click', '--repeat', 1, '--delay', 50, 5),
+        ])
+
     def test_anchored_mac_scroll_uses_one_line_while_legacy_scroll_keeps_its_step(self):
         driver = object.__new__(desktop.Driver)
         driver.session = "macos"

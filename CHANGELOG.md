@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1432] - 2026-10-17
+
+### Changed
+
+- Complete compact Mac reveal gestures before OCR
+
 ## [0.1.1431] - 2026-10-17
 
 ### Fixed
