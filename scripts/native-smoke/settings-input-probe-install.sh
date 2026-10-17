@@ -54,4 +54,5 @@ for attempt in {1..100}; do
   sleep 0.1
 done
 test -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT"
+python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
 BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos

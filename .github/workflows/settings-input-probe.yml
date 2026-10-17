@@ -56,7 +56,7 @@ jobs:
       - name: Build diagnostic native release package
         id: package
         run: node scripts/package-native.mjs
-      - name: Exercise the unchanged settings sequence
+      - name: Exercise desktop prelude and settings sequence
         env:
           PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
         run: bash scripts/native-smoke/settings-input-probe-install.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/settings-input-probe"
