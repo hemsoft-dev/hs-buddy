@@ -26,6 +26,66 @@ fn dropped<T>() -> futures::channel::oneshot::Receiver<T> {
 }
 
 #[gpui_kit::test]
+fn automatic_day_refresh_waits_for_the_account_day_and_preserves_active_input(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use buddy_core::todoist::{AccountCalendar, Profile};
+    let view = setup(cx);
+    let before = "2026-11-02T23:59:00Z".parse().unwrap();
+    let same_day = "2026-11-03T00:01:00Z".parse().unwrap();
+    let after = "2026-11-03T05:00:01Z".parse().unwrap();
+    cx.update(|cx| {
+        view.update(cx, |view, _| {
+            view.data = Some(Arc::new(Dataset {
+                account: Id::parse("clock-account").unwrap(),
+                calendar: Arc::new(
+                    AccountCalendar::from_profile(&Profile {
+                        id: Id::parse("clock-account").unwrap(),
+                        timezone: Some("America/New_York".into()),
+                    })
+                    .unwrap(),
+                ),
+                tasks: vec![],
+                projects: vec![],
+                read_at: before,
+                coverage: Coverage::Calendar,
+                fixed_now: Some(before),
+            }));
+            view.connection_form = false;
+            assert!(view.rollover_key_at(same_day).unwrap().is_none());
+            let key = view.rollover_key_at(after).unwrap().unwrap();
+            assert_eq!(key.1, chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap());
+            view.busy = true;
+            assert!(view.rollover_key_at(after).unwrap().is_none());
+            view.busy = false;
+            assert!(
+                view.rollover_key_at(after).unwrap().is_some(),
+                "Busy must not consume the day's attempt"
+            );
+            view.connection_form = true;
+            assert!(view.rollover_key_at(after).unwrap().is_none());
+            view.connection_form = false;
+            view.day_refresh_attempted = Some(key);
+            assert!(
+                view.rollover_key_at(after).unwrap().is_none(),
+                "An offline failure must not loop every timer tick"
+            );
+            assert!(
+                view.rollover_key_at("2026-11-04T05:00:01Z".parse().unwrap())
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(
+                view.rollover_key_at(view.data.as_ref().unwrap().now())
+                    .unwrap()
+                    .is_none(),
+                "The explicit qualification clock stays fixed"
+            );
+        })
+    });
+}
+
+#[gpui_kit::test]
 fn failed_replacement_keeps_the_complete_dataset_under_its_original_account(
     cx: &mut gpui_kit::TestAppContext,
 ) {
@@ -44,6 +104,7 @@ fn failed_replacement_keeps_the_complete_dataset_under_its_original_account(
         projects: vec![],
         read_at: "2026-11-02T05:30:00Z".parse().unwrap(),
         coverage: Coverage::All,
+        fixed_now: Some("2026-11-02T05:30:00Z".parse().unwrap()),
     });
     for stopped in [false, true] {
         cx.update(|cx| {

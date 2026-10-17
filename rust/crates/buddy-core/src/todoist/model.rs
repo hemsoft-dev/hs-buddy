@@ -196,7 +196,7 @@ struct RawProject {
     #[serde(default)]
     is_frozen: bool,
     role: Option<String>,
-    workspace_id: Option<String>,
+    workspace_id: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct RawPage<Item> {
@@ -287,6 +287,15 @@ pub fn parse_projects(bytes: &[u8]) -> Result<Page<Project>, Error> {
     let raw = decode_page::<RawProject>(bytes)?;
     let mut projects = Vec::with_capacity(raw.results.len());
     for row in raw.results {
+        // Current REST project examples use numbers; sync/temp identifiers can
+        // be strings. Presence determines team-role fallback, never ownership.
+        let team = match row.workspace_id.as_ref() {
+            None => false,
+            Some(serde_json::Value::Number(id)) if id.as_u64().is_some() => true,
+            Some(serde_json::Value::String(id)) if Id::parse(id).is_ok() => true,
+            _ => return Err(Error::InvalidResponse),
+        };
+        let role = row.role.as_deref().map(str::to_ascii_uppercase);
         if row.name.trim().is_empty()
             || !bounded_text(&row.name, 1024, false)
             || !bounded_text(&row.color, 64, false)
@@ -302,11 +311,11 @@ pub fn parse_projects(bytes: &[u8]) -> Result<Page<Project>, Error> {
             archived: row.is_archived,
             deleted: row.is_deleted,
             frozen: row.is_frozen,
-            role: match row.role.as_deref() {
+            role: match role.as_deref() {
                 Some("CREATOR" | "ADMIN" | "READ_WRITE") => ProjectRole::Full,
                 Some("EDIT_ONLY") => ProjectRole::EditOnly,
                 Some("COMPLETE_ONLY") => ProjectRole::CompleteOnly,
-                None if row.workspace_id.is_none() => ProjectRole::Full,
+                None if !team => ProjectRole::Full,
                 _ => ProjectRole::Unknown,
             },
         });

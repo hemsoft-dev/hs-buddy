@@ -26,6 +26,51 @@ fn date(day: u32) -> NaiveDate {
 }
 
 #[test]
+fn project_workspace_wire_types_and_role_casing_preserve_team_permissions() {
+    for workspace in [
+        json!(12345),
+        json!(0),
+        json!("12345"),
+        json!("temporary-workspace"),
+    ] {
+        let row = json!({"id":"project","name":"Synthetic team project","color":"blue","child_order":0,
+            "workspace_id":workspace,"role":"complete_only"});
+        let project = parse_projects(&page(vec![row.clone()], Value::Null))
+            .unwrap()
+            .items
+            .remove(0);
+        assert!(project.allows(WriteKind::Complete));
+        assert!(
+            !project.allows(WriteKind::Create)
+                && !project.allows(WriteKind::Edit)
+                && !project.allows(WriteKind::Delete)
+        );
+        let mut missing = row;
+        missing.as_object_mut().unwrap().remove("role");
+        let project = parse_projects(&page(vec![missing], Value::Null))
+            .unwrap()
+            .items
+            .remove(0);
+        assert!(!project.allows(WriteKind::Complete));
+    }
+    for malformed in [
+        json!(true),
+        json!(-1),
+        json!(1.5),
+        json!([]),
+        json!({}),
+        json!(""),
+    ] {
+        let row = json!({"id":"project","name":"Synthetic team project","color":"blue","child_order":0,
+            "workspace_id":malformed,"role":"READ_WRITE"});
+        assert!(matches!(
+            parse_projects(&page(vec![row], Value::Null)),
+            Err(Error::InvalidResponse)
+        ));
+    }
+}
+
+#[test]
 fn current_api_fields_keep_completion_order_content_and_priority() {
     let parsed = parse_tasks(&page(vec![task(Value::Null)], json!("opaque-cursor"))).unwrap();
     assert_eq!(parsed.next_cursor.as_deref(), Some("opaque-cursor"));

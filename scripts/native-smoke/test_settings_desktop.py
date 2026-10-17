@@ -464,17 +464,35 @@ class LabeledInputs(unittest.TestCase):
                 locate.assert_called_with(image, "Filter loaded items", navigation=False,
                     field=True, save_row=False, tab=False)
                 if session == "macos":
-                    helper.click.assert_called_once_with(920, 196)
+                    helper.click.assert_called_once_with(920, 184)
                     helper.replace_text.assert_called_once_with("First private")
                 else:
                     self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
-                        window.window, 820, 146, "click", 1), run.call_args_list)
+                        window.window, 820, 134, "click", 1), run.call_args_list)
                     window.key.assert_called_once_with("a")
                     self.assertIn(unittest.mock.call("xdotool", "type", "--clearmodifiers",
                         "--delay", 10, "--", "First private"), run.call_args_list)
 
 
 class SessionInputRows(unittest.TestCase):
+    def test_spaced_form_hint_does_not_move_compact_workspace_inputs(self):
+        for hint, expected in ((None, 326), ({"labelBottomOffset": 32}, 338)):
+            with self.subTest(hint=hint):
+                driver = desktop.Driver.__new__(desktop.Driver)
+                driver.session = "x11"
+                directory = MagicMock()
+                directory.__truediv__.return_value.read_bytes.return_value = bytes(16) + struct.pack(">II",1200,820)
+                window = Mock()
+                values = ["Workspace name", "Scratch workspace"]
+                if hint is not None:
+                    values.append(hint)
+                with patch.object(desktop.ocr,"locate_image",return_value=dict(left=64,top=295,width=110,height=11)) as locate, \
+                        patch.object(desktop,"run") as execute, patch.object(desktop.time,"sleep"):
+                    driver.interact(window,directory,"input",values)
+                self.assertNotIn("row_control",locate.call_args.kwargs)
+                clicks=[call.args for call in execute.call_args_list if call.args[:2]==("xdotool","mousemove")]
+                self.assertEqual(clicks[0][4:6],(84,expected))
+
     def test_stacked_todoist_token_targets_the_input_interior_without_a_disabled_save_anchor(self):
         # Original installed X11 capture: label y295..306, input y324..356,
         # text interior y334..346. The disabled Save button below y401 has no
@@ -487,7 +505,7 @@ class SessionInputRows(unittest.TestCase):
         window = Mock()
         with patch.object(desktop.ocr,"locate_image",return_value=dict(left=64,top=295,width=110,height=11)) as locate, \
                 patch.object(desktop,"run") as execute, patch.object(desktop.time,"sleep"):
-            driver.interact(window,directory,"input",["Todoist API token","public synthetic token"])
+            driver.interact(window,directory,"input",["Todoist API token","public synthetic token",{"labelBottomOffset":32}])
         self.assertNotIn("row_control",locate.call_args.kwargs)
         clicks=[call.args for call in execute.call_args_list if call.args[:2]==("xdotool","mousemove")]
         self.assertEqual(len(clicks),1)

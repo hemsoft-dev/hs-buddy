@@ -19,6 +19,19 @@ pub struct Dataset {
     pub projects: Vec<Project>,
     pub read_at: DateTime<Utc>,
     pub coverage: Coverage,
+    /// A supplied qualification clock stays fixed; normal views use UTC now
+    /// interpreted by the account calendar, independently of the host zone.
+    pub fixed_now: Option<DateTime<Utc>>,
+}
+
+impl Dataset {
+    pub fn now(&self) -> DateTime<Utc> {
+        self.fixed_now.unwrap_or_else(Utc::now)
+    }
+
+    pub fn needs_day_refresh(&self, now: DateTime<Utc>) -> Result<bool, Error> {
+        Ok(self.calendar.today_at(now)? != self.calendar.today_at(self.read_at)?)
+    }
 }
 
 /// A completed task read describes exactly the scope it covers.
@@ -154,6 +167,65 @@ impl Planner {
         &mut self,
         coverage: Coverage,
     ) -> Result<Arc<Dataset>, TransportError> {
+        self.refresh_scope_at(coverage, self.fixed_now.unwrap_or_else(Utc::now))
+            .await
+    }
+
+    /// A replacement token need not load a project that no longer exists.
+    /// Fall back only for an unavailable scope, never for authentication or an
+    /// incomplete read. Every fallback must complete its own identity checks.
+    pub async fn refresh_connection_scope(
+        &mut self,
+        preferred: Coverage,
+    ) -> Result<Arc<Dataset>, TransportError> {
+        match self.refresh_scope(preferred).await {
+            Err(TransportError::Domain(Error::ScopeUnavailable)) => {
+                match self.refresh_scope(Coverage::Calendar).await {
+                    Err(TransportError::Domain(Error::ReadLimit)) => {
+                        let project = self
+                            .catalog
+                            .as_ref()
+                            .and_then(|catalog| {
+                                catalog
+                                    .projects
+                                    .iter()
+                                    .find(|project| !project.archived && !project.deleted)
+                            })
+                            .map(|project| project.id.clone());
+                        match project {
+                            Some(project) => self.refresh_scope(Coverage::Project(project)).await,
+                            None => Err(Error::ReadLimit.into()),
+                        }
+                    }
+                    result => result,
+                }
+            }
+            result => result,
+        }
+    }
+
+    /// A captured clock makes day-boundary reads testable. This only refreshes
+    /// the existing scope; it never sends or retries a service mutation.
+    pub async fn refresh_day_at(
+        &mut self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<Arc<Dataset>>, TransportError> {
+        let Some(data) = &self.data else {
+            return Ok(None);
+        };
+        if !data.needs_day_refresh(now)? {
+            return Ok(None);
+        }
+        self.refresh_scope_at(self.coverage.clone(), now)
+            .await
+            .map(Some)
+    }
+
+    async fn refresh_scope_at(
+        &mut self,
+        coverage: Coverage,
+        now: DateTime<Utc>,
+    ) -> Result<Arc<Dataset>, TransportError> {
         self.write_fresh = false;
         let profile = self.client.profile().await?;
         if profile.id != self.account {
@@ -169,7 +241,7 @@ impl Planner {
                     .iter()
                     .any(|project| &project.id == id && !project.archived && !project.deleted)
                 {
-                    return Err(Error::InvalidDraft.into());
+                    return Err(Error::ScopeUnavailable.into());
                 }
                 ReadScope::Project(id.clone())
             }
@@ -200,12 +272,14 @@ impl Planner {
             calendar: calendar.clone(),
             projects,
             tasks,
-            read_at: self.fixed_now.unwrap_or_else(Utc::now),
+            read_at: now,
             coverage: coverage.clone(),
+            fixed_now: self.fixed_now.map(|_| now),
         });
         self.calendar = calendar;
         self.data = Some(data.clone());
         self.coverage = coverage;
+        self.fixed_now = self.fixed_now.map(|_| now);
         self.write_fresh = true;
         Ok(data)
     }

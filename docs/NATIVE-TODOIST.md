@@ -28,6 +28,10 @@ computer's timezone. Date-only and floating dates retain their written day;
 explicit instants use the account timezone for grouping. The account and zone
 appear above the list. Individual task rows retain the source due value,
 including its explicit offset when supplied, and identify recurrence.
+Buddy checks the account date every 30 seconds and refreshes the loaded scope
+when that date changes. It waits while an editor or connection form is open.
+If the automatic read fails, the last complete list remains visible and
+Refresh lets you try again. Automatic reads never resend a saved change.
 
 ## Changing tasks
 
@@ -51,6 +55,8 @@ editing for edit-only projects. Unknown roles, missing team roles and frozen
 projects are read-only. Personal projects without a role retain their normal
 editing access. These role names come from the
 [Todoist project API](https://developer.todoist.com/api/v1/).
+Both numeric workspace IDs from the current API and supported string IDs
+retain these permission checks.
 
 ## Recovery and authentication failures
 
@@ -78,6 +84,9 @@ saves a new token. Recheck saved connection retries loading the protected token 
 initial connection failure. A replacement token must authenticate the original account while recovery
 is pending. Resolve acknowledged cleanup before replacing a connection. A failed
 credential save remains unconfirmed, and the token input stays editable.
+If the previously selected project has disappeared, reconnect loads calendar
+tasks instead. If that scope exceeds the read bound, it loads an available
+project. The old connection remains visible until the replacement read completes.
 
 Forget saved token removes only the native Todoist credential for this profile
 and verifies removal. It checks for saved recovery and removes the credential
@@ -100,6 +109,10 @@ authentication errors, offline reads, and explicit retry after a lost creation
 response. It also exercises failed reconnection and replacement reads,
 restricted projects, and calendar/project fallback with more than 5,000 tasks
 spread over projects within the service's per-project limit.
+It also checks reconnecting after the selected project is archived. The
+installed exercise uses a fixed account clock. Headless tests advance a captured
+clock across account midnight and verify the new calendar window, retained rows
+after a failed read, and the absence of task writes.
 Original recovery bytes and actual HTTP attempts establish that
 restart and refresh did not resend it. Screenshots cover both themes, a measured
 large window and 900 by 650; an interaction recording accompanies them.

@@ -131,7 +131,7 @@ class Fixture:
     def snapshot(self):
         with self.lock:
             return copy.deepcopy(dict(tasks=self.tasks, requests=self.requests,
-                                      traffic=self.traffic, created=self.created))
+                                      traffic=self.traffic, created=self.created, projects=self.projects))
 
     def _get(self, route, query):
         if route == 'user':

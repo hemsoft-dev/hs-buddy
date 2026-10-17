@@ -32,6 +32,8 @@ class ScenarioFixture(todoist.Fixture):
     def __init__(self, marker):
         self.fail_after_read = None
         self.complete_tasks = False
+        self.remove_after_project_read = None
+        self.removal_ready = False
         super().__init__(marker)
 
     def arm(self, scenario):
@@ -54,7 +56,23 @@ class ScenarioFixture(todoist.Fixture):
                 self.expired = True
             self.fail_after_read = None
             self.complete_tasks = False
+        if (route == 'tasks' and self.remove_after_project_read
+                and query.get('project_id') == [self.remove_after_project_read]
+                and value['next_cursor'] is None):
+            self.removal_ready = True
+        elif route == 'user' and self.removal_ready:
+            project = next(project for project in self.projects if project['id'] == self.remove_after_project_read)
+            project['is_archived'] = True
+            self.removal_ready = False
+            self.remove_after_project_read = None
         return value
+
+    def arm_removed_project(self, identifier):
+        with self.lock:
+            if not any(project['id'] == identifier for project in self.projects):
+                raise ValueError('Unknown owned project')
+            self.remove_after_project_read = identifier
+            self.removal_ready = False
 
     def add_permission_projects(self):
         with self.lock:
@@ -62,7 +80,7 @@ class ScenarioFixture(todoist.Fixture):
                     ('project-complete', 'Synthetic Complete Only', 'COMPLETE_ONLY'),
                     ('project-readonly', 'Synthetic Read Only', 'FUTURE_ROLE')]):
                 self.projects.append(dict(id=identifier, name=name, color='blue', parent_id=None,
-                    child_order=index+3, workspace_id='synthetic-team', role=role))
+                    child_order=index+3, workspace_id=12345, role=role))
                 self.tasks.append(todoist._task('task-'+identifier, name+' task', identifier))
 
     def add_large_account(self):
@@ -140,7 +158,7 @@ def qualify(executable, output, session, version, backend):
             (output / 'initial-tasks.json').write_text(json.dumps(initial, indent=2), encoding='utf-8')
             connected = driver.drive('connect-dark', [
                 ('wait_text', 'No API token is saved'), ('capture', 'missing-token-dark'),
-                ('input', 'Todoist API token', todoist.TOKEN), ('click', 'Save and connect'),
+                ('input', 'Todoist API token', todoist.TOKEN, {'labelBottomOffset': 32}), ('click', 'Save and connect'),
                 ('wait_text', 'Synthetic today task'), ('capture', 'today-dark'),
                 ('click', 'Upcoming'), ('wait_text', 'Synthetic upcoming task'), ('capture', 'upcoming-dark'),
                 ('click', 'Projects'), ('click', 'Synthetic Beta'), ('wait_text', 'Synthetic undated task'),
@@ -155,7 +173,7 @@ def qualify(executable, output, session, version, backend):
             api.drop_next_ack = True
             lost = driver.drive('lost-ack-dark', [
                 ('wait_text', 'Synthetic today task'), ('click', 'New task'),
-                ('input', 'Task name', 'Synthetic created task 界'),
+                ('input', 'Task name', 'Synthetic created task 界', {'labelBottomOffset': 32}),
                 ('wait_scroll_text', 'Save task'), ('click', 'Save task'),
                 ('wait_text', 'The change is unconfirmed'), ('capture', 'lost-ack-dark'),
             ])
@@ -198,12 +216,12 @@ def qualify(executable, output, session, version, backend):
             # labels cannot accidentally target a different synthetic task.
             edited = driver.drive('edit-light', [
                 ('wait_text', 'Synthetic today task'), ('click', 'Projects'), ('click', 'Synthetic Beta'),
-                ('input', 'Filter tasks', 'Synthetic undated task'), ('wait_text', 'Synthetic undated task'),
-                ('click', 'Edit'), ('input', 'Task name', 'Synthetic undated task revised'),
+                ('input', 'Filter tasks', 'Synthetic undated task', {'labelBottomOffset': 32}), ('wait_text', 'Synthetic undated task'),
+                ('click', 'Edit'), ('input', 'Task name', 'Synthetic undated task revised', {'labelBottomOffset': 32}),
                 ('wait_scroll_text', 'Save task'), ('click', 'Save task'),
                 ('wait_text', 'Todoist confirmed the change'), ('capture', 'edited-light'),
                 ('click', 'Complete'), ('wait_text', 'Todoist confirmed the change'), ('capture', 'completed-light'),
-                ('input', 'Filter tasks', 'Synthetic recurring task'), ('wait_text', 'Synthetic recurring task'),
+                ('input', 'Filter tasks', 'Synthetic recurring task', {'labelBottomOffset': 32}), ('wait_text', 'Synthetic recurring task'),
                 ('click', 'Complete'), ('wait_text', 'Todoist confirmed the change'),
                 ('capture', 'recurring-completed-light'),
                 ('click', 'Delete'), ('wait_text', 'Confirm deletion'), ('click', 'Confirm deletion'),
@@ -276,6 +294,18 @@ def qualify(executable, output, session, version, backend):
             if len(posts(api)) != 7:
                 raise RuntimeError('Loading smaller task scopes sent a mutation')
 
+            api.arm_removed_project('project-empty')
+            fallback = driver.drive('removed-project-reconnect-light', [
+                ('wait_text', 'Choose a smaller scope'), ('click', 'Load calendar tasks'),
+                ('wait_text', 'Task scope loaded'), ('click', 'Projects'), ('click', 'Synthetic Empty'),
+                ('wait_text', 'No tasks in this view'), ('click', 'Connection'),
+                ('click', 'Recheck saved connection'), ('wait_text', 'The previous project is unavailable'),
+                ('wait_text', 'Synthetic upcoming task'), ('capture', 'scope-fallback-light'),
+            ])
+            github.check(fallback / 'scope-fallback-light.png', 'previous project is unavailable', 'Synthetic upcoming task', 'Loaded scope:')
+            if not next(project for project in api.snapshot()['projects'] if project['id'] == 'project-empty')['is_archived'] or len(posts(api)) != 7:
+                raise RuntimeError('Unavailable-project reconnect did not use a read-only fallback')
+
             before_forget = api.snapshot()['tasks']
             driver.drive('forget-token-light', [
                 ('wait_text', 'Choose a smaller scope'), ('click', 'Connection'),
@@ -300,6 +330,7 @@ def qualify(executable, output, session, version, backend):
                 restrictedProjectCompletionVerified=True, unknownProjectRoleReadOnly=True,
                 failedReconnectRetainedAccountTasks=True, failedReplacementReadRetainedAccountTasks=True,
                 largeAccountScopedReadsVerified=True,
+                removedProjectReconnectFallbackVerified=True,
                 recurringCompletionAdvancedExactlyOneDay=True,
                 originalRecoverySha256=hashlib.sha256(original).hexdigest(), sameCommandRetried=True,
                 realOsCredentialStore=True, secureTokenSurvivedProcessRestart=True,

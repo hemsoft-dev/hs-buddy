@@ -58,6 +58,7 @@ pub enum Error {
     WrongConnection,
     WriteBlocked,
     WritePermission,
+    ScopeUnavailable,
     TimezoneUnavailable,
     InvalidRecovery,
 }
@@ -70,6 +71,7 @@ impl std::fmt::Display for Error {
             Self::WrongConnection => "This change belongs to a different Todoist connection. Return to its original connection before retrying.",
             Self::WriteBlocked => "This Todoist change cannot be sent again. Wait for its result or prepare a new change after refreshing.",
             Self::WritePermission => "Your project permissions do not allow this task action. Refresh to check current access.",
+            Self::ScopeUnavailable => "The selected Todoist project is unavailable. Choose another project or load calendar tasks.",
             Self::TimezoneUnavailable => "Todoist did not provide a supported account timezone. Refresh the account before using the calendar.",
             Self::InvalidResponse => {
                 "Todoist returned unsupported data. Existing tasks are retained."

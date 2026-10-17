@@ -30,6 +30,7 @@ enum Pane {
 
 enum Operation {
     Refresh,
+    DayRefresh(chrono::DateTime<chrono::Utc>),
     Load(Coverage, Pane, Option<Id>),
     Submit(TaskChange),
     Retry,
@@ -60,6 +61,7 @@ pub struct TodoistView {
     discard_confirm: bool,
     notice: Option<String>,
     error: Option<String>,
+    day_refresh_attempted: Option<(Id, chrono::NaiveDate)>,
 }
 
 impl TodoistView {
@@ -75,6 +77,20 @@ impl TodoistView {
             })
             .detach();
         }
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(30))
+                    .await;
+                if this
+                    .update(cx, |this, cx| this.check_day_rollover(cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         Self {
             planner: None,
             data: None,
@@ -95,12 +111,53 @@ impl TodoistView {
             discard_confirm: false,
             notice: None,
             error: None,
+            day_refresh_attempted: None,
         }
     }
 
     pub fn activate(&mut self, cx: &mut Context<Self>) {
         if !self.initialized && cx.has_global::<Runtime>() {
             self.connect(None, cx);
+        }
+    }
+
+    fn rollover_key_at(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<(Id, chrono::NaiveDate)>, buddy_core::todoist::Error> {
+        if self.busy || self.editor.is_some() || self.connection_form {
+            return Ok(None);
+        }
+        let Some(data) = &self.data else {
+            return Ok(None);
+        };
+        if !data.needs_day_refresh(now)? {
+            return Ok(None);
+        }
+        let key = (data.account.clone(), data.calendar.today_at(now)?);
+        Ok((self.day_refresh_attempted.as_ref() != Some(&key)).then_some(key))
+    }
+
+    fn check_day_rollover(&mut self, cx: &mut Context<Self>) {
+        if !cx.has_global::<Runtime>() || self.planner.is_none() {
+            return;
+        }
+        let Some(now) = self.data.as_ref().map(|data| data.now()) else {
+            return;
+        };
+        match self.rollover_key_at(now) {
+            Ok(Some(key)) => {
+                // A failed automatic read remains visible with explicit Refresh
+                // instead of repeatedly contacting an offline service all day.
+                self.day_refresh_attempted = Some(key);
+                self.delete_target = None;
+                self.operate(Operation::DayRefresh(now), cx);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+            }
         }
     }
 
@@ -139,6 +196,7 @@ impl TodoistView {
                         this.data = None;
                         this.catalog = None;
                         this.planner = None;
+                        this.day_refresh_attempted = None;
                         this.connection_form = true;
                         this.clear_token = true;
                         this.notice = Some(
@@ -232,7 +290,7 @@ impl TodoistView {
             }
             let coverage = previous.filter(|(account, _)| account == planner.account())
                 .map(|(_, coverage)| coverage).unwrap_or(Coverage::All);
-            let problem = match planner.refresh_scope(coverage).await {
+            let problem = match planner.refresh_connection_scope(coverage).await {
                 Ok(_) => None,
                 Err(error) if !retain_data && planner.catalog().is_some()
                     && error == buddy_core::todoist::TransportError::Domain(buddy_core::todoist::Error::ReadLimit) => Some(error.to_string()),
@@ -261,12 +319,22 @@ impl TodoistView {
                 this.notice = None;
                 match result {
                     Ok(Ok(Some((planner, problem)))) => {
+                        let scope_changed = this.data.as_ref().is_some_and(|old| {
+                            &old.account == planner.account() && matches!(old.coverage,Coverage::Project(_))
+                                && &old.coverage != planner.coverage()
+                        });
+                        this.project = match planner.coverage() {
+                            Coverage::Project(id) => { this.pane=Pane::Projects; Some(id.clone()) },
+                            Coverage::Calendar => { this.pane=Pane::Upcoming; None },
+                            Coverage::All => None,
+                        };
+                        if scope_changed { this.notice = Some("The previous project is unavailable. Loaded an available task scope.".into()); }
                         this.data = planner.data().cloned();
                         this.catalog = planner.catalog().cloned();
                         this.planner = Some(planner);
                         this.connection_form = false;
                         this.clear_token = true;
-                        this.project = None;
+                        this.day_refresh_attempted = None;
                         this.task_page = 0;
                         this.project_page = 0;
                         this.error = problem;
@@ -307,6 +375,7 @@ impl TodoistView {
         let rx = Runtime::global(cx).spawn(async move {
             let result = match operation {
                 Operation::Refresh => planner.refresh().await.map(|_| "Tasks refreshed.".to_owned()).map_err(|error| error.to_string()),
+                Operation::DayRefresh(now) => planner.refresh_day_at(now).await.map(|_| "Tasks refreshed for the new account day.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Load(coverage, _, _) => planner.refresh_scope(coverage).await.map(|_| "Task scope loaded.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Cleanup => planner.retry_cleanup().map(|_| "Recovery cleanup finished. No task change was sent.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Discard => planner.discard_pending().map(|_| "Saved recovery discarded. Refresh to check Todoist; the remote change may already exist.".to_owned()).map_err(|error| error.to_string()),

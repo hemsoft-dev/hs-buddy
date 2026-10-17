@@ -7,7 +7,7 @@ async fn complete_only_projects_reject_other_commands_before_persist_or_http() {
     let (client, worker, captures) = server(8, |request, _| {
         if request.line.starts_with("GET /api/v1/projects?") {
             return Some(Response::json(
-                json!({"results":[{"id":"project","name":"Complete only","color":"blue","child_order":0,"workspace_id":"team","role":"COMPLETE_ONLY"}],"next_cursor":null}),
+                json!({"results":[{"id":"project","name":"Complete only","color":"blue","child_order":0,"workspace_id":12345,"role":"complete_only"}],"next_cursor":null}),
             ));
         }
         if request.line.starts_with("POST ") {

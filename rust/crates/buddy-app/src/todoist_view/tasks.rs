@@ -182,7 +182,7 @@ impl TodoistView {
         } else {
             match data.calendar.schedule(
                 &data.tasks,
-                data.read_at,
+                data.now(),
                 if self.pane == Pane::Today { 1 } else { 7 },
             ) {
                 Ok(groups) => {

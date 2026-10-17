@@ -67,6 +67,31 @@ class FailureScenarios(unittest.TestCase):
         self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
         self.assertIsNone(self.api.fail_after_read)
 
+    def test_project_disappears_only_after_its_complete_scoped_read_and_final_identity(self):
+        self.api.arm_removed_project('project-empty')
+        page=self.get('projects?limit=100&cursor=offset-2')
+        self.assertFalse(next(row for row in page['results'] if row['id']=='project-empty')['is_archived'])
+        self.assertEqual(self.get('tasks?project_id=project-empty&limit=100')['results'],[])
+        self.assertFalse(self.get('projects?limit=100&cursor=offset-2')['results'][0]['is_archived'])
+        self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
+        self.assertTrue(self.get('projects?limit=100&cursor=offset-2')['results'][0]['is_archived'])
+        self.assertEqual(desktop.posts(self.api),[])
+
+    def test_permission_projects_use_numeric_workspace_ids_from_the_production_wire_shape(self):
+        self.api.add_permission_projects()
+        rows, cursor = [], None
+        while True:
+            query={'limit':'100'}
+            if cursor:query['cursor']=cursor
+            page=self.get('projects?'+urllib.parse.urlencode(query))
+            rows.extend(page['results'])
+            cursor=page['next_cursor']
+            if cursor is None:break
+        team=[row for row in rows if row.get('workspace_id') is not None]
+        self.assertEqual(len(team),2)
+        self.assertTrue(all(type(row['workspace_id']) is int and row['workspace_id']==12345 for row in team))
+        self.assertEqual(desktop.posts(self.api),[])
+
     def test_replacement_task_read_can_fail_after_profile_validation_without_a_write(self):
         self.api.arm('task-read')
         self.complete_read()

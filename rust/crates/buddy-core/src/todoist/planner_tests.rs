@@ -6,6 +6,8 @@ use crate::todoist::{
 };
 #[path = "planner_access_tests.rs"]
 mod access;
+#[path = "planner_calendar_tests.rs"]
+mod calendar;
 #[path = "planner_freshness_tests.rs"]
 mod freshness;
 

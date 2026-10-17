@@ -408,7 +408,15 @@ class Driver:
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
-        row_control = values[2] if kind == "input" and len(values) == 3 else None
+        hint = values[2] if kind == "input" and len(values) == 3 else None
+        offset = 20
+        if isinstance(hint, dict):
+            if set(hint) != {"labelBottomOffset"} or type(hint["labelBottomOffset"]) is not int or not 20 <= hint["labelBottomOffset"] <= 40:
+                raise RuntimeError("The input needs a bounded label-to-editor offset")
+            offset = hint["labelBottomOffset"]
+            row_control = None
+        else:
+            row_control = hint
         if row_control is None:
             label = self.locate(window, image, kind, values[0])
         else:
@@ -431,11 +439,10 @@ class Driver:
             elif kind == "rightfield":
                 x = width / scale * 3 / 4
             elif kind == "input":
-                # GitHub fields can occupy a narrow column and have no Save
-                # control. Center the standard 32px editor below its label;
-                # +20 would hit top padding in the installed Todoist form.
+                # Compact fields and spaced forms have different label gaps.
+                # Only an explicit form hint may change the default target.
                 x = label["left"] / scale + 20
-                y = (label["top"] + label["height"]) / scale + 32
+                y = (label["top"] + label["height"]) / scale + offset
         if "row_control" in label:
             control = label["row_control"]
             y = (control["top"] + control["height"] / 2) / scale
