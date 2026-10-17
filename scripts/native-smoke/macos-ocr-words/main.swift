@@ -41,9 +41,14 @@ do {
             }
             let box = bounds.boundingBox
             guard box.minX.isFinite, box.minY.isFinite,
-                  box.width > 0, box.height > 0,
+                  box.width.isFinite, box.height.isFinite,
+                  box.width >= 0, box.height >= 0,
                   box.minX >= 0, box.minY >= 0, box.maxX <= 1, box.maxY <= 1
             else { throw OcrFailure.invalidBounds }
+            // Vision on macOS 15 can return a token with zero visible area.
+            // It cannot locate a control. Keep the other measured words; the
+            // caller still requires the complete label at a unique location.
+            if box.width == 0 || box.height == 0 { continue }
             words.append(Word(
                 text: String(token),
                 left: box.minX * Double(image.width),

@@ -1,7 +1,9 @@
 """Temporary file-only investigation for mission837. Never launches the app."""
 import argparse
 import hashlib
+import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -35,6 +37,28 @@ def run(name, swift):
 
 original_exit = run('original', source)
 diagnostic_exit = None
+labels = None
+invalid_image_exit = None
+if original_exit == 0:
+    words = json.loads((output / 'original.json').read_text(encoding='utf-8'))
+    assert words and all(math.isfinite(word[key]) for word in words for key in ('left', 'top', 'width', 'height'))
+    assert all(word['width'] > 0 and word['height'] > 0 and word['left'] >= 0 and word['top'] >= 0
+        and word['left'] + word['width'] <= 900 and word['top'] + word['height'] <= 650 for word in words)
+    spec = importlib.util.spec_from_file_location('ocr', Path(__file__).with_name('settings-ocr.py'))
+    ocr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ocr)
+    labels = {label: ocr.find_label(words, label) for label in ('Request 1', 'Output / prompt tokens', 'Next requests')}
+    try:
+        ocr.find_label(words, 'Inspect synthetic request 20')
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('The offscreen request must not be accepted as visible')
+    invalid = output / 'invalid-image.png'
+    invalid.write_bytes(b'not an image')
+    rejected = subprocess.run([str(output / 'original'), str(invalid)], capture_output=True, timeout=30)
+    invalid_image_exit = rejected.returncode
+    assert invalid_image_exit == 1 and not rejected.stdout
 if original_exit != 0:
     diagnostic = source.replace('do {\n    guard CommandLine', 'var stage = "image-decode"\ndo {\n    guard CommandLine', 1)
     diagnostic = diagnostic.replace('    try VNImageRequestHandler', '    stage = "recognize"\n    try VNImageRequestHandler', 1)
@@ -50,7 +74,8 @@ if original_exit != 0:
 report = dict(purpose='diagnosis-only', appQualified=False, imageSha256=hashlib.sha256(image.read_bytes()).hexdigest(),
     helperSha256=hashlib.sha256(source.encode()).hexdigest(), checkoutHead=os.environ.get('GITHUB_SHA'),
     host=subprocess.check_output(['sw_vers'], text=True), architecture=subprocess.check_output(['uname', '-m'], text=True).strip(),
-    originalExit=original_exit, diagnosticExit=diagnostic_exit)
+    originalExit=original_exit, diagnosticExit=diagnostic_exit, exactVisibleLabels=labels,
+    offscreenRequestRejected=labels is not None, invalidImageExit=invalid_image_exit)
 (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
 print(json.dumps(report))
 if diagnostic_exit is not None:
