@@ -365,7 +365,9 @@ impl Render for UsageView {
                         .child("This budget prevents further usage when its limit is reached."),
                 );
             }
-            view=view.child(format!("Billing period {}-{:02} · Gross ${:.2} · Discount ${:.2} · Net spend ${:.2} · {:.0} seats",billing.year,billing.month,billing.usage.gross_cost,billing.usage.discount,billing.usage.net_cost,billing.usage.business_seats))
+            // An empty floating-point sum can be negative zero. Normalize its
+            // display sign without changing the captured or stored value.
+            view=view.child(format!("Billing period {}-{:02} · Gross ${:.2} · Discount ${:.2} · Net spend ${:.2} · {:.0} seats",billing.year,billing.month,billing.usage.gross_cost,billing.usage.discount,billing.usage.net_cost,billing.usage.business_seats + 0.0))
                 .child(match billing.budget_amount {Some(amount)=>format!("Monthly Copilot budget: ${amount:.2}"),None if billing.budget_unavailable=>"Budget unavailable. Billing spend remains available.".into(),None=>"No Copilot budget was returned.".into()});
         }
         if let Some(codex) = &self.codex {
@@ -437,7 +439,7 @@ impl Render for UsageView {
                 let time = chrono::DateTime::from_timestamp_millis(row.snapshot_at as i64)
                     .map(|date| date.format("%Y-%m-%d %H:%M UTC").to_string())
                     .unwrap_or_else(|| "Unknown date".into());
-                view=view.child(format!("{time} · {:.0} credits · Gross ${:.2} · Discount ${:.2} · Net ${:.2} · Spend ${:.2} · {:.0} seats · Budget {}",row.premium_requests,row.gross_cost,row.discount,row.net_cost,row.spent,row.business_seats,row.budget_amount.map(|amount|format!("${amount:.2}")).unwrap_or_else(||"unavailable".into())));
+                view=view.child(format!("{time} · {:.0} credits · Gross ${:.2} · Discount ${:.2} · Net ${:.2} · Spend ${:.2} · {:.0} seats · Budget {}",row.premium_requests,row.gross_cost,row.discount,row.net_cost,row.spent,row.business_seats + 0.0,row.budget_amount.map(|amount|format!("${amount:.2}")).unwrap_or_else(||"unavailable".into())));
             }
         }
         if let Some(error) = &self.history_error {

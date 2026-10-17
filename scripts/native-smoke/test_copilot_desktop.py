@@ -12,6 +12,38 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class CopilotQualificationTests(unittest.TestCase):
+    def test_loaded_enterprise_user_must_be_revealed_below_the_captured_viewport(self):
+        class ClippedUsageDriver:
+            def __init__(self):
+                self.loaded = False
+                self.row_visible = False
+                self.captured = False
+
+            def drive(self, name, actions):
+                for action in actions:
+                    if action == ('click', 'Load metrics file'):
+                        # Actual Windows capture: the search field occupies
+                        # the bottom edge; summary and user follow below it.
+                        self.loaded = True
+                        self.row_visible = False
+                    elif action == ('wait_scroll_text', 'fixture-member'):
+                        if not self.loaded:
+                            raise AssertionError('No metrics file has been loaded')
+                        self.row_visible = True
+                    elif action == ('wait_text', 'fixture-member') and not self.row_visible:
+                        raise AssertionError('Loaded enterprise row remains below the viewport')
+                    elif action == ('capture', 'enterprise-users-light'):
+                        if not self.row_visible:
+                            raise AssertionError('The enterprise capture does not show its user')
+                        self.captured = True
+                return Path('unused-owned-usage-output')
+
+        driver = ClippedUsageDriver()
+        with patch.object(copilot.github, 'check') as checks:
+            copilot.usage_pages(driver)
+        self.assertTrue(driver.captured)
+        self.assertEqual(checks.call_count, 3)
+
     def test_streaming_capture_handshake_is_scoped_and_restored_after_failure(self):
         with TemporaryDirectory() as temporary, patch.dict(os.environ, {'BUDDY_COPILOT_STREAM_CAPTURE': 'previous'}):
             output = Path(temporary)

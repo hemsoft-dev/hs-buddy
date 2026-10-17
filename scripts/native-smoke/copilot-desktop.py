@@ -194,6 +194,19 @@ def review_pull_request(driver):
         'Captured review', 'Freshness has not been checked')
 
 
+def usage_pages(driver):
+    usage = driver.drive('usage-light', [
+        ('click', 'Usage'), ('click', 'Refresh usage'), ('wait_text', 'Billing snapshot saved'),
+        ('click', 'Load period'), ('wait_text', 'Showing'), ('capture', 'usage-history-light'),
+        ('wheel', -600), ('click', 'Load metrics file'), ('wait_scroll_text', 'fixture-member'), ('capture', 'enterprise-users-light'),
+        ('wheel', 1200), ('click', 'codex-fixture'), ('click', 'Refresh usage'),
+        ('wait_text', 'Weekly allowance'), ('capture', 'codex-allowances-light'),
+    ])
+    github.check(usage / 'usage-history-light.png', 'AI Credits', 'Projected period spend', 'Copilot billing history')
+    github.check(usage / 'enterprise-users-light.png', 'Enterprise users', 'fixture-member')
+    github.check(usage / 'codex-allowances-light.png', 'Weekly allowance', '5-hour allowance', 'remaining')
+
+
 def qualify(executable, output, session, version, backend, api):
     binary = github.installed_binary(executable, version)
     config = fixture(output, 'dark')
@@ -228,16 +241,7 @@ def qualify(executable, output, session, version, backend, api):
             review_pull_request(driver)
             light = json.loads(fixture(output / 'light-template', 'light').read_text())['ui']
             write_section(config, 'copilot', light)
-            usage = driver.drive('usage-light', [
-                ('click', 'Usage'), ('click', 'Refresh usage'), ('wait_text', 'Billing snapshot saved'),
-                ('click', 'Load period'), ('wait_text', 'Showing'), ('capture', 'usage-history-light'),
-                ('wheel', -600), ('click', 'Load metrics file'), ('wait_text', 'fixture-member'), ('capture', 'enterprise-users-light'),
-                ('wheel', 1200), ('click', 'codex-fixture'), ('click', 'Refresh usage'),
-                ('wait_text', 'Weekly allowance'), ('capture', 'codex-allowances-light'),
-            ])
-            github.check(usage / 'usage-history-light.png', 'AI Credits', 'Projected period spend', 'Copilot billing history')
-            github.check(usage / 'enterprise-users-light.png', 'Enterprise users', 'fixture-member')
-            github.check(usage / 'codex-allowances-light.png', 'Weekly allowance', '5-hour allowance', 'remaining')
+            usage_pages(driver)
             with environment(dict(BUDDY_CODEX_FIXTURE_SCENARIO='missing-auth')):
                 missing = driver.drive('codex-auth-error-light', [('click', 'Usage'), ('click', 'codex-fixture'), ('click', 'Refresh usage'), ('wait_text', 'No Codex ChatGPT login found'), ('capture', 'codex-auth-error-light')])
                 github.check(missing / 'codex-auth-error-light.png', 'No Codex ChatGPT login found')
