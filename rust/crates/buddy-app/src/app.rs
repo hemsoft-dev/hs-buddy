@@ -9,6 +9,7 @@ use gpui_kit::{
     ParentElement, Render, Styled, Window, div,
 };
 
+use crate::copilot_view::CopilotView;
 use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::github_view::GitHubView;
 use crate::platform_placement;
@@ -111,6 +112,7 @@ pub struct BuddyApp {
     settings_view: Entity<SettingsView>,
     github_view: Entity<GitHubView>,
     terminal_view: Entity<TerminalView>,
+    copilot_view: Entity<CopilotView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -141,6 +143,9 @@ impl BuddyApp {
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
         self.terminal_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Terminal), cx)
+        });
+        self.copilot_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Copilot), cx)
         });
         self.github_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::GitHub), cx)
@@ -289,6 +294,9 @@ impl BuddyApp {
                     && this
                         .update(cx, |this, cx| {
                             if this.active_account != account {
+                                this.copilot_view.update(cx, |view, cx| {
+                                    view.set_default_account(account.clone(), cx)
+                                });
                                 this.active_account = account;
                                 cx.notify();
                             }
@@ -307,6 +315,21 @@ impl BuddyApp {
         let settings_view = cx.new(|cx| SettingsView::new(window, cx));
         let github_view = cx.new(|cx| GitHubView::new(window, cx));
         let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
+        let copilot_view = cx.new(|cx| CopilotView::new(window, cx));
+        cx.subscribe(
+            &github_view,
+            |this, _, event: &crate::github_view::GitHubEvent, cx| {
+                let crate::github_view::GitHubEvent::PrepareAssistantReview(client, pull) = event;
+                this.set_section(Some(Section::Copilot), cx);
+                this.copilot_view.update(cx, |view, cx| {
+                    view.prepare_review(client.clone(), pull.clone(), cx)
+                });
+            },
+        )
+        .detach();
+        copilot_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Copilot), cx)
+        });
         terminal_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Terminal), cx)
         });
@@ -328,6 +351,7 @@ impl BuddyApp {
             settings_view,
             github_view,
             terminal_view,
+            copilot_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -343,6 +367,7 @@ impl BuddyApp {
             Some(Section::Settings) => container.child(self.settings_view.clone()),
             Some(Section::GitHub) => container.child(self.github_view.clone()),
             Some(Section::Terminal) => container.child(self.terminal_view.clone()),
+            Some(Section::Copilot) => container.child(self.copilot_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -423,6 +448,7 @@ mod tests {
                         settings_view: cx.new(|cx| SettingsView::new(window, cx)),
                         github_view: cx.new(|cx| GitHubView::new(window, cx)),
                         terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
+                        copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

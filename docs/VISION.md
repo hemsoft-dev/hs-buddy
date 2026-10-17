@@ -108,36 +108,37 @@ are enforced by `scripts/check-readme-metadata.ts`.
 │           │ Convex SDK                                           │
 │           ▼                                                      │
 │  ┌────────────────────┐                                          │
-│  │  Convex Cloud       │  18 schema tables · scheduled jobs      │
+│  │  Convex Cloud       │  19 schema tables · scheduled jobs      │
 │  │  Real-time sync     │  File storage for run outputs           │
 │  │  Offline resilience │                                          │
 │  └────────────────────┘                                          │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Model (18 Convex Schema Tables + System Storage)
+### Data Model (19 Convex Schema Tables + System Storage)
 
-| Table                  | Purpose                                                         |
-| ---------------------- | --------------------------------------------------------------- |
-| `githubAccounts`       | Multi-account GitHub CLI configurations                         |
-| `settings`             | Singleton app config (PR refresh, Copilot models, view modes)   |
-| `terminalPrompts`      | Saved terminal prompt templates                                 |
-| `terminalPromptWrites` | Durable native prompt write receipts, including deleted prompts |
-| `jobs`                 | Task definitions (exec/ai/skill worker type + config)           |
-| `schedules`            | Cron expressions, timezone, missed policy, linked job           |
-| `runs`                 | Execution history (status, duration, output, file storage)      |
-| `bookmarks`            | URL collection with categories, tags, sort order                |
-| `repoBookmarks`        | Folder-organized repo collection                                |
-| `buddyStats`           | 16 lifetime counters (launches, tabs, PRs viewed, etc.)         |
-| `copilotResults`       | Stored Copilot prompt/response pairs                            |
-| `copilotResultCounts`  | Aggregated Copilot result totals                                |
-| `copilotUsageHistory`  | Daily billing snapshots for trend reporting                     |
-| `prReviewRuns`         | AI review history per PR + head SHA                             |
-| `featureIntakes`       | External ticket → canonical issue mapping                       |
-| `sessionDigests`       | Copilot session efficiency metrics                              |
-| `ralphRuns`            | Ralph loop execution history                                    |
-| `terminalWorkspaces`   | Persisted terminal workspace state                              |
-| `_storage`             | Convex-managed file storage for run outputs (system table)      |
+| Table                   | Purpose                                                         |
+| ----------------------- | --------------------------------------------------------------- |
+| `githubAccounts`        | Multi-account GitHub CLI configurations                         |
+| `settings`              | Singleton app config (PR refresh, Copilot models, view modes)   |
+| `terminalPrompts`       | Saved terminal prompt templates                                 |
+| `terminalPromptWrites`  | Durable native prompt write receipts, including deleted prompts |
+| `jobs`                  | Task definitions (exec/ai/skill worker type + config)           |
+| `schedules`             | Cron expressions, timezone, missed policy, linked job           |
+| `runs`                  | Execution history (status, duration, output, file storage)      |
+| `bookmarks`             | URL collection with categories, tags, sort order                |
+| `repoBookmarks`         | Folder-organized repo collection                                |
+| `buddyStats`            | 16 lifetime counters (launches, tabs, PRs viewed, etc.)         |
+| `copilotResults`        | Stored Copilot prompt/response pairs                            |
+| `copilotNativeRequests` | Native execution receipts and deleted-result tombstones         |
+| `copilotResultCounts`   | Aggregated Copilot result totals                                |
+| `copilotUsageHistory`   | Daily billing snapshots for trend reporting                     |
+| `prReviewRuns`          | AI review history per PR + head SHA                             |
+| `featureIntakes`        | External ticket → canonical issue mapping                       |
+| `sessionDigests`        | Copilot session efficiency metrics                              |
+| `ralphRuns`             | Ralph loop execution history                                    |
+| `terminalWorkspaces`    | Persisted terminal workspace state                              |
+| `_storage`              | Convex-managed file storage for run outputs (system table)      |
 
 ### Electron Main Process
 

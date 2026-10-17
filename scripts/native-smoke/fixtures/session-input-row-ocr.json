@@ -1,0 +1,456 @@
+{
+  "sourceCommit": "5b1c8d41c81e7bc647adaee21f57a2ed6d150e5b",
+  "jobUrl": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/39010088404/job/117330617208",
+  "captureSha256": "16f9baf456ffc02dd96c91514ddb90dd4fe126e9e011de06b97cfcece4d4d751",
+  "engine": "tesseract psm11",
+  "words": [
+    {
+      "text": "eco",
+      "left": 10,
+      "top": 11,
+      "width": 52,
+      "height": 12,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Buddy",
+      "left": 111,
+      "top": 11,
+      "width": 33,
+      "height": 12,
+      "line": "2/1/1"
+    },
+    {
+      "text": "File",
+      "left": 160,
+      "top": 11,
+      "width": 18,
+      "height": 9,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 190,
+      "top": 11,
+      "width": 20,
+      "height": 9,
+      "line": "2/1/1"
+    },
+    {
+      "text": "View",
+      "left": 220,
+      "top": 11,
+      "width": 26,
+      "height": 9,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 257,
+      "top": 11,
+      "width": 23,
+      "height": 12,
+      "line": "2/1/1"
+    },
+    {
+      "text": "#8",
+      "left": 1156,
+      "top": 11,
+      "width": 33,
+      "height": 11,
+      "line": "3/1/1"
+    },
+    {
+      "text": "98",
+      "left": 63,
+      "top": 44,
+      "width": 12,
+      "height": 12,
+      "line": "4/1/1"
+    },
+    {
+      "text": "Dashboard",
+      "left": 85,
+      "top": 45,
+      "width": 57,
+      "height": 9,
+      "line": "4/1/1"
+    },
+    {
+      "text": "Chat",
+      "left": 76,
+      "top": 94,
+      "width": 28,
+      "height": 10,
+      "line": "5/1/1"
+    },
+    {
+      "text": "Saved",
+      "left": 136,
+      "top": 94,
+      "width": 38,
+      "height": 10,
+      "line": "6/1/1"
+    },
+    {
+      "text": "results",
+      "left": 179,
+      "top": 94,
+      "width": 40,
+      "height": 10,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Usage",
+      "left": 251,
+      "top": 94,
+      "width": 39,
+      "height": 13,
+      "line": "7/1/1"
+    },
+    {
+      "text": "Sessions",
+      "left": 322,
+      "top": 93,
+      "width": 55,
+      "height": 11,
+      "line": "8/1/1"
+    },
+    {
+      "text": "Scan",
+      "left": 76,
+      "top": 138,
+      "width": 30,
+      "height": 10,
+      "line": "9/1/1"
+    },
+    {
+      "text": "VS",
+      "left": 111,
+      "top": 138,
+      "width": 18,
+      "height": 10,
+      "line": "9/1/1"
+    },
+    {
+      "text": "Code",
+      "left": 134,
+      "top": 138,
+      "width": 32,
+      "height": 10,
+      "line": "9/1/1"
+    },
+    {
+      "text": "Scan",
+      "left": 198,
+      "top": 138,
+      "width": 30,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "VS",
+      "left": 233,
+      "top": 138,
+      "width": 18,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Code",
+      "left": 256,
+      "top": 138,
+      "width": 32,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Insiders",
+      "left": 294,
+      "top": 138,
+      "width": 47,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "VS",
+      "left": 65,
+      "top": 177,
+      "width": 16,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "Code",
+      "left": 85,
+      "top": 177,
+      "width": 31,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "User",
+      "left": 121,
+      "top": 177,
+      "width": 26,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "directory",
+      "left": 151,
+      "top": 177,
+      "width": 49,
+      "height": 13,
+      "line": "11/1/1"
+    },
+    {
+      "text": "Choose",
+      "left": 971,
+      "top": 215,
+      "width": 47,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "folder...",
+      "left": 1022,
+      "top": 215,
+      "width": 48,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "Scan",
+      "left": 1103,
+      "top": 214,
+      "width": 30,
+      "height": 11,
+      "line": "13/1/1"
+    },
+    {
+      "text": "folder",
+      "left": 1138,
+      "top": 215,
+      "width": 35,
+      "height": 10,
+      "line": "13/1/1"
+    },
+    {
+      "text": "O",
+      "left": 64,
+      "top": 255,
+      "width": 6,
+      "height": 9,
+      "line": "14/1/1"
+    },
+    {
+      "text": "sessions",
+      "left": 75,
+      "top": 255,
+      "width": 50,
+      "height": 9,
+      "line": "14/1/1"
+    },
+    {
+      "text": "-",
+      "left": 127,
+      "top": 245,
+      "width": 6,
+      "height": 28,
+      "line": "14/1/1"
+    },
+    {
+      "text": "0",
+      "left": 139,
+      "top": 255,
+      "width": 3,
+      "height": 9,
+      "line": "14/1/1"
+    },
+    {
+      "text": "skipped",
+      "left": 148,
+      "top": 255,
+      "width": 43,
+      "height": 12,
+      "line": "14/1/1"
+    },
+    {
+      "text": "Select",
+      "left": 341,
+      "top": 531,
+      "width": 35,
+      "height": 10,
+      "line": "15/1/1"
+    },
+    {
+      "text": "a",
+      "left": 380,
+      "top": 534,
+      "width": 7,
+      "height": 7,
+      "line": "15/1/1"
+    },
+    {
+      "text": "session",
+      "left": 391,
+      "top": 534,
+      "width": 43,
+      "height": 7,
+      "line": "15/1/1"
+    },
+    {
+      "text": "to",
+      "left": 439,
+      "top": 532,
+      "width": 10,
+      "height": 9,
+      "line": "15/1/1"
+    },
+    {
+      "text": "inspect",
+      "left": 454,
+      "top": 532,
+      "width": 40,
+      "height": 12,
+      "line": "15/1/1"
+    },
+    {
+      "text": "its",
+      "left": 498,
+      "top": 532,
+      "width": 12,
+      "height": 9,
+      "line": "15/1/1"
+    },
+    {
+      "text": "requests",
+      "left": 515,
+      "top": 532,
+      "width": 48,
+      "height": 12,
+      "line": "15/1/1"
+    },
+    {
+      "text": "and",
+      "left": 568,
+      "top": 532,
+      "width": 20,
+      "height": 9,
+      "line": "15/1/1"
+    },
+    {
+      "text": "efficiency",
+      "left": 594,
+      "top": 532,
+      "width": 53,
+      "height": 12,
+      "line": "15/1/1"
+    },
+    {
+      "text": "metrics.",
+      "left": 652,
+      "top": 532,
+      "width": 40,
+      "height": 9,
+      "line": "15/1/1"
+    },
+    {
+      "text": "Enter",
+      "left": 65,
+      "top": 766,
+      "width": 30,
+      "height": 9,
+      "line": "16/1/1"
+    },
+    {
+      "text": "an",
+      "left": 99,
+      "top": 768,
+      "width": 13,
+      "height": 7,
+      "line": "16/1/1"
+    },
+    {
+      "text": "absolute",
+      "left": 117,
+      "top": 766,
+      "width": 48,
+      "height": 9,
+      "line": "16/1/1"
+    },
+    {
+      "text": "VS",
+      "left": 170,
+      "top": 765,
+      "width": 16,
+      "height": 10,
+      "line": "16/1/1"
+    },
+    {
+      "text": "Code",
+      "left": 191,
+      "top": 765,
+      "width": 30,
+      "height": 10,
+      "line": "16/1/1"
+    },
+    {
+      "text": "User",
+      "left": 226,
+      "top": 766,
+      "width": 26,
+      "height": 9,
+      "line": "16/1/1"
+    },
+    {
+      "text": "directory.",
+      "left": 257,
+      "top": 766,
+      "width": 49,
+      "height": 12,
+      "line": "16/1/1"
+    },
+    {
+      "text": "No",
+      "left": 17,
+      "top": 804,
+      "width": 29,
+      "height": 8,
+      "line": "17/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 50,
+      "top": 804,
+      "width": 11,
+      "height": 10,
+      "line": "17/1/1"
+    },
+    {
+      "text": "account",
+      "left": 66,
+      "top": 805,
+      "width": 38,
+      "height": 7,
+      "line": "17/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 1107,
+      "top": 804,
+      "width": 10,
+      "height": 10,
+      "line": "18/1/1"
+    },
+    {
+      "text": "07:01:22AM",
+      "left": 1123,
+      "top": 804,
+      "width": 60,
+      "height": 8,
+      "line": "18/1/1"
+    }
+  ]
+}

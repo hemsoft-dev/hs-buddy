@@ -58,6 +58,211 @@ class CompanionHandshake(unittest.TestCase):
 
 
 class DesktopLimits(unittest.TestCase):
+    def test_compact_mac_reveal_posts_two_small_line_events_before_the_next_ocr_attempt(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'macos'
+        owned = object.__new__(desktop.OwnedMacInput)
+        owned.require_focus = Mock()
+        owned.graphics = Mock()
+        owned.post = Mock()
+        metadata = json.dumps(dict(kCGWindowBounds=dict(X=80, Y=80, Width=900, Height=650)))
+        with patch.dict(os.environ, {'RUNNER_TEMP': 'owned-fixture'}), \
+                patch.object(desktop, 'run', return_value=metadata), \
+                patch.object(desktop, 'OwnedMacInput', return_value=owned), \
+                patch.object(desktop.time, 'sleep'):
+            driver.reveal_scroll(Mock(), (90, 357))
+        # The actual Intel capture moved by just one line before slow OCR
+        # exhausted the ordinary wait. Keep each event small, but send both
+        # before taking the next frame and requiring the exact visible status.
+        self.assertEqual([call.args for call in owned.graphics.CGEventCreateScrollWheelEvent.call_args_list],
+            [(None, 1, 1, -1), (None, 1, 1, -1)])
+        self.assertEqual(owned.post.call_count, 2)
+        self.assertEqual(owned.require_focus.call_count, 2)
+        self.assertEqual([(call.args[1].x, call.args[1].y) for call in owned.graphics.CGEventSetLocation.call_args_list],
+            [(170, 437), (170, 437)])
+        driver.session = 'x11'
+        with patch.object(desktop, 'run') as run, patch.object(desktop.time, 'sleep'):
+            driver.reveal_scroll(Mock(window='owned-window'), (90, 357))
+        self.assertEqual([call.args for call in run.call_args_list], [
+            ('xdotool', 'mousemove', '--window', 'owned-window', 90, 357),
+            ('xdotool', 'click', '--repeat', 1, '--delay', 50, 5),
+        ])
+
+    def test_anchored_mac_scroll_uses_one_line_while_legacy_scroll_keeps_its_step(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        window = Mock()
+        owned = object.__new__(desktop.OwnedMacInput)
+        owned.require_focus = Mock()
+        owned.graphics = Mock()
+        owned.post = Mock()
+        metadata = json.dumps(dict(kCGWindowBounds=dict(X=10, Y=20, Width=900, Height=650)))
+        with patch.dict(os.environ, {"RUNNER_TEMP": "owned-fixture"}), \
+                patch.object(desktop, "run", return_value=metadata), \
+                patch.object(desktop, "OwnedMacInput", return_value=owned), \
+                patch.object(desktop.time, "sleep"):
+            for point, precise, expected, position in [
+                    ((95, 360), None, -1, (105, 380)),
+                    (None, None, -10, (460, 345)),
+                    ((95, 360), False, -10, (105, 380))]:
+                owned.graphics.reset_mock()
+                driver.scroll(window, -120, point, precise=precise)
+                self.assertEqual(owned.graphics.CGEventCreateScrollWheelEvent.call_args.args, (None, 1, 1, expected))
+                observed = owned.graphics.CGEventSetLocation.call_args.args[1]
+                self.assertEqual((observed.x, observed.y), position)
+
+    def test_long_session_scroll_requires_the_owned_pane_and_retains_coarse_steps(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'macos'
+        # Actual Intel 900x650 capture: default centre (450,325) is above
+        # the detail viewport at y327. Its visible metrics are inside it.
+        driver.scroll_anchor = Mock(return_value=(570, 444))
+        state = {'progress': 0}
+
+        def scroll(_window, delta, point=None, *, precise=None):
+            x, y = point if point is not None else (450, 325)
+            if 340 <= x < 884 and 327 <= y < 535 and delta < 0 and precise is False:
+                state['progress'] += 1
+
+        driver.scroll = Mock(side_effect=scroll)
+
+        def observe(_window, _directory, text, *, scroll):
+            self.assertEqual(text, 'Inspect synthetic request 20')
+            for _ in range(2):
+                scroll()
+            if state['progress'] != 2:
+                raise desktop.MissingVisibleText('The request did not enter the owned viewport')
+
+        window, directory = Mock(), Path('owned-capture')
+        with patch.object(desktop, 'wait_visible', side_effect=observe):
+            driver.wait_scrolled(window, directory, 'Inspect synthetic request 20', 'Output / prompt tokens')
+        driver.scroll_anchor.assert_called_once_with(window, directory, 'Output / prompt tokens')
+        self.assertEqual(state['progress'], 2)
+
+    def test_slow_ocr_does_not_starve_scroll_to_the_last_request(self):
+        for never_visible in (False, True):
+            with self.subTest(never_visible=never_visible):
+                driver = object.__new__(desktop.Driver)
+                driver.session = 'macos'
+                clock = {'now': 0.}
+                moves = []
+
+                def anchor(*_args, **_kwargs):
+                    clock['now'] += 2
+                    return 537.5, 530
+
+                def scroll(_window, delta, point=None, *, precise=None):
+                    self.assertEqual((delta, point, precise), (-1200, (537.5, 530), False))
+                    moves.append(delta)
+                    clock['now'] += .7
+
+                def recognize(_image, text):
+                    self.assertEqual(text, 'Inspect synthetic request 20')
+                    if never_visible or len(moves) < 2:
+                        # Retained Intel OCR outputs span about eight seconds.
+                        clock['now'] += 8
+                        raise RuntimeError('The last request is still offscreen')
+                    clock['now'] += .4
+                    return dict(left=341, top=450, width=161, height=13)
+
+                driver.scroll_anchor = anchor
+                driver.scroll = scroll
+                with patch.object(desktop.ocr, 'locate_image', side_effect=recognize), \
+                        patch.object(desktop.time, 'monotonic', side_effect=lambda: clock['now']), \
+                        patch.object(desktop.time, 'sleep', side_effect=lambda seconds: clock.__setitem__('now', clock['now'] + seconds)):
+                    if never_visible:
+                        with self.assertRaisesRegex(RuntimeError, 'did not show the expected status'):
+                            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Inspect synthetic request 20', 'Next requests', above_anchor=True)
+                        self.assertGreaterEqual(clock['now'], 15)
+                    else:
+                        driver.wait_scrolled(Mock(), Path('owned-capture'), 'Inspect synthetic request 20', 'Next requests', above_anchor=True)
+                        self.assertEqual(len(moves), 2)
+                        self.assertLess(clock['now'], 15)
+
+    def test_an_already_visible_request_does_not_measure_an_offscreen_anchor_or_scroll(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'macos'
+        driver.scroll_anchor = Mock(side_effect=AssertionError('No scroll needed'))
+        driver.scroll = Mock()
+        with patch.object(desktop.ocr, 'locate_image', return_value=dict(left=340, top=450, width=180, height=13)):
+            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Final synthetic request twenty one', 'Request 21')
+        driver.scroll_anchor.assert_not_called()
+        driver.scroll.assert_not_called()
+
+    def test_unanchored_scroll_waits_keep_the_existing_default_target(self):
+        driver = object.__new__(desktop.Driver)
+        driver.scroll_anchor = Mock()
+        driver.scroll = Mock()
+        window = Mock()
+        with patch.object(desktop, 'wait_visible', side_effect=lambda _w, _d, _t, *, scroll: scroll()):
+            driver.wait_scrolled(window, Path('owned-capture'), 'fixture-member')
+        driver.scroll.assert_called_once_with(window, -1200)
+        driver.scroll_anchor.assert_not_called()
+
+    def test_scroll_anchor_uses_the_measured_label_instead_of_the_old_wheel_position(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "x11"
+        driver.locate = Mock(return_value=dict(left=60, top=350, width=70, height=20))
+        point = driver.scroll_anchor(Mock(), Path("owned-capture"), "Assistant")
+        self.assertEqual(point, (95, 360))
+        window = Mock(window="owned-window")
+        with patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+            driver.scroll(window, -120, point)
+        self.assertEqual(run.call_args_list[0].args, ("xdotool", "mousemove", "--window", "owned-window", 95, 360))
+
+    def test_mac_scroll_anchor_converts_capture_pixels_with_the_observed_scale(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        driver.locate = Mock(return_value=dict(left=120, top=700, width=140, height=40))
+        with tempfile.TemporaryDirectory(prefix="buddy-scroll-anchor-") as root:
+            directory = Path(root)
+            (directory / "settings-scroll-anchor.window.json").write_text(json.dumps(dict(capturePixelsPerWindowPoint=2)))
+            self.assertEqual(driver.scroll_anchor(Mock(), directory, "Assistant"), (95, 360))
+
+    def test_mac_scroll_anchor_requires_its_capture_calibration(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        driver.locate = Mock(return_value=dict(left=120, top=700, width=140, height=40))
+        with tempfile.TemporaryDirectory(prefix="buddy-scroll-anchor-") as root:
+            with self.assertRaises(FileNotFoundError):
+                driver.scroll_anchor(Mock(), Path(root), "Assistant")
+
+    def test_fixed_pager_measures_inside_the_pane_at_both_capture_scales(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        for scale in (1, 2):
+            with self.subTest(scale=scale), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                (directory / "settings-scroll-anchor.window.json").write_text(json.dumps(dict(capturePixelsPerWindowPoint=scale)))
+                # Native Vision output for the retained 900x650 Intel capture.
+                driver.locate = Mock(return_value=dict(left=490*scale, top=556*scale, width=92*scale, height=16*scale))
+                point = driver.scroll_anchor(Mock(), directory, "Next requests", above=True)
+                self.assertEqual(point, (536, 524))
+                self.assertTrue(340 <= point[0] < 884 and 327 <= point[1] < 535)
+                self.assertLess(point[1], 547)  # The button's outer top.
+
+    def test_pager_scrolling_is_lazy_coarse_and_requires_a_measured_control(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'x11'
+        driver.scroll_anchor = Mock(return_value=(536, 524))
+        driver.scroll = Mock()
+        window, directory = Mock(), Path("owned-capture")
+        with patch.object(desktop, "wait_visible", side_effect=lambda _w, _d, _t, *, scroll: (scroll(), scroll())):
+            driver.wait_scrolled(window, directory, "Inspect synthetic request 20", "Next requests", above_anchor=True)
+        driver.scroll_anchor.assert_called_once_with(window, directory, "Next requests", above=True)
+        self.assertEqual(driver.scroll.call_count, 2)
+        driver.scroll.assert_called_with(window, -1200, (536, 524), precise=False)
+        with self.assertRaises(RuntimeError):
+            driver.wait_scrolled(window, directory, "Missing", above_anchor=True)
+
+    def test_invalid_pager_geometry_cannot_produce_an_input_point(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "x11"
+        for top, height in ((10, 16), (556, 0), (float("nan"), 16)):
+            with self.subTest(top=top, height=height), self.assertRaises(RuntimeError):
+                driver.locate = Mock(return_value=dict(left=490, top=top, width=92, height=height))
+                driver.scroll_anchor(Mock(), Path("owned-capture"), "Next requests", above=True)
+
     def test_full_and_small_host_limits_are_used_before_resize(self):
         self.assertEqual(desktop.planned_large_size(1920, 1080), (1200, 820))
         self.assertEqual(desktop.planned_large_size(1044, 788), (1044, 788))
@@ -111,6 +316,65 @@ class DraftReadVerification(unittest.TestCase):
 
 
 class LabeledInputs(unittest.TestCase):
+    def test_cold_model_wait_requires_the_catalog_and_still_expires(self):
+        window, directory = Mock(), MagicMock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("loading"), dict(left=10)]), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 16]), patch.object(desktop.time, "sleep"):
+            desktop.wait_visible(window, directory, "Synthetic offline model", timeout=desktop.MODEL_CATALOG_TIMEOUT)
+        self.assertEqual(window.screenshot.call_count, 2)
+        window.key.assert_not_called()
+        with patch.object(desktop.ocr, "locate_image", side_effect=RuntimeError("still loading")), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 199, 201]), patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not show the expected status"):
+                desktop.wait_visible(window, directory, "Synthetic offline model", timeout=desktop.MODEL_CATALOG_TIMEOUT)
+        window.key.assert_not_called()
+
+    def test_windows_cold_model_budget_does_not_change_ordinary_status_commands(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-model-protocol-") as root:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(root)
+            driver.config = Path(root) / "config.json"
+            driver.executable = Path(root) / "owned-app.exe"
+            driver.checkout = Path(root)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            with patch.object(desktop, "run") as execute:
+                driver.drive("catalog", [("wait_models", "Synthetic offline model"),
+                    ("wait_text", "Saved to results"), ("key", "Return"),
+                    ("wait_scroll_above", "Inspect synthetic request 20", "Next requests")])
+            args = execute.call_args.args
+            commands = args[args.index("-Actions") + 1].split(",")
+            self.assertEqual(commands[1], "waitmodeltext64:" + desktop.b64("Synthetic offline model"))
+            self.assertEqual(commands[2], "waittext64:" + desktop.b64("Saved to results"))
+            self.assertEqual(commands[3], "key:13")
+            self.assertEqual(commands[4], "waitscrolltext64:" + desktop.b64("Inspect synthetic request 20"))
+            self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
+
+    def test_scrolling_reveals_feedback_but_requires_a_new_observation(self):
+        window, directory, scroll = Mock(), MagicMock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("offscreen"), dict(left=10)]), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 1]), patch.object(desktop.time, "sleep"):
+            desktop.wait_visible(window, directory, "Saved to results", scroll=scroll)
+        self.assertEqual(window.screenshot.call_count, 2)
+        scroll.assert_called_once_with()
+        window.key.assert_not_called()
+
+    def test_scroll_success_never_substitutes_for_missing_feedback(self):
+        window, directory, scroll = Mock(), MagicMock(), Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=RuntimeError("absent")), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 1, 16]), patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not show the expected status"):
+                desktop.wait_visible(window, directory, "Saved to results", scroll=scroll)
+        self.assertEqual(window.screenshot.call_count, 2)
+        scroll.assert_called_once_with()
+
+    def test_visible_feedback_does_not_move_the_conversation(self):
+        scroll = Mock()
+        with patch.object(desktop.ocr, "locate_image", return_value=dict(left=10)):
+            desktop.wait_visible(Mock(), MagicMock(), "Saved to results", scroll=scroll)
+        scroll.assert_not_called()
+
     def test_status_barrier_waits_for_an_observed_acknowledgment_without_posting_input(self):
         window, directory = Mock(), MagicMock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("not ready"), dict(left=10)]) as locate, \
@@ -158,6 +422,7 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[2], "waittext64:" + desktop.b64("Paste written. No Enter key was added."))
             self.assertEqual(commands[3], "key:13")
             self.assertEqual(commands[4], "waittext64:" + desktop.b64("NATIVEREADY"))
+            self.assertEqual(execute.call_args.kwargs["timeout"], 180)
 
     def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
         def word(text, left, top, line, width=40):
@@ -207,6 +472,53 @@ class LabeledInputs(unittest.TestCase):
                     window.key.assert_called_once_with("a")
                     self.assertIn(unittest.mock.call("xdotool", "type", "--clearmodifiers",
                         "--delay", 10, "--", "First private"), run.call_args_list)
+
+
+class SessionInputRows(unittest.TestCase):
+    def test_session_input_uses_the_measured_button_row_instead_of_border_padding(self):
+        # Actual Intel failure: label bottom190 produced y210; the adjacent
+        # Scan folder glyph spans215..225 and centers the editor at y220.
+        for session, scale in (("macos", 1), ("macos", 2), ("x11", 1)):
+            with self.subTest(session=session, scale=scale):
+                driver = desktop.Driver.__new__(desktop.Driver)
+                driver.session = session
+                directory = MagicMock()
+                image = directory.__truediv__.return_value
+                image.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200 * scale, 820 * scale)
+                image.with_suffix.return_value.read_text.return_value = json.dumps(dict(
+                    kCGWindowBounds=dict(X=100, Y=50), capturePixelsPerWindowPoint=scale))
+                label = dict(left=65 * scale, top=177 * scale, width=135 * scale, height=13 * scale,
+                    row_control=dict(left=1103 * scale, top=215 * scale, width=70 * scale, height=10 * scale))
+                window, helper = Mock(), Mock()
+                helper.focus_state.return_value = dict(flags="owned fixture window")
+                with patch.object(desktop.ocr, "locate_image", return_value=label) as locate, \
+                        patch.object(desktop, "OwnedMacInput", return_value=helper), \
+                        patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+                    driver.interact(window, directory, "input", ["VS Code User directory", "synthetic path", "Scan folder"])
+                locate.assert_called_with(image, "VS Code User directory", navigation=False,
+                    field=True, save_row=False, tab=False, row_control="Scan folder")
+                if session == "macos":
+                    helper.click.assert_called_once_with(185, 270)
+                    helper.replace_text.assert_called_once_with("synthetic path")
+                else:
+                    self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
+                        window.window, 85, 220, "click", 1), run.call_args_list)
+
+    def test_windows_semantic_input_does_not_receive_the_unix_geometry_hint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(temporary)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.executable = Path("owned-buddy.exe")
+            driver.config = driver.profile / "config.json"
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            driver.checkout = driver.profile
+            with patch.object(desktop, "run") as run:
+                driver.drive("sessions", [("input", "VS Code User directory", "synthetic path", "Scan folder")])
+            arguments = run.call_args.args
+            commands = arguments[arguments.index("-Actions") + 1].split(",")
+            self.assertIn("input64:" + desktop.b64("VS Code User directory") + ":" + desktop.b64("synthetic path"), commands)
 
 
 class MacInputOwnership(unittest.TestCase):

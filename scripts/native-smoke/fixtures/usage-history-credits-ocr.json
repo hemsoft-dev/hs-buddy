@@ -1,0 +1,7 @@
+{
+  "sourceHead": "77b1aa445136f72f4405258336aadce546b9f32a",
+  "artifactId": 12090204905,
+  "captureSha256": "9a93996a3fc7b38f37b9d38b19090a417e83d6da2dfbb52d36648c7878e4d449",
+  "engine": "Tesseract, page segmentation mode 11, original capture",
+  "text": "eco\n\nbuddy file edit view help\n\n#8\n\n98 dashboard\n\nchat\n\nsaved results\n\nusage\n\nsessions\n\nusage and billing\n\nsynthetic-account / fixture-org - copilot\n\ncodex-fixture / fixture-org - codex\n\nrefresh usage\n\nreload accounts from settings\n\nal credits: 1200 used / 3900 included : estimated overage: $0.00\n\nresets 2026-11-01 00:00 utc\n\nprojected period total: 2294 credits - projected overage: $0.00\n\nprojected period spend: $17.20\n\nthis budget prevent further usage when its limit is reached.\n\nbilling period 2026-10 - gross $12.00 - discount $3.00 \u00ab net spend $9.00 - 0 seats\n\nmonthly copilot budget: $200.00\n\nbilling snapshot saved to history.\n\ncopilot billing history\n\n2026\n\n10\n\nload period\n\nshowing 2026-10\n\n2026-10-17 05:14 utc - 1200 credits - gross $12.00 - discount $3.00 - net $9.00 - spend $9.00 - 0 seats - budget $200.00\n\nenterprise users\n\nread a local codexbar copilot metrics export. this file can cover a different organization and period from the selected usage account.\n\njusers/runner/work/_temp/native-evidence/copilot/enterprise-metrics.json\n\nchoose metrics file...\n\nload metrics file\n\nno gh account\n\n\u00a9 05:14:07 am"
+}

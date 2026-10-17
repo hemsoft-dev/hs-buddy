@@ -142,10 +142,11 @@ class OwnedMacInput:
             leftButtonDown=bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, 0)),
             focusedElement=dict(returncode=focused.returncode, geometry=focused.stdout.strip(), error=focused.stderr.strip()))
 
-    def scroll(self, x, y, delta):
+    def scroll(self, x, y, delta, *, precise=False):
         self.require_focus()
         for _ in range(max(1, abs(delta) // 240)):
-            event = self.graphics.CGEventCreateScrollWheelEvent(None, 1, 1, -10 if delta < 0 else 10)
+            step = 1 if precise else 10
+            event = self.graphics.CGEventCreateScrollWheelEvent(None, 1, 1, -step if delta < 0 else step)
             if not event:
                 raise RuntimeError("Could not create an owned Mac scrolling event")
             self.graphics.CGEventSetLocation(event, Point(x, y))

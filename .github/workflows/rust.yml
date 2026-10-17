@@ -46,7 +46,8 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Measured cold Intel setup/build takes 103 minutes before installed UI checks.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 150 || 90 }}
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +80,9 @@ jobs:
           swift package describe
           swift build --configuration release --product buddy-window-info
           cp .build/release/buddy-window-info "$RUNNER_TEMP/buddy-window-info"
+          swift build --configuration release --product buddy-ocr-words
+          cp .build/release/buddy-ocr-words "$RUNNER_TEMP/buddy-ocr-words"
+          printf 'BUDDY_SETTINGS_OCR_HELPER=%s\n' "$RUNNER_TEMP/buddy-ocr-words" >> "$GITHUB_ENV"
 
       - name: Install Windows OCR
         if: runner.os == 'Windows'
@@ -166,13 +170,14 @@ jobs:
           node --test scripts/package-native.test.mjs
           python -m unittest discover -s scripts/native-smoke -p 'test_*.py'
 
-      - name: Windows cleanup failure guards
+      - name: Windows cleanup and recording failure guards
         if: runner.os == 'Windows'
         working-directory: .
         shell: pwsh
         run: |
           ./scripts/native-smoke/test-cleanup.ps1
           ./scripts/native-smoke/test-windows-assertions.ps1
+          ./scripts/native-smoke/test-windows-recording.ps1
 
       # Advisory, license and source gate for the Rust dependency graph
       # (policy in rust/deny.toml). Once per run is enough.

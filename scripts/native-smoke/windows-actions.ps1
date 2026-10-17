@@ -83,6 +83,15 @@ function Click-OwnedPoint([int] $X, [int] $Y) {
     [Drive]::PostMessageW($h, 0x202, 0, $lp) | Out-Null
     Start-Sleep -Milliseconds 600
 }
+function Scroll-OwnedWindow([int] $Delta, [hashtable] $Position) {
+    $pt = New-Object Drive+POINT
+    $pt.x = if ($Position) { $Position.X } else { 600 }
+    $pt.y = if ($Position) { $Position.Y } else { 400 }
+    [Drive]::ClientToScreen($h, [ref]$pt) | Out-Null
+    $wparam = [IntPtr]([int64]($Delta -band 0xFFFF) -shl 16)
+    [Drive]::PostMessageW($h, 0x20A, $wparam, [Drive]::MakeLParam($pt.x, $pt.y)) | Out-Null
+    Start-Sleep -Milliseconds 700
+}
 function Write-OwnedText([string] $Encoded) {
     $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
     if ($text.Length -gt 8192) { throw 'Fixture text exceeds the bounded input size' }
@@ -127,7 +136,9 @@ try {
                 New-Item -ItemType Directory -Path $recordDirectory | Out-Null
                 $recorder = Start-ThreadJob -ArgumentList $h,$recordDirectory -ScriptBlock {
                     param($window,$directory)
-                    for ($frame = 0; $frame -lt 240; $frame++) {
+                    # The owning helper already has a bounded action deadline.
+                    # Record until its completion signal, including cold startup.
+                    for ($frame = 0; ; $frame++) {
                         if (Test-Path -LiteralPath (Join-Path $directory 'complete')) { return }
                         $rect = New-Object Drive+RECT
                         if (-not [Drive]::GetWindowRect($window, [ref]$rect)) { throw 'Recording window disappeared' }
@@ -144,29 +155,34 @@ try {
                         } finally { $bmp.Dispose() }
                         Start-Sleep -Milliseconds 250
                     }
-                    throw 'Recording exceeded 60 seconds'
                 }
             }
             'record-stop' {
                 if (-not $recorder) { throw 'No recording is active' }
                 New-Item -ItemType File (Join-Path $recordDirectory 'complete') | Out-Null
                 $finished = Wait-Job $recorder -Timeout 10
-                if (-not $finished -or $recorder.State -ne 'Completed') { throw 'Recording did not complete' }
+                if (-not $finished) { throw 'Recording did not complete' }
                 Receive-Job $recorder -ErrorAction Stop | Out-Null
+                if ($recorder.State -ne 'Completed') { throw 'Recording did not complete' }
                 Remove-Job $recorder
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            'waittext64' {
-                # Read-only acknowledgment barrier on this owned hidden HWND.
-                # Never post the following key until the exact status is visible.
+            { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'revealtext64' } {
+                # Explicit scroll waits may reveal content on this owned HWND.
+                # Never advance until the exact status is visibly observed.
+                $scrollPoint = if ($parts[0] -eq 'revealtext64') { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
+                $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } else { -1200 }
+                # Model discovery includes the existing bounded cold SDK bootstrap.
+                $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 while ($true) {
                     try {
                         Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
                         break
                     } catch {
-                        if ($timer.Elapsed.TotalSeconds -ge 15) { throw }
+                        if ($timer.Elapsed.TotalSeconds -ge $timeoutSeconds) { throw }
+                        if ($parts[0] -in 'waitscrolltext64', 'revealtext64') { Scroll-OwnedWindow $scrollDelta $scrollPoint }
                         Start-Sleep -Milliseconds 100
                     }
                 }

@@ -10,6 +10,8 @@
 
 import type * as bookmarks from "../bookmarks.js";
 import type * as buddyStats from "../buddyStats.js";
+import type * as copilotNative from "../copilotNative.js";
+import type * as copilotNativeWrites from "../copilotNativeWrites.js";
 import type * as copilotResults from "../copilotResults.js";
 import type * as copilotUsageHistory from "../copilotUsageHistory.js";
 import type * as crons from "../crons.js";
@@ -17,6 +19,7 @@ import type * as featureIntakes from "../featureIntakes.js";
 import type * as githubAccounts from "../githubAccounts.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_copilotResultCounts from "../lib/copilotResultCounts.js";
 import type * as lib_cronUtils from "../lib/cronUtils.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_offlineRecovery from "../lib/offlineRecovery.js";
@@ -44,6 +47,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   bookmarks: typeof bookmarks;
   buddyStats: typeof buddyStats;
+  copilotNative: typeof copilotNative;
+  copilotNativeWrites: typeof copilotNativeWrites;
   copilotResults: typeof copilotResults;
   copilotUsageHistory: typeof copilotUsageHistory;
   crons: typeof crons;
@@ -51,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   githubAccounts: typeof githubAccounts;
   jobs: typeof jobs;
   "lib/constants": typeof lib_constants;
+  "lib/copilotResultCounts": typeof lib_copilotResultCounts;
   "lib/cronUtils": typeof lib_cronUtils;
   "lib/domain": typeof lib_domain;
   "lib/offlineRecovery": typeof lib_offlineRecovery;

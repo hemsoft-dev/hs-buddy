@@ -1,12 +1,6 @@
-//! Read-only model discovery over Copilot's stdio JSON-RPC protocol 3, matching
-//! the repository's @github/copilot-sdk 1.0.14. No prompt or session is created.
-
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
-use std::time::Duration;
-
+//! Read-only model discovery through the same packaged SDK runtime as chat.
+use crate::copilot_runs::Failure;
 use serde::Deserialize;
-use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Model {
@@ -18,175 +12,159 @@ fn safe_text(value: &str) -> bool {
     !value.is_empty() && value.len() <= 200 && !value.chars().any(char::is_control)
 }
 
-fn send(writer: &mut impl Write, id: u32, method: &str, params: Value) -> Result<(), &'static str> {
-    let body = json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}).to_string();
-    write!(writer, "Content-Length: {}\r\n\r\n{}", body.len(), body)
-        .map_err(|_| "Copilot CLI disconnected.")?;
-    writer.flush().map_err(|_| "Copilot CLI disconnected.")
+pub(crate) fn from_sdk(
+    models: Vec<github_copilot_sdk::types::Model>,
+) -> Result<Vec<Model>, Failure> {
+    if models.len() > 500 {
+        return Err(Failure::ServiceUnavailable);
+    }
+    let mut result = Vec::new();
+    for model in models {
+        if !safe_text(&model.id)
+            || !safe_text(&model.name)
+            || result.iter().any(|row: &Model| row.id == model.id)
+        {
+            return Err(Failure::ServiceUnavailable);
+        }
+        result.push(Model {
+            id: model.id,
+            name: model.name,
+        });
+    }
+    Ok(result)
 }
 
-fn response(reader: &mut impl BufRead, id: u32) -> Result<Value, &'static str> {
-    for _ in 0..64 {
-        let mut header = Vec::new();
-        while !header.ends_with(b"\r\n\r\n") {
-            if header.len() >= 8192 {
-                return Err("Copilot returned an unsupported response.");
-            }
-            let mut byte = [0];
-            reader
-                .read_exact(&mut byte)
-                .map_err(|_| "Copilot CLI disconnected.")?;
-            header.push(byte[0]);
-        }
-        let header = std::str::from_utf8(&header)
-            .map_err(|_| "Copilot returned an unsupported response.")?;
-        let length = header
-            .lines()
-            .find_map(|line| {
-                let (key, value) = line.split_once(':')?;
-                key.eq_ignore_ascii_case("Content-Length")
-                    .then(|| value.trim().parse::<usize>().ok())
-                    .flatten()
-            })
-            .filter(|size| *size > 0 && *size <= 1024 * 1024)
-            .ok_or("Copilot returned an oversized or unsupported response.")?;
-        let mut bytes = vec![0; length];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|_| "Copilot CLI disconnected.")?;
-        let message: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| "Copilot returned an unsupported response.")?;
-        if message.get("id").and_then(Value::as_u64) != Some(u64::from(id)) {
-            continue;
-        }
-        if message.get("error").is_some() {
-            return Err(
-                "Copilot rejected model discovery. Check account access and CLI compatibility.",
-            );
-        }
-        return message
-            .get("result")
-            .cloned()
-            .ok_or("Copilot returned an unsupported response.");
+fn fixture_stage(enabled: bool, stage: &'static str) {
+    if enabled {
+        // The fixture is CI-owned; never log account names, paths or SDK errors.
+        log::warn!("Native model discovery phase: {stage}");
     }
-    Err("Copilot did not return the requested models.")
-}
-
-fn discover(token: String) -> Result<Vec<Model>, &'static str> {
-    let cli = std::env::var_os("BUDDY_COPILOT_CLI").unwrap_or_else(|| "copilot".into());
-    let mut command = Command::new(cli);
-    command
-        .args([
-            "--headless",
-            "--no-auto-update",
-            "--stdio",
-            "--no-auto-login",
-            "--auth-token-env",
-            "COPILOT_SDK_AUTH_TOKEN",
-        ])
-        .env_remove("GH_TOKEN")
-        .env_remove("GITHUB_TOKEN")
-        .env("COPILOT_SDK_AUTH_TOKEN", token)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = command.spawn().map_err(
-        |_| "Copilot CLI is unavailable. Install it or set BUDDY_COPILOT_CLI to its executable.",
-    )?;
-    let input = child.stdin.take();
-    let output = child.stdout.take();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let result = (|| {
-            let mut input = input.ok_or("Copilot CLI disconnected.")?;
-            let mut output = BufReader::new(output.ok_or("Copilot CLI disconnected.")?);
-            send(
-                &mut input,
-                1,
-                "connect",
-                json!({"supportedTaskKinds":["agent","client","shell"]}),
-            )?;
-            let connected = response(&mut output, 1)?;
-            if connected.get("protocolVersion").and_then(Value::as_u64) != Some(3) {
-                return Err(
-                    "This Copilot CLI protocol is unsupported. Use the CLI matching Buddy's SDK.",
-                );
-            }
-            send(&mut input, 2, "models.list", json!({}))?;
-            let result = response(&mut output, 2)?;
-            let models = result
-                .get("models")
-                .and_then(Value::as_array)
-                .ok_or("Copilot returned an unsupported model list.")?;
-            let mut parsed = Vec::new();
-            for model in models.iter().take(500) {
-                let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-                let name = model.get("name").and_then(Value::as_str).unwrap_or(id);
-                if safe_text(id) && safe_text(name) {
-                    parsed.push(Model {
-                        id: id.into(),
-                        name: name.into(),
-                    });
-                }
-            }
-            Ok(parsed)
-        })();
-        let _ = tx.send(result);
-    });
-    let result = rx
-        .recv_timeout(Duration::from_secs(30))
-        .map_err(|_| "Copilot model discovery timed out. Check the CLI and account, then retry.");
-    // No session exists. Reap this request's server on success and every error.
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = worker.join();
-    result?
 }
 
 pub async fn list(account: &str) -> Result<Vec<Model>, &'static str> {
+    if account.trim().is_empty() && std::env::var_os("BUDDY_COPILOT_FIXTURE").is_some() {
+        return Err("Choose the synthetic qualification account.");
+    }
     let account = if account.trim().is_empty() {
         crate::gh::active_account()
             .await
             .ok_or("Sign in with GitHub CLI before loading models.")?
     } else {
         crate::gh::assert_valid_slug(account).map_err(|_| "Choose a valid GitHub CLI account.")?;
-        account.into()
+        account.to_owned()
     };
-    let token = crate::gh::auth_token(&account).await.map_err(
-        |_| "GitHub CLI could not provide this account's credentials. Sign in and retry.",
-    )?;
-    tokio::task::spawn_blocking(move || discover(token))
+    let owned = crate::config::config_path()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join("native-assistant")))
+        .ok_or("The private assistant directory is unavailable.")?;
+    let executable =
+        std::env::current_exe().map_err(|_| "The packaged assistant runtime is unavailable.")?;
+    let fixture = crate::copilot_fixture::load(&owned)
+        .map_err(|_| "The offline model fixture is invalid.")?;
+    if let Some(fixture) = &fixture {
+        fixture
+            .identity(&account, None)
+            .map_err(|_| "Choose the synthetic qualification account.")?;
+    }
+    let diagnostics = fixture.is_some();
+    fixture_stage(diagnostics, "preparing runtime");
+    let program = crate::copilot_runtime::prepare(executable, owned.join("runtime"))
         .await
-        .map_err(|_| "Copilot model discovery could not finish.")?
+        .map_err(|_| "The packaged assistant runtime could not be prepared.")?;
+    fixture_stage(diagnostics, "runtime prepared");
+    let token = if fixture.is_some() {
+        None
+    } else {
+        Some(
+            crate::gh::auth_token(&account)
+                .await
+                .map_err(|_| "Sign in with GitHub CLI for the selected account.")?,
+        )
+    };
+    let turns = owned.join("turns");
+    crate::copilot_sdk::private_directory(&turns)
+        .map_err(|_| "The private assistant directory is unavailable.")?;
+    let directory = tempfile::Builder::new()
+        .prefix("models-")
+        .tempdir_in(turns)
+        .map_err(|_| "The private assistant directory is unavailable.")?;
+    fixture_stage(diagnostics, "starting SDK");
+    let runtime = crate::copilot_sdk::AssistantRuntime::start_with_fixture(
+        program.program(),
+        directory.path(),
+        token,
+        fixture,
+    )
+    .await
+    .map_err(|_| "The packaged assistant runtime could not start.")?;
+    fixture_stage(diagnostics, "loading catalog");
+    let result = runtime.models(&account).await;
+    fixture_stage(
+        diagnostics,
+        if result.is_ok() {
+            "catalog received"
+        } else {
+            "catalog unavailable"
+        },
+    );
+    let stopped = runtime.stop().await;
+    fixture_stage(
+        diagnostics,
+        if stopped.is_ok() {
+            "SDK stopped"
+        } else {
+            "SDK stop unconfirmed"
+        },
+    );
+    drop(runtime);
+    let cleaned = directory.close();
+    fixture_stage(
+        diagnostics,
+        if cleaned.is_ok() {
+            "state removed"
+        } else {
+            "state cleanup unconfirmed"
+        },
+    );
+    if stopped.is_err() || cleaned.is_err() {
+        return Err("Assistant cleanup could not be confirmed. Try loading models again.");
+    }
+    result.map_err(|failure| match failure {
+        Failure::AuthenticationRequired => {
+            "Copilot is not authenticated as the selected GitHub account."
+        }
+        _ => "Model discovery is unavailable. Check account access and retry.",
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn framing_accepts_notifications_without_exposing_error_bodies() {
-        let mut bytes = Vec::new();
-        send(&mut bytes, 99, "notice", json!({})).unwrap();
-        let error = r#"{"jsonrpc":"2.0","id":2,"error":{"message":"private-fixture-token"}}"#;
-        write!(
-            &mut bytes,
-            "Content-Length: {}\r\n\r\n{}",
-            error.len(),
-            error
+    fn model(id: &str) -> github_copilot_sdk::types::Model {
+        serde_json::from_value(
+            serde_json::json!({"id":id,"name":id,"capabilities":{"supports":{},"limits":{}}}),
         )
-        .unwrap();
-        let message = response(&mut Cursor::new(bytes), 2).unwrap_err();
-        assert!(!message.contains("private-fixture-token"));
+        .unwrap()
     }
     #[test]
-    fn oversized_and_unterminated_frames_are_rejected() {
-        assert!(response(&mut Cursor::new(b"Content-Length: 1048577\r\n\r\n"), 1).is_err());
-        assert!(response(&mut Cursor::new(vec![b'x'; 8193]), 1).is_err());
+    fn rejects_unsafe_duplicate_or_unbounded_model_lists() {
+        assert!(from_sdk(vec![model("unsafe\nmodel")]).is_err());
+        assert!(from_sdk(vec![model("same"), model("same")]).is_err());
+        assert!(
+            from_sdk(
+                (0..501)
+                    .map(|index| model(&format!("model-{index}")))
+                    .collect()
+            )
+            .is_err()
+        );
+        assert_eq!(
+            from_sdk(vec![model("synthetic-model")]).unwrap()[0].id,
+            "synthetic-model"
+        );
     }
-    use std::io::Cursor;
+    #[tokio::test]
+    async fn invalid_account_never_reads_credentials_or_launches_runtime() {
+        assert!(list("invalid/account").await.is_err());
+    }
 }

@@ -9,6 +9,204 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1443] - 2026-10-17
+
+### Fixed
+
+- Complete Mac session scrolling within its existing wait
+
+## [0.1.1442] - 2026-10-17
+
+### Fixed
+
+- Keep qualification recordings alive until completion
+
+## [0.1.1441] - 2026-10-17
+
+### Changed
+
+- Measure session scrolling above its fixed pager
+
+## [0.1.1440] - 2026-10-17
+
+### Changed
+
+- Measure session scrolling above its fixed pager
+
+## [0.1.1439] - 2026-10-17
+
+### Changed
+
+- Remove the temporary OCR investigation files
+
+## [0.1.1438] - 2026-10-17
+
+### Changed
+
+- Keep visible OCR words beside empty Vision boxes
+
+## [0.1.1437] - 2026-10-17
+
+### Changed
+
+- Isolate the retained macOS OCR failure
+
+## [0.1.1436] - 2026-10-17
+
+### Changed
+
+- Aim long session scrolling at its owned content
+
+## [0.1.1435] - 2026-10-17
+
+### Fixed
+
+- Keep compact session paging clear of retained status
+
+## [0.1.1434] - 2026-10-17
+
+### Fixed
+
+- Target session inputs from their measured control row
+
+## [0.1.1433] - 2026-10-17
+
+### Fixed
+
+- Verify exact fixture credits in native qualification
+
+## [0.1.1432] - 2026-10-17
+
+### Changed
+
+- Complete compact Mac reveal gestures before OCR
+
+## [0.1.1431] - 2026-10-17
+
+### Fixed
+
+- Reveal enterprise usage rows and display zero seats
+
+## [0.1.1430] - 2026-10-17
+
+### Changed
+
+- Preserve cancellation after a streaming capture
+
+## [0.1.1429] - 2026-10-17
+
+### Fixed
+
+- Decode typed billing floats and synchronize streaming evidence
+
+## [0.1.1428] - 2026-10-17
+
+### Changed
+
+- Verify wrapped review notices within their detail column
+
+## [0.1.1427] - 2026-10-17
+
+### Changed
+
+- Allow measured cold Intel builds to finish qualification
+
+## [0.1.1426] - 2026-10-17
+
+### Fixed
+
+- Display captured reviews and qualify model discovery
+
+## [0.1.1425] - 2026-10-16
+
+### Changed
+
+- Allow cold Intel builds to finish native qualification
+
+## [0.1.1424] - 2026-10-16
+
+### Changed
+
+- Reveal saved answer controls before clicking
+
+## [0.1.1423] - 2026-10-16
+
+### Changed
+
+- Select an available model for fresh PR reviews
+
+## [0.1.1422] - 2026-10-16
+
+### Changed
+
+- Keep anchored Mac scrolling to one line
+
+## [0.1.1421] - 2026-10-16
+
+### Changed
+
+- Reveal compact chat and diagnose helper cleanup
+
+## [0.1.1420] - 2026-10-16
+
+### Changed
+
+- Compile native OCR once and ignore border tokens
+
+## [0.1.1419] - 2026-10-16
+
+### Fixed
+
+- Recover Copilot views and bind session identities
+
+## [0.1.1418] - 2026-10-16
+
+### Changed
+
+- Report safe installed SDK failure states
+
+## [0.1.1417] - 2026-10-16
+
+### Changed
+
+- Reveal conversation feedback before asserting saves
+
+## [0.1.1416] - 2026-10-16
+
+### Changed
+
+- Add native OCR fallback for missed controls
+
+## [0.1.1415] - 2026-10-16
+
+### Changed
+
+- Bound Codex usage HTTP fixture I/O
+
+## [0.1.1413] - 2026-10-16
+
+### Fixed
+
+- Connect Copilot qualification to scoped GitHub fixtures
+
+## [0.1.1412] - 2026-10-16
+
+### Fixed
+
+- Clarify Copilot account and cancellation controls
+
+## [0.1.1411] - 2026-10-16
+
+### Fixed
+
+- Preserve Copilot results during save recovery
+
+## [0.1.1410] - 2026-10-16
+
+### Added
+
+- Port Copilot workflows to Rust and GPUI
+
 ## [0.1.1409] - 2026-10-16
 
 ### Fixed

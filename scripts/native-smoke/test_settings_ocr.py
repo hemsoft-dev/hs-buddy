@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +17,149 @@ def word(text, left, top, line):
     return dict(text=text, left=left, top=top, width=30, height=12, line=line)
 
 
+class SessionInputRow(unittest.TestCase):
+    def test_actual_failed_intel_layout_measures_the_editor_row_below_the_old_click(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('session-input-row-ocr.json').read_text(encoding='utf-8'))
+        label = ocr.locate_label(evidence['words'], 'VS Code User directory', field=True)
+        control = ocr.aligned_control(evidence['words'], label, 'Scan folder')
+        self.assertEqual(label, dict(left=65, top=177, width=135, height=13))
+        self.assertEqual(control, dict(left=1103, top=214, width=70, height=11))
+        self.assertEqual(label['top'] + label['height'] + 20, 210)
+        self.assertEqual(control['top'] + control['height'] / 2, 219.5)
+
+    def test_complete_adjacent_button_locates_the_editor_row_at_both_capture_scales(self):
+        for scale in (1, 2):
+            with self.subTest(scale=scale):
+                label = dict(left=65*scale, top=177*scale, width=135*scale, height=13*scale)
+                words = [dict(text='Scan', left=1103*scale, top=215*scale, width=29*scale, height=10*scale, line='scan'),
+                    dict(text='folder', left=1138*scale, top=215*scale, width=35*scale, height=10*scale, line='scan')]
+                self.assertEqual(ocr.aligned_control(words, label, 'Scan folder'),
+                    dict(left=1103*scale, top=215*scale, width=70*scale, height=10*scale))
+
+    def test_competing_buttons_in_the_same_row_are_rejected(self):
+        label = dict(left=65, top=177, width=135, height=13)
+        words = [dict(text='Scan folder', left=x, top=215, width=70, height=10, line=str(x)) for x in (600, 1103)]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.aligned_control(words, label, 'Scan folder')
+
+    def test_button_on_another_row_or_partial_label_is_rejected(self):
+        label = dict(left=65, top=177, width=135, height=13)
+        for text, top in (('Scan folder', 300), ('Scan folder', 160), ('Scan', 215)):
+            with self.subTest(text=text, top=top), self.assertRaises(RuntimeError):
+                ocr.aligned_control([dict(text=text, left=1103, top=top, width=70, height=10, line='scan')], label, 'Scan folder')
+
+
 class LabelGuards(unittest.TestCase):
+    def test_border_punctuation_does_not_create_two_matches_for_one_interrupt_button(self):
+        words = [dict(text="Interrupt", left=499, top=151, width=61, height=30, line="16/1/1"),
+            dict(text="(", left=584, top=155, width=4, height=30, line="16/1/1"),
+            dict(text="Close", left=595, top=163, width=37, height=11, line="16/1/1"),
+            dict(text="shell", left=637, top=163, width=31, height=11, line="16/1/1")]
+        self.assertEqual(ocr.find_label(words, "Interrupt"), dict(left=499, top=151, width=61, height=30))
+
+    def test_punctuation_filter_never_combines_competing_controls(self):
+        words = [word("Interrupt", 140, 188, "one"), word("(", 172, 188, "one"),
+            word("Interrupt", 400, 188, "two"), word(")", 432, 188, "two")]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Interrupt")
+
+    def test_macos_ocr_runs_the_declared_compiled_helper_without_swift_interpretation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            helper, image = Path(folder) / "buddy-ocr-words", Path(folder) / "owned.png"
+            helper.write_bytes(b"synthetic prepared helper")
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(helper)}), \
+                    patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")) as run:
+                self.assertEqual(ocr.recognize_macos(image), [])
+            self.assertEqual(run.call_args.args[0], [str(helper), str(image)])
+            self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
+    def test_missing_prepared_macos_helper_fails_before_spawning_a_process(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(Path(folder) / "missing")}), \
+                    patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")) as run:
+                with self.assertRaisesRegex(RuntimeError, "compiled"):
+                    ocr.recognize_macos(Path(folder) / "owned.png")
+            run.assert_not_called()
+
+    def test_macos_native_ocr_uses_the_untouched_capture_and_same_label_rules(self):
+        native = [dict(text="Run and save", left=197, top=760, width=86, height=13, line="save")]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "owned.png"
+            image.write_bytes(b"untouched original capture")
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "darwin"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_macos", return_value=native) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                self.assertEqual(ocr.locate_image(image, "Run and save"),
+                    dict(left=197, top=760, width=86, height=13))
+            recognize_native.assert_called_once_with(image)
+            self.assertEqual(image.read_bytes(), b"untouched original capture")
+
+    def test_macos_native_fallback_cannot_select_between_competing_controls(self):
+        duplicate = [word("Refresh", 140, 188, "one"), word("Refresh", 400, 188, "two")]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "darwin"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_macos", return_value=duplicate) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            recognize_native.assert_called_once()
+
+    def test_windows_native_ocr_recovers_a_legible_button_missed_by_tesseract(self):
+        missed = [word("response", 359, 724, "cancel")]
+        native = [dict(text="Run and save", left=201, top=721, width=81, height=10, line="save")]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "owned.png"
+            image.write_bytes(b"untouched original capture")
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "win32"), \
+                    patch.object(ocr, "recognize", return_value=missed), \
+                    patch.object(ocr, "recognize_windows", return_value=native, create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                self.assertEqual(ocr.locate_image(image, "Run and save"),
+                    dict(left=201, top=721, width=81, height=10))
+            recognize_native.assert_called_once_with(image)
+            self.assertEqual(image.read_bytes(), b"untouched original capture")
+
+    def test_an_ambiguous_engine_result_cannot_be_replaced_by_a_later_unique_result(self):
+        duplicate = [word("Refresh", 140, 188, "one"), word("Refresh", 400, 188, "two")]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "win32"), \
+                    patch.object(ocr, "recognize", return_value=duplicate) as recognize, \
+                    patch.object(ocr, "recognize_windows", return_value=duplicate[:1], create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            self.assertEqual(recognize.call_count, 1)
+            recognize_native.assert_not_called()
+
+    def test_windows_native_fallback_keeps_competing_controls_ambiguous(self):
+        duplicate = [word("Refresh", 140, 188, "one"), word("Refresh", 400, 188, "two")]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "win32"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_windows", return_value=duplicate, create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            recognize_native.assert_called_once()
+
+    def test_non_windows_hosts_never_invoke_the_windows_fallback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr.sys, "platform", "linux"), \
+                    patch.object(ocr, "recognize", return_value=[]), \
+                    patch.object(ocr, "recognize_windows", create=True) as recognize_native, \
+                    patch.object(ocr.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "unambiguously"):
+                    ocr.locate_image(Path(folder) / "owned.png", "Refresh")
+            recognize_native.assert_not_called()
+
     def test_tesseract_literal_quotes_do_not_consume_following_tsv_rows(self):
         output = ("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
             "5\t1\t1\t1\t1\t1\t10\t10\t8\t10\t90\t\"y\n"

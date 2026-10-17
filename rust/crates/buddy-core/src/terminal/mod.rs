@@ -3,7 +3,7 @@
 mod host;
 mod input;
 mod output;
-mod ownership;
+pub(crate) mod ownership;
 mod protocol;
 mod screen;
 mod session;

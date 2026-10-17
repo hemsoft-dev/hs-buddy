@@ -5,6 +5,7 @@ from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -84,11 +85,16 @@ def b64(value):
     return base64.b64encode(str(value).encode()).decode()
 
 
-def wait_visible(window, directory, text, timeout=15):
+# Cold fixture discovery can use 95s preparation + 45s startup + 30s catalog
+# request + 15s shutdown. Keep a bounded margin for filesystem cleanup/OCR.
+MODEL_CATALOG_TIMEOUT = 200
+
+
+def wait_visible(window, directory, text, timeout=15, scroll=None):
     """Read an owned window until one OCR layout has the exact visible status.
 
-    This never posts input. A missing acknowledgment must fail before the
-    fixture can advance to Return or capture an unexecuted command as output.
+    By default this never posts input. A caller may explicitly scroll its
+    owned content to reveal an offscreen status, while still requiring OCR.
     """
     image = directory / "wait-status.png"
     deadline = time.monotonic() + timeout
@@ -100,6 +106,8 @@ def wait_visible(window, directory, text, timeout=15):
         except RuntimeError as failure:
             if time.monotonic() >= deadline:
                 raise RuntimeError(f"The owned window did not show the expected status {text!r}") from failure
+            if scroll is not None:
+                scroll()
         time.sleep(0.1)
 
 
@@ -185,7 +193,10 @@ class Driver:
             for action in actions:
                 kind, *values = action
                 if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
-                    commands.append(kind + "64:" + ":".join(map(b64, values)))
+                    # Unix OCR may name the adjacent row control. Windows
+                    # resolves the input semantically and only needs its value.
+                    encoded = values[:2] if kind == "input" else values
+                    commands.append(kind + "64:" + ":".join(map(b64, encoded)))
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
                 elif kind == "resize":
@@ -193,8 +204,12 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
-                elif kind == "wait_text":
-                    commands.append("waittext64:" + b64(values[0]))
+                elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above"):
+                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + b64(values[0]))
+                elif kind == "wait_models":
+                    commands.append("waitmodeltext64:" + b64(values[0]))
+                elif kind == "reveal_text":
+                    commands.append("revealtext64:" + ":".join(map(b64, values)))
                 elif kind == "sleep":
                     commands.append("sleep:" + str(int(values[0] * 1000)))
                 elif kind == "wheel":
@@ -208,7 +223,9 @@ class Driver:
                 "-OutDir", directory, "-ConfigPath", self.config, "-ConvexUrl", self.backend.url, "-Actions", ",".join(commands)]
             if concurrent:
                 arguments += ["-CompanionExe", self.electron, "-CompanionScript", self.profile]
-            run(*arguments, cwd=self.checkout, timeout=180)
+            # Preserve the ordinary action budget around the separate cold-model wait.
+            extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] == "wait_models")
+            run(*arguments, cwd=self.checkout, timeout=180 + extra)
         else:
             self.unix(directory, actions, concurrent, record)
         if record:
@@ -263,8 +280,16 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
-                        elif kind == "wait_text":
-                            wait_visible(window, directory, values[0])
+                        elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_models"):
+                            if kind in ("wait_scroll_text", "wait_scroll_above"):
+                                self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
+                                    above_anchor=kind == "wait_scroll_above")
+                            else:
+                                timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
+                                wait_visible(window, directory, values[0], timeout=timeout)
+                        elif kind == "reveal_text":
+                            point = self.scroll_anchor(window, directory, values[1])
+                            wait_visible(window, directory, values[0], scroll=lambda: self.reveal_scroll(window, point))
                         elif kind == "sleep":
                             time.sleep(values[0])
                         elif kind == "wheel":
@@ -302,24 +327,73 @@ class Driver:
                         child.kill()
                         child.wait(timeout=10)
 
-    def scroll(self, window, delta):
+    def scroll_anchor(self, window, directory, text, *, above=False):
+        image = directory / "settings-scroll-anchor.png"
+        label = self.locate(window, image, "click", text)
+        scale = 1
+        if self.session == "macos":
+            scale = json.loads(image.with_suffix(".window.json").read_text())["capturePixelsPerWindowPoint"]
+        x = (label["left"] + label["width"] / 2) / scale
+        # The session pager stays outside the scrolling pane. Two measured
+        # glyph heights above it are inside that pane, even after its content
+        # has moved. Never wheel over the button or rely on request-header OCR.
+        y = (label["top"] - 2 * label["height"] if above else label["top"] + label["height"] / 2) / scale
+        if not (math.isfinite(x) and math.isfinite(y) and x >= 0 and y >= 0 and label["height"] > 0):
+            raise RuntimeError("The measured scroll anchor is outside the owned capture")
+        return x, y
+
+    def reveal_scroll(self, window, point):
+        # One Mac line left the compact cancellation status clipped, and slow
+        # OCR exhausted the wait before a second correction. Keep each event
+        # small, but complete both lines before inspecting the next frame.
+        for _ in range(2 if self.session == "macos" else 1):
+            self.scroll(window, -120, point)
+
+    def wait_scrolled(self, window, directory, text, anchor=None, *, above_anchor=False):
+        if above_anchor and anchor is None:
+            raise RuntimeError("Scrolling above a control requires its measured label")
+        point = None
+
+        def move():
+            nonlocal point
+            if anchor is not None and point is None:
+                point = (self.scroll_anchor(window, directory, anchor, above=True) if above_anchor
+                    else self.scroll_anchor(window, directory, anchor))
+            if point is None:
+                self.scroll(window, -1200)
+            else:
+                # Measure the owning content, retaining the ordinary coarse
+                # step. Fine reveal gestures are for nearby chat feedback.
+                # A Mac OCR miss can consume most of the wait. Reach the
+                # bounded request page's end before inspecting another frame.
+                for _ in range(2 if above_anchor and self.session == "macos" else 1):
+                    self.scroll(window, -1200, point, precise=False)
+
+        wait_visible(window, directory, text, scroll=move)
+
+    def scroll(self, window, delta, point=None, *, precise=None):
         if self.session == "x11":
-            run("xdotool", "mousemove", "--window", window.window, 600, 400)
+            x, y = point if point is not None else (600, 400)
+            run("xdotool", "mousemove", "--window", window.window, int(x), int(y))
             run("xdotool", "click", "--repeat", max(1, abs(delta) // 120), "--delay", 50, 5 if delta < 0 else 4)
         else:
             metadata = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", window.process.pid))
             bounds = metadata["kCGWindowBounds"]
-            OwnedMacInput(window.process).scroll(bounds["X"] + bounds["Width"] / 2,
-                bounds["Y"] + bounds["Height"] / 2, delta)
+            x, y = point if point is not None else (bounds["Width"] / 2, bounds["Height"] / 2)
+            OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta,
+                precise=(point is not None) if precise is None else precise)
         time.sleep(0.7)
 
-    def locate(self, window, image, kind, text):
+    def locate(self, window, image, kind, text, row_control=None):
         previous = None
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
-            label = ocr.locate_image(image, text, navigation=kind == "nav",
+            options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            if row_control is not None:
+                options["row_control"] = row_control
+            label = ocr.locate_image(image, text, **options)
             # A pending save can insert feedback while OCR runs, moving every
             # content control. Measure twice before emitting any Mac input.
             if self.session != "macos" or label == previous:
@@ -334,7 +408,11 @@ class Driver:
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
-        label = self.locate(window, image, kind, values[0])
+        row_control = values[2] if kind == "input" and len(values) == 3 else None
+        if row_control is None:
+            label = self.locate(window, image, kind, values[0])
+        else:
+            label = self.locate(window, image, kind, values[0], row_control=row_control)
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)
@@ -356,6 +434,9 @@ class Driver:
                 # GitHub fields can occupy a narrow column and have no Save
                 # control. Target the editor immediately below its own label.
                 x = label["left"] / scale + 20
+        if "row_control" in label:
+            control = label["row_control"]
+            y = (control["top"] + control["height"] / 2) / scale
         if "save" in label:
             # Label glyph bottoms do not locate the editor: on Mac the old
             # offset hit the frame's padding, which shows a focus ring while

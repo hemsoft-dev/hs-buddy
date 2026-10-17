@@ -3,10 +3,15 @@ import argparse
 import csv
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+
+
+class AmbiguousLabel(RuntimeError):
+    """A later OCR mode must not hide competing visible controls."""
 
 
 def normalize(text):
@@ -17,6 +22,9 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
     wanted = normalize(label)
     if not wanted:
         raise RuntimeError("A nonempty visible label is required")
+    # Borders and punctuation have no label characters. Keeping them in a
+    # span can count one word twice, such as Interrupt and Interrupt + '('.
+    words = [word for word in words if normalize(word["text"])]
     if field:
         try:
             heading = find_label(words, "Settings", exact_line=True)
@@ -78,10 +86,26 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
     # fail below; never resolve competing controls by their discovery order.
     if any(match["exact"] for match in matches):
         matches = [match for match in matches if match["exact"]]
-    if len(matches) != 1:
+    if len(matches) > 1:
+        raise AmbiguousLabel(f"Cannot locate '{label}' unambiguously: observed {len(matches)} visible matches")
+    if not matches:
         raise RuntimeError(f"Expected exactly one visible '{label}' label, observed {len(matches)}")
     matches[0].pop("exact")
     return matches[0]
+
+
+def recognize_windows(image):
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    return json.loads(result.stdout)
+
+
+def recognize_macos(image):
+    helper = Path(os.environ.get("BUDDY_SETTINGS_OCR_HELPER", ""))
+    if not helper.is_absolute() or not helper.is_file():
+        raise RuntimeError("macOS OCR requires an existing absolute compiled helper")
+    result = subprocess.run([str(helper), str(image)],
+        capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    return json.loads(result.stdout)
 
 
 def recognize(image, mode=11):
@@ -90,8 +114,7 @@ def recognize(image, mode=11):
         rows = csv.DictReader(result.stdout.splitlines(), delimiter="\t", quoting=csv.QUOTE_NONE)
         return [dict(text=row["text"], left=int(row["left"]), top=int(row["top"]), width=int(row["width"]), height=int(row["height"]), line="/".join(row[key] for key in ("block_num", "par_num", "line_num"))) for row in rows if row["level"] == "5" and row["text"].strip()]
     if sys.platform == "win32":
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
-        return json.loads(result.stdout)
+        return recognize_windows(image)
     raise RuntimeError("Native settings qualification requires Tesseract")
 
 
@@ -99,9 +122,30 @@ def locate_label(words, labels, navigation=False, field=False, tab=False):
     for label in labels.split("|"):
         try:
             return find_label(words, label, navigation, field, tab=tab)
+        except AmbiguousLabel:
+            raise
         except RuntimeError:
             pass
     raise RuntimeError("None of the requested visible labels was unambiguous")
+
+
+def column_text(words, anchor):
+    """Read one visible column below its unique label, preserving word order.
+
+    A flat OCR page can insert a neighboring list between wrapped text lines.
+    Use measured label geometry to exclude that list, rather than accepting
+    partial phrases or combining independent OCR results.
+    """
+    label = find_label(words, anchor)
+    left = label["left"] - max(2, label["height"] / 4)
+    top = label["top"] - max(2, label["height"] / 4)
+    lines = {}
+    for word in words:
+        if word["left"] >= left and word["top"] >= top:
+            lines.setdefault(word["line"], []).append(word)
+    ordered = sorted(lines.values(), key=lambda line: min(word["top"] for word in line))
+    return " ".join(" ".join(word["text"] for word in sorted(line, key=lambda word: word["left"]))
+                    for line in ordered)
 
 
 def aligned_save(words, label):
@@ -116,6 +160,14 @@ def aligned_save(words, label):
     if len(candidates) != 1:
         raise RuntimeError("The field's aligned Save button is ambiguous")
     return candidates[0]
+
+
+def aligned_control(words, label, text):
+    """Require the complete adjacent button in the field's measured row."""
+    candidates = [word for word in words
+        if word["left"] > label["left"] + label["width"] + 4 * label["height"]
+        and label["top"] + label["height"] < word["top"] < label["top"] + max(64, 6 * label["height"])]
+    return find_label(candidates, text)
 
 
 def input_region(label, dimensions):
@@ -150,18 +202,22 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None):
     for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
             label = locate_label(words, labels, navigation, field, tab)
             if save_row:
                 label["save"] = aligned_save(words, label)
+            if row_control is not None:
+                label["row_control"] = aligned_control(words, label, row_control)
             return label
-        except RuntimeError:
+        except RuntimeError as error:
             # Retain the actual native engine output with the already-owned
             # screenshot, so a failure can be diagnosed without guessing.
             image.with_suffix(f".ocr-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+            if isinstance(error, AmbiguousLabel):
+                raise
     if shutil.which("tesseract"):
         # Keep the original capture. One exact 3x analysis handles small glyphs
         # while all label matching and returned bounds stay in window pixels.
@@ -175,9 +231,26 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
             label = locate_label(words, labels, navigation, field, tab)
             if save_row:
                 label["save"] = aligned_save(words, label)
+            if row_control is not None:
+                label["row_control"] = aligned_control(words, label, row_control)
             return label
-        except RuntimeError:
+        except RuntimeError as error:
             analysis.with_suffix(".ocr-11.json").write_text(json.dumps(raw), encoding="utf-8")
+            if isinstance(error, AmbiguousLabel):
+                raise
+        if sys.platform in ("win32", "darwin"):
+            # Native OCR can read controls that Tesseract's sparse
+            # segmentation misses. Use the untouched capture and identical
+            # matching rules, never a guessed point or a relaxed label.
+            engine = recognize_windows if sys.platform == "win32" else recognize_macos
+            words = engine(image)
+            image.with_suffix(f".ocr-{sys.platform}.json").write_text(json.dumps(words), encoding="utf-8")
+            label = locate_label(words, labels, navigation, field, tab)
+            if save_row:
+                label["save"] = aligned_save(words, label)
+            if row_control is not None:
+                label["row_control"] = aligned_control(words, label, row_control)
+            return label
     raise RuntimeError(f"No OCR mode found the visible label {labels!r} unambiguously")
 
 
