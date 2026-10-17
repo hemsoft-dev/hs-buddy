@@ -155,6 +155,10 @@ Hosted Codex cases also use guarded loopback snapshots and a deterministic
 missing-login response, without reading a local Codex credential.
 The chat fixture scrolls its owned conversation to expose completion and
 cancellation feedback, then requires the exact visible status before advancing.
+The Windows recorder follows the full owned action sequence, including model
+startup, and stops on the driver's completion signal. The existing 120-second
+helper deadline bounds it. Capture failures retain their original error and
+fail qualification.
 The offline provider holds after its first delta until the driver writes the
 fresh streaming capture. That handshake is confined to the owned CI directory,
 expires after 60 seconds and stops on cancellation. Existing captures cannot

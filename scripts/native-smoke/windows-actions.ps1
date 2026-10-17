@@ -136,7 +136,9 @@ try {
                 New-Item -ItemType Directory -Path $recordDirectory | Out-Null
                 $recorder = Start-ThreadJob -ArgumentList $h,$recordDirectory -ScriptBlock {
                     param($window,$directory)
-                    for ($frame = 0; $frame -lt 240; $frame++) {
+                    # The owning helper already has a bounded action deadline.
+                    # Record until its completion signal, including cold startup.
+                    for ($frame = 0; ; $frame++) {
                         if (Test-Path -LiteralPath (Join-Path $directory 'complete')) { return }
                         $rect = New-Object Drive+RECT
                         if (-not [Drive]::GetWindowRect($window, [ref]$rect)) { throw 'Recording window disappeared' }
@@ -153,15 +155,15 @@ try {
                         } finally { $bmp.Dispose() }
                         Start-Sleep -Milliseconds 250
                     }
-                    throw 'Recording exceeded 60 seconds'
                 }
             }
             'record-stop' {
                 if (-not $recorder) { throw 'No recording is active' }
                 New-Item -ItemType File (Join-Path $recordDirectory 'complete') | Out-Null
                 $finished = Wait-Job $recorder -Timeout 10
-                if (-not $finished -or $recorder.State -ne 'Completed') { throw 'Recording did not complete' }
+                if (-not $finished) { throw 'Recording did not complete' }
                 Receive-Job $recorder -ErrorAction Stop | Out-Null
+                if ($recorder.State -ne 'Completed') { throw 'Recording did not complete' }
                 Remove-Job $recorder
                 $recorder = $null
             }
