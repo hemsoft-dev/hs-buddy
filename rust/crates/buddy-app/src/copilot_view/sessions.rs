@@ -20,6 +20,10 @@ use crate::zoom::zpx;
 
 const PAGE: usize = 20;
 
+#[cfg(test)]
+#[path = "sessions_tests.rs"]
+mod tests;
+
 pub(super) struct SessionsView {
     path: Entity<InputState>,
     sources: Vec<Source>,
@@ -202,6 +206,7 @@ impl Render for SessionsView {
         let mut list = v_flex()
             .id("copilot-session-list")
             .w(zpx(260.0))
+            .h_full()
             .flex_shrink_0()
             .min_h_0()
             .gap_1()
@@ -232,11 +237,13 @@ impl Render for SessionsView {
         }
         let mut detail = v_flex()
             .id("copilot-session-detail")
+            .debug_selector(|| "session-detail-viewport".into())
             .flex_1()
             .min_w_0()
             .min_h_0()
             .gap_3()
             .overflow_y_scroll();
+        let mut request_paging = None;
         if let (Some(session), Some(digest)) = (&self.detail, &self.digest) {
             detail=detail.child(div().text_lg().child(if session.title.is_empty() {"Session details".into()} else {session.title.clone()}))
                 .child(format!("{} requests · {} prompt tokens · {} output tokens · {} tool calls · {:.1}s",digest.request_count,digest.total_prompt_tokens,digest.total_output_tokens,digest.total_tool_calls,digest.total_duration_ms/1000.0))
@@ -254,14 +261,19 @@ impl Render for SessionsView {
                 .take(PAGE)
             {
                 detail = detail
-                    .child(div().text_color(muted).child(format!(
-                        "Request {} · {} → {} tokens · {} tool calls · {:.1}s",
-                        index + 1,
-                        request.prompt_tokens,
-                        request.output_tokens,
-                        request.tool_call_count,
-                        request.total_elapsed_ms / 1000.0
-                    )))
+                    .child(
+                        div()
+                            .debug_selector(move || format!("session-request-{index}"))
+                            .text_color(muted)
+                            .child(format!(
+                                "Request {} · {} → {} tokens · {} tool calls · {:.1}s",
+                                index + 1,
+                                request.prompt_tokens,
+                                request.output_tokens,
+                                request.tool_call_count,
+                                request.total_elapsed_ms / 1000.0
+                            )),
+                    )
                     .child(markdown::response(
                         ("copilot-session-prompt", index),
                         request.prompt.clone(),
@@ -270,8 +282,11 @@ impl Render for SessionsView {
                     detail = detail.child(format!("Tools: {}", request.tool_names.join(", ")));
                 }
             }
-            detail = detail.child(
+            request_paging = Some(
                 h_flex()
+                    .debug_selector(|| "session-request-pager".into())
+                    .flex_shrink_0()
+                    .flex_wrap()
                     .gap_2()
                     .child(
                         Button::new("copilot-session-previous-requests")
@@ -302,8 +317,21 @@ impl Render for SessionsView {
                     .child("Select a session to inspect its requests and efficiency metrics."),
             );
         }
+        let mut detail_panel = v_flex()
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .gap_3()
+            .overflow_hidden()
+            .child(detail);
+        if let Some(paging) = request_paging {
+            detail_panel = detail_panel.child(paging);
+        }
         let mut view = v_flex()
             .size_full()
+            .min_h_0()
+            .overflow_hidden()
             .gap_3()
             .child(sources)
             .child("VS Code User directory")
@@ -374,19 +402,33 @@ impl Render for SessionsView {
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    .items_start()
+                    .overflow_hidden()
                     .gap_4()
                     .child(list)
-                    .child(detail),
+                    .child(detail_panel),
             );
         if let Some(source) = &self.loaded_source {
             view = view.child(
                 div()
+                    .debug_selector(|| "session-loaded-source".into())
+                    .flex_shrink_0()
+                    .w_full()
+                    .min_w_0()
                     .text_color(muted)
                     .child(format!("Loaded source: {}", source.display())),
             );
         }
         if let Some(error) = &self.error {
-            view = view.child(div().text_color(danger).child(error.clone()));
+            view = view.child(
+                div()
+                    .debug_selector(|| "session-source-error".into())
+                    .flex_shrink_0()
+                    .w_full()
+                    .min_w_0()
+                    .text_color(danger)
+                    .child(error.clone()),
+            );
         }
         view
     }

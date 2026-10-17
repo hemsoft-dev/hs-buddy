@@ -12,6 +12,18 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class SessionSourceIntegrity(unittest.TestCase):
+    def test_session_fixture_contains_two_real_request_pages_with_known_metrics(self):
+        with TemporaryDirectory() as temporary:
+            _, source, _ = copilot.session_fixture(Path(temporary))
+            lines = [json.loads(line) for line in source.read_text(encoding='utf-8').splitlines()]
+            prompts = lines[0]['v']['requests']
+            self.assertEqual(len(prompts), 21)
+            self.assertEqual(prompts[19]['message']['text'], 'Inspect synthetic request 20')
+            self.assertEqual(prompts[20]['message']['text'], 'Final synthetic request twenty one')
+            self.assertEqual([line['k'] for line in lines[1:]], [['requests', i, 'result'] for i in range(21)])
+            self.assertEqual(sum(line['v']['metadata']['promptTokens'] for line in lines[1:]), 100)
+            self.assertEqual(sum(line['v']['metadata']['outputTokens'] for line in lines[1:]), 25)
+
     def test_unchanged_source_is_verified_after_success_and_navigation_failure(self):
         for fail in (False, True):
             with self.subTest(fail=fail), TemporaryDirectory() as temporary:

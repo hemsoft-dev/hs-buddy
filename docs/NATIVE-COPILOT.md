@@ -116,6 +116,10 @@ describe readable session data. The legacy cost estimate is an approximation,
 not a provider invoice or current token price. Sessions are never deleted or
 rewritten by this view.
 
+The request pager stays below the independently scrolling detail pane. Loaded
+source and error messages reserve their own space and wrap at compact sizes,
+so a failed scan preserves both the previous dataset and usable request paging.
+
 ## Qualification
 
 `scripts/native-smoke/copilot-desktop.py` runs only on disposable GitHub Actions
@@ -133,6 +137,11 @@ in light/dark themes and compact windows. Process cleanup is checked separately
 from an unrelated sentinel. These fixtures never use a real account credential
 or a paid model. Passing compilation alone does not constitute installed UI or
 SDK qualification; current-head workflow receipts and captures supply that proof.
+The session fixture contains 21 requests and exercises content scrolling plus
+enabled Next/Previous request controls at 900 x 650 while a missing-directory
+error and the original loaded source remain visible. A headless layout regression
+also checks wrapped Unicode source text, scroll isolation, pointer paging and
+Tab/Enter activation against the production view.
 Hosted Codex cases also use guarded loopback snapshots and a deterministic
 missing-login response, without reading a local Codex credential.
 The chat fixture scrolls its owned conversation to expose completion and

@@ -86,10 +86,14 @@ def session_fixture(output):
     sessions = workspace / 'chatSessions'
     sessions.mkdir(parents=True)
     (workspace / 'workspace.json').write_text(json.dumps({'folder': 'file:///synthetic/project'}))
+    prompts = ['Review a synthetic change'] + [f'Inspect synthetic request {i}' for i in range(2, 21)] + ['Final synthetic request twenty one']
     lines = [dict(kind=0, v=dict(sessionId=identifier, creationDate=1792152000123,
-        customTitle='Synthetic session', requests=[dict(message=dict(text='Review a synthetic change'))],
-        inputState=dict(selectedModel=dict(metadata=dict(id='gpt-4.1', name='Synthetic Model', multiplierNumeric=1))))),
-        dict(kind=1, k=['requests', 0, 'result'], v=dict(metadata=dict(promptTokens=100, outputTokens=25), timings=dict(firstProgress=10, totalElapsed=800)))]
+        customTitle='Synthetic session', requests=[dict(message=dict(text=prompt)) for prompt in prompts],
+        inputState=dict(selectedModel=dict(metadata=dict(id='gpt-4.1', name='Synthetic Model', multiplierNumeric=1)))))]
+    for index in range(len(prompts)):
+        lines.append(dict(kind=1, k=['requests', index, 'result'], v=dict(
+            metadata=dict(promptTokens=100 if index == 0 else 0, outputTokens=25 if index == 0 else 0),
+            timings=dict(firstProgress=10 if index == 0 else 0, totalElapsed=800 if index == 0 else 0))))
     path = sessions / (identifier + '.jsonl')
     path.write_text('\n'.join(json.dumps(line) for line in lines), encoding='utf-8')
     expected = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -278,8 +282,12 @@ def qualify(executable, output, session, version, backend, api):
                 ('click', 'Sessions'), ('input', 'VS Code User directory', str(user_directory), 'Scan folder'), ('click', 'Scan folder'),
                 ('wait_text', 'Synthetic session'), ('click', 'Synthetic session'), ('wait_text', '100 prompt tokens'),
                 ('capture', 'session-detail-light'), ('resize', 900, 650), ('capture', 'session-compact-light'),
+                ('wait_scroll_text', 'Inspect synthetic request 20'),
                 ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('click', 'Scan folder'),
-                ('wait_text', 'unavailable'), ('capture', 'session-error-light'),
+                ('wait_text', 'unavailable'), ('click', 'Next requests'),
+                ('wait_scroll_text', 'Final synthetic request twenty one'), ('capture', 'session-error-light'),
+                ('click', 'Previous requests'), ('wait_scroll_text', 'Inspect synthetic request 20'),
+                ('wait_text', 'unavailable'),
             ])
             github.check(sessions / 'session-detail-light.png', '100 prompt tokens', '25 output tokens', '0.25')
             github.check(sessions / 'session-error-light.png', 'unavailable', 'Loaded source')
@@ -289,6 +297,7 @@ def qualify(executable, output, session, version, backend, api):
             assert_private_content_not_logged(output)
             qualification = dict(result='passed', version=version, session=session,
                 **binary, largeWindow=driver.large_size, headless=sdk, privateTransportTraceContentAbsent=True, ownedSdkChildrenAbsent=True, unrelatedSentinelAlive=True, readOnlySessionSha256=transcript_sha,
+                sessionRequestPaging=dict(requests=21, compactWindow=[900, 650], nextAndPreviousActivated=True, scrollContentReached=True, sourceErrorRetained=True),
                 dataSource='Synthetic offline SDK provider, scoped loopback GitHub, and isolated anonymous Convex')
     except BaseException as failure:
         primary = failure

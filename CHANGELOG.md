@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1435] - 2026-10-17
+
+### Fixed
+
+- Keep compact session paging clear of retained status
+
 ## [0.1.1434] - 2026-10-17
 
 ### Fixed
