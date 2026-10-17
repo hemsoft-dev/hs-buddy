@@ -11,6 +11,152 @@ struct MemoryVault {
     mismatched_read: Cell<bool>,
     writes: Cell<usize>,
 }
+
+struct RecoveryProfile(std::path::PathBuf);
+impl RecoveryProfile {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "buddy-todoist-credential-race-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+    fn config(&self) -> std::path::PathBuf {
+        self.0.join("config.json")
+    }
+}
+impl Drop for RecoveryProfile {
+    fn drop(&mut self) {
+        let path = self.0.canonicalize().unwrap();
+        assert_eq!(
+            path.parent(),
+            Some(std::env::temp_dir().canonicalize().unwrap().as_path())
+        );
+        assert!(
+            self.0
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("buddy-todoist-credential-race-")
+        );
+        assert!(
+            !std::fs::symlink_metadata(&self.0)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+#[test]
+fn replacement_save_refuses_new_recovery_before_touching_the_old_credential() {
+    let profile = RecoveryProfile::new();
+    let mut file = super::super::storage::PendingFile::open(&profile.config()).unwrap();
+    let vault = MemoryVault::default();
+    *vault.value.borrow_mut() = Some("old-account-token".into());
+    let bytes = b"another window's captured recovery";
+    file.persist(bytes).unwrap();
+    assert_eq!(
+        save_preserving_with(&profile.config(), "replacement-token", None, &vault),
+        Err(CredentialError::Recovery(
+            super::super::storage::StorageError::Changed
+        ))
+    );
+    assert_eq!(vault.writes.get(), 0);
+    assert!(vault.value.borrow().as_deref() == Some("old-account-token"));
+    assert!(
+        super::super::storage::PendingFile::open(&profile.config())
+            .unwrap()
+            .current()
+            == Some(bytes.as_slice())
+    );
+}
+
+#[test]
+fn replacement_save_requires_the_exact_authenticated_pending_snapshot() {
+    let profile = RecoveryProfile::new();
+    let mut file = super::super::storage::PendingFile::open(&profile.config()).unwrap();
+    let bytes = b"authenticated original-account recovery";
+    file.persist(bytes).unwrap();
+    let vault = MemoryVault::default();
+    save_preserving_with(
+        &profile.config(),
+        "same-account-replacement",
+        Some(bytes),
+        &vault,
+    )
+    .unwrap();
+    assert_eq!(vault.writes.get(), 1);
+    assert_eq!(
+        save_preserving_with(
+            &profile.config(),
+            "foreign-token",
+            Some(b"changed snapshot"),
+            &vault
+        ),
+        Err(CredentialError::Recovery(
+            super::super::storage::StorageError::Changed
+        ))
+    );
+    assert_eq!(vault.writes.get(), 1);
+    assert!(vault.value.borrow().as_deref() == Some("same-account-replacement"));
+    assert!(
+        super::super::storage::PendingFile::open(&profile.config())
+            .unwrap()
+            .current()
+            == Some(bytes.as_slice())
+    );
+}
+
+#[test]
+fn replacement_save_holds_the_recovery_lock_through_actual_vault_write_and_readback() {
+    use std::sync::mpsc;
+    struct HeldVault {
+        value: RefCell<Option<String>>,
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    }
+    impl Vault for HeldVault {
+        fn read(&self) -> Result<Option<String>, ()> {
+            Ok(self.value.borrow().clone())
+        }
+        fn write(&self, value: &str) -> Result<(), ()> {
+            *self.value.borrow_mut() = Some(value.into());
+            self.entered.send(()).unwrap();
+            self.release.recv().unwrap();
+            Ok(())
+        }
+        fn delete(&self) -> Result<(), ()> {
+            panic!("Replacement must not remove credentials")
+        }
+    }
+    let profile = RecoveryProfile::new();
+    let config = profile.config();
+    let mut publisher = super::super::storage::PendingFile::open(&config).unwrap();
+    let (entered, writing) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let vault = HeldVault {
+            value: RefCell::new(None),
+            entered,
+            release: released,
+        };
+        save_preserving_with(&config, "replacement-token", None, &vault)
+    });
+    writing
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        publisher.persist(b"new recovery"),
+        Err(super::super::storage::StorageError::Busy)
+    );
+    release.send(()).unwrap();
+    assert_eq!(worker.join().unwrap(), Ok(()));
+    publisher.persist(b"new recovery").unwrap();
+}
 impl Vault for MemoryVault {
     fn read(&self) -> Result<Option<String>, ()> {
         if self.reads_fail.get() {

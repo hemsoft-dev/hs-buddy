@@ -48,6 +48,7 @@ pub const MAX_CHECKPOINT_BYTES: usize = MAX_MUTATION_BYTES * 2 + 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
+    ChangedWhileLoading,
     InvalidResponse,
     ResponseTooLarge,
     InvalidIdentifier,
@@ -66,6 +67,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
+            Self::ChangedWhileLoading => "Todoist changed while loading. Previous tasks were retained. Refresh to load a stable list.",
             Self::InvalidRecovery => "This saved Todoist change cannot be recovered. Keep it for inspection before preparing another change.",
             Self::InvalidDraft => "Check the Todoist task fields before saving this change.",
             Self::WrongConnection => "This change belongs to a different Todoist connection. Return to its original connection before retrying.",

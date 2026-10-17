@@ -21,6 +21,16 @@ Load all tasks returns to the account-wide read. Reads stop at 5,000 tasks or
 100 pages and never publish partial rows. If an account exceeds that bound,
 the verified project list and smaller-scope controls remain available. A failed
 scope change preserves the previous list and selection.
+If a retained account-wide or calendar scope has grown too large, reconnect
+tries the smaller available scopes before adopting replacement credentials.
+
+A multi-page read first establishes a connection-local Todoist Sync watermark,
+then restarts page one and checks incremental task/project changes before
+publishing the collection. A concurrent change retains the previous dataset
+and asks you to refresh. The initial watermark fetches user data, advances past
+any delayed full-sync state, and avoids downloading an unbounded task account.
+These Sync requests contain resource selections without mutation commands.
+They do not claim an atomic transaction across separate collection reads.
 
 The calendar uses the timezone returned by Todoist and bundled timezone rules,
 with the same data on Windows, macOS and Linux. It never substitutes the
@@ -84,6 +94,10 @@ saves a new token. Recheck saved connection retries loading the protected token 
 initial connection failure. A replacement token must authenticate the original account while recovery
 is pending. Resolve acknowledged cleanup before replacing a connection. A failed
 credential save remains unconfirmed, and the token input stays editable.
+Saving a replacement token compares the exact authenticated recovery state
+while holding the recovery-publication lock through vault write and readback.
+If another window has saved a different change, the old token and recovery
+remain in place and the replacement is refused.
 If the previously selected project has disappeared, reconnect loads calendar
 tasks instead. If that scope exceeds the read bound, it loads an available
 project. The old connection remains visible until the replacement read completes.
@@ -113,6 +127,11 @@ It also checks reconnecting after the selected project is archived. The
 installed exercise uses a fixed account clock. Headless tests advance a captured
 clock across account midnight and verify the new calendar window, retained rows
 after a failed read, and the absence of task writes.
+The installed fixture also removes a row during cursor pagination, verifies
+that the app retains the previous list after the resulting Sync delta, and
+then checks an explicit successful refresh. Evidence records every HTTP
+attempt, distinguishes read-only Sync POSTs from command POSTs, and requires
+seven command attempts with six UUIDs and one created task.
 Original recovery bytes and actual HTTP attempts establish that
 restart and refresh did not resend it. Screenshots cover both themes, a measured
 large window and 900 by 650; an interaction recording accompanies them.

@@ -8,6 +8,9 @@ use super::{
     WriteScope, bounded_text, parse_projects, parse_tasks, project_pages, task_pages,
 };
 
+#[path = "read_consistency.rs"]
+mod read_consistency;
+
 const API: &str = "https://api.todoist.com/api/v1/";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const READ_TIMEOUT: Duration = Duration::from_secs(45);
@@ -64,6 +67,7 @@ pub struct Client {
     base: Url,
     authorization: header::HeaderValue,
     scope: WriteScope,
+    read_marker: tokio::sync::Mutex<Option<String>>,
 }
 impl Client {
     /// CI desktop qualification only. Real tokens cannot enter this transport.
@@ -169,6 +173,7 @@ impl Client {
             base,
             authorization,
             scope: WriteScope::new(),
+            read_marker: tokio::sync::Mutex::new(None),
         })
     }
     pub fn write_scope(&self) -> WriteScope {
@@ -216,6 +221,7 @@ impl Client {
         parse: fn(&[u8]) -> Result<Page<Item>, Error>,
     ) -> Result<Vec<Item>, TransportError> {
         tokio::time::timeout(READ_TIMEOUT, async {
+            let mut marker = None;
             loop {
                 let cursor = pages.request_cursor()?;
                 let mut request = self
@@ -230,8 +236,20 @@ impl Client {
                     .await
                     .map_err(|_| TransportError::Unavailable)?;
                 let bytes = bounded_body(response).await?;
-                pages.push(cursor.as_deref(), parse(&bytes)?)?;
+                let page = parse(&bytes)?;
+                if pages.received_pages() == 0 && page.next_cursor.is_some() && marker.is_none() {
+                    let mut held = self.read_marker.lock().await;
+                    self.start_read_marker(&mut held).await?;
+                    marker = Some(held);
+                    // The first response preceded the watermark. Discard it
+                    // and restart the entire collection under that marker.
+                    continue;
+                }
+                pages.push(cursor.as_deref(), page)?;
                 if pages.is_complete() {
+                    if let Some(held) = marker.as_mut() {
+                        self.finish_read_marker(held).await?;
+                    }
                     return pages.finish().map_err(Into::into);
                 }
             }

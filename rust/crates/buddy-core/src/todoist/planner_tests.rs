@@ -21,7 +21,7 @@ fn projects() -> Response {
     )
 }
 
-fn loaded(request: &Captured) -> Response {
+pub(super) fn loaded(request: &Captured) -> Response {
     if request.line == "GET /api/v1/user HTTP/1.1" {
         profile()
     } else if request.line.starts_with("GET /api/v1/projects?") {

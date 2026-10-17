@@ -50,6 +50,10 @@ pub struct SavedChange {
     acknowledgement_durable: bool,
 }
 impl SavedChange {
+    pub(super) fn recovery_bytes(&self) -> Option<&[u8]> {
+        self.file.current()
+    }
+
     /// No write is sent. Verify the account and publish recovery before returning.
     pub async fn capture(
         client: &Client,

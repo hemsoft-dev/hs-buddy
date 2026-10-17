@@ -121,7 +121,10 @@ async fn unknown_or_missing_team_role_keeps_tasks_read_only_without_a_post() {
 #[tokio::test]
 async fn oversized_account_can_load_calendar_then_complete_project_without_partial_rows() {
     let disk = DiskRecovery::new();
-    let (client, worker, captures) = server(117, |request, _| {
+    let (client, worker, captures) = server(122, |request, _| {
+        if let Some(reply) = sync_read_reply(request) {
+            return Some(reply);
+        }
         if request.line.starts_with("GET /api/v1/tasks/filter?") {
             assert!(query(request).contains(&("query".into(), "overdue | 7 days".into())));
             let mut dated = task("dated");
@@ -184,11 +187,7 @@ async fn oversized_account_can_load_calendar_then_complete_project_without_parti
     assert!(data.tasks[0].due.is_none());
     worker.join().unwrap();
     let requests = captures.lock().unwrap();
-    assert_eq!(requests.len(), 117);
-    assert!(
-        requests
-            .iter()
-            .all(|request| request.line.starts_with("GET "))
-    );
+    assert_eq!(requests.len(), 122);
+    assert!(requests.iter().all(read_only_request));
     assert_eq!(std::fs::read_dir(&disk.0).unwrap().count(), 0);
 }

@@ -172,36 +172,52 @@ impl Planner {
     }
 
     /// A replacement token need not load a project that no longer exists.
-    /// Fall back only for an unavailable scope, never for authentication or an
-    /// incomplete read. Every fallback must complete its own identity checks.
+    /// Fall back for an unavailable project or an oversized broad scope, never
+    /// for authentication or an incomplete read. Each read rechecks identity.
     pub async fn refresh_connection_scope(
         &mut self,
         preferred: Coverage,
     ) -> Result<Arc<Dataset>, TransportError> {
-        match self.refresh_scope(preferred).await {
-            Err(TransportError::Domain(Error::ScopeUnavailable)) => {
-                match self.refresh_scope(Coverage::Calendar).await {
-                    Err(TransportError::Domain(Error::ReadLimit)) => {
-                        let project = self
-                            .catalog
-                            .as_ref()
-                            .and_then(|catalog| {
-                                catalog
-                                    .projects
-                                    .iter()
-                                    .find(|project| !project.archived && !project.deleted)
-                            })
-                            .map(|project| project.id.clone());
-                        match project {
-                            Some(project) => self.refresh_scope(Coverage::Project(project)).await,
-                            None => Err(Error::ReadLimit.into()),
-                        }
-                    }
-                    result => result,
-                }
-            }
-            result => result,
+        let calendar = preferred == Coverage::Calendar;
+        let broad = matches!(preferred, Coverage::All | Coverage::Calendar);
+        let result = self.refresh_scope(preferred).await;
+        if !matches!(
+            &result,
+            Err(TransportError::Domain(Error::ScopeUnavailable))
+        ) && !(broad && matches!(&result, Err(TransportError::Domain(Error::ReadLimit))))
+        {
+            return result;
         }
+        if !calendar {
+            match self.refresh_scope(Coverage::Calendar).await {
+                Err(TransportError::Domain(Error::ReadLimit)) => {}
+                result => return result,
+            }
+        }
+        let project = self
+            .catalog
+            .as_ref()
+            .and_then(|catalog| {
+                catalog
+                    .projects
+                    .iter()
+                    .find(|project| !project.archived && !project.deleted)
+            })
+            .map(|project| project.id.clone());
+        match project {
+            Some(project) => self.refresh_scope(Coverage::Project(project)).await,
+            None => Err(Error::ReadLimit.into()),
+        }
+    }
+
+    /// The actual protected-token save shares recovery publication's lock and
+    /// requires exactly the recovery state authenticated by this candidate.
+    pub fn save_token(&self, token: &str) -> Result<(), super::credentials::CredentialError> {
+        super::credentials::save_preserving_recovery_at(
+            &self.config,
+            token,
+            self.pending.as_ref().and_then(SavedChange::recovery_bytes),
+        )
     }
 
     /// A captured clock makes day-boundary reads testable. This only refreshes

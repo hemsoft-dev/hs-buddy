@@ -39,6 +39,58 @@ class TodoistFixtureTests(unittest.TestCase):
         with self.http.open(request, timeout=3) as response:
             return json.load(response)
 
+    def sync_read(self, token='*', resources=None, extra=None, authorization=fixture.TOKEN):
+        form = {'sync_token':token, 'resource_types':json.dumps(['user'] if resources is None else resources), **(extra or {})}
+        request = urllib.request.Request(self.api.url+'sync', data=urllib.parse.urlencode(form).encode(),
+            headers={'Authorization':f'Bearer {authorization}'})
+        with self.http.open(request, timeout=3) as response:return json.load(response)
+
+    def test_read_only_sync_tracks_real_task_and_project_changes_without_sending_commands(self):
+        original = self.api.snapshot()
+        full = self.sync_read()
+        self.assertTrue(full['full_sync'])
+        self.assertEqual(full['user']['id'], 'synthetic-todoist-account')
+        marker = full['sync_token']
+        unchanged = self.sync_read(marker, ['items','projects'])
+        self.assertFalse(unchanged['full_sync'])
+        self.assertEqual((unchanged['items'],unchanged['projects']),([],[]))
+        with self.api.lock:
+            self.api.tasks[2]['content'] = 'Synthetic collaborator changed task'
+            self.api.projects[1]['name'] = 'Synthetic collaborator changed project'
+        delta = self.sync_read(marker, ['items','projects'])
+        self.assertEqual([row['id'] for row in delta['items']], ['task-upcoming'])
+        self.assertEqual([row['id'] for row in delta['projects']], ['project-beta'])
+        self.assertNotEqual(delta['sync_token'],marker)
+        state = self.api.snapshot()
+        self.assertEqual(state['created'],0)
+        self.assertEqual(len(state['traffic']),3)
+        self.assertTrue(all(row.get('syncRead') is True for row in state['traffic']))
+        self.assertTrue(all('commands' not in row for row in state['requests']))
+        self.assertEqual(state['tasks'][0],original['tasks'][0])
+
+    def test_read_only_sync_never_consumes_the_next_command_acknowledgement_failure(self):
+        self.api.drop_next_ack=True
+        self.sync_read()
+        self.assertTrue(self.api.drop_next_ack)
+        command=self.command(content='Synthetic lost reply after resource read',project_id='project-empty')
+        with self.assertRaises((http.client.RemoteDisconnected,urllib.error.URLError)):
+            self.request('sync',[command])
+        state=self.api.snapshot()
+        self.assertEqual(state['created'],1)
+        self.assertEqual(len([row for row in state['traffic'] if row['method']=='POST' and not row.get('syncRead',False)]),1)
+        self.assertEqual(len([row for row in state['requests'] if 'commands' in row]),1)
+
+    def test_a_command_cannot_be_hidden_in_the_read_only_sync_audit(self):
+        before=self.api.snapshot()['tasks']
+        command=self.command('item_delete',id='task-today')
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.sync_read(extra={'commands':json.dumps([command])})
+        self.assertEqual(error.exception.code,400)
+        state=self.api.snapshot()
+        self.assertEqual(state['tasks'],before)
+        self.assertFalse(state['traffic'][0].get('syncRead',False))
+        self.assertEqual(state['requests'],[])
+
     @staticmethod
     def command(kind='item_add', **arguments):
         value = dict(type=kind, uuid=str(uuid.uuid4()), args=arguments)

@@ -75,6 +75,28 @@ pub fn save_at(path: &Path, token: &str) -> Result<(), CredentialError> {
     }
     save_with(&OsVault::new(path)?, token)
 }
+
+pub fn save_preserving_recovery_at(
+    path: &Path,
+    token: &str,
+    expected: Option<&[u8]>,
+) -> Result<(), CredentialError> {
+    if !valid_token(token) {
+        return Err(CredentialError::Invalid);
+    }
+    save_preserving_with(path, token, expected, &OsVault::new(path)?)
+}
+
+fn save_preserving_with(
+    path: &Path,
+    token: &str,
+    expected: Option<&[u8]>,
+    vault: &impl Vault,
+) -> Result<(), CredentialError> {
+    let file = super::storage::PendingFile::open(path).map_err(CredentialError::Recovery)?;
+    file.while_matching(expected, || save_with(vault, token))
+        .map_err(CredentialError::Recovery)?
+}
 pub fn clear_at(path: &Path) -> Result<(), CredentialError> {
     clear_with(&OsVault::new(path)?)
 }

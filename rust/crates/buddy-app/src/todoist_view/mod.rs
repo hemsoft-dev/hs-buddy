@@ -297,7 +297,7 @@ impl TodoistView {
                 Err(error) => return Err(error.to_string()),
             };
             if save {
-                credentials::save_at(&config, &token).map_err(|error| error.to_string())?;
+                planner.save_token(&token).map_err(|error| error.to_string())?;
             }
             Ok::<_, String>(Some((planner, problem)))
         });

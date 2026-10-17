@@ -116,7 +116,10 @@ async fn account_midnight_refreshes_the_calendar_window_once_without_sending_a_c
 #[tokio::test]
 async fn unavailable_project_can_fall_back_to_a_project_when_calendar_also_exceeds_the_bound() {
     let disk = DiskRecovery::new();
-    let (client, worker, captures) = server(61, |request, _| {
+    let (client, worker, captures) = server(64, |request, _| {
+        if let Some(reply) = sync_read_reply(request) {
+            return Some(reply);
+        }
         if request.line.starts_with("GET /api/v1/projects?") {
             let mut projects = vec![
                 json!({"id":"project","name":"Available Inbox","color":"blue","child_order":0}),
@@ -160,14 +163,8 @@ async fn unavailable_project_can_fall_back_to_a_project_when_calendar_also_excee
     assert_eq!(data.tasks.len(), 1);
     assert!(data.tasks[0].due.is_none());
     worker.join().unwrap();
-    assert_eq!(captures.lock().unwrap().len(), 61);
-    assert!(
-        captures
-            .lock()
-            .unwrap()
-            .iter()
-            .all(|request| request.line.starts_with("GET "))
-    );
+    assert_eq!(captures.lock().unwrap().len(), 64);
+    assert!(captures.lock().unwrap().iter().all(read_only_request));
 }
 
 #[tokio::test]
@@ -213,4 +210,47 @@ async fn failed_day_refresh_retains_the_completed_scope_and_disables_stale_write
             .all(|request| request.line.starts_with("GET "))
     );
     assert_eq!(std::fs::read_dir(&disk.0).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn broad_reconnect_scopes_fall_back_to_an_available_project_after_they_grow_too_large() {
+    for (preferred, expected) in [(Coverage::All, 118), (Coverage::Calendar, 62)] {
+        let disk = DiskRecovery::new();
+        let (client, worker, captures) = server(expected, |request, _| {
+            if let Some(reply) = sync_read_reply(request) {
+                return Some(reply);
+            }
+            if request.line.starts_with("GET /api/v1/tasks/filter?")
+                || request.line.starts_with("GET /api/v1/tasks?")
+                    && !query(request).iter().any(|(key, _)| key == "project_id")
+            {
+                let parameters = query(request);
+                let page = parameters
+                    .iter()
+                    .find(|(key, _)| key == "cursor")
+                    .map(|(_, value)| value.parse::<usize>().unwrap())
+                    .unwrap_or(0);
+                let rows: Vec<_> = (0..if page == 50 { 1 } else { 100 })
+                    .map(|offset| {
+                        let mut row = task(&format!("growing-{}", page * 100 + offset));
+                        row["due"] = json!({"date":"2026-11-03"});
+                        row
+                    })
+                    .collect();
+                return Some(Response::json(
+                    json!({"results":rows,"next_cursor":if page==50 {None}else{Some((page+1).to_string())}}),
+                ));
+            }
+            Some(loaded(request))
+        });
+        let mut planner = Planner::connect(client, disk.config(), None).await.unwrap();
+        let data = planner.refresh_connection_scope(preferred).await.unwrap();
+        assert!(data.coverage == Coverage::Project(Id::parse("project").unwrap()));
+        assert_eq!(data.tasks.len(), 1);
+        assert!(data.tasks[0].due.is_none());
+        worker.join().unwrap();
+        assert_eq!(captures.lock().unwrap().len(), expected);
+        assert!(captures.lock().unwrap().iter().all(read_only_request));
+        assert_eq!(std::fs::read_dir(&disk.0).unwrap().count(), 0);
+    }
 }

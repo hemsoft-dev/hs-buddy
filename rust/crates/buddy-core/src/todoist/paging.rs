@@ -1,4 +1,5 @@
-//! Only a completed read can replace an existing task or project snapshot.
+//! Assemble bounded pages without exposing partial results. The transport also
+//! validates Sync watermarks before publishing a multi-page collection.
 use std::collections::HashSet;
 
 use super::{

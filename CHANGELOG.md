@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1448] - 2026-10-17
+
+### Fixed
+
+- Validate Todoist cursor reads and credential replacement (#817)
+
 ## [0.1.1447] - 2026-10-17
 
 ### Fixed

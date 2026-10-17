@@ -18,6 +18,8 @@ mod acknowledgement_tests;
 mod change_identity_tests;
 #[path = "planner_tests.rs"]
 mod planner_tests;
+#[path = "read_consistency_tests.rs"]
+mod read_consistency_tests;
 
 struct Captured {
     line: String,
@@ -567,9 +569,47 @@ fn query(request: &Captured) -> Vec<(String, String)> {
         .collect()
 }
 
+fn sync_read_reply(request: &Captured) -> Option<Response> {
+    if request.line != "POST /api/v1/sync HTTP/1.1" {
+        return None;
+    }
+    let form: std::collections::HashMap<_, _> =
+        Url::parse(&format!("http://127.0.0.1/?{}", request.body))
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+    if form.len() != 2 || !form.contains_key("sync_token") || !form.contains_key("resource_types") {
+        return None;
+    }
+    let full = form["sync_token"] == "*";
+    let expected = if full {
+        json!(["user"])
+    } else {
+        json!(["items", "projects"])
+    };
+    assert_eq!(
+        serde_json::from_str::<Value>(&form["resource_types"]).unwrap(),
+        expected
+    );
+    Some(Response::json(if full {
+        json!({"sync_token":"stable-marker","full_sync":true,"user":{"id":"planner-account","tz_info":{"timezone":"America/New_York"}}})
+    } else {
+        assert_eq!(form["sync_token"], "stable-marker");
+        json!({"sync_token":"stable-marker","full_sync":false,"items":[],"projects":[]})
+    }))
+}
+
+fn read_only_request(request: &Captured) -> bool {
+    request.line.starts_with("GET ") || sync_read_reply(request).is_some()
+}
+
 #[tokio::test]
 async fn real_http_pagination_keeps_empty_intermediate_pages_and_encodes_private_filters() {
-    let (client, worker, captures) = server(3, |request, index| {
+    let (client, worker, captures) = server(7, |request, index| {
+        if let Some(reply) = sync_read_reply(request) {
+            return Some(reply);
+        }
         let values = query(request);
         assert!(request.line.starts_with("GET /api/v1/tasks/filter?"));
         assert!(values.contains(&("query".into(), "today & #Synthetic Unicode π".into())));
@@ -580,11 +620,16 @@ async fn real_http_pagination_keeps_empty_intermediate_pages_and_encodes_private
             .map(|(_, value)| value.as_str());
         assert_eq!(
             cursor,
-            [None, Some("opaque &one"), Some("opaque/two")][index]
+            match index {
+                0 | 3 => None,
+                4 => Some("opaque &one"),
+                5 => Some("opaque/two"),
+                _ => panic!("Unexpected pagination request"),
+            }
         );
         Some(Response::json(match index {
-            0 => json!({"results":[task("first")],"next_cursor":"opaque &one"}),
-            1 => json!({"results":[],"next_cursor":"opaque/two"}),
+            0 | 3 => json!({"results":[task("first")],"next_cursor":"opaque &one"}),
+            4 => json!({"results":[],"next_cursor":"opaque/two"}),
             _ => json!({"results":[task("last")],"next_cursor":null}),
         }))
     });
@@ -600,13 +645,17 @@ async fn real_http_pagination_keeps_empty_intermediate_pages_and_encodes_private
             .collect::<Vec<_>>(),
         ["first", "last"]
     );
-    assert_eq!(captures.lock().unwrap().len(), 3);
+    assert_eq!(captures.lock().unwrap().len(), 7);
+    assert!(captures.lock().unwrap().iter().all(read_only_request));
 }
 
 #[tokio::test]
 async fn a_later_http_failure_returns_no_partial_snapshot_or_private_service_error() {
-    let (client, worker, _) = server(2, |_, index| {
-        Some(if index == 0 {
+    let (client, worker, _) = server(5, |request, _| {
+        if let Some(reply) = sync_read_reply(request) {
+            return Some(reply);
+        }
+        Some(if !query(request).iter().any(|(key, _)| key == "cursor") {
             Response::json(json!({"results":[task("first")],"next_cursor":"next"}))
         } else {
             Response {

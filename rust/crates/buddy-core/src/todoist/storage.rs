@@ -73,6 +73,21 @@ impl PendingFile {
         Ok(result)
     }
 
+    pub(super) fn while_matching<T>(
+        &self,
+        expected: Option<&[u8]>,
+        action: impl FnOnce() -> T,
+    ) -> Result<T, StorageError> {
+        let lock = lock(&self.path)?;
+        if read(&self.path)?.as_deref() != expected {
+            return Err(StorageError::Changed);
+        }
+        held(&lock)?;
+        let result = action();
+        held(&lock)?;
+        Ok(result)
+    }
+
     /// Persist a terminal service outcome without needing directory deletion
     /// permission. An interrupted append is invalid recovery, never permission
     /// to resend an acknowledged change. The command itself remains unchanged.

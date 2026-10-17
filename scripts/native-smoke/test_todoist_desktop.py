@@ -32,6 +32,36 @@ class FailureScenarios(unittest.TestCase):
         request=urllib.request.Request(self.api.url+path,headers={'Authorization':'Bearer '+desktop.todoist.TOKEN})
         with self.http.open(request,timeout=3) as response:return json.load(response)
 
+    def sync_read(self, token='*', resources=None):
+        body=urllib.parse.urlencode({'sync_token':token,'resource_types':json.dumps(['user'] if resources is None else resources)}).encode()
+        request=urllib.request.Request(self.api.url+'sync',data=body,headers={'Authorization':'Bearer '+desktop.todoist.TOKEN})
+        with self.http.open(request,timeout=3) as response:return json.load(response)
+
+    def test_cursor_mutation_skips_an_unseen_row_and_is_reported_by_the_real_sync_delta(self):
+        self.api.arm('cursor-change')
+        self.complete_read()
+        provisional=self.get('tasks?limit=100')
+        self.assertFalse(self.api.cursor_change_applied)
+        full=self.sync_read()
+        marker=self.sync_read(full['sync_token'],['items','projects'])['sync_token']
+        first=self.get('tasks?limit=100')
+        self.assertTrue(self.api.cursor_change_applied)
+        self.assertEqual(first,provisional)
+        rows=first['results'][:]
+        cursor=first['next_cursor']
+        while cursor:
+            page=self.get('tasks?'+urllib.parse.urlencode({'limit':'100','cursor':cursor}))
+            rows.extend(page['results'])
+            cursor=page['next_cursor']
+        identifiers=[row['id'] for row in rows]
+        self.assertNotIn('task-upcoming',identifiers)
+        self.assertEqual(len(identifiers),len(set(identifiers)))
+        delta=self.sync_read(marker,['items','projects'])
+        self.assertEqual([row['id'] for row in delta['items']],['task-overdue'])
+        self.assertTrue(delta['items'][0]['is_deleted'])
+        self.assertEqual(desktop.posts(self.api),[])
+        self.assertEqual(len([row for row in self.api.snapshot()['traffic'] if row['method']=='POST']),3)
+
     def complete_read(self):
         self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
         cursor=None

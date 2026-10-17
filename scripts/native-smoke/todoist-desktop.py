@@ -34,14 +34,20 @@ class ScenarioFixture(todoist.Fixture):
         self.complete_tasks = False
         self.remove_after_project_read = None
         self.removal_ready = False
+        self.cursor_change_armed = False
+        self.cursor_first_pages = 0
+        self.cursor_change_applied = False
         super().__init__(marker)
 
     def arm(self, scenario):
-        if scenario not in ('offline', 'expired', 'task-read'):
+        if scenario not in ('offline', 'expired', 'task-read', 'cursor-change'):
             raise ValueError('Unsupported Todoist failure scenario')
         with self.lock:
             self.complete_tasks = False
             self.fail_after_read = scenario
+            if scenario == 'cursor-change':
+                self.cursor_first_pages = 0
+                self.cursor_change_applied = False
 
     def _get(self, route, query):
         value = super()._get(route, query)
@@ -52,6 +58,8 @@ class ScenarioFixture(todoist.Fixture):
                 self.disconnect = True
             elif self.fail_after_read == 'task-read':
                 self.fail_next_tasks = True
+            elif self.fail_after_read == 'cursor-change':
+                self.cursor_change_armed = True
             else:
                 self.expired = True
             self.fail_after_read = None
@@ -65,6 +73,15 @@ class ScenarioFixture(todoist.Fixture):
             project['is_archived'] = True
             self.removal_ready = False
             self.remove_after_project_read = None
+        if route == 'tasks' and not query.get('project_id') and self.cursor_change_armed:
+            if 'cursor' not in query:
+                self.cursor_first_pages += 1
+            if self.cursor_first_pages == 2:
+                # Remove a row already returned by the guarded first page.
+                # The next offset skips a different, previously unseen row.
+                next(task for task in self.tasks if task['id'] == 'task-overdue')['is_deleted'] = True
+                self.cursor_change_armed = False
+                self.cursor_change_applied = True
         return value
 
     def arm_removed_project(self, identifier):
@@ -108,7 +125,10 @@ def environment(changes):
 
 
 def posts(api):
-    return [row for row in api.snapshot()['traffic'] if row['method'] == 'POST']
+    # Count every command or unknown POST, including rejected authentication.
+    # Only strict two-field read-only Sync requests are excluded, and their
+    # complete traffic remains separately recorded and checked.
+    return [row for row in api.snapshot()['traffic'] if row['method'] == 'POST' and not row.get('syncRead', False)]
 
 
 def pending_bytes(config):
@@ -170,6 +190,17 @@ def qualify(executable, output, session, version, backend):
             if posts(api):
                 raise RuntimeError('Read-only Todoist navigation sent a mutation')
 
+            api.arm('cursor-change')
+            changed = driver.drive('cursor-change-dark', [
+                ('wait_text', 'Synthetic today task'), ('click', 'Refresh'),
+                ('wait_text', 'Todoist changed while loading'), ('capture', 'skipped-row-retained-dark'),
+                ('click', 'Refresh'), ('wait_text', 'Tasks refreshed'), ('capture', 'stable-after-change-dark'),
+            ])
+            github.check(changed / 'skipped-row-retained-dark.png', 'changed while loading', 'Synthetic overdue task')
+            github.check(changed / 'stable-after-change-dark.png', 'Synthetic today task', absent=('Synthetic overdue task',))
+            if not api.cursor_change_applied or posts(api):
+                raise RuntimeError('Concurrent cursor change did not preserve read-only retained-task recovery')
+
             api.drop_next_ack = True
             lost = driver.drive('lost-ack-dark', [
                 ('wait_text', 'Synthetic today task'), ('click', 'New task'),
@@ -206,7 +237,7 @@ def qualify(executable, output, session, version, backend):
                 ('click', 'Synthetic Empty'), ('wait_text', 'No tasks in this view'),
                 ('capture', 'empty-project-light'),
             ])
-            requests = [row for row in api.snapshot()['requests'] if row['method'] == 'POST']
+            requests = [row for row in api.snapshot()['requests'] if row['method'] == 'POST' and not row.get('syncRead', False)]
             if len(posts(api)) != 2 or len(requests) != 2 or requests[0]['commands'] != requests[1]['commands'] or api.snapshot()['created'] != 1:
                 raise RuntimeError('Explicit retry did not preserve one immutable creation command')
             if list(config.parent.glob('native-todoist-change-*.json')):
@@ -323,10 +354,16 @@ def qualify(executable, output, session, version, backend):
                 if any(private in text for private in (todoist.TOKEN, 'Synthetic created task', 'Synthetic undated task')):
                     raise RuntimeError('Private Todoist content appeared in app tracing')
             final = api.snapshot()
+            sync_reads = [row for row in final['traffic'] if row.get('syncRead', False)]
+            if not sync_reads or any(row['method'] != 'POST' or row['path'] != '/api/v1/sync'
+                    or row['resourceTypes'] not in (['user'], ['items', 'projects']) for row in sync_reads):
+                raise RuntimeError('Read-only Sync watermark traffic was not verified')
             (output / 'requests.json').write_text(json.dumps(final, indent=2), encoding='utf-8')
             receipt = dict(result='passed', version=version, session=session, **binary,
                 largeWindow=driver.large_size, compactWindow=[900, 650], screenshots=captures(output),
-                readOnlyNavigationPosts=0, taskWriteAttempts=7, createdTasks=1,
+                readOnlyNavigationCommandPosts=0, taskWriteAttempts=7, createdTasks=1,
+                readOnlySyncRequests=len(sync_reads), readOnlySyncWatermarksVerified=True,
+                concurrentCursorChangeRetainedCompleteTasks=True,
                 restrictedProjectCompletionVerified=True, unknownProjectRoleReadOnly=True,
                 failedReconnectRetainedAccountTasks=True, failedReplacementReadRetainedAccountTasks=True,
                 largeAccountScopedReadsVerified=True,

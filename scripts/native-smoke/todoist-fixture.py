@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import datetime
+import hashlib
 import http.server
 import json
 import os
@@ -22,6 +23,18 @@ TOKEN = 'native-fixture-todoist-token'
 NOW = '2026-11-02T05:30:00Z'
 MARKER = '.buddy-todoist-fixture.json'
 MAX_BODY = 256 * 1024
+
+
+def _sync_read_form(form):
+    if set(form) != {'sync_token', 'resource_types'} or any(len(values) != 1 for values in form.values()):
+        return None
+    token = form['sync_token'][0]
+    resources = json.loads(form['resource_types'][0])
+    if not token or len(token) > 2048 or any(ord(character) < 32 for character in token):
+        return None
+    if token == '*' and resources == ['user'] or token != '*' and resources == ['items', 'projects']:
+        return token, resources
+    return None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,6 +97,7 @@ class Fixture:
         self.disconnect = False
         self.drop_next_ack = False
         self.commands = {}
+        self.sync_states = {}
         self.created = 0
         self.page_cap = 2
         self.fail_next_tasks = False
@@ -226,6 +240,32 @@ class Fixture:
         self.commands[identifier] = (copy.deepcopy(command), copy.deepcopy(reply))
         return reply
 
+    def _read_sync(self, token, resources):
+        def fingerprints(rows):
+            return {row['id']: hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                for row in rows}
+        tasks, projects = fingerprints(self.tasks), fingerprints(self.projects)
+        current = 'fixture-sync-' + hashlib.sha256(json.dumps([tasks, projects], sort_keys=True).encode()).hexdigest()
+        previous = self.sync_states.get(token)
+        self.sync_states[current] = tasks, projects
+        while len(self.sync_states) > 16:
+            self.sync_states.pop(next(iter(self.sync_states)))
+        if token == '*':
+            if resources != ['user']:
+                raise ValueError('Unsupported fixture full sync')
+            # Read the real user shape without triggering ScenarioFixture's
+            # separate final-profile failure arming.
+            return dict(sync_token=current, full_sync=True, user=Fixture._get(self, 'user', {}))
+        if resources != ['items', 'projects']:
+            raise ValueError('Unsupported fixture incremental sync')
+        if previous is None:
+            return dict(sync_token=current, full_sync=True, items=copy.deepcopy(self.tasks), projects=copy.deepcopy(self.projects))
+        def changes(rows, old, fresh):
+            return [copy.deepcopy(row) for row in rows if old.get(row['id']) != fresh[row['id']]] + [
+                dict(id=identifier, is_deleted=True) for identifier in old if identifier not in fresh]
+        return dict(sync_token=current, full_sync=False,
+            items=changes(self.tasks, previous[0], tasks), projects=changes(self.projects, previous[1], projects))
+
 
 class _Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_):
@@ -256,8 +296,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             audit_path = '<invalid-request-target>'
         # Count every HTTP attempt, including rejected auth and malformed bodies.
         # This allows a real zero-write assertion instead of counting only saves.
+        audit = dict(method=self.command, path=audit_path)
         with fixture.lock:
-            fixture.traffic.append(dict(method=self.command, path=audit_path))
+            fixture.traffic.append(audit)
         body = None
         if write:
             try:
@@ -270,6 +311,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             except (ValueError, OSError):
                 self._respond(400, dict(error='Unsupported synthetic request'))
                 return
+        read_fields = None
+        if write:
+            try:
+                parsed = urllib.parse.urlsplit(self.path)
+                if not parsed.scheme and not parsed.netloc and not parsed.fragment and not parsed.query and parsed.path == '/api/v1/sync':
+                    read_fields = _sync_read_form(urllib.parse.parse_qs(body.decode(), strict_parsing=True))
+                if read_fields:
+                    with fixture.lock:
+                        audit.update(syncRead=True, syncToken=read_fields[0], resourceTypes=read_fields[1])
+            except (ValueError, TypeError, UnicodeError):
+                pass
         if self.headers.get('Authorization') != f'Bearer {TOKEN}':
             self._respond(401, dict(error='Synthetic authentication rejected'))
             return
@@ -303,17 +355,26 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 if write:
                     if route != 'sync' or query:
                         raise ValueError('Unsupported fixture mutation')
-                    form = urllib.parse.parse_qs(body.decode(), strict_parsing=True)
-                    if set(form) != {'commands'} or len(form['commands']) != 1:
-                        raise ValueError('Invalid fixture command form')
-                    commands = json.loads(form['commands'][0])
-                    fixture.requests.append(dict(method='POST', path=url.path, commands=copy.deepcopy(commands)))
-                    reply = fixture._sync(commands)
-                    if fixture.drop_next_ack:
-                        fixture.drop_next_ack = False
-                        self.close_connection = True
-                        self.connection.shutdown(socket.SHUT_RDWR)
-                        return
+                    if read_fields:
+                        record = dict(method='POST', path=url.path, syncRead=True,
+                            syncToken=read_fields[0], resourceTypes=copy.deepcopy(read_fields[1]))
+                        fixture.requests.append(record)
+                        reply = fixture._read_sync(*read_fields)
+                        record.update(responseToken=reply['sync_token'], fullSync=reply['full_sync'],
+                            changedItems=[row['id'] for row in reply.get('items', [])],
+                            changedProjects=[row['id'] for row in reply.get('projects', [])])
+                    else:
+                        form = urllib.parse.parse_qs(body.decode(), strict_parsing=True)
+                        if set(form) != {'commands'} or len(form['commands']) != 1:
+                            raise ValueError('Invalid fixture command form')
+                        commands = json.loads(form['commands'][0])
+                        fixture.requests.append(dict(method='POST', path=url.path, commands=copy.deepcopy(commands)))
+                        reply = fixture._sync(commands)
+                        if fixture.drop_next_ack:
+                            fixture.drop_next_ack = False
+                            self.close_connection = True
+                            self.connection.shutdown(socket.SHUT_RDWR)
+                            return
                 else:
                     fixture.requests.append(dict(method='GET', path=url.path, query=copy.deepcopy(query)))
                     reply = fixture._get(route, query)
