@@ -345,6 +345,53 @@ class LabeledInputs(unittest.TestCase):
                         "--delay", 10, "--", "First private"), run.call_args_list)
 
 
+class SessionInputRows(unittest.TestCase):
+    def test_session_input_uses_the_measured_button_row_instead_of_border_padding(self):
+        # Actual Intel failure: label bottom190 produced y210; the adjacent
+        # Scan folder glyph spans215..225 and centers the editor at y220.
+        for session, scale in (("macos", 1), ("macos", 2), ("x11", 1)):
+            with self.subTest(session=session, scale=scale):
+                driver = desktop.Driver.__new__(desktop.Driver)
+                driver.session = session
+                directory = MagicMock()
+                image = directory.__truediv__.return_value
+                image.read_bytes.return_value = bytes(16) + struct.pack(">II", 1200 * scale, 820 * scale)
+                image.with_suffix.return_value.read_text.return_value = json.dumps(dict(
+                    kCGWindowBounds=dict(X=100, Y=50), capturePixelsPerWindowPoint=scale))
+                label = dict(left=65 * scale, top=177 * scale, width=135 * scale, height=13 * scale,
+                    row_control=dict(left=1103 * scale, top=215 * scale, width=70 * scale, height=10 * scale))
+                window, helper = Mock(), Mock()
+                helper.focus_state.return_value = dict(flags="owned fixture window")
+                with patch.object(desktop.ocr, "locate_image", return_value=label) as locate, \
+                        patch.object(desktop, "OwnedMacInput", return_value=helper), \
+                        patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
+                    driver.interact(window, directory, "input", ["VS Code User directory", "synthetic path", "Scan folder"])
+                locate.assert_called_with(image, "VS Code User directory", navigation=False,
+                    field=True, save_row=False, tab=False, row_control="Scan folder")
+                if session == "macos":
+                    helper.click.assert_called_once_with(185, 270)
+                    helper.replace_text.assert_called_once_with("synthetic path")
+                else:
+                    self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
+                        window.window, 85, 220, "click", 1), run.call_args_list)
+
+    def test_windows_semantic_input_does_not_receive_the_unix_geometry_hint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(temporary)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.executable = Path("owned-buddy.exe")
+            driver.config = driver.profile / "config.json"
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            driver.checkout = driver.profile
+            with patch.object(desktop, "run") as run:
+                driver.drive("sessions", [("input", "VS Code User directory", "synthetic path", "Scan folder")])
+            arguments = run.call_args.args
+            commands = arguments[arguments.index("-Actions") + 1].split(",")
+            self.assertIn("input64:" + desktop.b64("VS Code User directory") + ":" + desktop.b64("synthetic path"), commands)
+
+
 class MacInputOwnership(unittest.TestCase):
     def test_normal_environment_cannot_load_input_frameworks(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "", "BUDDY_SETTINGS_FIXTURE": ""}):

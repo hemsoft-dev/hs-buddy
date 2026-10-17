@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -14,6 +15,38 @@ spec.loader.exec_module(ocr)
 
 def word(text, left, top, line):
     return dict(text=text, left=left, top=top, width=30, height=12, line=line)
+
+
+class SessionInputRow(unittest.TestCase):
+    def test_actual_failed_intel_layout_measures_the_editor_row_below_the_old_click(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('session-input-row-ocr.json').read_text(encoding='utf-8'))
+        label = ocr.locate_label(evidence['words'], 'VS Code User directory', field=True)
+        control = ocr.aligned_control(evidence['words'], label, 'Scan folder')
+        self.assertEqual(label, dict(left=65, top=177, width=135, height=13))
+        self.assertEqual(control, dict(left=1103, top=214, width=70, height=11))
+        self.assertEqual(label['top'] + label['height'] + 20, 210)
+        self.assertEqual(control['top'] + control['height'] / 2, 219.5)
+
+    def test_complete_adjacent_button_locates_the_editor_row_at_both_capture_scales(self):
+        for scale in (1, 2):
+            with self.subTest(scale=scale):
+                label = dict(left=65*scale, top=177*scale, width=135*scale, height=13*scale)
+                words = [dict(text='Scan', left=1103*scale, top=215*scale, width=29*scale, height=10*scale, line='scan'),
+                    dict(text='folder', left=1138*scale, top=215*scale, width=35*scale, height=10*scale, line='scan')]
+                self.assertEqual(ocr.aligned_control(words, label, 'Scan folder'),
+                    dict(left=1103*scale, top=215*scale, width=70*scale, height=10*scale))
+
+    def test_competing_buttons_in_the_same_row_are_rejected(self):
+        label = dict(left=65, top=177, width=135, height=13)
+        words = [dict(text='Scan folder', left=x, top=215, width=70, height=10, line=str(x)) for x in (600, 1103)]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.aligned_control(words, label, 'Scan folder')
+
+    def test_button_on_another_row_or_partial_label_is_rejected(self):
+        label = dict(left=65, top=177, width=135, height=13)
+        for text, top in (('Scan folder', 300), ('Scan folder', 160), ('Scan', 215)):
+            with self.subTest(text=text, top=top), self.assertRaises(RuntimeError):
+                ocr.aligned_control([dict(text=text, left=1103, top=top, width=70, height=10, line='scan')], label, 'Scan folder')
 
 
 class LabelGuards(unittest.TestCase):

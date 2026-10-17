@@ -11,6 +11,61 @@ spec = importlib.util.spec_from_file_location('copilot_desktop', Path(__file__).
 copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
+class SessionSourceIntegrity(unittest.TestCase):
+    def test_unchanged_source_is_verified_after_success_and_navigation_failure(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                _, source, expected = copilot.session_fixture(output)
+                original = source.read_bytes()
+                primary = RuntimeError('synthetic navigation failure')
+                try:
+                    with copilot.session_source_guard(source, expected, output):
+                        if fail:
+                            raise primary
+                except RuntimeError as error:
+                    self.assertTrue(fail)
+                    self.assertIs(error, primary)
+                receipt = json.loads((output / 'session-source-integrity.json').read_text())
+                self.assertEqual(receipt['result'], 'passed')
+                self.assertEqual(receipt['expectedSha256'], expected)
+                self.assertEqual(receipt['actualSha256'], expected)
+                self.assertEqual(source.read_bytes(), original)
+
+    def test_source_mutation_fails_without_restoring_bytes_or_replacing_primary_error(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                _, source, expected = copilot.session_fixture(output)
+                primary = RuntimeError('synthetic navigation failure')
+                with self.assertRaises(RuntimeError) as raised:
+                    with copilot.session_source_guard(source, expected, output):
+                        source.write_bytes(b'changed source')
+                        if fail:
+                            raise primary
+                if fail:
+                    self.assertIs(raised.exception, primary)
+                    self.assertIn('Session source verification failed: RuntimeError', primary.__notes__)
+                else:
+                    self.assertIn('changed its source', str(raised.exception))
+                self.assertEqual(source.read_bytes(), b'changed source')
+                receipt = json.loads((output / 'session-source-integrity.json').read_text())
+                self.assertEqual(receipt['result'], 'failed')
+                self.assertNotEqual(receipt['expectedSha256'], receipt['actualSha256'])
+
+    def test_failed_integrity_receipt_does_not_replace_primary_failure(self):
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            _, source, expected = copilot.session_fixture(output)
+            primary = RuntimeError('synthetic navigation failure')
+            with self.assertRaises(RuntimeError) as raised:
+                with copilot.session_source_guard(source, expected, output):
+                    (output / 'session-source-integrity.json').mkdir()
+                    raise primary
+            self.assertIs(raised.exception, primary)
+            self.assertTrue(any('Session source verification failed:' in note for note in primary.__notes__))
+
+
 class CopilotQualificationTests(unittest.TestCase):
     def verify_usage_capture(self, history_text):
         class CapturedUsageDriver:

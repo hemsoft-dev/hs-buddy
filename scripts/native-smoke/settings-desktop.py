@@ -192,7 +192,10 @@ class Driver:
             for action in actions:
                 kind, *values = action
                 if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
-                    commands.append(kind + "64:" + ":".join(map(b64, values)))
+                    # Unix OCR may name the adjacent row control. Windows
+                    # resolves the input semantically and only needs its value.
+                    encoded = values[:2] if kind == "input" else values
+                    commands.append(kind + "64:" + ":".join(map(b64, encoded)))
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
                 elif kind == "resize":
@@ -348,13 +351,16 @@ class Driver:
             OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta, precise=point is not None)
         time.sleep(0.7)
 
-    def locate(self, window, image, kind, text):
+    def locate(self, window, image, kind, text, row_control=None):
         previous = None
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
-            label = ocr.locate_image(image, text, navigation=kind == "nav",
+            options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            if row_control is not None:
+                options["row_control"] = row_control
+            label = ocr.locate_image(image, text, **options)
             # A pending save can insert feedback while OCR runs, moving every
             # content control. Measure twice before emitting any Mac input.
             if self.session != "macos" or label == previous:
@@ -369,7 +375,11 @@ class Driver:
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
-        label = self.locate(window, image, kind, values[0])
+        row_control = values[2] if kind == "input" and len(values) == 3 else None
+        if row_control is None:
+            label = self.locate(window, image, kind, values[0])
+        else:
+            label = self.locate(window, image, kind, values[0], row_control=row_control)
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)
@@ -391,6 +401,9 @@ class Driver:
                 # GitHub fields can occupy a narrow column and have no Save
                 # control. Target the editor immediately below its own label.
                 x = label["left"] / scale + 20
+        if "row_control" in label:
+            control = label["row_control"]
+            y = (control["top"] + control["height"] / 2) / scale
         if "save" in label:
             # Label glyph bottoms do not locate the editor: on Mac the old
             # offset hit the frame's padding, which shows a focus ring while

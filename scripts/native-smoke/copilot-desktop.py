@@ -92,7 +92,33 @@ def session_fixture(output):
         dict(kind=1, k=['requests', 0, 'result'], v=dict(metadata=dict(promptTokens=100, outputTokens=25), timings=dict(firstProgress=10, totalElapsed=800)))]
     path = sessions / (identifier + '.jsonl')
     path.write_text('\n'.join(json.dumps(line) for line in lines), encoding='utf-8')
-    return user, path, hashlib.sha256(path.read_bytes()).hexdigest()
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    (output / 'session-source-fixture.json').write_text(json.dumps(dict(
+        fileName=path.name, expectedSha256=expected), indent=2), encoding='utf-8')
+    return user, path, expected
+
+
+@contextmanager
+def session_source_guard(source, expected, output):
+    """Check original bytes even when UI navigation fails; never restore them."""
+    primary = None
+    try:
+        yield
+    except BaseException as failure:
+        primary = failure
+        raise
+    finally:
+        try:
+            actual = hashlib.sha256(source.read_bytes()).hexdigest()
+            (output / 'session-source-integrity.json').write_text(json.dumps(dict(
+                result='passed' if actual == expected else 'failed',
+                expectedSha256=expected, actualSha256=actual), indent=2), encoding='utf-8')
+            if actual != expected:
+                raise RuntimeError('Read-only session exploration changed its source file')
+        except BaseException as verification_failure:
+            if primary is None:
+                raise
+            primary.add_note(f'Session source verification failed: {type(verification_failure).__name__}')
 
 def provider_receipts(output):
     rows = [json.loads(path.read_text()) for path in output.glob('copilot-provider-*.json')]
@@ -231,7 +257,8 @@ def qualify(executable, output, session, version, backend, api):
     try:
         with environment(dict(BUDDY_COPILOT_FIXTURE='1', BUDDY_CONFIG_PATH=config, BUDDY_CONVEX_URL=backend.url,
                 CODEX_HOME=output / 'empty-codex', BUDDY_CODEX_FIXTURE_SCENARIO='normal', COPILOT_METRICS_FILE=metrics,
-                RUST_LOG='warn,github_copilot_sdk=trace,convex=trace,tungstenite=trace,tokio_tungstenite=trace')), github.fixture_environment(api.url):
+                RUST_LOG='warn,github_copilot_sdk=trace,convex=trace,tungstenite=trace,tokio_tungstenite=trace')), github.fixture_environment(api.url), \
+                session_source_guard(transcript, transcript_sha, output):
             sdk = headless(executable, output, config, backend)
             assert_no_owned_children(output)
             terminal.verify_sentinel(sentinel, 'headless SDK cleanup')
@@ -248,29 +275,29 @@ def qualify(executable, output, session, version, backend, api):
                 missing = driver.drive('codex-auth-error-light', [('click', 'Usage'), ('click', 'codex-fixture'), ('click', 'Refresh usage'), ('wait_text', 'No Codex ChatGPT login found'), ('capture', 'codex-auth-error-light')])
                 github.check(missing / 'codex-auth-error-light.png', 'No Codex ChatGPT login found')
             sessions = driver.drive('sessions-light', [
-                ('click', 'Sessions'), ('input', 'VS Code User directory', str(user_directory)), ('click', 'Scan folder'),
+                ('click', 'Sessions'), ('input', 'VS Code User directory', str(user_directory), 'Scan folder'), ('click', 'Scan folder'),
                 ('wait_text', 'Synthetic session'), ('click', 'Synthetic session'), ('wait_text', '100 prompt tokens'),
                 ('capture', 'session-detail-light'), ('resize', 900, 650), ('capture', 'session-compact-light'),
-                ('input', 'VS Code User directory', str(output / 'missing-directory')), ('click', 'Scan folder'),
+                ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('click', 'Scan folder'),
                 ('wait_text', 'unavailable'), ('capture', 'session-error-light'),
             ])
             github.check(sessions / 'session-detail-light.png', '100 prompt tokens', '25 output tokens', '0.25')
             github.check(sessions / 'session-error-light.png', 'unavailable', 'Loaded source')
-            if hashlib.sha256(transcript.read_bytes()).hexdigest() != transcript_sha:
-                raise RuntimeError('Read-only session exploration changed its source file')
             terminal.verify_sentinel(sentinel, 'all native Copilot app shutdowns')
             assert_no_owned_children(output)
             (output / 'requests.json').write_text(json.dumps(api.requests, indent=2))
             assert_private_content_not_logged(output)
-            (output / 'qualification.json').write_text(json.dumps(dict(result='passed', version=version, session=session,
+            qualification = dict(result='passed', version=version, session=session,
                 **binary, largeWindow=driver.large_size, headless=sdk, privateTransportTraceContentAbsent=True, ownedSdkChildrenAbsent=True, unrelatedSentinelAlive=True, readOnlySessionSha256=transcript_sha,
-                dataSource='Synthetic offline SDK provider, scoped loopback GitHub, and isolated anonymous Convex'), indent=2))
+                dataSource='Synthetic offline SDK provider, scoped loopback GitHub, and isolated anonymous Convex')
     except BaseException as failure:
         primary = failure
         github.preserve_failed_requests(output, api.requests, failure)
         raise
     finally:
         terminal.stop_sentinel(sentinel, primary)
+    # A pass receipt is only valid after source verification and cleanup finish.
+    (output / 'qualification.json').write_text(json.dumps(qualification, indent=2))
 
 def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('BUDDY_SETTINGS_FIXTURE') != '1':

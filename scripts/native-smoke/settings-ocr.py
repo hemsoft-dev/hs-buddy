@@ -162,6 +162,14 @@ def aligned_save(words, label):
     return candidates[0]
 
 
+def aligned_control(words, label, text):
+    """Require the complete adjacent button in the field's measured row."""
+    candidates = [word for word in words
+        if word["left"] > label["left"] + label["width"] + 4 * label["height"]
+        and label["top"] + label["height"] < word["top"] < label["top"] + max(64, 6 * label["height"])]
+    return find_label(candidates, text)
+
+
 def input_region(label, dimensions):
     """Use measured glyph pixels to exclude the input's focus border."""
     button = label["save"]
@@ -194,13 +202,15 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None):
     for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
             label = locate_label(words, labels, navigation, field, tab)
             if save_row:
                 label["save"] = aligned_save(words, label)
+            if row_control is not None:
+                label["row_control"] = aligned_control(words, label, row_control)
             return label
         except RuntimeError as error:
             # Retain the actual native engine output with the already-owned
@@ -221,6 +231,8 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
             label = locate_label(words, labels, navigation, field, tab)
             if save_row:
                 label["save"] = aligned_save(words, label)
+            if row_control is not None:
+                label["row_control"] = aligned_control(words, label, row_control)
             return label
         except RuntimeError as error:
             analysis.with_suffix(".ocr-11.json").write_text(json.dumps(raw), encoding="utf-8")
@@ -236,6 +248,8 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
             label = locate_label(words, labels, navigation, field, tab)
             if save_row:
                 label["save"] = aligned_save(words, label)
+            if row_control is not None:
+                label["row_control"] = aligned_control(words, label, row_control)
             return label
     raise RuntimeError(f"No OCR mode found the visible label {labels!r} unambiguously")
 
