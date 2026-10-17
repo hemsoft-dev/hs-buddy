@@ -38,7 +38,7 @@ class CopilotQualificationTests(unittest.TestCase):
                 (copilot.review_pull_request, ['Inspect saved result'])):
             with self.subTest(flow=flow.__name__):
                 driver = ClippedConversationDriver()
-                with patch.object(copilot.github, 'check'):
+                with patch.object(copilot.github, 'check'), patch.object(copilot.github, 'check_column'):
                     flow(driver)
                 self.assertEqual(driver.clicked, expected)
 
@@ -73,12 +73,15 @@ class CopilotQualificationTests(unittest.TestCase):
                 return Path('unused-synthetic-review-output')
 
         driver = FreshReviewDriver()
-        with patch.object(copilot.github, 'check') as screenshots:
+        with patch.object(copilot.github, 'check') as screenshots, \
+                patch.object(copilot.github, 'check_column') as review_notice:
             copilot.review_pull_request(driver)
         self.assertEqual(driver.assert_name, 'review-dark')
         self.assertTrue(driver.dispatched)
         self.assertEqual(driver.model, 'gpt-4.1')
-        self.assertEqual(screenshots.call_count, 2)
+        self.assertEqual(screenshots.call_count, 1)
+        review_notice.assert_called_once_with(Path('unused-synthetic-review-output') / 'review-result-dark.png',
+            'Captured review', 'Captured review', 'Freshness has not been checked')
 
     def test_privacy_gate_requires_app_logs_and_rejects_private_transport_content(self):
         with TemporaryDirectory() as temporary:

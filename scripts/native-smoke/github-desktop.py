@@ -61,15 +61,18 @@ def installed_binary(executable, version):
     return dict(versionOutput=output, binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest())
 
 
+def analysis_images(path):
+    yield path
+    # Analysis copy only; the original window capture is never edited.
+    image = path.with_suffix(".ocr-scale3.png")
+    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
+    yield image
+
+
 def check(path, *markers, absent=()):
     missing = None
-    for scale in (1, 3):
-        image = path
-        if scale == 3:
-            # Analysis copy only; the original window capture is never edited.
-            image = path.with_suffix(".ocr-scale3.png")
-            settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-                "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
+    for image in analysis_images(path):
         for mode in (11, 3, 6):
             complete = True
             try:
@@ -85,6 +88,31 @@ def check(path, *markers, absent=()):
                     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
                 return
     raise RuntimeError("GitHub screenshot does not show all required text in one OCR layout") from missing
+
+
+def check_column(path, anchor, *markers):
+    missing = None
+    wanted = [" ".join(marker.split()).casefold() for marker in markers]
+    for image in analysis_images(path):
+        for mode in (11, 3, 6):
+            # Each attempt uses one engine/layout. Engine and IO errors remain
+            # failures, and a competing visible anchor cannot be retried away.
+            words = settings.ocr.recognize(image, mode)
+            image.with_suffix(f".column-words-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+            try:
+                text = settings.ocr.column_text(words, anchor)
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as failure:
+                missing = failure
+                continue
+            image.with_suffix(f".column-ocr-{mode}.txt").write_text(text, encoding="utf-8")
+            normalized = " ".join(text.split()).casefold()
+            if all(marker in normalized for marker in wanted):
+                path.with_suffix(".column-ocr.txt").write_text(text, encoding="utf-8")
+                return
+            missing = settings.MissingVisibleText("The visible detail column is missing required text")
+    raise RuntimeError("The screenshot does not show all required text in one OCR column layout") from missing
 
 
 def verify_detail_requests(requests):

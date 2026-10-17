@@ -1,0 +1,219 @@
+{
+  "source": {
+    "head": "f6c0724eb15718f699ced9981a9a5ff5f7a1d85a",
+    "artifact": 12086916626,
+    "captureSha256": "3f9f8d2e3ab99d5b72d40f9858098c921422af54cd623759c49ee4f33020b97e",
+    "capture": "copilot/review-dark/review-result-dark.png"
+  },
+  "rawTesseractText": "se me fr iy ele edt view hel\nÂ© @ Â© gb bucy fie edt view help #o\noe 98 dashboard\n88\nchat savedresults usage sessions.\ncs)\nall pending running completed failed ~â€”_-pr reviews\n&)\ncategory filter category\nnewest results 5 results on this page\nlu\ncoo)\nrefresh this result\nis]\nreview this pull request for correctness, regressions, security, and missing validation. return actionable\n2 findings as markdown, with file and line references and a concise summary. you have no tools\ncompleted Â« gpt-4.1\nÂ© completed: review this pull request...\ncaptured review: fixture-org/native-demo #7 - head aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa - account synthetic-account. freshness has\n7 failed: answer using the supplied Â¢.... not been checked against github.\ncompleted: answer using the suppli... copy prompt show prompt delete saved result... copy answer\n| * failed: buddycancel73429 . .\nsynthetic assistant\n8 â€˜completed: buddystream61527\nunicode: 5 Â¥\ncheck result\noffline stream passed\nnative rust output.\nno gh account Â© 02:20:12am |",
+  "words": [
+    {
+      "text": "Captured",
+      "width": 53,
+      "top": 463,
+      "line": "14",
+      "left": 340,
+      "height": 13
+    },
+    {
+      "text": "review:",
+      "width": 40,
+      "top": 463,
+      "line": "14",
+      "left": 398,
+      "height": 10
+    },
+    {
+      "text": "fixture.org/native-demo",
+      "width": 133,
+      "top": 463,
+      "line": "14",
+      "left": 442,
+      "height": 13
+    },
+    {
+      "text": "-",
+      "width": 2,
+      "top": 468,
+      "line": "14",
+      "left": 598,
+      "height": 1
+    },
+    {
+      "text": "head",
+      "width": 28,
+      "top": 463,
+      "line": "14",
+      "left": 605,
+      "height": 10
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "width": 289,
+      "top": 466,
+      "line": "14",
+      "left": 637,
+      "height": 7
+    },
+    {
+      "text": "account",
+      "width": 46,
+      "top": 464,
+      "line": "14",
+      "left": 937,
+      "height": 9
+    },
+    {
+      "text": "synthetic-account.",
+      "width": 103,
+      "top": 463,
+      "line": "14",
+      "left": 987,
+      "height": 13
+    },
+    {
+      "text": "Freshness",
+      "width": 60,
+      "top": 463,
+      "line": "14",
+      "left": 1095,
+      "height": 10
+    },
+    {
+      "text": "has",
+      "width": 20,
+      "top": 463,
+      "line": "14",
+      "left": 1159,
+      "height": 10
+    },
+    {
+      "text": "Completed:",
+      "width": 71,
+      "top": 442,
+      "line": "15",
+      "left": 75,
+      "height": 14
+    },
+    {
+      "text": "Review",
+      "width": 45,
+      "top": 442,
+      "line": "15",
+      "left": 151,
+      "height": 12
+    },
+    {
+      "text": "this",
+      "width": 22,
+      "top": 442,
+      "line": "15",
+      "left": 200,
+      "height": 12
+    },
+    {
+      "text": "pull",
+      "width": 21,
+      "top": 442,
+      "line": "15",
+      "left": 226,
+      "height": 14
+    },
+    {
+      "text": "request...",
+      "width": 59,
+      "top": 443,
+      "line": "15",
+      "left": 252,
+      "height": 13
+    },
+    {
+      "text": "Failed:",
+      "width": 41,
+      "top": 478,
+      "line": "16",
+      "left": 76,
+      "height": 12
+    },
+    {
+      "text": "Answer",
+      "width": 47,
+      "top": 478,
+      "line": "16",
+      "left": 120,
+      "height": 12
+    },
+    {
+      "text": "using",
+      "width": 33,
+      "top": 478,
+      "line": "16",
+      "left": 171,
+      "height": 14
+    },
+    {
+      "text": "the",
+      "width": 19,
+      "top": 478,
+      "line": "16",
+      "left": 208,
+      "height": 12
+    },
+    {
+      "text": "supplied",
+      "width": 51,
+      "top": 478,
+      "line": "16",
+      "left": 232,
+      "height": 14
+    },
+    {
+      "text": "c...",
+      "width": 19,
+      "top": 481,
+      "line": "16",
+      "left": 288,
+      "height": 8
+    },
+    {
+      "text": "not",
+      "width": 18,
+      "top": 485,
+      "line": "21",
+      "left": 340,
+      "height": 9
+    },
+    {
+      "text": "been",
+      "width": 28,
+      "top": 484,
+      "line": "21",
+      "left": 362,
+      "height": 10
+    },
+    {
+      "text": "checked",
+      "width": 48,
+      "top": 484,
+      "line": "21",
+      "left": 394,
+      "height": 10
+    },
+    {
+      "text": "against",
+      "width": 41,
+      "top": 484,
+      "line": "21",
+      "left": 447,
+      "height": 13
+    },
+    {
+      "text": "GitHub.",
+      "width": 43,
+      "top": 484,
+      "line": "21",
+      "left": 492,
+      "height": 10
+    }
+  ]
+}

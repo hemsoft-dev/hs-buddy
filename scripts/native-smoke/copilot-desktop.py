@@ -182,7 +182,8 @@ def review_pull_request(driver):
         ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
     ])
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
-    github.check(review / 'review-result-dark.png', 'Captured review', 'Freshness has not been checked')
+    github.check_column(review / 'review-result-dark.png', 'Captured review',
+        'Captured review', 'Freshness has not been checked')
 
 
 def qualify(executable, output, session, version, backend, api):

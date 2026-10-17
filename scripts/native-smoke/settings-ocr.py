@@ -129,6 +129,25 @@ def locate_label(words, labels, navigation=False, field=False, tab=False):
     raise RuntimeError("None of the requested visible labels was unambiguous")
 
 
+def column_text(words, anchor):
+    """Read one visible column below its unique label, preserving word order.
+
+    A flat OCR page can insert a neighboring list between wrapped text lines.
+    Use measured label geometry to exclude that list, rather than accepting
+    partial phrases or combining independent OCR results.
+    """
+    label = find_label(words, anchor)
+    left = label["left"] - max(2, label["height"] / 4)
+    top = label["top"] - max(2, label["height"] / 4)
+    lines = {}
+    for word in words:
+        if word["left"] >= left and word["top"] >= top:
+            lines.setdefault(word["line"], []).append(word)
+    ordered = sorted(lines.values(), key=lambda line: min(word["top"] for word in line))
+    return " ".join(" ".join(word["text"] for word in sorted(line, key=lambda word: word["left"]))
+                    for line in ordered)
+
+
 def aligned_save(words, label):
     """Find the visible button aligned with a single-column field's editor."""
     candidates = [word for word in words if normalize(word["text"]) == "save"

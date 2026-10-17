@@ -13,6 +13,61 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def review_fixture(self):
+        return json.loads(Path(__file__).with_name('fixtures').joinpath('review-result-wrapped-words.json').read_text(encoding='utf-8'))
+
+    def test_actual_flat_review_ocr_cannot_qualify_the_wrapped_notice(self):
+        fixture = self.review_fixture()
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, 'run', return_value=fixture['rawTesseractText']):
+            with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
+                desktop.check(Path(temporary) / 'review.png', 'Captured review', 'Freshness has not been checked')
+
+    def test_actual_review_word_positions_qualify_the_complete_detail_column(self):
+        fixture = self.review_fixture()
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings.ocr, 'recognize', return_value=fixture['words']) as recognize:
+            image = Path(temporary) / 'review.png'
+            image.write_bytes(b'untouched original')
+            desktop.check_column(image, 'Captured review', 'Captured review', 'Freshness has not been checked')
+            self.assertEqual(recognize.call_count, 1)
+            self.assertEqual(image.read_bytes(), b'untouched original')
+            text = image.with_suffix('.column-ocr.txt').read_text(encoding='utf-8')
+            self.assertIn('Freshness has not been checked', text)
+
+    def test_other_column_cannot_supply_a_missing_notice_word(self):
+        words = [word for word in self.review_fixture()['words']
+                 if not (word['left'] >= 330 and word['text'] == 'not')]
+        words.append(dict(text='not', left=80, top=485, width=18, height=9, line='neighbor'))
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings.ocr, 'recognize', return_value=words), \
+                patch.object(desktop.settings, 'run', return_value=''):
+            with self.assertRaisesRegex(RuntimeError, 'one OCR column layout'):
+                desktop.check_column(Path(temporary) / 'review.png', 'Captured review', 'Captured review', 'Freshness has not been checked')
+
+    def test_column_markers_from_separate_layouts_cannot_be_combined(self):
+        words = self.review_fixture()['words']
+        def recognize(_image, mode):
+            omitted = {'not', 'been', 'checked'} if mode == 11 else {'Freshness', 'has'}
+            return [word for word in words if not (word['left'] >= 330 and word['text'] in omitted)]
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize), \
+                patch.object(desktop.settings, 'run', return_value=''):
+            with self.assertRaisesRegex(RuntimeError, 'one OCR column layout'):
+                desktop.check_column(Path(temporary) / 'review.png', 'Captured review', 'Captured review', 'Freshness has not been checked')
+
+    def test_competing_detail_column_anchor_is_not_retried_away(self):
+        words = self.review_fixture()['words'] + [
+            dict(text='Captured', left=340, top=600, width=53, height=13, line='other'),
+            dict(text='review:', left=398, top=600, width=40, height=10, line='other'),
+            dict(text='another', left=442, top=600, width=50, height=10, line='other')]
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings.ocr, 'recognize', return_value=words) as recognize:
+            with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
+                desktop.check_column(Path(temporary) / 'review.png', 'Captured review', 'Freshness has not been checked')
+            self.assertEqual(recognize.call_count, 1)
+
+    def test_column_engine_failure_remains_the_primary_failure(self):
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings.ocr, 'recognize', side_effect=RuntimeError('OCR engine failed')) as recognize:
+            with self.assertRaisesRegex(RuntimeError, 'OCR engine failed'):
+                desktop.check_column(Path(temporary) / 'review.png', 'Captured review', 'Freshness has not been checked')
+            self.assertEqual(recognize.call_count, 1)
+
     def test_small_glyphs_use_an_analysis_copy_without_changing_the_original(self):
         calls = []
 

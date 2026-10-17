@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1428] - 2026-10-17
+
+### Changed
+
+- Verify wrapped review notices within their detail column
+
 ## [0.1.1427] - 2026-10-17
 
 ### Changed
