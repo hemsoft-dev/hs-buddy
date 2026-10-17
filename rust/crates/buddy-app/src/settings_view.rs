@@ -1178,12 +1178,28 @@ impl Render for SettingsView {
         v_flex()
             .id("application-settings")
             .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                if this.panel == Panel::Notifications {
+                    log::debug!(
+                        "[DEBUG-838-sound-1] down={event:?}, active={}, focused={}, busy={}",
+                        window.is_window_active(),
+                        window.focused(cx).is_some(),
+                        this.busy
+                    );
+                }
                 if this.panel == Panel::Accounts {
                     log::debug!("[DEBUG-838-focus-1] down={:?}", event.position);
                     this.diagnostic_account_focus("mouse-down-capture", window, cx);
                 }
             }))
             .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, window, cx| {
+                if this.panel == Panel::Notifications {
+                    log::debug!(
+                        "[DEBUG-838-sound-1] up={event:?}, active={}, focused={}, busy={}",
+                        window.is_window_active(),
+                        window.focused(cx).is_some(),
+                        this.busy
+                    );
+                }
                 if this.panel == Panel::Accounts {
                     log::debug!("[DEBUG-838-focus-1] up={:?}", event.position);
                     this.diagnostic_account_focus("mouse-up-capture", window, cx);
