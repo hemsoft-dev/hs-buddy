@@ -8,6 +8,62 @@ fn saved() -> Value {
 }
 
 #[test]
+fn captured_review_number_survives_the_actual_convex_float_conversion() {
+    use std::collections::BTreeMap;
+    let metadata = Value::from(convex::Value::Object(BTreeMap::from([
+        ("owner".into(), convex::Value::String("fixture-org".into())),
+        ("repo".into(), convex::Value::String("native-demo".into())),
+        ("prNumber".into(), convex::Value::Float64(7.0)),
+        (
+            "ghAccount".into(),
+            convex::Value::String("synthetic-account".into()),
+        ),
+        (
+            "reviewedHeadSha".into(),
+            convex::Value::String("a".repeat(40)),
+        ),
+    ])));
+    assert_eq!(metadata["prNumber"].as_u64(), None);
+    let mut source = saved();
+    source["metadata"] = metadata.clone();
+    let result = parse_detail(&serde_json::to_vec(&source).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.review_pull_request_number(), Some(7));
+    assert_eq!(result.metadata, Some(metadata));
+}
+
+#[test]
+fn review_numbers_accept_exact_numeric_forms_without_coercing_invalid_metadata() {
+    for number in [json!(7), json!(7.0), json!(9_007_199_254_740_991_u64)] {
+        let mut source = saved();
+        source["metadata"] = json!({"prNumber":number});
+        let result = parse_detail(&serde_json::to_vec(&source).unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(result.review_pull_request_number().is_some());
+    }
+    for number in [
+        Value::Null,
+        json!(0),
+        json!(-1),
+        json!(7.5),
+        json!("7"),
+        json!(true),
+        json!({"$integer":"BwAAAAAAAAA="}),
+        json!(9_007_199_254_740_992_u64),
+        json!(u64::MAX),
+    ] {
+        let mut source = saved();
+        source["metadata"] = json!({"prNumber":number});
+        let result = parse_detail(&serde_json::to_vec(&source).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.review_pull_request_number(), None);
+    }
+}
+
+#[test]
 fn reads_existing_records_without_erasing_future_metadata_or_unicode() {
     let source = saved();
     let result = parse_detail(&serde_json::to_vec(&source).unwrap())

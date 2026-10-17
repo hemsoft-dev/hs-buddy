@@ -84,6 +84,11 @@ def b64(value):
     return base64.b64encode(str(value).encode()).decode()
 
 
+# Cold fixture discovery can use 95s preparation + 45s startup + 30s catalog
+# request + 15s shutdown. Keep a bounded margin for filesystem cleanup/OCR.
+MODEL_CATALOG_TIMEOUT = 200
+
+
 def wait_visible(window, directory, text, timeout=15, scroll=None):
     """Read an owned window until one OCR layout has the exact visible status.
 
@@ -197,6 +202,8 @@ class Driver:
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind in ("wait_text", "wait_scroll_text"):
                     commands.append(("waitscrolltext64:" if kind == "wait_scroll_text" else "waittext64:") + b64(values[0]))
+                elif kind == "wait_models":
+                    commands.append("waitmodeltext64:" + b64(values[0]))
                 elif kind == "reveal_text":
                     commands.append("revealtext64:" + ":".join(map(b64, values)))
                 elif kind == "sleep":
@@ -212,7 +219,9 @@ class Driver:
                 "-OutDir", directory, "-ConfigPath", self.config, "-ConvexUrl", self.backend.url, "-Actions", ",".join(commands)]
             if concurrent:
                 arguments += ["-CompanionExe", self.electron, "-CompanionScript", self.profile]
-            run(*arguments, cwd=self.checkout, timeout=180)
+            # Preserve the ordinary action budget around the separate cold-model wait.
+            extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] == "wait_models")
+            run(*arguments, cwd=self.checkout, timeout=180 + extra)
         else:
             self.unix(directory, actions, concurrent, record)
         if record:
@@ -267,9 +276,10 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
-                        elif kind in ("wait_text", "wait_scroll_text"):
+                        elif kind in ("wait_text", "wait_scroll_text", "wait_models"):
                             scroll = (lambda: self.scroll(window, -1200)) if kind == "wait_scroll_text" else None
-                            wait_visible(window, directory, values[0], scroll=scroll)
+                            timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
+                            wait_visible(window, directory, values[0], timeout=timeout, scroll=scroll)
                         elif kind == "reveal_text":
                             point = self.scroll_anchor(window, directory, values[1])
                             wait_visible(window, directory, values[0], scroll=lambda: self.scroll(window, -120, point))

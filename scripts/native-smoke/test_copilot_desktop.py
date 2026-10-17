@@ -59,7 +59,7 @@ class CopilotQualificationTests(unittest.TestCase):
                         self.context = True
                     elif action == ('click', 'Load available models'):
                         self.catalog = True
-                    elif action == ('wait_text', 'Synthetic offline model'):
+                    elif action == ('wait_models', 'Synthetic offline model'):
                         if not self.catalog:
                             raise AssertionError('Model discovery was not requested')
                     elif action == ('click', 'Synthetic offline model'):

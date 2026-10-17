@@ -159,6 +159,39 @@ class DraftReadVerification(unittest.TestCase):
 
 
 class LabeledInputs(unittest.TestCase):
+    def test_cold_model_wait_requires_the_catalog_and_still_expires(self):
+        window, directory = Mock(), MagicMock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("loading"), dict(left=10)]), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 16]), patch.object(desktop.time, "sleep"):
+            desktop.wait_visible(window, directory, "Synthetic offline model", timeout=desktop.MODEL_CATALOG_TIMEOUT)
+        self.assertEqual(window.screenshot.call_count, 2)
+        window.key.assert_not_called()
+        with patch.object(desktop.ocr, "locate_image", side_effect=RuntimeError("still loading")), \
+                patch.object(desktop.time, "monotonic", side_effect=[0, 199, 201]), patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not show the expected status"):
+                desktop.wait_visible(window, directory, "Synthetic offline model", timeout=desktop.MODEL_CATALOG_TIMEOUT)
+        window.key.assert_not_called()
+
+    def test_windows_cold_model_budget_does_not_change_ordinary_status_commands(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-model-protocol-") as root:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(root)
+            driver.config = Path(root) / "config.json"
+            driver.executable = Path(root) / "owned-app.exe"
+            driver.checkout = Path(root)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            with patch.object(desktop, "run") as execute:
+                driver.drive("catalog", [("wait_models", "Synthetic offline model"),
+                    ("wait_text", "Saved to results"), ("key", "Return")])
+            args = execute.call_args.args
+            commands = args[args.index("-Actions") + 1].split(",")
+            self.assertEqual(commands[1], "waitmodeltext64:" + desktop.b64("Synthetic offline model"))
+            self.assertEqual(commands[2], "waittext64:" + desktop.b64("Saved to results"))
+            self.assertEqual(commands[3], "key:13")
+            self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
+
     def test_scrolling_reveals_feedback_but_requires_a_new_observation(self):
         window, directory, scroll = Mock(), MagicMock(), Mock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("offscreen"), dict(left=10)]), \
@@ -230,6 +263,7 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[2], "waittext64:" + desktop.b64("Paste written. No Enter key was added."))
             self.assertEqual(commands[3], "key:13")
             self.assertEqual(commands[4], "waittext64:" + desktop.b64("NATIVEREADY"))
+            self.assertEqual(execute.call_args.kwargs["timeout"], 180)
 
     def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
         def word(text, left, top, line, width=40):

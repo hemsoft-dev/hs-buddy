@@ -154,7 +154,7 @@ def headless(executable, output, config, backend):
 def chat_turns(driver):
     dark = driver.drive('chat-dark', [
         ('input', 'GitHub account', 'synthetic-account'), ('click', 'Load available models'),
-        ('wait_text', 'Synthetic offline model'), ('click', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
+        ('wait_models', 'Synthetic offline model'), ('click', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
         ('click', 'Run and save'), ('wait_text', 'Assistant is responding'), ('capture', 'streaming-dark'),
         ('wait_scroll_text', 'Saved to results'), ('reveal_text', 'Copy answer', 'Saved to results'),
         ('click', 'Copy answer'), ('capture', 'completed-dark'),
@@ -175,7 +175,7 @@ def review_pull_request(driver):
     review = driver.drive('review-dark', [
         ('click', '#7 Second private navigation review'), ('click', 'Review with Buddy assistant'),
         ('wait_text', 'Reviewing fixture-org/native-demo'),
-        ('click', 'Load available models'), ('wait_text', 'Synthetic offline model'), ('click', 'Synthetic offline model'),
+        ('click', 'Load available models'), ('wait_models', 'Synthetic offline model'), ('click', 'Synthetic offline model'),
         ('capture', 'review-context-dark'),
         ('click', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('click', 'Inspect saved result'),

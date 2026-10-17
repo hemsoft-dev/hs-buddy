@@ -48,6 +48,15 @@ pub struct SavedResult {
 }
 
 impl SavedResult {
+    pub fn review_pull_request_number(&self) -> Option<u64> {
+        // Convex numbers arrive through the SDK as Float64, including whole
+        // PR numbers. Accept exact positive JS integers without rounding.
+        let number = self.metadata.as_ref()?.get("prNumber")?.as_f64()?;
+        (number.is_finite()
+            && number.fract() == 0.0
+            && (1.0..=9_007_199_254_740_991.0).contains(&number))
+        .then_some(number as u64)
+    }
     pub fn content_state(&self) -> ContentState {
         match self.status {
             Status::Pending => ContentState::Pending,

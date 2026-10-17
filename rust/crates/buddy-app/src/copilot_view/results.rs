@@ -357,7 +357,7 @@ impl ResultsView {
             && let (Some(owner), Some(repo), Some(number), Some(head)) = (
                 metadata["owner"].as_str(),
                 metadata["repo"].as_str(),
-                metadata["prNumber"].as_u64(),
+                result.review_pull_request_number(),
                 metadata["reviewedHeadSha"].as_str(),
             )
         {

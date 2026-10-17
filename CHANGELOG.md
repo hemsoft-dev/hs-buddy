@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1426] - 2026-10-17
+
+### Fixed
+
+- Display captured reviews and qualify model discovery
+
 ## [0.1.1425] - 2026-10-16
 
 ### Changed

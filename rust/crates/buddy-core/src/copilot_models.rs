@@ -34,6 +34,13 @@ pub(crate) fn from_sdk(
     Ok(result)
 }
 
+fn fixture_stage(enabled: bool, stage: &'static str) {
+    if enabled {
+        // The fixture is CI-owned; never log account names, paths or SDK errors.
+        log::warn!("Native model discovery phase: {stage}");
+    }
+}
+
 pub async fn list(account: &str) -> Result<Vec<Model>, &'static str> {
     if account.trim().is_empty() && std::env::var_os("BUDDY_COPILOT_FIXTURE").is_some() {
         return Err("Choose the synthetic qualification account.");
@@ -59,9 +66,12 @@ pub async fn list(account: &str) -> Result<Vec<Model>, &'static str> {
             .identity(&account, None)
             .map_err(|_| "Choose the synthetic qualification account.")?;
     }
+    let diagnostics = fixture.is_some();
+    fixture_stage(diagnostics, "preparing runtime");
     let program = crate::copilot_runtime::prepare(executable, owned.join("runtime"))
         .await
         .map_err(|_| "The packaged assistant runtime could not be prepared.")?;
+    fixture_stage(diagnostics, "runtime prepared");
     let token = if fixture.is_some() {
         None
     } else {
@@ -78,6 +88,7 @@ pub async fn list(account: &str) -> Result<Vec<Model>, &'static str> {
         .prefix("models-")
         .tempdir_in(turns)
         .map_err(|_| "The private assistant directory is unavailable.")?;
+    fixture_stage(diagnostics, "starting SDK");
     let runtime = crate::copilot_sdk::AssistantRuntime::start_with_fixture(
         program.program(),
         directory.path(),
@@ -86,10 +97,35 @@ pub async fn list(account: &str) -> Result<Vec<Model>, &'static str> {
     )
     .await
     .map_err(|_| "The packaged assistant runtime could not start.")?;
+    fixture_stage(diagnostics, "loading catalog");
     let result = runtime.models(&account).await;
+    fixture_stage(
+        diagnostics,
+        if result.is_ok() {
+            "catalog received"
+        } else {
+            "catalog unavailable"
+        },
+    );
     let stopped = runtime.stop().await;
+    fixture_stage(
+        diagnostics,
+        if stopped.is_ok() {
+            "SDK stopped"
+        } else {
+            "SDK stop unconfirmed"
+        },
+    );
     drop(runtime);
     let cleaned = directory.close();
+    fixture_stage(
+        diagnostics,
+        if cleaned.is_ok() {
+            "state removed"
+        } else {
+            "state cleanup unconfirmed"
+        },
+    );
     if stopped.is_err() || cleaned.is_err() {
         return Err("Assistant cleanup could not be confirmed. Try loading models again.");
     }

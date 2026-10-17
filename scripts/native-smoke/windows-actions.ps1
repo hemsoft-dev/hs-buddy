@@ -166,19 +166,21 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            { $_ -in 'waittext64', 'waitscrolltext64', 'revealtext64' } {
+            { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
                 $scrollPoint = if ($parts[0] -eq 'revealtext64') { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
                 $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } else { -1200 }
+                # Model discovery includes the existing bounded cold SDK bootstrap.
+                $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 while ($true) {
                     try {
                         Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
                         break
                     } catch {
-                        if ($timer.Elapsed.TotalSeconds -ge 15) { throw }
-                        if ($parts[0] -ne 'waittext64') { Scroll-OwnedWindow $scrollDelta $scrollPoint }
+                        if ($timer.Elapsed.TotalSeconds -ge $timeoutSeconds) { throw }
+                        if ($parts[0] -in 'waitscrolltext64', 'revealtext64') { Scroll-OwnedWindow $scrollDelta $scrollPoint }
                         Start-Sleep -Milliseconds 100
                     }
                 }
