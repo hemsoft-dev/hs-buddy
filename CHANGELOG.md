@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1439] - 2026-10-17
+
+### Changed
+
+- Remove the temporary OCR investigation files
+
 ## [0.1.1438] - 2026-10-17
 
 ### Changed
