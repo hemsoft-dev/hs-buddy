@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1455] - 2026-10-17
+
+### Changed
+
+- Reveal confirmed task after recovery (#817)
+
 ## [0.1.1454] - 2026-10-17
 
 ### Changed

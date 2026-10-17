@@ -243,7 +243,8 @@ def qualify(executable, output, session, version, backend):
             retried = driver.drive('retry-light', [
                 ('wait_text', 'Retry saved change'), ('click', 'Retry saved change'),
                 ('wait_text', 'Todoist confirmed the change'), ('capture', 'confirmed-retry-light'),
-                ('click', 'Projects'), ('click', 'Synthetic Alpha'), ('wait_text', 'Synthetic created task'),
+                ('click', 'Projects'), ('click', 'Synthetic Alpha'),
+                ('wait_scroll_text', 'Synthetic created task', 'Synthetic today task'),
                 ('capture', 'created-task-light'),
                 ('click', 'Synthetic Empty'), ('wait_text', 'No tasks in this view'),
                 ('capture', 'empty-project-light'),
