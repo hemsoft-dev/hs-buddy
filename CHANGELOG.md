@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1446] - 2026-10-17
+
+### Fixed
+
+- Report unavailable Mac focus diagnostics
+
 ## [0.1.1445] - 2026-10-17
 
 ### Fixed
