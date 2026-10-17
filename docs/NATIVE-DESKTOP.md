@@ -4,9 +4,10 @@ Buddy Native is the Rust/GPUI desktop app. It provides the dashboard,
 application shell, [account and application settings](NATIVE-SETTINGS.md),
 [GitHub workflows](NATIVE-GITHUB.md),
 [terminal workspaces and prompts](NATIVE-TERMINAL.md), and the
-[Copilot workspace](NATIVE-COPILOT.md).
+[Copilot workspace](NATIVE-COPILOT.md), and
+[Todoist task planner](NATIVE-TODOIST.md).
 The Electron app remains the full application while
-issues #817 through #823 track the remaining feature migration and parity qualification.
+issues #818 through #823 track the remaining feature migration and parity qualification.
 
 Buddy Native has its own installer identity, `com.hemsoft.buddy.native`, so it
 can coexist with Electron Buddy. Both apps retain the existing configuration,

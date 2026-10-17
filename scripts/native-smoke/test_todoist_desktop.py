@@ -1,0 +1,71 @@
+"""Owned HTTP tests for installed-app failure scenarios. No GUI or vault access."""
+import http.client
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
+
+SPEC=importlib.util.spec_from_file_location('native_todoist_desktop_tests',Path(__file__).with_name('todoist-desktop.py'))
+desktop=importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name]=desktop
+SPEC.loader.exec_module(desktop)
+
+
+class FailureScenarios(unittest.TestCase):
+    def setUp(self):
+        self.temporary=tempfile.TemporaryDirectory(prefix='buddy-todoist-scenario-')
+        self.root=Path(self.temporary.name).resolve()
+        assert self.root.parent==Path(tempfile.gettempdir()).resolve()
+        self.addCleanup(self.temporary.cleanup)
+        config=self.root/'config.json'
+        config.write_text('{}')
+        self.api=desktop.ScenarioFixture._start_with_host(config,desktop.todoist._Host('true','1',str(self.root)))
+        self.addCleanup(self.api.close)
+        self.http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def get(self,path):
+        request=urllib.request.Request(self.api.url+path,headers={'Authorization':'Bearer '+desktop.todoist.TOKEN})
+        with self.http.open(request,timeout=3) as response:return json.load(response)
+
+    def complete_read(self):
+        self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
+        cursor=None
+        while True:
+            query={'limit':'100'}
+            if cursor:query['cursor']=cursor
+            page=self.get('tasks?'+urllib.parse.urlencode(query))
+            cursor=page['next_cursor']
+            if cursor is None:break
+        # The last profile check must still succeed, allowing the application's
+        # immutable dataset to publish before the next explicit refresh fails.
+        self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
+
+    def test_offline_scenario_only_disconnects_after_a_complete_read_and_final_identity(self):
+        self.api.arm('offline')
+        self.complete_read()
+        with self.assertRaises(http.client.RemoteDisconnected):self.get('user')
+        self.assertEqual(desktop.posts(self.api),[])
+        self.assertEqual(self.api.snapshot()['created'],0)
+        self.assertEqual(len(self.api.snapshot()['tasks']),5)
+
+    def test_expired_scenario_only_rejects_after_a_complete_read_and_final_identity(self):
+        self.api.arm('expired')
+        self.complete_read()
+        with self.assertRaises(urllib.error.HTTPError) as failure:self.get('user')
+        self.assertEqual(failure.exception.code,401)
+        failure.exception.close()
+        self.assertEqual(desktop.posts(self.api),[])
+        self.assertEqual(self.api.snapshot()['created'],0)
+
+    def test_unsupported_scenario_cannot_arm_a_failure(self):
+        with self.assertRaises(ValueError):self.api.arm('unknown')
+        self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
+        self.assertIsNone(self.api.fail_after_read)
+
+
+if __name__=='__main__':unittest.main()

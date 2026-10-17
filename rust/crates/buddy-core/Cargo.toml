@@ -24,6 +24,7 @@ keyring.workspace = true
 futures.workspace = true
 sha2 = "0.10"
 chrono.workspace = true
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 sys-locale = "0.3"
 alacritty_terminal = { version = "=0.26.0", default-features = false }
 unicode-width = "0.2"

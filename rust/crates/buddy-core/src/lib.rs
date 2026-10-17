@@ -35,5 +35,6 @@ pub mod terminal_backend;
 pub mod terminal_prompts;
 pub mod terminal_recovery;
 pub mod terminal_workspaces;
+pub mod todoist;
 pub mod weather;
 pub mod zoom;
