@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1441] - 2026-10-17
+
+### Changed
+
+- Measure session scrolling above its fixed pager
+
+## [0.1.1440] - 2026-10-17
+
+### Changed
+
+- Measure session scrolling above its fixed pager
+
 ## [0.1.1439] - 2026-10-17
 
 ### Changed

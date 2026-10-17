@@ -282,11 +282,11 @@ def qualify(executable, output, session, version, backend, api):
                 ('click', 'Sessions'), ('input', 'VS Code User directory', str(user_directory), 'Scan folder'), ('click', 'Scan folder'),
                 ('wait_text', 'Synthetic session'), ('click', 'Synthetic session'), ('wait_text', '100 prompt tokens'),
                 ('capture', 'session-detail-light'), ('resize', 900, 650), ('capture', 'session-compact-light'),
-                ('wait_scroll_text', 'Inspect synthetic request 20', 'Output / prompt tokens'),
+                ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
                 ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('click', 'Scan folder'),
                 ('wait_text', 'unavailable'), ('click', 'Next requests'),
-                ('wait_scroll_text', 'Final synthetic request twenty one', 'Request 21'), ('capture', 'session-error-light'),
-                ('click', 'Previous requests'), ('wait_scroll_text', 'Inspect synthetic request 20', 'Request 1'),
+                ('wait_scroll_above', 'Final synthetic request twenty one', 'Next requests'), ('capture', 'session-error-light'),
+                ('click', 'Previous requests'), ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
                 ('wait_text', 'unavailable'),
             ])
             github.check(sessions / 'session-detail-light.png', '100 prompt tokens', '25 output tokens', '0.25')

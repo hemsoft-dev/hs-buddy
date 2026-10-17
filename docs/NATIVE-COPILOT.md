@@ -142,10 +142,15 @@ enabled Next/Previous request controls at 900 x 650 while a missing-directory
 error and the original loaded source remain visible. A headless layout regression
 also checks wrapped Unicode source text, scroll isolation, pointer paging and
 Tab/Enter activation against the production view.
-Long session scroll waits measure a visible label inside the owned request pane.
-The compact Mac window centre falls above that pane. Targeting the content keeps
-the existing coarse scroll step and exact visible-request assertions; nearby
-chat feedback retains its separate fine reveal gestures.
+Long session scroll waits measure the fixed Next requests control and target
+the pane two measured glyph heights above it. The compact Mac window centre
+falls above that pane, and a request header may scroll out of view or be
+misread. Keep the coarse scroll step and exact visible-request assertions;
+nearby chat feedback retains its separate fine reveal gestures.
+The Mac OCR helper excludes zero-area Vision tokens after validating their
+finite, in-bounds geometry. Such tokens cannot locate a control. Invalid bounds,
+missing bounds and recognition failures remain errors, and requested labels
+must still match completely at a unique visible location.
 Hosted Codex cases also use guarded loopback snapshots and a deterministic
 missing-login response, without reading a local Codex credential.
 The chat fixture scrolls its owned conversation to expose completion and

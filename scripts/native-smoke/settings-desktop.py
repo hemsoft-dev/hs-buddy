@@ -5,6 +5,7 @@ from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -203,8 +204,8 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
-                elif kind in ("wait_text", "wait_scroll_text"):
-                    commands.append(("waitscrolltext64:" if kind == "wait_scroll_text" else "waittext64:") + b64(values[0]))
+                elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above"):
+                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + b64(values[0]))
                 elif kind == "wait_models":
                     commands.append("waitmodeltext64:" + b64(values[0]))
                 elif kind == "reveal_text":
@@ -279,9 +280,10 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
-                        elif kind in ("wait_text", "wait_scroll_text", "wait_models"):
-                            if kind == "wait_scroll_text":
-                                self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None)
+                        elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_models"):
+                            if kind in ("wait_scroll_text", "wait_scroll_above"):
+                                self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
+                                    above_anchor=kind == "wait_scroll_above")
                             else:
                                 timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
                                 wait_visible(window, directory, values[0], timeout=timeout)
@@ -325,14 +327,20 @@ class Driver:
                         child.kill()
                         child.wait(timeout=10)
 
-    def scroll_anchor(self, window, directory, text):
+    def scroll_anchor(self, window, directory, text, *, above=False):
         image = directory / "settings-scroll-anchor.png"
         label = self.locate(window, image, "click", text)
         scale = 1
         if self.session == "macos":
             scale = json.loads(image.with_suffix(".window.json").read_text())["capturePixelsPerWindowPoint"]
-        return ((label["left"] + label["width"] / 2) / scale,
-                (label["top"] + label["height"] / 2) / scale)
+        x = (label["left"] + label["width"] / 2) / scale
+        # The session pager stays outside the scrolling pane. Two measured
+        # glyph heights above it are inside that pane, even after its content
+        # has moved. Never wheel over the button or rely on request-header OCR.
+        y = (label["top"] - 2 * label["height"] if above else label["top"] + label["height"] / 2) / scale
+        if not (math.isfinite(x) and math.isfinite(y) and x >= 0 and y >= 0 and label["height"] > 0):
+            raise RuntimeError("The measured scroll anchor is outside the owned capture")
+        return x, y
 
     def reveal_scroll(self, window, point):
         # One Mac line left the compact cancellation status clipped, and slow
@@ -341,13 +349,16 @@ class Driver:
         for _ in range(2 if self.session == "macos" else 1):
             self.scroll(window, -120, point)
 
-    def wait_scrolled(self, window, directory, text, anchor=None):
+    def wait_scrolled(self, window, directory, text, anchor=None, *, above_anchor=False):
+        if above_anchor and anchor is None:
+            raise RuntimeError("Scrolling above a control requires its measured label")
         point = None
 
         def move():
             nonlocal point
             if anchor is not None and point is None:
-                point = self.scroll_anchor(window, directory, anchor)
+                point = (self.scroll_anchor(window, directory, anchor, above=True) if above_anchor
+                    else self.scroll_anchor(window, directory, anchor))
             if point is None:
                 self.scroll(window, -1200)
             else:

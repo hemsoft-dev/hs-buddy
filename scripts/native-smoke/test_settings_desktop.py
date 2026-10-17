@@ -186,6 +186,41 @@ class DesktopLimits(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 driver.scroll_anchor(Mock(), Path(root), "Assistant")
 
+    def test_fixed_pager_measures_inside_the_pane_at_both_capture_scales(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        for scale in (1, 2):
+            with self.subTest(scale=scale), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                (directory / "settings-scroll-anchor.window.json").write_text(json.dumps(dict(capturePixelsPerWindowPoint=scale)))
+                # Native Vision output for the retained 900x650 Intel capture.
+                driver.locate = Mock(return_value=dict(left=490*scale, top=556*scale, width=92*scale, height=16*scale))
+                point = driver.scroll_anchor(Mock(), directory, "Next requests", above=True)
+                self.assertEqual(point, (536, 524))
+                self.assertTrue(340 <= point[0] < 884 and 327 <= point[1] < 535)
+                self.assertLess(point[1], 547)  # The button's outer top.
+
+    def test_pager_scrolling_is_lazy_coarse_and_requires_a_measured_control(self):
+        driver = object.__new__(desktop.Driver)
+        driver.scroll_anchor = Mock(return_value=(536, 524))
+        driver.scroll = Mock()
+        window, directory = Mock(), Path("owned-capture")
+        with patch.object(desktop, "wait_visible", side_effect=lambda _w, _d, _t, *, scroll: (scroll(), scroll())):
+            driver.wait_scrolled(window, directory, "Inspect synthetic request 20", "Next requests", above_anchor=True)
+        driver.scroll_anchor.assert_called_once_with(window, directory, "Next requests", above=True)
+        self.assertEqual(driver.scroll.call_count, 2)
+        driver.scroll.assert_called_with(window, -1200, (536, 524), precise=False)
+        with self.assertRaises(RuntimeError):
+            driver.wait_scrolled(window, directory, "Missing", above_anchor=True)
+
+    def test_invalid_pager_geometry_cannot_produce_an_input_point(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "x11"
+        for top, height in ((10, 16), (556, 0), (float("nan"), 16)):
+            with self.subTest(top=top, height=height), self.assertRaises(RuntimeError):
+                driver.locate = Mock(return_value=dict(left=490, top=top, width=92, height=height))
+                driver.scroll_anchor(Mock(), Path("owned-capture"), "Next requests", above=True)
+
     def test_full_and_small_host_limits_are_used_before_resize(self):
         self.assertEqual(desktop.planned_large_size(1920, 1080), (1200, 820))
         self.assertEqual(desktop.planned_large_size(1044, 788), (1044, 788))
@@ -264,12 +299,14 @@ class LabeledInputs(unittest.TestCase):
             driver.backend = Mock(url="http://127.0.0.1:12345")
             with patch.object(desktop, "run") as execute:
                 driver.drive("catalog", [("wait_models", "Synthetic offline model"),
-                    ("wait_text", "Saved to results"), ("key", "Return")])
+                    ("wait_text", "Saved to results"), ("key", "Return"),
+                    ("wait_scroll_above", "Inspect synthetic request 20", "Next requests")])
             args = execute.call_args.args
             commands = args[args.index("-Actions") + 1].split(",")
             self.assertEqual(commands[1], "waitmodeltext64:" + desktop.b64("Synthetic offline model"))
             self.assertEqual(commands[2], "waittext64:" + desktop.b64("Saved to results"))
             self.assertEqual(commands[3], "key:13")
+            self.assertEqual(commands[4], "waitscrolltext64:" + desktop.b64("Inspect synthetic request 20"))
             self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
 
     def test_scrolling_reveals_feedback_but_requires_a_new_observation(self):
