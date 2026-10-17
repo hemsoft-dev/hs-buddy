@@ -23,6 +23,41 @@ class FocusDiagnostics(unittest.TestCase):
         helper.graphics.CGEventSourceButtonState.return_value=False
         return helper
 
+    def test_already_clear_modifiers_do_not_post_unpaired_key_releases(self):
+        helper = self.helper()
+        helper.post = Mock()
+        # Non-coalesced pointer state is not a keyboard modifier.
+        helper.graphics.CGEventSourceFlagsState.return_value = 1 << 29
+        with patch.object(macos.time, 'sleep') as pause:
+            state = helper.release_modifiers()
+        self.assertEqual(state, dict(before=1 << 29, after=1 << 29))
+        helper.require_focus.assert_called_once_with()
+        helper.graphics.CGEventCreateKeyboardEvent.assert_not_called()
+        helper.post.assert_not_called()
+        helper.graphics.CGEventPost.assert_not_called()
+        pause.assert_not_called()
+
+    def test_pressed_modifiers_are_released_and_verified_before_input(self):
+        helper = self.helper()
+        helper.post = Mock()
+        helper.graphics.CGEventSourceFlagsState.side_effect = [1 << 20, 1 << 29]
+        with patch.object(macos.time, 'sleep'):
+            state = helper.release_modifiers()
+        self.assertEqual(state, dict(before=1 << 20, after=1 << 29))
+        self.assertEqual([call.args for call in helper.graphics.CGEventCreateKeyboardEvent.call_args_list],
+                         [(None, code, False) for code in (54, 55, 56, 60, 58, 61, 59, 62)])
+        self.assertEqual(helper.post.call_count, 8)
+
+    def test_modifiers_that_do_not_clear_fail_without_emitting_a_click(self):
+        helper = self.helper()
+        helper.post = Mock()
+        helper.graphics.CGEventSourceFlagsState.return_value = 1 << 20
+        with patch.object(macos.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'modifier state did not clear'):
+                helper.click(100, 200)
+        helper.graphics.CGEventCreateMouseEvent.assert_not_called()
+        self.assertEqual(helper.post.call_count, 8)
+
     def test_timed_out_element_inspection_remains_unavailable_telemetry_without_posting_input(self):
         helper=self.helper()
         with patch.object(macos.subprocess,'run',side_effect=[

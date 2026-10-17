@@ -16,8 +16,8 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, Focusable as _, InteractiveElement, IntoElement,
-    MouseDownEvent, MouseUpEvent, ParentElement, Render, Styled, Window, div,
+    App, AppContext as _, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
+    Styled, Window, div,
 };
 
 use crate::notification_audio::SoundPreview;
@@ -146,24 +146,7 @@ impl SettingsView {
         });
         let clear_models = id == "copilot-account";
         let stop_audio = id == "sound";
-        let diagnostic_role = match id.as_str() {
-            "username" => Some("username"),
-            "organization" => Some("organization"),
-            _ => None,
-        };
         cx.subscribe_in(&input, window, move |this, _, event, _, cx| {
-            if let Some(role) = diagnostic_role {
-                let boundary = match event {
-                    InputEvent::Change => "change",
-                    InputEvent::Focus => "focus",
-                    InputEvent::Blur => "blur",
-                    InputEvent::PressEnter { .. } => "enter",
-                };
-                log::debug!(
-                    "[DEBUG-838-focus-1] field={role}, event={boundary}, busy={}",
-                    this.busy
-                );
-            }
             if matches!(event, InputEvent::Change) {
                 if clear_models {
                     this.models.clear();
@@ -183,23 +166,6 @@ impl SettingsView {
             .get(id)
             .map(|field| field.read(cx).value().to_string())
             .unwrap_or_default()
-    }
-
-    fn diagnostic_account_focus(&self, boundary: &str, window: &Window, cx: &App) {
-        if self.panel == Panel::Accounts && log::log_enabled!(log::Level::Debug) {
-            log::debug!(
-                "[DEBUG-838-focus-1] boundary={boundary}, busy={}, username={}, organization={}",
-                self.busy,
-                self.fields["username"]
-                    .read(cx)
-                    .focus_handle(cx)
-                    .is_focused(window),
-                self.fields["organization"]
-                    .read(cx)
-                    .focus_handle(cx)
-                    .is_focused(window)
-            );
-        }
     }
 
     fn run<T: Send + 'static>(
@@ -227,18 +193,7 @@ impl SettingsView {
     }
 
     fn local(&mut self, edit: LocalEdit, cx: &mut Context<Self>) {
-        let notification_edit = matches!(edit, LocalEdit::NotificationEnabled(_));
         let result = Settings::try_update(cx, |config| edit.apply(config));
-        if notification_edit {
-            log::debug!(
-                "Review sound save completed: success={}, enabled={}",
-                result.is_ok(),
-                Settings::global(cx)
-                    .config
-                    .notifications
-                    .play_sound_on_review_complete
-            );
-        }
         self.status = Some(match result {
             Ok(()) => {
                 if matches!(edit, LocalEdit::Theme(_)) {
@@ -414,7 +369,6 @@ impl SettingsView {
         let Some((snapshot, replace_drafts)) = self.pending_snapshot.take() else {
             return;
         };
-        self.diagnostic_account_focus("snapshot-before", window, cx);
         let mirror_result = Settings::try_update(cx, |config| snapshot.apply_mirror(config));
         if let Err(error) = mirror_result {
             self.backend_warning = Some(format!(
@@ -448,7 +402,6 @@ impl SettingsView {
             }
         }
         self.snapshot = Some(snapshot);
-        self.diagnostic_account_focus("snapshot-after", window, cx);
     }
 
     fn field<F: Fn(&mut Self, String, &mut Context<Self>) + 'static>(
@@ -1007,10 +960,6 @@ impl SettingsView {
                     })
                     .selected(enabled)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        log::debug!(
-                            "Review sound click callback: requested_enabled={}",
-                            !enabled
-                        );
                         this.local(LocalEdit::NotificationEnabled(!enabled), cx)
                     })),
             )
@@ -1177,18 +1126,6 @@ impl Render for SettingsView {
         };
         v_flex()
             .id("application-settings")
-            .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                if this.panel == Panel::Accounts {
-                    log::debug!("[DEBUG-838-focus-1] down={:?}", event.position);
-                    this.diagnostic_account_focus("mouse-down-capture", window, cx);
-                }
-            }))
-            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, window, cx| {
-                if this.panel == Panel::Accounts {
-                    log::debug!("[DEBUG-838-focus-1] up={:?}", event.position);
-                    this.diagnostic_account_focus("mouse-up-capture", window, cx);
-                }
-            }))
             .size_full()
             .min_h_0()
             .gap_4()

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1456] - 2026-10-17
+
+### Fixed
+
+- Normalize native input and reveal task confirmation (#817)
+
 ## [0.1.1455] - 2026-10-17
 
 ### Changed

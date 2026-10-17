@@ -82,6 +82,8 @@ class OwnedMacInput:
         """Normalize the guarded runner's input after System Events shortcuts."""
         self.require_focus()
         before = self.graphics.CGEventSourceFlagsState(COMBINED_SESSION)
+        if not before & MODIFIER_MASK:
+            return dict(before=before, after=before)
         for code in (54, 55, 56, 60, 58, 61, 59, 62):  # Both Command/Shift/Option/Control keys.
             self.post(self.graphics.CGEventCreateKeyboardEvent(None, code, False))
         for _ in range(20):

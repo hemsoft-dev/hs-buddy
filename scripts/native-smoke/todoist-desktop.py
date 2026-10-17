@@ -267,7 +267,9 @@ def qualify(executable, output, session, version, backend):
                 ('input', 'Filter tasks', 'Synthetic recurring task', {'labelBottomOffset': 32}), ('wait_text', 'Synthetic recurring task'),
                 ('click', 'Complete'), ('wait_text', 'Todoist confirmed the change'),
                 ('capture', 'recurring-completed-light'),
-                ('click', 'Delete'), ('wait_text', 'Confirm deletion'), ('click', 'Confirm deletion'),
+                ('click', 'Delete'),
+                ('wait_scroll_text', 'Confirm deletion', 'Labels: synthetic'),
+                ('click', 'Confirm deletion'),
                 ('wait_text', 'Todoist confirmed the change'), ('capture', 'deleted-light'),
             ], record=True)
             check_task(api, 'task-undated', content='Synthetic undated task revised', checked=True)
