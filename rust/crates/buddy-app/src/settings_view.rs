@@ -193,7 +193,18 @@ impl SettingsView {
     }
 
     fn local(&mut self, edit: LocalEdit, cx: &mut Context<Self>) {
+        let notification_edit = matches!(edit, LocalEdit::NotificationEnabled(_));
         let result = Settings::try_update(cx, |config| edit.apply(config));
+        if notification_edit {
+            log::debug!(
+                "Review sound save completed: success={}, enabled={}",
+                result.is_ok(),
+                Settings::global(cx)
+                    .config
+                    .notifications
+                    .play_sound_on_review_complete
+            );
+        }
         self.status = Some(match result {
             Ok(()) => {
                 if matches!(edit, LocalEdit::Theme(_)) {
@@ -960,6 +971,10 @@ impl SettingsView {
                     })
                     .selected(enabled)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        log::debug!(
+                            "Review sound click callback: requested_enabled={}",
+                            !enabled
+                        );
                         this.local(LocalEdit::NotificationEnabled(!enabled), cx)
                     })),
             )

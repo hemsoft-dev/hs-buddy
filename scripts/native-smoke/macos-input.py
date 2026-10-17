@@ -92,6 +92,7 @@ class OwnedMacInput:
         raise RuntimeError("The disposable Mac keyboard modifier state did not clear")
 
     def click(self, x, y):
+        self.last_click_trace = []
         self.release_modifiers()
         # System Events' accessibility click can invoke a button without focusing
         # GPUI's text input. Send the actual mouse events to the owned process.
@@ -102,6 +103,14 @@ class OwnedMacInput:
                 self.graphics.CGEventSetIntegerValueField(event, 1, 1)
             self.post(event)
             time.sleep(0.05)
+            # State telemetry is not proof that the GPUI callback ran. Keep
+            # every phase of the one click, without retrying a failed action.
+            try:
+                down = bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, 0))
+            except Exception:
+                # Ancillary telemetry must not interrupt the down/up sequence.
+                down = None
+            self.last_click_trace.append(dict(eventType=kind, leftButtonDown=down))
 
     def replace_text(self, text):
         self.release_modifiers()

@@ -609,11 +609,24 @@ class MacInputDelivery(unittest.TestCase):
     def test_click_releases_inherited_modifiers_and_marks_a_single_click(self):
         helper = self.helper()
         helper.graphics.CGEventSourceFlagsState.side_effect = [1 << 20, 0]
+        helper.graphics.CGEventSourceButtonState.side_effect = [False, True, False]
         helper.click(100, 200)
+        self.assertEqual(helper.last_click_trace, [dict(eventType=5, leftButtonDown=False),
+            dict(eventType=1, leftButtonDown=True), dict(eventType=2, leftButtonDown=False)])
+        self.assertEqual(helper.graphics.CGEventCreateMouseEvent.call_count, 3)
         self.assertEqual(helper.graphics.CGEventCreateKeyboardEvent.call_count, 8)
         self.assertEqual(helper.graphics.CGEventSetIntegerValueField.call_count, 2)
         for call in helper.graphics.CGEventSetIntegerValueField.call_args_list:
             self.assertEqual(call.args[1:], (1, 1))
+
+    def test_unavailable_button_telemetry_does_not_omit_mouse_up_or_invent_state(self):
+        helper = self.helper()
+        helper.graphics.CGEventSourceFlagsState.return_value = 0
+        helper.graphics.CGEventSourceButtonState.side_effect = [False, RuntimeError("Unavailable telemetry"), False]
+        helper.click(100, 200)
+        self.assertEqual(helper.graphics.CGEventCreateMouseEvent.call_count, 3)
+        self.assertEqual(helper.last_click_trace, [dict(eventType=5, leftButtonDown=False),
+            dict(eventType=1, leftButtonDown=None), dict(eventType=2, leftButtonDown=False)])
 
     def test_stuck_modifiers_fail_before_any_mouse_event(self):
         helper = self.helper()

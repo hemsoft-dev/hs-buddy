@@ -236,7 +236,7 @@ class Driver:
     def unix(self, directory, actions, concurrent, record):
         if os.environ.get("GITHUB_ACTIONS") != "true":
             raise RuntimeError("Unix settings input requires a disposable CI desktop")
-        environment = dict(os.environ, BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
+        environment = dict(os.environ, RUST_LOG="warn,buddy::settings_view=debug", BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
             GH_CONFIG_DIR=str(self.profile / "empty-gh"))
         for key in ("GH_TOKEN", "GITHUB_TOKEN", "ELECTRON_RUN_AS_NODE"):
             environment.pop(key, None)
@@ -404,8 +404,11 @@ class Driver:
 
     def input_receipt(self, helper, directory, stage, kind, label, target):
         with (directory / "input-state.jsonl").open("a", encoding="utf-8") as receipt:
-            receipt.write(json.dumps(dict(stage=stage, kind=kind, label=label,
-                target=target, state=helper.focus_state())) + "\n")
+            value = dict(stage=stage, kind=kind, label=label, target=target, state=helper.focus_state())
+            trace = getattr(helper, "last_click_trace", None)
+            if isinstance(trace, list):
+                value["clickTrace"] = trace
+            receipt.write(json.dumps(value) + "\n")
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"

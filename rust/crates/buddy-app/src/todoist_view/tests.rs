@@ -209,3 +209,109 @@ fn failed_connection_preserves_editable_token_and_reports_a_stopped_check(
         assert!(!view.can_write());
     });
 }
+
+#[gpui_kit::test]
+fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
+    use buddy_core::todoist::{AccountCalendar, Profile, parse_projects, parse_tasks};
+    use gpui_kit::{Bounds, Point, VisualTestContext, WindowBounds, WindowOptions, px, size};
+    use serde_json::json;
+    // No Runtime: the rendered test must never use the host vault or service.
+    let (window, view) =
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+            gpui_kit::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: Point::default(),
+                        size: size(px(812.), px(484.)),
+                    })),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| {
+                    cx.new(|cx| {
+                        let mut view = TodoistView::new(window, cx);
+                        let rows: Vec<_> = (0..32)
+                            .map(|i| {
+                                json!({
+                                    "id": format!("task-{i}"),
+                                    "content": format!("Synthetic task {i:02}"),
+                                    "description": "",
+                                    "project_id": if i < 20 { "alpha" } else { "beta" },
+                                    "priority": 4,
+                                    "due": if i < 20 {
+                                        json!({"date": "2026-11-03", "is_recurring": false})
+                                    } else { json!(null) },
+                                    "labels": ["synthetic"],
+                                    "checked": false,
+                                    "child_order": i
+                                })
+                            })
+                            .collect();
+                        let tasks = parse_tasks(
+                            &serde_json::to_vec(&json!({
+                                "results": rows, "next_cursor": null
+                            }))
+                            .unwrap(),
+                        )
+                        .unwrap()
+                        .items;
+                        let projects = parse_projects(&serde_json::to_vec(&json!({
+                    "results": [
+                        {"id": "alpha", "name": "Alpha", "color": "blue", "child_order": 0},
+                        {"id": "beta", "name": "Beta", "color": "blue", "child_order": 1}
+                    ], "next_cursor": null
+                })).unwrap()).unwrap().items;
+                        let now = "2026-11-02T12:00:00Z".parse().unwrap();
+                        view.data = Some(Arc::new(Dataset {
+                            account: Id::parse("synthetic-account").unwrap(),
+                            calendar: Arc::new(
+                                AccountCalendar::from_profile(&Profile {
+                                    id: Id::parse("synthetic-account").unwrap(),
+                                    timezone: Some("UTC".into()),
+                                })
+                                .unwrap(),
+                            ),
+                            tasks,
+                            projects,
+                            read_at: now,
+                            coverage: Coverage::All,
+                            fixed_now: Some(now),
+                        }));
+                        view.connection_form = false;
+                        view.pane = Pane::Projects;
+                        view.project = Some(Id::parse("beta").unwrap());
+                        view
+                    })
+                },
+            )
+            .unwrap()
+        });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let initial = visual.debug_bounds("todoist-task-row-0").unwrap();
+    let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();
+    assert!(initial.top() >= viewport.top());
+    visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Upcoming, cx)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();
+    visual.simulate_event(gpui_kit::ScrollWheelEvent {
+        position: viewport.center(),
+        delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-900.))),
+        ..Default::default()
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual.debug_bounds("todoist-task-row-0").unwrap().top() < viewport.top(),
+        "The regression must actually scroll Upcoming"
+    );
+    visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Projects, cx)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let row = visual.debug_bounds("todoist-task-row-0").unwrap();
+    let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();
+    assert!(
+        row.top() >= viewport.top(),
+        "Returning to the selected project must reveal its first task"
+    );
+}

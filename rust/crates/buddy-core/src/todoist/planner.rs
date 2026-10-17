@@ -181,11 +181,12 @@ impl Planner {
         let calendar = preferred == Coverage::Calendar;
         let broad = matches!(preferred, Coverage::All | Coverage::Calendar);
         let result = self.refresh_scope(preferred).await;
-        if !matches!(
+        let can_fall_back = matches!(
             &result,
             Err(TransportError::Domain(Error::ScopeUnavailable))
-        ) && !(broad && matches!(&result, Err(TransportError::Domain(Error::ReadLimit))))
-        {
+        ) || broad
+            && matches!(&result, Err(TransportError::Domain(Error::ReadLimit)));
+        if !can_fall_back {
             return result;
         }
         if !calendar {

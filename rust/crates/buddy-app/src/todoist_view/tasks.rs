@@ -216,13 +216,24 @@ impl TodoistView {
         let page = self.task_page.min(rows.len().saturating_sub(1) / PAGE);
         let mut list = v_flex()
             .gap_3()
-            .id("todoist-task-list")
+            // Each task scope starts at its own first row. A stable shared ID
+            // carries Upcoming's offset into an already selected project.
+            .id(format!(
+                "todoist-task-list-{}-{}-{page}",
+                match self.pane {
+                    Pane::Today => "today",
+                    Pane::Upcoming => "upcoming",
+                    Pane::Projects => "projects",
+                },
+                self.project.as_ref().map(Id::as_str).unwrap_or("")
+            ))
+            .debug_selector(|| "todoist-task-list-viewport".into())
             .overflow_y_scroll()
             .flex_1()
             .min_h_0()
             .w_full();
         let mut previous_group = String::new();
-        for (group, task) in rows.iter().skip(page * PAGE).take(PAGE) {
+        for (index, (group, task)) in rows.iter().skip(page * PAGE).take(PAGE).enumerate() {
             if group != &previous_group {
                 list = list.child(div().text_lg().child(group.clone()));
                 previous_group = group.clone();
@@ -246,6 +257,7 @@ impl TodoistView {
             let complete = task.id.clone();
             let delete = task.id.clone();
             let mut row = v_flex()
+                .debug_selector(move || format!("todoist-task-row-{index}"))
                 .gap_2()
                 .pb_3()
                 .border_b_1()

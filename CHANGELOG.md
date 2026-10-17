@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1451] - 2026-10-17
+
+### Fixed
+
+- Isolate Todoist task scope scroll positions (#817)
+
 ## [0.1.1450] - 2026-10-17
 
 ### Changed

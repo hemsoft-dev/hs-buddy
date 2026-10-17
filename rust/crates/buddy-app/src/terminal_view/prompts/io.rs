@@ -349,7 +349,7 @@ impl PromptView {
         self.metadata_busy = true;
         self.run(cx,async move{backend.mark_prompt_used(&prompt).await},move|this,result,cx| {
             this.metadata_busy=false;
-            if !this.record.as_ref().and_then(|record|record.paste.as_ref()).is_some_and(|paste|paste.id==id){return;}
+            if this.record.as_ref().and_then(|record|record.paste.as_ref()).is_none_or(|paste|paste.id!=id){return;}
             match result {
                 Ok(())=>{this.record.as_mut().expect("record").paste=None;this.status=Some("Prompt inserted. No Enter key was added.".into());this.queue(cx);this.load(cx);}
                 Err(error)=>this.error=Some(format!("Prompt was written, but its last-used time could not be saved. {error} Retry metadata only; do not insert again.")),
