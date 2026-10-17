@@ -14,6 +14,14 @@ tasks searches loaded task names, descriptions, labels and project names.
 Project selection and filtering do not send task changes. Lists have explicit
 pages and scrolling; Tab reaches inputs and actions.
 
+Each loaded list names its scope. Load calendar tasks reads overdue tasks and
+the next seven days through Todoist's filter endpoint. Opening a project from
+that scope loads the project's complete active list, including undated tasks.
+Load all tasks returns to the account-wide read. Reads stop at 5,000 tasks or
+100 pages and never publish partial rows. If an account exceeds that bound,
+the verified project list and smaller-scope controls remain available. A failed
+scope change preserves the previous list and selection.
+
 The calendar uses the timezone returned by Todoist and bundled timezone rules,
 with the same data on Windows, macOS and Linux. It never substitutes the
 computer's timezone. Date-only and floating dates retain their written day;
@@ -36,6 +44,14 @@ recurring task. Delete requires confirmation for the selected task. A confirmed
 change stays confirmed even if list refresh fails. Refresh must succeed before
 another change can use the old rows.
 
+Project permissions apply to both the controls and the command boundary.
+Creator, admin and read/write projects allow task actions. Complete-only
+projects offer completion. Buddy conservatively offers only existing-task
+editing for edit-only projects. Unknown roles, missing team roles and frozen
+projects are read-only. Personal projects without a role retain their normal
+editing access. These role names come from the
+[Todoist project API](https://developer.todoist.com/api/v1/).
+
 ## Recovery and authentication failures
 
 Before sending a change, Buddy saves its original command and UUID in a
@@ -47,19 +63,25 @@ and fields. It does not construct a new task from the editor.
 Restarting, navigating and refreshing never replay a saved change. Recovery
 blocks new drafts until resolved. After an acknowledged result, Retry cleanup
 only removes the recovery file; it never sends another service request.
+Buddy appends the acknowledged outcome before attempting removal, so a
+restart can recover it for cleanup without replay. An interrupted outcome
+record fails closed. If the filesystem refuses both saving the outcome and
+removing recovery, Buddy warns you to keep the app open until cleanup succeeds.
 Discard saved recovery requires confirmation that the remote change may already
 exist. Discard does not undo a service change. Changed or unreadable recovery
 files remain in place and block replacement.
 
 An expired token and an unreachable service produce separate messages. A failed
-refresh retains the last complete dataset with its original account and refresh
-time. Recheck saved connection retries loading the protected token after an
+refresh or reconnect retains the last complete dataset with its original account
+and refresh time. A replacement must finish loading before it takes over or
+saves a new token. Recheck saved connection retries loading the protected token after an
 initial connection failure. A replacement token must authenticate the original account while recovery
 is pending. Resolve acknowledged cleanup before replacing a connection. A failed
 credential save remains unconfirmed, and the token input stays editable.
 
 Forget saved token removes only the native Todoist credential for this profile
-and verifies removal. It refuses to proceed while saved recovery exists. It
+and verifies removal. It checks for saved recovery and removes the credential
+while holding the same lock used to create recovery. It
 does not delete tasks from Todoist.
 
 ## Qualification
@@ -75,7 +97,10 @@ Secret Service for the complete sequence of app restarts. It checks missing
 credentials, secure persistence and removal, Today/Upcoming/Projects, undated
 tasks, empty results, edits, completion, recurring completion, deletion,
 authentication errors, offline reads, and explicit retry after a lost creation
-response. Original recovery bytes and actual HTTP attempts establish that
+response. It also exercises failed reconnection and replacement reads,
+restricted projects, and calendar/project fallback with more than 5,000 tasks
+spread over projects within the service's per-project limit.
+Original recovery bytes and actual HTTP attempts establish that
 restart and refresh did not resend it. Screenshots cover both themes, a measured
 large window and 900 by 650; an interaction recording accompanies them.
 

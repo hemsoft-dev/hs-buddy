@@ -4,7 +4,9 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use super::dates::RawDue;
-use super::{DueDate, Error, MAX_PAGE_ITEMS, MAX_RESPONSE_BYTES, bounded_text, valid_cursor};
+use super::{
+    DueDate, Error, MAX_PAGE_ITEMS, MAX_RESPONSE_BYTES, WriteKind, bounded_text, valid_cursor,
+};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Id(String);
@@ -72,6 +74,49 @@ pub struct Project {
     pub order: i64,
     pub archived: bool,
     pub deleted: bool,
+    pub frozen: bool,
+    pub role: ProjectRole,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ProjectRole {
+    Full,
+    EditOnly,
+    CompleteOnly,
+    Unknown,
+}
+
+impl Project {
+    /// Unknown and missing team roles fail closed. Personal projects without a
+    /// role retain their documented collaborator editing permissions.
+    pub fn allows(&self, action: WriteKind) -> bool {
+        !self.archived
+            && !self.deleted
+            && !self.frozen
+            && match self.role {
+                ProjectRole::Full => true,
+                ProjectRole::EditOnly => action == WriteKind::Edit,
+                ProjectRole::CompleteOnly => action == WriteKind::Complete,
+                ProjectRole::Unknown => false,
+            }
+    }
+
+    pub fn access_notice(&self) -> Option<&'static str> {
+        if self.archived || self.deleted || self.frozen {
+            Some("This project is read-only.")
+        } else {
+            match self.role {
+                ProjectRole::Full => None,
+                ProjectRole::EditOnly => {
+                    Some("This project permits editing existing tasks only in Buddy.")
+                }
+                ProjectRole::CompleteOnly => Some("This project permits completing tasks only."),
+                ProjectRole::Unknown => {
+                    Some("Project permissions are unavailable. Tasks are read-only.")
+                }
+            }
+        }
+    }
 }
 
 /// Calendar context comes from the selected Todoist account, not the host.
@@ -148,6 +193,10 @@ struct RawProject {
     is_archived: bool,
     #[serde(default)]
     is_deleted: bool,
+    #[serde(default)]
+    is_frozen: bool,
+    role: Option<String>,
+    workspace_id: Option<String>,
 }
 #[derive(Deserialize)]
 struct RawPage<Item> {
@@ -252,6 +301,14 @@ pub fn parse_projects(bytes: &[u8]) -> Result<Page<Project>, Error> {
             order: row.child_order,
             archived: row.is_archived,
             deleted: row.is_deleted,
+            frozen: row.is_frozen,
+            role: match row.role.as_deref() {
+                Some("CREATOR" | "ADMIN" | "READ_WRITE") => ProjectRole::Full,
+                Some("EDIT_ONLY") => ProjectRole::EditOnly,
+                Some("COMPLETE_ONLY") => ProjectRole::CompleteOnly,
+                None if row.workspace_id.is_none() => ProjectRole::Full,
+                _ => ProjectRole::Unknown,
+            },
         });
     }
     if !unique_ids(projects.iter().map(|project| &project.id)) {

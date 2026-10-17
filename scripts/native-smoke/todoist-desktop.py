@@ -35,7 +35,7 @@ class ScenarioFixture(todoist.Fixture):
         super().__init__(marker)
 
     def arm(self, scenario):
-        if scenario not in ('offline', 'expired'):
+        if scenario not in ('offline', 'expired', 'task-read'):
             raise ValueError('Unsupported Todoist failure scenario')
         with self.lock:
             self.complete_tasks = False
@@ -48,11 +48,31 @@ class ScenarioFixture(todoist.Fixture):
         elif route == 'user' and self.complete_tasks and self.fail_after_read:
             if self.fail_after_read == 'offline':
                 self.disconnect = True
+            elif self.fail_after_read == 'task-read':
+                self.fail_next_tasks = True
             else:
                 self.expired = True
             self.fail_after_read = None
             self.complete_tasks = False
         return value
+
+    def add_permission_projects(self):
+        with self.lock:
+            for index, (identifier, name, role) in enumerate([
+                    ('project-complete', 'Synthetic Complete Only', 'COMPLETE_ONLY'),
+                    ('project-readonly', 'Synthetic Read Only', 'FUTURE_ROLE')]):
+                self.projects.append(dict(id=identifier, name=name, color='blue', parent_id=None,
+                    child_order=index+3, workspace_id='synthetic-team', role=role))
+                self.tasks.append(todoist._task('task-'+identifier, name+' task', identifier))
+
+    def add_large_account(self):
+        with self.lock:
+            self.page_cap = 100
+            for index in range(17):
+                self.projects.append(dict(id=f'project-bulk-{index}', name=f'Synthetic Bulk {index}',
+                    color='blue', parent_id=None, child_order=index+5))
+            self.tasks.extend(todoist._task(f'bulk-task-{index}', f'Synthetic bulk task {index}',
+                f'project-bulk-{index//300}') for index in range(5001))
 
 
 @contextmanager
@@ -113,13 +133,14 @@ def qualify(executable, output, session, version, backend):
     with environment(dict(BUDDY_TODOIST_FIXTURE='1', BUDDY_CONFIG_PATH=config,
             BUDDY_CONVEX_URL=backend.url, RUST_LOG='warn,reqwest=trace,hyper=trace')):
         api = ScenarioFixture.start(config)
+        api.add_permission_projects()
         primary = None
         try:
             initial = api.snapshot()
             (output / 'initial-tasks.json').write_text(json.dumps(initial, indent=2), encoding='utf-8')
             connected = driver.drive('connect-dark', [
                 ('wait_text', 'No API token is saved'), ('capture', 'missing-token-dark'),
-                ('input', 'Todoist API token', todoist.TOKEN, 'Save and connect'), ('click', 'Save and connect'),
+                ('input', 'Todoist API token', todoist.TOKEN), ('click', 'Save and connect'),
                 ('wait_text', 'Synthetic today task'), ('capture', 'today-dark'),
                 ('click', 'Upcoming'), ('wait_text', 'Synthetic upcoming task'), ('capture', 'upcoming-dark'),
                 ('click', 'Projects'), ('click', 'Synthetic Beta'), ('wait_text', 'Synthetic undated task'),
@@ -193,13 +214,27 @@ def qualify(executable, output, session, version, backend):
             if len(posts(api)) != 6:
                 raise RuntimeError('Editing, completing or deleting sent an unexpected task write')
 
+            permissions = driver.drive('project-permissions-light', [
+                ('wait_text', 'Synthetic today task'), ('click', 'Projects'), ('click', 'Synthetic Complete Only'),
+                ('wait_text', 'This project permits completing tasks only'), ('capture', 'complete-only-light'),
+                ('click', 'Complete'), ('wait_text', 'Todoist confirmed the change'),
+                ('wait_text', 'No tasks in this view'), ('capture', 'complete-only-completed-light'),
+                ('click', 'Synthetic Read Only'), ('wait_text', 'Tasks are read-only'),
+                ('capture', 'read-only-project-light'),
+            ])
+            github.check(permissions / 'complete-only-light.png', 'completing tasks only', 'Synthetic Complete Only task')
+            github.check(permissions / 'read-only-project-light.png', 'read-only', 'Synthetic Read Only task')
+            check_task(api, 'task-project-complete', checked=True)
+            if len(posts(api)) != 7:
+                raise RuntimeError('Project permission navigation sent an unexpected task write')
+
             api.reject_next_auth = True
             driver.drive('connection-recheck-light', [
                 ('wait_text', 'Todoist rejected this connection'), ('capture', 'initial-auth-error-light'),
                 ('click', 'Recheck saved connection'), ('wait_text', 'Synthetic today task'),
                 ('capture', 'saved-connection-rechecked-light'),
             ])
-            if len(posts(api)) != 6:
+            if len(posts(api)) != 7:
                 raise RuntimeError('Rechecking a failed saved connection sent a task mutation')
 
             for scenario, problem in [('offline', 'Could not reach Todoist'), ('expired', 'Todoist rejected this connection')]:
@@ -208,24 +243,49 @@ def qualify(executable, output, session, version, backend):
                     ('wait_text', 'Synthetic today task'), ('click', 'Refresh'), ('wait_text', problem),
                     ('capture', scenario + '-retained-light'), ('resize', 900, 650),
                     ('capture', scenario + '-compact-light'),
+                    ('click', 'Connection'), ('click', 'Recheck saved connection'),
+                    ('wait_text', problem), ('capture', scenario + '-reconnect-retained-light'),
                 ])
                 github.check(phase / (scenario + '-retained-light.png'), problem, 'Synthetic today task')
-                if len(posts(api)) != 6:
+                github.check(phase / (scenario + '-reconnect-retained-light.png'), problem, 'Synthetic today task', 'synthetic-todoist-account')
+                if len(posts(api)) != 7:
                     raise RuntimeError('An unsuccessful read sent another task mutation')
                 with api.lock:
                     api.disconnect = False
                     api.expired = False
 
+            api.arm('task-read')
+            retained = driver.drive('failed-replacement-read-light', [
+                ('wait_text', 'Synthetic today task'), ('click', 'Connection'), ('click', 'Recheck saved connection'),
+                ('wait_text', 'Todoist could not finish this request'), ('capture', 'replacement-read-retained-light'),
+            ])
+            github.check(retained / 'replacement-read-retained-light.png', 'could not finish', 'Synthetic today task', 'synthetic-todoist-account')
+            if len(posts(api)) != 7:
+                raise RuntimeError('A failed replacement read sent a task write')
+
+            api.add_large_account()
+            scoped = driver.drive('large-account-scopes-light', [
+                ('wait_text', 'Choose a smaller scope'), ('capture', 'large-account-limit-light'),
+                ('click', 'Load calendar tasks'), ('wait_text', 'Task scope loaded'),
+                ('wait_text', 'Synthetic upcoming task'), ('capture', 'calendar-scope-light'),
+                ('click', 'Projects'), ('click', 'Synthetic Alpha'), ('wait_text', 'Synthetic created task'),
+                ('capture', 'project-scope-undated-light'),
+            ])
+            github.check(scoped / 'large-account-limit-light.png', 'smaller scope', 'Load calendar tasks')
+            github.check(scoped / 'project-scope-undated-light.png', 'Synthetic created task', 'No due date')
+            if len(posts(api)) != 7:
+                raise RuntimeError('Loading smaller task scopes sent a mutation')
+
             before_forget = api.snapshot()['tasks']
             driver.drive('forget-token-light', [
-                ('wait_text', 'Synthetic today task'), ('click', 'Connection'),
+                ('wait_text', 'Choose a smaller scope'), ('click', 'Connection'),
                 ('click', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'),
                 ('capture', 'token-removed-light'),
             ])
             driver.drive('forgotten-restart-light', [
                 ('wait_text', 'No API token is saved'), ('capture', 'missing-after-restart-light'),
             ])
-            if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 6:
+            if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
                 raise RuntimeError('Removing the local credential changed service tasks')
 
             for path in output.glob('*/app.log'):
@@ -236,7 +296,10 @@ def qualify(executable, output, session, version, backend):
             (output / 'requests.json').write_text(json.dumps(final, indent=2), encoding='utf-8')
             receipt = dict(result='passed', version=version, session=session, **binary,
                 largeWindow=driver.large_size, compactWindow=[900, 650], screenshots=captures(output),
-                readOnlyNavigationPosts=0, taskWriteAttempts=6, createdTasks=1,
+                readOnlyNavigationPosts=0, taskWriteAttempts=7, createdTasks=1,
+                restrictedProjectCompletionVerified=True, unknownProjectRoleReadOnly=True,
+                failedReconnectRetainedAccountTasks=True, failedReplacementReadRetainedAccountTasks=True,
+                largeAccountScopedReadsVerified=True,
                 recurringCompletionAdvancedExactlyOneDay=True,
                 originalRecoverySha256=hashlib.sha256(original).hexdigest(), sameCommandRetried=True,
                 realOsCredentialStore=True, secureTokenSurvivedProcessRestart=True,

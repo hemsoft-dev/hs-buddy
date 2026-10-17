@@ -432,8 +432,10 @@ class Driver:
                 x = width / scale * 3 / 4
             elif kind == "input":
                 # GitHub fields can occupy a narrow column and have no Save
-                # control. Target the editor immediately below its own label.
+                # control. Center the standard 32px editor below its label;
+                # +20 would hit top padding in the installed Todoist form.
                 x = label["left"] / scale + 20
+                y = (label["top"] + label["height"]) / scale + 32
         if "row_control" in label:
             control = label["row_control"]
             y = (control["top"] + control["height"] / 2) / scale
@@ -611,12 +613,12 @@ def qualify(executable, output, session, checkout, backend):
     if saved["packageQualificationSentinel"] != {"preserve": True}:
         raise RuntimeError("Unknown shared config fields were lost")
     verify_text(appearance / "keyboard-compact-light.png", "six-digit hex color")
-    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"),
-        ("click", "Automatic refresh: on"), ("capture", "pr-light"), ("nav", "Copilot"),
-        ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"),
+    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"), ("wait_text", "Saved"),
+        ("click", "Automatic refresh: on"), ("wait_text", "Saved"), ("capture", "pr-light"), ("nav", "Copilot"),
+        ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"), ("wait_text", "Saved"),
         ("field", "Model ID|Model 1D|Model lD", "fixture-model"),
-        ("save", "Model ID|Model 1D|Model lD"), ("capture", "copilot-light"),
-        ("nav", "Notifications"), ("click", "Review completion sound: off"),
+        ("save", "Model ID|Model 1D|Model lD"), ("wait_text", "Saved"), ("capture", "copilot-light"),
+        ("nav", "Notifications"), ("click", "Review completion sound: off"), ("wait_text", "Review completion sound: on"),
         ("field", "Notification audio file", "relative.wav"), ("save", "Notification audio file"),
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
         ("nav", "Advanced"), ("capture", "advanced-light")])

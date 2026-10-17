@@ -464,17 +464,36 @@ class LabeledInputs(unittest.TestCase):
                 locate.assert_called_with(image, "Filter loaded items", navigation=False,
                     field=True, save_row=False, tab=False)
                 if session == "macos":
-                    helper.click.assert_called_once_with(920, 184)
+                    helper.click.assert_called_once_with(920, 196)
                     helper.replace_text.assert_called_once_with("First private")
                 else:
                     self.assertIn(unittest.mock.call("xdotool", "mousemove", "--window",
-                        window.window, 820, 134, "click", 1), run.call_args_list)
+                        window.window, 820, 146, "click", 1), run.call_args_list)
                     window.key.assert_called_once_with("a")
                     self.assertIn(unittest.mock.call("xdotool", "type", "--clearmodifiers",
                         "--delay", 10, "--", "First private"), run.call_args_list)
 
 
 class SessionInputRows(unittest.TestCase):
+    def test_stacked_todoist_token_targets_the_input_interior_without_a_disabled_save_anchor(self):
+        # Original installed X11 capture: label y295..306, input y324..356,
+        # text interior y334..346. The disabled Save button below y401 has no
+        # OCR glyphs and cannot locate this input's row.
+        driver = desktop.Driver.__new__(desktop.Driver)
+        driver.session = "x11"
+        directory = MagicMock()
+        image = directory.__truediv__.return_value
+        image.read_bytes.return_value = bytes(16) + struct.pack(">II",1200,820)
+        window = Mock()
+        with patch.object(desktop.ocr,"locate_image",return_value=dict(left=64,top=295,width=110,height=11)) as locate, \
+                patch.object(desktop,"run") as execute, patch.object(desktop.time,"sleep"):
+            driver.interact(window,directory,"input",["Todoist API token","public synthetic token"])
+        self.assertNotIn("row_control",locate.call_args.kwargs)
+        clicks=[call.args for call in execute.call_args_list if call.args[:2]==("xdotool","mousemove")]
+        self.assertEqual(len(clicks),1)
+        x,y=clicks[0][4:6]
+        self.assertTrue(76<x<1172 and 334<=y<=346)
+
     def test_session_input_uses_the_measured_button_row_instead_of_border_padding(self):
         # Actual Intel failure: label bottom190 produced y210; the adjacent
         # Scan folder glyph spans215..225 and centers the editor at y220.

@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 
 use super::{
     AccountCalendar, Client, CreateDraft, EditDraft, Error, Id, Project, ReadScope, Task,
-    TransportError, WritePhase, WriteRequest,
+    TransportError, WriteKind, WritePhase, WriteRequest,
     change::{ChangeError, DispatchReport, SavedChange},
 };
 
@@ -18,6 +18,21 @@ pub struct Dataset {
     pub tasks: Vec<Task>,
     pub projects: Vec<Project>,
     pub read_at: DateTime<Utc>,
+    pub coverage: Coverage,
+}
+
+/// A completed task read describes exactly the scope it covers.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Coverage {
+    All,
+    Calendar,
+    Project(Id),
+}
+
+/// A verified project read remains usable when the all-task read exceeds its
+/// bound. It contains no partially loaded task rows.
+pub struct ProjectCatalog {
+    pub projects: Vec<Project>,
 }
 
 pub enum TaskChange {
@@ -37,6 +52,8 @@ pub struct Planner {
     config: PathBuf,
     fixed_now: Option<DateTime<Utc>>,
     data: Option<Arc<Dataset>>,
+    catalog: Option<Arc<ProjectCatalog>>,
+    coverage: Coverage,
     pending: Option<SavedChange>,
     recovery_blocked: bool,
     write_fresh: bool,
@@ -60,6 +77,8 @@ impl Planner {
             config,
             fixed_now,
             data: None,
+            catalog: None,
+            coverage: Coverage::All,
             pending,
             recovery_blocked: false,
             write_fresh: false,
@@ -76,6 +95,39 @@ impl Planner {
 
     pub fn data(&self) -> Option<&Arc<Dataset>> {
         self.data.as_ref()
+    }
+
+    pub fn catalog(&self) -> Option<&Arc<ProjectCatalog>> {
+        self.catalog.as_ref()
+    }
+
+    pub fn coverage(&self) -> &Coverage {
+        &self.coverage
+    }
+
+    pub fn require_refresh(&mut self) {
+        self.write_fresh = false;
+    }
+
+    pub fn can_create_in(&self, project: Option<&Id>) -> bool {
+        self.can_submit() && project.is_none_or(|id| self.project_allows(id, WriteKind::Create))
+    }
+
+    pub fn can_change_task(&self, id: &Id, action: WriteKind) -> bool {
+        self.can_submit()
+            && self.data.as_ref().is_some_and(|data| {
+                data.tasks.iter().any(|task| {
+                    &task.id == id && !task.deleted && self.project_allows(&task.project_id, action)
+                })
+            })
+    }
+
+    fn project_allows(&self, id: &Id, action: WriteKind) -> bool {
+        self.data.as_ref().is_some_and(|data| {
+            data.projects
+                .iter()
+                .any(|project| &project.id == id && project.allows(action))
+        })
     }
 
     pub fn pending(&self) -> Option<&SavedChange> {
@@ -95,26 +147,65 @@ impl Planner {
     /// Publish only a complete read belonging to the same account and calendar.
     /// This method never sends or retries a pending mutation.
     pub async fn refresh(&mut self) -> Result<Arc<Dataset>, TransportError> {
+        self.refresh_scope(self.coverage.clone()).await
+    }
+
+    pub async fn refresh_scope(
+        &mut self,
+        coverage: Coverage,
+    ) -> Result<Arc<Dataset>, TransportError> {
+        self.write_fresh = false;
         let profile = self.client.profile().await?;
         if profile.id != self.account {
             return Err(Error::WrongConnection.into());
         }
         let calendar = Arc::new(AccountCalendar::from_profile(&profile)?);
         let projects = self.client.projects().await?;
-        let tasks = self.client.tasks(&ReadScope::Active).await?;
+        let scope = match &coverage {
+            Coverage::All => ReadScope::Active,
+            Coverage::Calendar => ReadScope::Filter("overdue | 7 days".into()),
+            Coverage::Project(id) => {
+                if !projects
+                    .iter()
+                    .any(|project| &project.id == id && !project.archived && !project.deleted)
+                {
+                    return Err(Error::InvalidDraft.into());
+                }
+                ReadScope::Project(id.clone())
+            }
+        };
+        let tasks = self.client.tasks(&scope).await;
+        if let Err(error) = &tasks
+            && *error != TransportError::Domain(Error::ReadLimit)
+        {
+            return Err(*error);
+        }
         let final_profile = self.client.profile().await?;
         if final_profile.id != self.account || final_profile.timezone != profile.timezone {
             return Err(Error::WrongConnection.into());
         }
+        // Even an oversized task read leaves a complete, identity-checked
+        // project catalog available for choosing a bounded project read.
+        if matches!(
+            &tasks,
+            Ok(_) | Err(TransportError::Domain(Error::ReadLimit))
+        ) {
+            self.catalog = Some(Arc::new(ProjectCatalog {
+                projects: projects.clone(),
+            }));
+        }
+        let tasks = tasks?;
         let data = Arc::new(Dataset {
             account: self.account.clone(),
             calendar: calendar.clone(),
             projects,
             tasks,
             read_at: self.fixed_now.unwrap_or_else(Utc::now),
+            coverage: coverage.clone(),
         });
         self.calendar = calendar;
         self.data = Some(data.clone());
+        self.coverage = coverage;
         self.write_fresh = true;
         Ok(data)
     }
@@ -150,6 +241,9 @@ impl Planner {
             }) {
                 return Err(Error::InvalidDraft);
             }
+            if !self.can_create_in(draft.project.as_ref()) {
+                return Err(Error::WritePermission);
+            }
             return WriteRequest::create(scope, &draft);
         }
         let target = match &change {
@@ -165,6 +259,16 @@ impl Planner {
             .any(|task| &task.id == target && !task.deleted)
         {
             return Err(Error::InvalidDraft);
+        }
+        let action = match &change {
+            TaskChange::Edit(..) => WriteKind::Edit,
+            TaskChange::Complete(_) => WriteKind::Complete,
+            TaskChange::Reopen(_) => WriteKind::Reopen,
+            TaskChange::Delete(_) => WriteKind::Delete,
+            TaskChange::Create(_) => unreachable!(),
+        };
+        if !self.can_change_task(target, action) {
+            return Err(Error::WritePermission);
         }
         match change {
             TaskChange::Edit(id, draft) => WriteRequest::edit(scope, &id, &draft),
@@ -254,10 +358,9 @@ impl Planner {
             return Err(super::storage::StorageError::Changed.into());
         }
         self.client = client;
-        self.calendar = calendar;
+        let _ = calendar;
         self.pending = pending;
         self.recovery_blocked = false;
-        self.data = None;
         self.write_fresh = false;
         Ok(())
     }

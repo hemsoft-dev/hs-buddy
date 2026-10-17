@@ -194,6 +194,8 @@ fn project_reads_use_their_own_identity_set() {
         order: 1,
         archived: false,
         deleted: false,
+        frozen: false,
+        role: super::ProjectRole::Full,
     };
     let mut projects = project_pages();
     projects

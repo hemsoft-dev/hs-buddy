@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use buddy_core::todoist::{
     Client, Id, WritePhase, credentials,
-    planner::{Dataset, Planner, TaskChange},
+    planner::{Coverage, Dataset, Planner, ProjectCatalog, TaskChange},
 };
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::Button;
@@ -30,6 +30,7 @@ enum Pane {
 
 enum Operation {
     Refresh,
+    Load(Coverage, Pane, Option<Id>),
     Submit(TaskChange),
     Retry,
     Cleanup,
@@ -42,6 +43,7 @@ type OperationResult = (Planner, Result<String, String>);
 pub struct TodoistView {
     planner: Option<Planner>,
     data: Option<Arc<Dataset>>,
+    catalog: Option<Arc<ProjectCatalog>>,
     token: Entity<InputState>,
     filter: Entity<InputState>,
     pane: Pane,
@@ -76,6 +78,7 @@ impl TodoistView {
         Self {
             planner: None,
             data: None,
+            catalog: None,
             token,
             filter,
             pane: Pane::Today,
@@ -114,14 +117,14 @@ impl TodoistView {
         self.busy = true;
         self.error = None;
         self.notice = Some("Removing the saved Todoist token…".into());
+        if let Some(planner) = &mut self.planner {
+            planner.require_refresh();
+        }
         let generation = self.generation;
-        let rx=Runtime::global(cx).spawn(async {
-            let config=buddy_core::config::config_path().map_err(|_| "The configuration profile is unavailable.".to_owned())?;
-            let recovery=buddy_core::todoist::storage::PendingFile::open(&config).map_err(|error|error.to_string())?;
-            if recovery.current().is_some() {
-                return Err("Saved recovery exists. Reconnect to its original account and resolve it before removing the token.".to_owned());
-            }
-            credentials::clear_at(&config).map_err(|error|error.to_string())
+        let rx = Runtime::global(cx).spawn(async {
+            let config = buddy_core::config::config_path()
+                .map_err(|_| "The configuration profile is unavailable.".to_owned())?;
+            credentials::clear_if_no_pending_at(&config).map_err(|error| error.to_string())
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await;
@@ -131,12 +134,13 @@ impl TodoistView {
                 }
                 this.busy = false;
                 this.notice = None;
-                this.data = None;
-                this.planner = None;
-                this.connection_form = true;
-                this.clear_token = true;
                 match result {
                     Ok(Ok(())) => {
+                        this.data = None;
+                        this.catalog = None;
+                        this.planner = None;
+                        this.connection_form = true;
+                        this.clear_token = true;
                         this.notice = Some(
                             "The saved Todoist token was removed. Connect again to load tasks."
                                 .into(),
@@ -184,9 +188,13 @@ impl TodoistView {
                 )
             })
         });
+        let previous = self.planner.as_mut().map(|planner| {
+            planner.require_refresh();
+            (planner.account().clone(), planner.coverage().clone())
+        });
+        let retain_data = self.data.is_some();
         self.busy = true;
         self.initialized = true;
-        self.data = None;
         self.error = None;
         self.notice = Some("Checking Todoist connection and saved recovery…".into());
         self.generation = uuid::Uuid::new_v4();
@@ -201,6 +209,9 @@ impl TodoistView {
                     None => {
                         if expected.is_some() {
                             return Err("A saved change needs its original Todoist account. Enter a replacement token for that account before retrying.".to_owned());
+                        }
+                        if retain_data {
+                            return Err("No token is saved. Loaded tasks were retained. Enter a token to check this connection again.".to_owned());
                         }
                         return Ok(None);
                     }
@@ -219,10 +230,17 @@ impl TodoistView {
                 })) {
                     return Err("The saved change belongs to the original Todoist connection. Its recovery was preserved.".to_owned());
             }
+            let coverage = previous.filter(|(account, _)| account == planner.account())
+                .map(|(_, coverage)| coverage).unwrap_or(Coverage::All);
+            let problem = match planner.refresh_scope(coverage).await {
+                Ok(_) => None,
+                Err(error) if !retain_data && planner.catalog().is_some()
+                    && error == buddy_core::todoist::TransportError::Domain(buddy_core::todoist::Error::ReadLimit) => Some(error.to_string()),
+                Err(error) => return Err(error.to_string()),
+            };
             if save {
                 credentials::save_at(&config, &token).map_err(|error| error.to_string())?;
             }
-            let problem = planner.refresh().await.err().map(|error| error.to_string());
             Ok::<_, String>(Some((planner, problem)))
         });
         self.receive_connection(generation, rx, cx);
@@ -244,6 +262,7 @@ impl TodoistView {
                 match result {
                     Ok(Ok(Some((planner, problem)))) => {
                         this.data = planner.data().cloned();
+                        this.catalog = planner.catalog().cloned();
                         this.planner = Some(planner);
                         this.connection_form = false;
                         this.clear_token = true;
@@ -257,9 +276,9 @@ impl TodoistView {
                         this.connection_form = true;
                         this.notice = Some("Connect Todoist to load your tasks. No API token is saved for this profile.".into());
                     }
-                    Ok(Err(error)) => { this.connection_form = true; this.error = Some(error); }
+                    Ok(Err(error)) => { this.connection_form = this.data.is_none(); this.error = Some(error); }
                     Err(_) => {
-                        this.connection_form = true;
+                        this.connection_form = this.data.is_none();
                         this.error = Some("The connection check stopped. Recheck secure storage before continuing.".into());
                     }
                 }
@@ -281,9 +300,14 @@ impl TodoistView {
         self.discard_confirm = false;
         let generation = self.generation;
         let submitted = matches!(&operation, Operation::Submit(_));
+        let navigation = match &operation {
+            Operation::Load(_, pane, project) => Some((*pane, project.clone())),
+            _ => None,
+        };
         let rx = Runtime::global(cx).spawn(async move {
             let result = match operation {
                 Operation::Refresh => planner.refresh().await.map(|_| "Tasks refreshed.".to_owned()).map_err(|error| error.to_string()),
+                Operation::Load(coverage, _, _) => planner.refresh_scope(coverage).await.map(|_| "Task scope loaded.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Cleanup => planner.retry_cleanup().map(|_| "Recovery cleanup finished. No task change was sent.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Discard => planner.discard_pending().map(|_| "Saved recovery discarded. Refresh to check Todoist; the remote change may already exist.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Recovery => planner.check_recovery().await.map(|_| "Recovery checked. Saved changes require an explicit retry.".to_owned()).map_err(|error| error.to_string()),
@@ -292,7 +316,7 @@ impl TodoistView {
             };
             (planner, result)
         });
-        self.receive_operation(generation, submitted, rx, cx);
+        self.receive_operation(generation, submitted, navigation, rx, cx);
         cx.notify();
     }
 
@@ -300,6 +324,7 @@ impl TodoistView {
         &self,
         generation: uuid::Uuid,
         submitted: bool,
+        navigation: Option<(Pane, Option<Id>)>,
         rx: futures::channel::oneshot::Receiver<OperationResult>,
         cx: &mut Context<Self>,
     ) {
@@ -311,16 +336,22 @@ impl TodoistView {
                 this.notice = None;
                 match result {
                     Ok((planner, result)) => {
+                        if result.is_ok() && let Some((pane, project)) = navigation {
+                            this.pane = pane;
+                            this.project = project;
+                            this.task_page = 0;
+                            this.delete_target = None;
+                        }
                         if submitted && (result.is_ok() || planner.pending().is_some()) {
                             this.editor = None;
                         }
                         this.data = planner.data().cloned();
+                        this.catalog = planner.catalog().cloned();
                         this.planner = Some(planner);
                         match result { Ok(notice) => this.notice = Some(notice), Err(error) => this.error = Some(error) }
                     }
                     Err(_) => {
-                        this.data = None;
-                        this.connection_form = true;
+                        this.connection_form = this.data.is_none();
                         this.error = Some("The operation stopped. Its outcome may be unconfirmed. Reconnect to check saved recovery before sending another change.".into());
                     }
                 }
@@ -352,6 +383,11 @@ async fn write_result(planner: &mut Planner, change: Option<TaskChange>) -> Resu
         }
     };
     if let Some(problem) = report.cleanup_problem {
+        if !report.acknowledgement_durable {
+            return Ok(format!(
+                "{message} The known outcome could not be saved locally. Keep this app open and retry cleanup after restoring file access. No further service write is needed. {problem}"
+            ));
+        }
         return Ok(format!(
             "{message} {problem} Retry cleanup only; do not send the change again."
         ));
@@ -385,10 +421,7 @@ impl Render for TodoistView {
                     .label(label)
                     .selected(self.pane == pane)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.pane = pane;
-                        this.task_page = 0;
-                        this.delete_target = None;
-                        cx.notify();
+                        this.select_pane(pane, cx);
                     })),
             );
         }
@@ -412,7 +445,7 @@ impl Render for TodoistView {
                 .child(
                     Button::new("todoist-new-task")
                         .label("New task")
-                        .disabled(!self.can_write() || self.editor.is_some())
+                        .disabled(!self.can_create() || self.editor.is_some())
                         .on_click(
                             cx.listener(|this, _, window, cx| this.open_editor(None, window, cx)),
                         ),
@@ -458,12 +491,48 @@ impl Render for TodoistView {
                     pending.phase(),
                     WritePhase::Confirmed | WritePhase::Rejected
                 );
-                body = body.child(div().whitespace_normal().child(if acknowledged {"The service outcome is known. Finish local recovery cleanup before preparing another change."} else {"A saved change is unconfirmed. It may already exist in Todoist. An explicit retry sends the same command."}))
-                    .child(h_flex().flex_wrap().gap_2()
-                        .child(Button::new("todoist-retry-saved").label(if acknowledged {"Retry cleanup"} else {"Retry saved change"}).disabled(self.busy)
-                            .on_click(cx.listener(move |this, _, _, cx| this.operate(if acknowledged {Operation::Cleanup} else {Operation::Retry},cx))))
-                        .child(Button::new("todoist-discard-saved").label("Discard saved recovery").disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {this.discard_confirm=true;cx.notify();}))));
+                let recovery_notice = if acknowledged && !pending.acknowledgement_durable() {
+                    "The service outcome is known but could not be saved locally. Keep this app open until recovery cleanup succeeds."
+                } else if acknowledged {
+                    "The service outcome is known. Finish local recovery cleanup before preparing another change."
+                } else {
+                    "A saved change is unconfirmed. It may already exist in Todoist. An explicit retry sends the same command."
+                };
+                body = body
+                    .child(div().whitespace_normal().child(recovery_notice))
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                Button::new("todoist-retry-saved")
+                                    .label(if acknowledged {
+                                        "Retry cleanup"
+                                    } else {
+                                        "Retry saved change"
+                                    })
+                                    .disabled(self.busy)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.operate(
+                                            if acknowledged {
+                                                Operation::Cleanup
+                                            } else {
+                                                Operation::Retry
+                                            },
+                                            cx,
+                                        )
+                                    })),
+                            )
+                            .child(
+                                Button::new("todoist-discard-saved")
+                                    .label("Discard saved recovery")
+                                    .disabled(self.busy)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.discard_confirm = true;
+                                        cx.notify();
+                                    })),
+                            ),
+                    );
                 if self.discard_confirm {
                     body=body.child(div().whitespace_normal().child("The change may already exist in Todoist. Discarding removes only local recovery and does not undo the service change."))
                         .child(h_flex().flex_wrap().gap_2()

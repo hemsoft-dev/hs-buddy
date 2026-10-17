@@ -1,5 +1,5 @@
 use super::*;
-use buddy_core::todoist::{CreateDraft, EditDraft, Priority, Task};
+use buddy_core::todoist::{CreateDraft, EditDraft, Priority, Task, WriteKind};
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::{AnyElement, InteractiveElement, StatefulInteractiveElement};
 #[cfg(test)]
@@ -110,7 +110,10 @@ impl TodoistView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.can_write() {
+        if !match &task {
+            Some(task) => self.can_task(&task.id, WriteKind::Edit),
+            None => self.can_create(),
+        } {
             return;
         }
         self.editor = Some(Editor::new(task.as_ref(), self.project.clone(), window, cx));
@@ -131,6 +134,16 @@ impl TodoistView {
         });
         let unavailable_project =
             editor.target.is_none() && editor.project.is_some() && selected_project.is_none();
+        let permitted = match &editor.target {
+            Some(id) => self.can_task(id, WriteKind::Edit),
+            None => {
+                !self.busy
+                    && self
+                        .planner
+                        .as_ref()
+                        .is_some_and(|planner| planner.can_create_in(editor.project.as_ref()))
+            }
+        };
         let mut priorities = h_flex().flex_wrap().gap_2();
         for value in (1..=4).rev() {
             let priority = Priority::from_api(value).expect("bounded priority");
@@ -230,7 +243,7 @@ impl TodoistView {
                 .child(
                     Button::new("todoist-save-task")
                         .label("Save task")
-                        .disabled(self.busy || !self.can_write() || unavailable_project)
+                        .disabled(!permitted || unavailable_project)
                         .on_click(cx.listener(|this, _, _, cx| {
                             let change = this.editor.as_ref().expect("visible editor").change(cx);
                             match change {

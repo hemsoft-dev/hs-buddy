@@ -12,6 +12,8 @@ use serde_json::{Value, json};
 use super::*;
 use crate::todoist::{CreateDraft, Priority, WriteAttempt, WritePhase};
 
+#[path = "acknowledgement_tests.rs"]
+mod acknowledgement_tests;
 #[path = "change_identity_tests.rs"]
 mod change_identity_tests;
 #[path = "planner_tests.rs"]

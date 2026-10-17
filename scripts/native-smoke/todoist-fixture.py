@@ -85,6 +85,8 @@ class Fixture:
         self.drop_next_ack = False
         self.commands = {}
         self.created = 0
+        self.page_cap = 2
+        self.fail_next_tasks = False
         self.tasks = [
             _task('task-overdue', 'Synthetic overdue task', 'project-alpha', '2026-11-01'),
             _task('task-today', 'Synthetic today task 界', 'project-alpha', '2026-11-02', 4),
@@ -134,12 +136,19 @@ class Fixture:
     def _get(self, route, query):
         if route == 'user':
             return dict(id='synthetic-todoist-account', tz_info=dict(timezone='America/Winnipeg'), is_deleted=False)
-        if route not in ('tasks', 'projects') or set(query) - {'limit', 'cursor', 'project_id'}:
+        if route not in ('tasks', 'tasks/filter', 'projects') or set(query) - {'limit', 'cursor', 'project_id', 'query'}:
             raise ValueError('Unsupported fixture route')
         rows = self.projects if route == 'projects' else [task for task in self.tasks if not task['checked'] and not task['is_deleted']]
         if 'project_id' in query:
             rows = [task for task in rows if task.get('project_id') == query['project_id'][0]]
-        limit = min(int(query.get('limit', ['100'])[0]), 2)
+        if route == 'tasks/filter':
+            if query.get('query') != ['overdue | 7 days'] or 'project_id' in query:
+                raise ValueError('Unsupported fixture calendar scope')
+            # Fixed fixture date, independent of the host timezone database.
+            rows = [task for task in rows if task.get('due') and task['due']['date'][:10] < '2026-11-09']
+        elif 'query' in query:
+            raise ValueError('Unsupported fixture filter')
+        limit = min(int(query.get('limit', ['100'])[0]), self.page_cap)
         if limit <= 0:
             raise ValueError('Invalid fixture page limit')
         cursor = query.get('cursor', ['offset-0'])[0]
@@ -168,6 +177,17 @@ class Fixture:
             return copy.deepcopy(reply)
         args = command['args']
         kind = command['type']
+        project_id = args.get('project_id', 'project-alpha') if kind == 'item_add' else next(
+            (task['project_id'] for task in self.tasks if task['id'] == args.get('id')), None)
+        project = next((project for project in self.projects if project['id'] == project_id), None)
+        role = project.get('role', 'READ_WRITE' if not project.get('workspace_id') else None) if project else None
+        allowed = project is not None and not any(project.get(key) for key in ('is_archived', 'is_deleted', 'is_frozen')) and (
+            role in ('CREATOR', 'ADMIN', 'READ_WRITE') or role == 'EDIT_ONLY' and kind == 'item_update'
+            or role == 'COMPLETE_ONLY' and kind == 'item_close')
+        if not allowed:
+            reply = dict(sync_status={identifier: dict(error_code=403, error='Synthetic project permission denied')})
+            self.commands[identifier] = (copy.deepcopy(command), copy.deepcopy(reply))
+            return reply
         reply = dict(sync_status={identifier: 'ok'})
         if kind == 'item_add':
             temporary = command['temp_id']
@@ -276,6 +296,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     self._respond(503, dict(error='Synthetic service unavailable'))
                     return
                 route = url.path.removeprefix('/api/v1/')
+                if not write and route in ('tasks', 'tasks/filter') and fixture.fail_next_tasks:
+                    fixture.fail_next_tasks = False
+                    self._respond(503, dict(error='Synthetic task read failed'))
+                    return
                 if write:
                     if route != 'sync' or query:
                         raise ValueError('Unsupported fixture mutation')

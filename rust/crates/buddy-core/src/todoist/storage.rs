@@ -60,6 +60,98 @@ impl PendingFile {
         self.original.as_deref()
     }
 
+    /// Serialize protected-token removal with publication of recovery records.
+    /// The caller's action and absence check share the same exclusive lease.
+    pub(super) fn while_empty<T>(&self, action: impl FnOnce() -> T) -> Result<T, StorageError> {
+        let lock = lock(&self.path)?;
+        if read(&self.path)?.is_some() {
+            return Err(StorageError::Pending);
+        }
+        held(&lock)?;
+        let result = action();
+        held(&lock)?;
+        Ok(result)
+    }
+
+    /// Persist a terminal service outcome without needing directory deletion
+    /// permission. An interrupted append is invalid recovery, never permission
+    /// to resend an acknowledged change. The command itself remains unchanged.
+    pub(super) fn append_acknowledgement(
+        &mut self,
+        acknowledgement: &[u8],
+    ) -> Result<(), StorageError> {
+        let original = self
+            .original
+            .as_ref()
+            .ok_or(StorageError::InvalidCheckpoint)?;
+        if acknowledgement.is_empty() || acknowledgement.len() > 4096 {
+            return Err(StorageError::InvalidCheckpoint);
+        }
+        let mut expected = original.clone();
+        // The first appended byte is '{'. Even a one-byte interrupted append
+        // must be invalid recovery, never ignorable trailing whitespace.
+        expected.extend_from_slice(acknowledgement);
+        if expected.len() > MAX_CHECKPOINT_BYTES {
+            return Err(StorageError::TooLarge);
+        }
+        let lock = lock(&self.path)?;
+        self.unchanged(&lock)?;
+        let mut options = OpenOptions::new();
+        options.read(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let mut file = options
+            .open(&self.path)
+            .map_err(|_| StorageError::Unavailable)?;
+        let metadata = file.metadata().map_err(|_| StorageError::Unavailable)?;
+        if !metadata.is_file() {
+            return Err(StorageError::InvalidPath);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err(StorageError::InvalidPath);
+            }
+        }
+        let mut observed = Vec::new();
+        (&mut file)
+            .take(MAX_CHECKPOINT_BYTES as u64 + 1)
+            .read_to_end(&mut observed)
+            .map_err(|_| StorageError::Unavailable)?;
+        if &observed != original {
+            return Err(StorageError::Changed);
+        }
+        held(&lock)?;
+        let result = file
+            .write_all(&expected[original.len()..])
+            .and_then(|_| file.sync_all());
+        drop(file);
+        // Retain an owned partial append for local-only cleanup after a failed
+        // write. A different writer's content never becomes ours to retire.
+        let actual = read(&self.path)?;
+        if let Some(actual) = &actual
+            && actual.starts_with(original)
+            && expected.starts_with(actual)
+        {
+            self.original = Some(actual.clone());
+        }
+        held(&lock)?;
+        result.map_err(|_| StorageError::Unavailable)?;
+        if actual.as_deref() != Some(expected.as_slice()) {
+            return Err(StorageError::Changed);
+        }
+        Ok(())
+    }
+
     /// Publishes fully written, flushed bytes without replacing another file.
     /// A filesystem without hard-link support fails closed. Power-loss behavior
     /// still depends on the filesystem; this is not a provider acknowledgement.

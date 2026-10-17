@@ -67,5 +67,37 @@ class FailureScenarios(unittest.TestCase):
         self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
         self.assertIsNone(self.api.fail_after_read)
 
+    def test_replacement_task_read_can_fail_after_profile_validation_without_a_write(self):
+        self.api.arm('task-read')
+        self.complete_read()
+        self.assertEqual(self.get('user')['id'],'synthetic-todoist-account')
+        with self.assertRaises(urllib.error.HTTPError) as failure:self.get('tasks?limit=100')
+        self.assertEqual(failure.exception.code,503)
+        failure.exception.close()
+        self.assertEqual(len(self.get('tasks?limit=100')['results']),2)
+        self.assertEqual(desktop.posts(self.api),[])
+
+    def test_large_account_uses_real_project_limits_and_supports_small_scoped_reads(self):
+        self.api.add_large_account()
+        rows, cursor = [], None
+        while True:
+            query = {'limit':'100'}
+            if cursor:query['cursor']=cursor
+            page = self.get('tasks?'+urllib.parse.urlencode(query))
+            rows.extend(page['results'])
+            cursor = page['next_cursor']
+            if cursor is None:break
+        self.assertEqual(len(rows),5006)
+        bulk = [row for row in rows if row['id'].startswith('bulk-task-')]
+        self.assertEqual(len(bulk),5001)
+        from collections import Counter
+        self.assertLessEqual(max(Counter(row['project_id'] for row in bulk).values()),300)
+        calendar = self.get('tasks/filter?'+urllib.parse.urlencode({'query':'overdue | 7 days','limit':'100'}))
+        self.assertEqual(len(calendar['results']),4)
+        self.assertIsNone(calendar['next_cursor'])
+        project = self.get('tasks?project_id=project-beta&limit=100')
+        self.assertTrue(any(row['due'] is None for row in project['results']))
+        self.assertEqual(desktop.posts(self.api),[])
+
 
 if __name__=='__main__':unittest.main()

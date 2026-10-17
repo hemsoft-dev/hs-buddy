@@ -4,6 +4,8 @@ use crate::todoist::{
     change::ChangeError,
     planner::{Planner, TaskChange},
 };
+#[path = "planner_access_tests.rs"]
+mod access;
 #[path = "planner_freshness_tests.rs"]
 mod freshness;
 

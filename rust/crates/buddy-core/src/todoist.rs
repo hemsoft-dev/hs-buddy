@@ -27,7 +27,8 @@ mod transport;
 pub use calendar::AccountCalendar;
 pub use dates::{DueDate, DueKind};
 pub use model::{
-    Id, Page, Priority, Profile, Project, Task, parse_profile, parse_projects, parse_tasks,
+    Id, Page, Priority, Profile, Project, ProjectRole, Task, parse_profile, parse_projects,
+    parse_tasks,
 };
 pub use mutations::{
     CreateDraft, EditDraft, WriteAttempt, WriteKind, WriteOutcome, WritePhase, WriteRequest,
@@ -56,6 +57,7 @@ pub enum Error {
     InvalidDraft,
     WrongConnection,
     WriteBlocked,
+    WritePermission,
     TimezoneUnavailable,
     InvalidRecovery,
 }
@@ -67,6 +69,7 @@ impl std::fmt::Display for Error {
             Self::InvalidDraft => "Check the Todoist task fields before saving this change.",
             Self::WrongConnection => "This change belongs to a different Todoist connection. Return to its original connection before retrying.",
             Self::WriteBlocked => "This Todoist change cannot be sent again. Wait for its result or prepare a new change after refreshing.",
+            Self::WritePermission => "Your project permissions do not allow this task action. Refresh to check current access.",
             Self::TimezoneUnavailable => "Todoist did not provide a supported account timezone. Refresh the account before using the calendar.",
             Self::InvalidResponse => {
                 "Todoist returned unsupported data. Existing tasks are retained."

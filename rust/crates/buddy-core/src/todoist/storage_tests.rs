@@ -161,6 +161,54 @@ fn busy_recovery_does_not_write_or_remove_any_change() {
 }
 
 #[test]
+fn credential_removal_holds_recovery_lock_until_the_delete_finishes() {
+    use std::sync::mpsc;
+    let fixture = Fixture::new();
+    let config = fixture.config();
+    let held_config = config.clone();
+    let mut publisher = PendingFile::open(&config).unwrap();
+    let (entered, deleting) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let file = PendingFile::open(&held_config).unwrap();
+        file.while_empty(|| {
+            entered.send(()).unwrap();
+            released.recv().unwrap();
+            // A private callback represents the vault operation; no OS vault.
+            42
+        })
+        .unwrap()
+    });
+    deleting
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let bytes = checkpoint(&config, "new-task");
+    assert_eq!(publisher.persist(&bytes), Err(StorageError::Busy));
+    assert!(!publisher.path.exists());
+    release.send(()).unwrap();
+    assert_eq!(worker.join().unwrap(), 42);
+    publisher.persist(&bytes).unwrap();
+    assert_eq!(fs::read(&publisher.path).unwrap(), bytes);
+}
+
+#[test]
+fn credential_removal_rechecks_absence_after_another_window_publishes() {
+    let fixture = Fixture::new();
+    let config = fixture.config();
+    let stale = PendingFile::open(&config).unwrap();
+    let bytes = checkpoint(&config, "other-window-task");
+    let mut publisher = PendingFile::open(&config).unwrap();
+    publisher.persist(&bytes).unwrap();
+    let called = std::cell::Cell::new(false);
+    assert_eq!(
+        stale.while_empty(|| called.set(true)),
+        Err(StorageError::Pending)
+    );
+    assert!(!called.get());
+    assert_eq!(fs::read(&publisher.path).unwrap(), bytes);
+}
+
+#[test]
 fn unsupported_paths_and_oversized_records_are_preserved() {
     assert!(matches!(
         PendingFile::open(Path::new("relative-config.json")),

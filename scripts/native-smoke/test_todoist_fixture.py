@@ -68,6 +68,30 @@ class TodoistFixtureTests(unittest.TestCase):
         self.assertEqual(uuid.UUID(marker['nonce']).version, 4)
         self.assertEqual(self.request('user')['tz_info']['timezone'], 'America/Winnipeg')
 
+    def test_calendar_filter_excludes_undated_tasks_and_obeys_its_cursor(self):
+        rows, cursor = [], None
+        while True:
+            query = {'query':'overdue | 7 days','limit':'100'}
+            if cursor: query['cursor'] = cursor
+            page = self.request('tasks/filter?' + urllib.parse.urlencode(query))
+            rows.extend(page['results'])
+            cursor = page['next_cursor']
+            if cursor is None: break
+        self.assertEqual({row['id'] for row in rows}, {'task-overdue','task-today','task-upcoming','task-recurring'})
+        self.assertEqual(self.api.snapshot()['created'], 0)
+
+    def test_project_permissions_reject_forbidden_commands_without_mutating_tasks(self):
+        self.api.projects[0].update(role='COMPLETE_ONLY',workspace_id='team')
+        before = self.api.snapshot()['tasks']
+        for command in [self.command(content='Forbidden'), self.command('item_update',id='task-today',content='Forbidden'),
+                        self.command('item_delete',id='task-today')]:
+            reply = self.request('sync',[command])
+            self.assertEqual(reply['sync_status'][command['uuid']]['error_code'],403)
+            self.assertEqual(self.api.snapshot()['tasks'],before)
+        command = self.command('item_close',id='task-today')
+        self.assertEqual(self.request('sync',[command])['sync_status'][command['uuid']],'ok')
+        self.assertTrue(next(row for row in self.api.snapshot()['tasks'] if row['id']=='task-today')['checked'])
+
     def test_network_disconnect_is_an_actual_lost_connection_and_records_no_write(self):
         self.api.disconnect = True
         with self.assertRaises(http.client.RemoteDisconnected):

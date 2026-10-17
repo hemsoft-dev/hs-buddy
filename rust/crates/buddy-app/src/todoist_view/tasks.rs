@@ -1,5 +1,5 @@
 use super::*;
-use buddy_core::todoist::{DayKind, Task, project_tasks};
+use buddy_core::todoist::{DayKind, Task, WriteKind, project_tasks};
 use gpui_kit::{AnyElement, InteractiveElement, StatefulInteractiveElement};
 
 const PAGE: usize = 30;
@@ -10,25 +10,95 @@ impl TodoistView {
         !self.busy && self.data.is_some() && self.planner.as_ref().is_some_and(Planner::can_submit)
     }
 
+    pub(super) fn can_create(&self) -> bool {
+        self.can_write()
+            && self
+                .planner
+                .as_ref()
+                .is_some_and(|planner| planner.can_create_in(self.project.as_ref()))
+    }
+
+    pub(super) fn can_task(&self, id: &Id, action: WriteKind) -> bool {
+        self.can_write()
+            && self
+                .planner
+                .as_ref()
+                .is_some_and(|planner| planner.can_change_task(id, action))
+    }
+
+    pub(super) fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        if self.busy || self.editor.is_some() {
+            return;
+        }
+        if pane != Pane::Projects
+            && self
+                .data
+                .as_ref()
+                .is_some_and(|data| matches!(data.coverage, Coverage::Project(_)))
+        {
+            self.operate(Operation::Load(Coverage::Calendar, pane, None), cx);
+        } else {
+            self.pane = pane;
+            if pane == Pane::Projects
+                && self
+                    .data
+                    .as_ref()
+                    .is_none_or(|data| data.coverage == Coverage::Calendar)
+            {
+                self.project = None;
+            }
+            self.task_page = 0;
+            self.delete_target = None;
+            cx.notify();
+        }
+    }
+
+    fn select_project(&mut self, project: Id, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        if self.data.as_ref().is_some_and(|data| {
+            data.coverage == Coverage::All || data.coverage == Coverage::Project(project.clone())
+        }) {
+            self.project = Some(project);
+            self.task_page = 0;
+            self.delete_target = None;
+            cx.notify();
+        } else {
+            self.operate(
+                Operation::Load(
+                    Coverage::Project(project.clone()),
+                    Pane::Projects,
+                    Some(project),
+                ),
+                cx,
+            );
+        }
+    }
+
     pub(super) fn render_tasks(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(data) = &self.data else {
-            return div()
-                .child(if self.busy {
-                    "Loading tasks…"
-                } else {
-                    "Connect or refresh to load your tasks."
-                })
-                .into_any_element();
-        };
-        let project_by_id: std::collections::HashMap<_, _> = data
-            .projects
-            .iter()
-            .map(|project| (&project.id, project))
-            .collect();
         let mut body = v_flex().gap_3().flex_1().min_h_0();
+        if self.catalog.is_some() {
+            let coverage = self.data.as_ref().map(|data| &data.coverage);
+            body = body.child(div().whitespace_normal().child(match coverage {
+                Some(Coverage::All) => "Loaded scope: all active tasks.",
+                Some(Coverage::Calendar) => "Loaded scope: overdue tasks and the next seven days. Open a project to include its undated tasks.",
+                Some(Coverage::Project(_)) => "Loaded scope: the selected project, including undated tasks.",
+                None => "Choose calendar tasks or a project to load a smaller scope. No partial task list was loaded.",
+            })).child(h_flex().flex_wrap().gap_2()
+                .child(Button::new("todoist-load-calendar").label("Load calendar tasks").disabled(self.busy)
+                    .on_click(cx.listener(|this,_,_,cx| this.operate(Operation::Load(Coverage::Calendar,Pane::Upcoming,None),cx))))
+                .child(Button::new("todoist-load-all").label("Load all tasks").disabled(self.busy)
+                    .on_click(cx.listener(|this,_,_,cx| this.operate(Operation::Load(Coverage::All,Pane::Today,None),cx)))));
+        }
+        let available_projects = self
+            .catalog
+            .as_ref()
+            .map(|catalog| catalog.projects.as_slice())
+            .or_else(|| self.data.as_ref().map(|data| data.projects.as_slice()))
+            .unwrap_or(&[]);
         if self.pane == Pane::Projects {
-            let projects: Vec<_> = data
-                .projects
+            let projects: Vec<_> = available_projects
                 .iter()
                 .filter(|project| !project.archived && !project.deleted)
                 .collect();
@@ -43,11 +113,9 @@ impl TodoistView {
                     Button::new(format!("todoist-project-{}", id.as_str()))
                         .label(project.name.clone())
                         .selected(self.project.as_ref() == Some(&id))
+                        .disabled(self.busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.project = Some(id.clone());
-                            this.task_page = 0;
-                            this.delete_target = None;
-                            cx.notify();
+                            this.select_project(id.clone(), cx);
                         })),
                 );
             }
@@ -82,6 +150,26 @@ impl TodoistView {
                     }))
                     .into_any_element();
             }
+        }
+        let Some(data) = &self.data else {
+            return body
+                .child(div().child(if self.busy {
+                    "Loading tasks…"
+                } else {
+                    "Connect or choose a scope to load your tasks."
+                }))
+                .into_any_element();
+        };
+        let project_by_id: std::collections::HashMap<_, _> = data
+            .projects
+            .iter()
+            .map(|project| (&project.id, project))
+            .collect();
+        if self.pane == Pane::Projects
+            && let Some(project) = self.project.as_ref().and_then(|id| project_by_id.get(id))
+            && let Some(notice) = project.access_notice()
+        {
+            body = body.child(div().whitespace_normal().child(notice));
         }
         let mut rows: Vec<(String, Task)> = Vec::new();
         if self.pane == Pane::Projects {
@@ -183,7 +271,7 @@ impl TodoistView {
                     .child(
                         Button::new(format!("todoist-complete-{}", task.id.as_str()))
                             .label("Complete")
-                            .disabled(!self.can_write())
+                            .disabled(!self.can_task(&task.id, WriteKind::Complete))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.operate(
                                     Operation::Submit(TaskChange::Complete(complete.clone())),
@@ -194,7 +282,7 @@ impl TodoistView {
                     .child(
                         Button::new(format!("todoist-edit-{}", task.id.as_str()))
                             .label("Edit")
-                            .disabled(!self.can_write())
+                            .disabled(!self.can_task(&task.id, WriteKind::Edit))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_editor(Some(edit.clone()), window, cx)
                             })),
@@ -202,7 +290,7 @@ impl TodoistView {
                     .child(
                         Button::new(format!("todoist-delete-{}", task.id.as_str()))
                             .label("Delete")
-                            .disabled(!self.can_write())
+                            .disabled(!self.can_task(&task.id, WriteKind::Delete))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.delete_target = Some(delete.clone());
                                 cx.notify();
@@ -223,7 +311,7 @@ impl TodoistView {
                             .child(
                                 Button::new("todoist-confirm-delete")
                                     .label("Confirm deletion")
-                                    .disabled(!self.can_write())
+                                    .disabled(!self.can_task(&task.id, WriteKind::Delete))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.delete_target = None;
                                         this.operate(

@@ -15,10 +15,12 @@ pub enum CredentialError {
     Profile,
     Unavailable,
     Unconfirmed,
+    Recovery(super::storage::StorageError),
 }
 impl std::fmt::Display for CredentialError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::Recovery(error) => return error.fmt(f),
             Self::Invalid => "Enter a valid Todoist API token without spaces or control characters.",
             Self::Profile => "The configuration profile is unavailable. Choose the original profile before reconnecting.",
             Self::Unavailable => "Secure storage is unavailable. Unlock your OS credential store and try again.",
@@ -75,6 +77,13 @@ pub fn save_at(path: &Path, token: &str) -> Result<(), CredentialError> {
 }
 pub fn clear_at(path: &Path) -> Result<(), CredentialError> {
     clear_with(&OsVault::new(path)?)
+}
+
+/// Check absence and delete under the same recovery-publication lock.
+pub fn clear_if_no_pending_at(path: &Path) -> Result<(), CredentialError> {
+    let file = super::storage::PendingFile::open(path).map_err(CredentialError::Recovery)?;
+    file.while_empty(|| clear_at(path))
+        .map_err(CredentialError::Recovery)?
 }
 fn load_with(vault: &impl Vault) -> Result<Option<String>, CredentialError> {
     let value = vault.read().map_err(|_| CredentialError::Unavailable)?;

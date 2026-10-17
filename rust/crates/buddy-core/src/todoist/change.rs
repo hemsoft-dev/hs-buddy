@@ -39,6 +39,7 @@ pub struct DispatchReport {
     pub transport_problem: Option<TransportError>,
     /// A definite remote acknowledgement survives failure to retire the file.
     pub cleanup_problem: Option<StorageError>,
+    pub acknowledgement_durable: bool,
 }
 
 /// No Debug: owns a private immutable task command and its recovery bytes.
@@ -46,6 +47,7 @@ pub struct SavedChange {
     config: PathBuf,
     file: PendingFile,
     attempt: WriteAttempt,
+    acknowledgement_durable: bool,
 }
 impl SavedChange {
     /// No write is sent. Verify the account and publish recovery before returning.
@@ -90,6 +92,7 @@ impl SavedChange {
             config: config.to_path_buf(),
             file,
             attempt,
+            acknowledgement_durable: false,
         })
     }
 
@@ -119,15 +122,24 @@ impl SavedChange {
             Some(account) => client.recover_for_account(bytes, config, account).await?,
             None => client.recover(bytes, config).await?,
         };
+        let acknowledgement_durable = matches!(
+            attempt.phase(),
+            WritePhase::Confirmed | WritePhase::Rejected
+        );
         Ok(Some(Self {
             config: config.to_path_buf(),
             file,
             attempt,
+            acknowledgement_durable,
         }))
     }
 
     pub fn phase(&self) -> WritePhase {
         self.attempt.phase()
+    }
+
+    pub fn acknowledgement_durable(&self) -> bool {
+        self.acknowledgement_durable
     }
 
     /// Inspect the original private command for recovery presentation. This does
@@ -163,7 +175,10 @@ impl SavedChange {
         self.attempt.observe(request.command_id(), reply.outcome);
         let cleanup_problem =
             if matches!(self.phase(), WritePhase::Confirmed | WritePhase::Rejected) {
-                self.file.retire().err()
+                self.finish_acknowledged().err().map(|error| match error {
+                    ChangeError::Storage(error) => error,
+                    ChangeError::Transport(_) => StorageError::InvalidCheckpoint,
+                })
             } else {
                 None
             };
@@ -172,6 +187,7 @@ impl SavedChange {
             task: self.attempt.task_id().cloned(),
             transport_problem: reply.problem,
             cleanup_problem,
+            acknowledgement_durable: self.acknowledgement_durable,
         })
     }
 
@@ -180,6 +196,38 @@ impl SavedChange {
         if !matches!(self.phase(), WritePhase::Confirmed | WritePhase::Rejected) {
             return Err(TransportError::Domain(Error::WriteBlocked).into());
         }
+        self.finish_acknowledged()
+    }
+
+    fn finish_acknowledged(&mut self) -> Result<(), ChangeError> {
+        let current = self.file.current().ok_or(StorageError::InvalidCheckpoint)?;
+        let acknowledgement = match self.attempt.acknowledgement(current) {
+            Ok(marker) => marker,
+            Err(_) => {
+                // An interrupted append owned by this instance is invalid on
+                // restart, but its known in-memory outcome still permits local
+                // retirement. The exact-byte guard never deletes foreign data.
+                self.file.retire()?;
+                self.acknowledgement_durable = true;
+                return Ok(());
+            }
+        };
+        if let Some(acknowledgement) = acknowledgement
+            && let Err(persist_error) = self.file.append_acknowledgement(&acknowledgement)
+        {
+            // If the outcome cannot be saved but the original file can be
+            // retired, retirement also prevents a later replay. Both failures
+            // leave the known outcome visible for local-only cleanup.
+            self.acknowledgement_durable = false;
+            return match self.file.retire() {
+                Ok(()) => {
+                    self.acknowledgement_durable = true;
+                    Ok(())
+                }
+                Err(_) => Err(persist_error.into()),
+            };
+        }
+        self.acknowledgement_durable = true;
         self.file.retire().map_err(Into::into)
     }
 
