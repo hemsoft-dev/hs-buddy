@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,6 +15,30 @@ SPEC=importlib.util.spec_from_file_location('native_todoist_desktop_tests',Path(
 desktop=importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name]=desktop
 SPEC.loader.exec_module(desktop)
+
+
+class CaptureFraming(unittest.TestCase):
+    def test_project_capture_reveals_the_undated_details_before_inspecting_them(self):
+        with tempfile.TemporaryDirectory(prefix='buddy-undated-capture-') as temporary:
+            root = Path(temporary)
+            config = root / 'config.json'
+            config.write_text('{"native":{}}')
+            api = Mock()
+            api.snapshot.return_value = dict(tasks=[], projects=[], created=0, traffic=[])
+            driver = Mock()
+            stopped = RuntimeError('stopped before any native input')
+            driver.drive.side_effect = stopped
+            with patch.object(desktop.github, 'installed_binary', return_value={}), \
+                    patch.object(desktop, 'fixture', return_value=config), \
+                    patch.object(desktop.settings, 'Driver', return_value=driver), \
+                    patch.object(desktop.ScenarioFixture, 'start', return_value=api):
+                with self.assertRaises(RuntimeError) as failure:
+                    desktop.qualify(root / 'unused.exe', root, 'windows', 'test', Mock(url='http://127.0.0.1:9'))
+            self.assertIs(failure.exception, stopped)
+            actions = driver.drive.call_args.args[1]
+            capture = actions.index(('capture', 'project-undated-dark'))
+            self.assertEqual(actions[capture - 1], ('wait_scroll_text', 'No due date', 'Synthetic undated task'))
+            api.close.assert_called_once()
 
 
 class FailureScenarios(unittest.TestCase):

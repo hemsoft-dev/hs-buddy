@@ -190,7 +190,8 @@ def qualify(executable, output, session, version, backend):
                 ('input', 'Todoist API token', todoist.TOKEN, {'labelBottomOffset': 32}), ('click', 'Save and connect'),
                 ('wait_text', 'Synthetic today task'), ('capture', 'today-dark'),
                 ('click', 'Upcoming'), ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'upcoming-dark'),
-                ('click', 'Projects'), ('click', 'Synthetic Beta'), ('wait_text', 'Synthetic undated task'),
+                ('click', 'Projects'), ('click', 'Synthetic Beta'),
+                ('wait_scroll_text', 'No due date', 'Synthetic undated task'),
                 ('capture', 'project-undated-dark'), ('resize', 900, 650), ('key', 'Tab'),
                 ('capture', 'projects-compact-keyboard-dark'),
             ])
