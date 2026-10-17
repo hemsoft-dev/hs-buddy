@@ -12,6 +12,27 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class CopilotQualificationTests(unittest.TestCase):
+    def test_streaming_capture_handshake_is_scoped_and_restored_after_failure(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ, {'BUDDY_COPILOT_STREAM_CAPTURE': 'previous'}):
+            output = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, 'owned driver failed'):
+                with copilot.streaming_capture(output) as capture:
+                    self.assertEqual(capture, output / 'chat-dark' / 'streaming-dark.png')
+                    self.assertEqual(os.environ['BUDDY_COPILOT_STREAM_CAPTURE'], str(capture))
+                    raise RuntimeError('owned driver failed')
+            self.assertEqual(os.environ['BUDDY_COPILOT_STREAM_CAPTURE'], 'previous')
+
+    def test_existing_streaming_capture_is_preserved_and_cannot_release_a_new_stream(self):
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            capture = output / 'chat-dark' / 'streaming-dark.png'
+            capture.parent.mkdir()
+            capture.write_bytes(b'previous evidence')
+            with self.assertRaisesRegex(RuntimeError, 'Preserve the existing streaming capture'):
+                with copilot.streaming_capture(output):
+                    self.fail('An old image cannot acknowledge a new stream')
+            self.assertEqual(capture.read_bytes(), b'previous evidence')
+
     def test_saved_status_does_not_prove_its_offscreen_controls_are_visible(self):
         class ClippedConversationDriver:
             def __init__(self):

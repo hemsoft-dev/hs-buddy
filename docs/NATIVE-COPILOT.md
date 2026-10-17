@@ -82,6 +82,8 @@ unavailable. Explicitly loaded billing history remains separate from live usage.
 A successful billing read makes one immutable snapshot-save attempt. A lost save
 reply is reported as unconfirmed and is not automatically retried. Billing history
 reads the existing `copilotUsageHistory` account/organization/period index in pages.
+The reader accepts finite Convex floats, including encoded negative zero from
+empty billing sums. Nonfinite values and other encoded types remain invalid.
 
 The local Codex ChatGPT login belongs to the first configured Codex usage account.
 Buddy reads `CODEX_HOME/auth.json`, or the normal home `.codex/auth.json`, only
@@ -135,6 +137,10 @@ Hosted Codex cases also use guarded loopback snapshots and a deterministic
 missing-login response, without reading a local Codex credential.
 The chat fixture scrolls its owned conversation to expose completion and
 cancellation feedback, then requires the exact visible status before advancing.
+The offline provider holds after its first delta until the driver writes the
+fresh streaming capture. That handshake is confined to the owned CI directory,
+expires after 60 seconds and stops on cancellation. Existing captures cannot
+release a new stream; ordinary SDK traffic and deadlines are unchanged.
 It does not infer a successful save from a finished stream or a scroll action.
 After resizing, the chat fixture finds the visible Assistant label and scrolls
 that owned conversation in small steps before requiring cancellation and partial

@@ -8,14 +8,43 @@ use serde_json::json;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
+    #[serde(deserialize_with = "finite_number")]
     pub snapshot_at: f64,
+    #[serde(deserialize_with = "finite_number")]
     pub premium_requests: f64,
+    #[serde(deserialize_with = "finite_number")]
     pub gross_cost: f64,
+    #[serde(deserialize_with = "finite_number")]
     pub discount: f64,
+    #[serde(deserialize_with = "finite_number")]
     pub net_cost: f64,
+    #[serde(deserialize_with = "finite_number")]
     pub business_seats: f64,
+    #[serde(default, deserialize_with = "optional_number")]
     pub budget_amount: Option<f64>,
+    #[serde(deserialize_with = "finite_number")]
     pub spent: f64,
+}
+// Convex encodes negative zero as a typed float. Empty billing sums can produce
+// that value, including in snapshots already stored by earlier versions.
+fn number(value: serde_json::Value) -> Option<f64> {
+    match convex::Value::try_from(value).ok()? {
+        convex::Value::Float64(number) if number.is_finite() => Some(number),
+        _ => None,
+    }
+}
+fn finite_number<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    number(serde_json::Value::deserialize(deserializer)?)
+        .ok_or_else(|| serde::de::Error::custom("Invalid billing number"))
+}
+fn optional_number<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<f64>, D::Error> {
+    Option::<serde_json::Value>::deserialize(deserializer)?
+        .map(|value| {
+            number(value).ok_or_else(|| serde::de::Error::custom("Invalid billing number"))
+        })
+        .transpose()
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,10 +146,73 @@ async fn store(
 mod tests {
     use super::*;
     #[test]
+    fn absent_seat_skus_survive_the_billing_store_and_native_history_round_trip() {
+        let billing = super::super::parse_billing_usage(
+            &[super::super::BillingUsageItem {
+                date: "2026-10-02".into(),
+                product: "copilot".into(),
+                sku: "Copilot AI Credits".into(),
+                quantity: 1200.0,
+                gross_amount: 12.0,
+                discount_amount: 3.0,
+                net_amount: 9.0,
+            }],
+            2026,
+            10,
+        );
+        assert!(billing.business_seats.is_sign_negative());
+        let value: serde_json::Value = convex::Value::try_from(json!({"page":[{
+            "snapshotAt":1792152000123.0,"premiumRequests":billing.premium_requests as f64,
+            "grossCost":billing.gross_cost,"discount":billing.discount,"netCost":billing.net_cost,
+            "businessSeats":billing.business_seats,"spent":billing.net_cost
+        }],"continueCursor":"done","isDone":true}))
+        .unwrap()
+        .into();
+        assert!(value["page"][0]["businessSeats"].get("$float").is_some());
+        let page = parse_page(value, None).unwrap();
+        assert_eq!(page.page[0].business_seats, 0.0);
+    }
+    #[test]
     fn native_convex_float_timestamps_survive_the_actual_value_conversion() {
         let value:serde_json::Value=convex::Value::try_from(json!({"page":[{"snapshotAt":1792152000123.0,"premiumRequests":12.0,"grossCost":2.0,"discount":1.0,"netCost":1.0,"businessSeats":1.0,"spent":1.0}],"continueCursor":"done","isDone":true})).unwrap().into();
         let page = parse_page(value, None).unwrap();
         assert_eq!(page.page[0].snapshot_at, 1792152000123.0);
+    }
+    #[test]
+    fn typed_billing_numbers_accept_negative_zero_but_reject_other_types_and_nonfinite_values() {
+        let row = json!({"snapshotAt":1792152000123.0,"premiumRequests":12.0,"grossCost":2.0,"discount":1.0,"netCost":1.0,"businessSeats":1.0,"budgetAmount":200.0,"spent":1.0});
+        for field in [
+            "snapshotAt",
+            "premiumRequests",
+            "grossCost",
+            "discount",
+            "netCost",
+            "businessSeats",
+            "budgetAmount",
+            "spent",
+        ] {
+            for (value, valid) in [
+                (convex::Value::Float64(-0.0).into(), true),
+                (convex::Value::Float64(f64::NAN).into(), false),
+                (convex::Value::Float64(f64::INFINITY).into(), false),
+                (convex::Value::Float64(f64::NEG_INFINITY).into(), false),
+                (convex::Value::Int64(0).into(), false),
+                (convex::Value::Bytes(vec![0]).into(), false),
+                (json!("0"), false),
+            ] {
+                let mut candidate = row.clone();
+                candidate[field] = value;
+                assert_eq!(
+                    parse_page(
+                        json!({"page":[candidate],"continueCursor":"done","isDone":true}),
+                        None
+                    )
+                    .is_ok(),
+                    valid,
+                    "field {field}"
+                );
+            }
+        }
     }
     #[test]
     fn incomplete_unknown_and_repeated_cursor_pages_cannot_be_presented_as_complete() {

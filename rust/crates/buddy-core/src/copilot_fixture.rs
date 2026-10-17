@@ -17,6 +17,9 @@ use std::sync::{
 };
 use std::time::Duration;
 
+mod stream_capture;
+use stream_capture::StreamCapture;
+
 const MARKER: &str = "hs-buddy native Copilot qualification v1";
 const ACCOUNT: &str = "synthetic-account";
 const MODEL: &str = "gpt-4.1";
@@ -26,6 +29,7 @@ pub(crate) struct Fixture {
     requests: AtomicUsize,
     cancelled: Arc<AtomicUsize>,
     rejected: AtomicUsize,
+    stream_capture: Option<StreamCapture>,
 }
 fn contained(path: &Path, root: &Path) -> bool {
     if !path.is_absolute()
@@ -57,7 +61,18 @@ pub(crate) fn load(owned: &Path) -> Result<Option<Arc<Fixture>>, Failure> {
         .map(PathBuf::from)
         .ok_or(Failure::InvalidContext)?;
     let endpoint = std::env::var("BUDDY_CONVEX_URL").map_err(|_| Failure::InvalidContext)?;
-    validate(owned, &runner, &config, &endpoint).map(Some)
+    let mut fixture = validate(owned, &runner, &config, &endpoint)?;
+    if let Some(path) = std::env::var_os("BUDDY_COPILOT_STREAM_CAPTURE") {
+        let directory = config.canonicalize().map_err(|_| Failure::InvalidContext)?;
+        let capture = StreamCapture::new(
+            PathBuf::from(path),
+            directory.parent().ok_or(Failure::InvalidContext)?,
+        )?;
+        Arc::get_mut(&mut fixture)
+            .ok_or(Failure::InvalidContext)?
+            .stream_capture = Some(capture);
+    }
+    Ok(Some(fixture))
 }
 fn validate(
     owned: &Path,
@@ -123,6 +138,7 @@ fn validate(
         requests: AtomicUsize::new(0),
         cancelled: Arc::new(AtomicUsize::new(0)),
         rejected: AtomicUsize::new(0),
+        stream_capture: None,
     }))
 }
 impl Fixture {
@@ -171,6 +187,11 @@ impl CopilotRequestHandler for Fixture {
         if request.method != "POST"
             || request.url != "https://hs-buddy-fixture.invalid/v1/chat/completions"
             || (!cancelling && !streaming)
+            || (streaming
+                && self
+                    .stream_capture
+                    .as_ref()
+                    .is_some_and(|capture| !capture.pending()))
             || body.as_ref().is_none_or(|body| {
                 body["stream"] != true
                     || body
@@ -215,13 +236,33 @@ impl CopilotRequestHandler for Fixture {
                 let _=std::fs::write(report,serde_json::to_vec(&json!({"offline":true,"upstreamForwarder":false,"requests":requests,"cancelled":cancelled.load(Ordering::SeqCst),"rejected":rejected})).unwrap_or_default());
             });
         }
+        let capture = if cancelling {
+            None
+        } else {
+            self.stream_capture.clone()
+        };
         let stream = futures::stream::unfold(
-            (chunks.into_iter(), cancel),
-            move |(mut chunks, cancel)| async move {
+            (chunks.into_iter(), cancel, capture, false),
+            move |(mut chunks, cancel, mut capture, emitted)| async move {
+                // Keep the first real delta visible until the CI driver captures
+                // it. OCR speed must not decide whether streaming is exercised.
+                if emitted
+                    && let Some(capture) = capture.take()
+                    && !capture
+                        .wait(cancel.cancelled(), Duration::from_secs(60))
+                        .await
+                {
+                    return Some((
+                        Err(CopilotRequestError::message(
+                            "Offline stream capture was not acknowledged.",
+                        )),
+                        (Vec::new().into_iter(), cancel, None, true),
+                    ));
+                }
                 if let Some(chunk) = chunks.next() {
                     tokio::time::sleep(Duration::from_millis(if cancelling { 350 } else { 800 }))
                         .await;
-                    Some((Ok(chunk), (chunks, cancel)))
+                    Some((Ok(chunk), (chunks, cancel, capture, true)))
                 } else if cancelling {
                     cancel.cancelled().await;
                     None

@@ -64,6 +64,14 @@ def environment(changes):
             else:
                 os.environ[key] = value
 
+@contextmanager
+def streaming_capture(output):
+    capture = output / 'chat-dark' / 'streaming-dark.png'
+    if capture.exists() or capture.is_symlink():
+        raise RuntimeError('Preserve the existing streaming capture; qualification needs a fresh output')
+    with environment(dict(BUDDY_COPILOT_STREAM_CAPTURE=capture)):
+        yield capture
+
 def write_section(config, section, appearance=None):
     value = json.loads(config.read_text(encoding='utf-8-sig'))
     value['native']['activeSection'] = section
@@ -212,7 +220,8 @@ def qualify(executable, output, session, version, backend, api):
             sdk = headless(executable, output, config, backend)
             assert_no_owned_children(output)
             terminal.verify_sentinel(sentinel, 'headless SDK cleanup')
-            chat_turns(driver)
+            with streaming_capture(output):
+                chat_turns(driver)
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
             assert_no_owned_children(output)
             write_section(config, 'github')
