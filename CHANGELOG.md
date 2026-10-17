@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1458] - 2026-10-17
+
+### Changed
+
+- Trace Intel window input without hover gating (#817)
+
 ## [0.1.1457] - 2026-10-17
 
 ### Changed
