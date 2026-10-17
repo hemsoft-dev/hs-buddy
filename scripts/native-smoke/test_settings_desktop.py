@@ -753,3 +753,30 @@ class WindowsScrollAnchors(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class DiagnosticsEnvironment(unittest.TestCase):
+    def test_unix_launch_preserves_caller_trace_filters_and_keeps_secrets_scrubbed(self):
+        # Every process/window operation is mocked. The fixture flag exercises
+        # only environment construction and never authorizes a real desktop.
+        caller = "warn,reqwest=trace,hyper=trace,github_copilot_sdk=trace"
+        with tempfile.TemporaryDirectory(prefix="buddy-diagnostic-env-") as temporary:
+            directory = Path(temporary)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "x11", (1200, 820)
+            driver.executable, driver.config = directory / "unused-owned.exe", directory / "config.json"
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            process = Mock(pid=123, poll=Mock(return_value=None), wait=Mock(return_value=0))
+            window = Mock(ready=Mock(return_value=True))
+            with patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "RUST_LOG": caller,
+                    "GH_TOKEN": "synthetic-gh-token", "GITHUB_TOKEN": "synthetic-github-token", "ELECTRON_RUN_AS_NODE": "1"}), \
+                    patch.object(desktop.subprocess, "Popen", return_value=process) as launch, \
+                    patch.object(desktop, "UnixWindow", return_value=window), \
+                    patch.object(desktop, "run"), patch.object(desktop.time, "sleep"):
+                driver.unix(directory, [], concurrent=False, record=False)
+                observed = launch.call_args.kwargs["env"]
+                self.assertEqual(launch.call_count, 1)
+                self.assertIn(caller, observed["RUST_LOG"])
+                self.assertIn("buddy::settings_view=debug", observed["RUST_LOG"])
+                self.assertEqual(os.environ["RUST_LOG"], caller)
+                for key in ("GH_TOKEN", "GITHUB_TOKEN", "ELECTRON_RUN_AS_NODE"):
+                    self.assertNotIn(key, observed)

@@ -242,7 +242,7 @@ class Driver:
     def unix(self, directory, actions, concurrent, record):
         if os.environ.get("GITHUB_ACTIONS") != "true":
             raise RuntimeError("Unix settings input requires a disposable CI desktop")
-        environment = dict(os.environ, RUST_LOG="warn,buddy::settings_view=debug", BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
+        environment = dict(os.environ, RUST_LOG=(os.environ.get("RUST_LOG") or "warn") + ",buddy::settings_view=debug", BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
             GH_CONFIG_DIR=str(self.profile / "empty-gh"))
         for key in ("GH_TOKEN", "GITHUB_TOKEN", "ELECTRON_RUN_AS_NODE"):
             environment.pop(key, None)
