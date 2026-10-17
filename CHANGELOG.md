@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1430] - 2026-10-17
+
+### Changed
+
+- Preserve cancellation after a streaming capture
+
 ## [0.1.1429] - 2026-10-17
 
 ### Fixed

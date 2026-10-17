@@ -16,10 +16,12 @@ impl StreamCapture {
             root: root.to_owned(),
         })
     }
-    pub(super) fn pending(&self) -> bool {
-        self.path
-            .symlink_metadata()
-            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    pub(super) fn permits_request(&self, cancelling: bool) -> bool {
+        cancelling
+            || self
+                .path
+                .symlink_metadata()
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
     }
     pub(super) async fn wait(
         &self,
@@ -50,7 +52,7 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         let path = root.join("streaming.png");
         let capture = StreamCapture::new(path.clone(), &root).unwrap();
-        assert!(capture.pending());
+        assert!(capture.permits_request(false));
         assert!(
             !capture
                 .wait(std::future::pending(), Duration::from_millis(10))
@@ -65,7 +67,22 @@ mod tests {
         );
         std::fs::write(&path, b"synthetic capture acknowledgment").unwrap();
         assert!(waiting.await);
-        assert!(!StreamCapture::new(path, &root).unwrap().pending());
+        assert!(
+            !StreamCapture::new(path, &root)
+                .unwrap()
+                .permits_request(false)
+        );
+    }
+    #[test]
+    fn cancellation_with_an_earlier_stream_marker_does_not_reuse_or_require_a_capture() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let path = root.join("streaming.png");
+        std::fs::write(&path, b"previous streaming capture").unwrap();
+        let capture = StreamCapture::new(path.clone(), &root).unwrap();
+        assert!(!capture.permits_request(false));
+        assert!(capture.permits_request(true));
+        assert_eq!(std::fs::read(path).unwrap(), b"previous streaming capture");
     }
     #[tokio::test]
     async fn cancellation_does_not_wait_for_an_image_and_paths_remain_owned() {

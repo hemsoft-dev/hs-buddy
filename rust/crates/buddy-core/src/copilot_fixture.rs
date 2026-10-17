@@ -191,7 +191,7 @@ impl CopilotRequestHandler for Fixture {
                 && self
                     .stream_capture
                     .as_ref()
-                    .is_some_and(|capture| !capture.pending()))
+                    .is_some_and(|capture| !capture.permits_request(cancelling)))
             || body.as_ref().is_none_or(|body| {
                 body["stream"] != true
                     || body
