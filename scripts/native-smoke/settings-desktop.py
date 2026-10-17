@@ -280,9 +280,11 @@ class Driver:
                         elif kind == "key":
                             window.key(values[0], control=False)
                         elif kind in ("wait_text", "wait_scroll_text", "wait_models"):
-                            scroll = (lambda: self.scroll(window, -1200)) if kind == "wait_scroll_text" else None
-                            timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
-                            wait_visible(window, directory, values[0], timeout=timeout, scroll=scroll)
+                            if kind == "wait_scroll_text":
+                                self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None)
+                            else:
+                                timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
+                                wait_visible(window, directory, values[0], timeout=timeout)
                         elif kind == "reveal_text":
                             point = self.scroll_anchor(window, directory, values[1])
                             wait_visible(window, directory, values[0], scroll=lambda: self.reveal_scroll(window, point))
@@ -339,7 +341,23 @@ class Driver:
         for _ in range(2 if self.session == "macos" else 1):
             self.scroll(window, -120, point)
 
-    def scroll(self, window, delta, point=None):
+    def wait_scrolled(self, window, directory, text, anchor=None):
+        point = None
+
+        def move():
+            nonlocal point
+            if anchor is not None and point is None:
+                point = self.scroll_anchor(window, directory, anchor)
+            if point is None:
+                self.scroll(window, -1200)
+            else:
+                # Measure the owning content, retaining the ordinary coarse
+                # step. Fine reveal gestures are for nearby chat feedback.
+                self.scroll(window, -1200, point, precise=False)
+
+        wait_visible(window, directory, text, scroll=move)
+
+    def scroll(self, window, delta, point=None, *, precise=None):
         if self.session == "x11":
             x, y = point if point is not None else (600, 400)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y))
@@ -348,7 +366,8 @@ class Driver:
             metadata = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", window.process.pid))
             bounds = metadata["kCGWindowBounds"]
             x, y = point if point is not None else (bounds["Width"] / 2, bounds["Height"] / 2)
-            OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta, precise=point is not None)
+            OwnedMacInput(window.process).scroll(bounds["X"] + x, bounds["Y"] + y, delta,
+                precise=(point is not None) if precise is None else precise)
         time.sleep(0.7)
 
     def locate(self, window, image, kind, text, row_control=None):

@@ -142,6 +142,10 @@ enabled Next/Previous request controls at 900 x 650 while a missing-directory
 error and the original loaded source remain visible. A headless layout regression
 also checks wrapped Unicode source text, scroll isolation, pointer paging and
 Tab/Enter activation against the production view.
+Long session scroll waits measure a visible label inside the owned request pane.
+The compact Mac window centre falls above that pane. Targeting the content keeps
+the existing coarse scroll step and exact visible-request assertions; nearby
+chat feedback retains its separate fine reveal gestures.
 Hosted Codex cases also use guarded loopback snapshots and a deterministic
 missing-login response, without reading a local Codex credential.
 The chat fixture scrolls its owned conversation to expose completion and

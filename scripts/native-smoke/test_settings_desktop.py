@@ -101,12 +101,62 @@ class DesktopLimits(unittest.TestCase):
                 patch.object(desktop, "run", return_value=metadata), \
                 patch.object(desktop, "OwnedMacInput", return_value=owned), \
                 patch.object(desktop.time, "sleep"):
-            for point, expected, position in [((95, 360), -1, (105, 380)), (None, -10, (460, 345))]:
+            for point, precise, expected, position in [
+                    ((95, 360), None, -1, (105, 380)),
+                    (None, None, -10, (460, 345)),
+                    ((95, 360), False, -10, (105, 380))]:
                 owned.graphics.reset_mock()
-                driver.scroll(window, -120, point)
+                driver.scroll(window, -120, point, precise=precise)
                 self.assertEqual(owned.graphics.CGEventCreateScrollWheelEvent.call_args.args, (None, 1, 1, expected))
                 observed = owned.graphics.CGEventSetLocation.call_args.args[1]
                 self.assertEqual((observed.x, observed.y), position)
+
+    def test_long_session_scroll_requires_the_owned_pane_and_retains_coarse_steps(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'macos'
+        # Actual Intel 900x650 capture: default centre (450,325) is above
+        # the detail viewport at y327. Its visible metrics are inside it.
+        driver.scroll_anchor = Mock(return_value=(570, 444))
+        state = {'progress': 0}
+
+        def scroll(_window, delta, point=None, *, precise=None):
+            x, y = point if point is not None else (450, 325)
+            if 340 <= x < 884 and 327 <= y < 535 and delta < 0 and precise is False:
+                state['progress'] += 1
+
+        driver.scroll = Mock(side_effect=scroll)
+
+        def observe(_window, _directory, text, *, scroll):
+            self.assertEqual(text, 'Inspect synthetic request 20')
+            for _ in range(2):
+                scroll()
+            if state['progress'] != 2:
+                raise desktop.MissingVisibleText('The request did not enter the owned viewport')
+
+        window, directory = Mock(), Path('owned-capture')
+        with patch.object(desktop, 'wait_visible', side_effect=observe):
+            driver.wait_scrolled(window, directory, 'Inspect synthetic request 20', 'Output / prompt tokens')
+        driver.scroll_anchor.assert_called_once_with(window, directory, 'Output / prompt tokens')
+        self.assertEqual(state['progress'], 2)
+
+    def test_an_already_visible_request_does_not_measure_an_offscreen_anchor_or_scroll(self):
+        driver = object.__new__(desktop.Driver)
+        driver.scroll_anchor = Mock(side_effect=AssertionError('No scroll needed'))
+        driver.scroll = Mock()
+        with patch.object(desktop, 'wait_visible'):
+            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Final synthetic request twenty one', 'Request 21')
+        driver.scroll_anchor.assert_not_called()
+        driver.scroll.assert_not_called()
+
+    def test_unanchored_scroll_waits_keep_the_existing_default_target(self):
+        driver = object.__new__(desktop.Driver)
+        driver.scroll_anchor = Mock()
+        driver.scroll = Mock()
+        window = Mock()
+        with patch.object(desktop, 'wait_visible', side_effect=lambda _w, _d, _t, *, scroll: scroll()):
+            driver.wait_scrolled(window, Path('owned-capture'), 'fixture-member')
+        driver.scroll.assert_called_once_with(window, -1200)
+        driver.scroll_anchor.assert_not_called()
 
     def test_scroll_anchor_uses_the_measured_label_instead_of_the_old_wheel_position(self):
         driver = object.__new__(desktop.Driver)
