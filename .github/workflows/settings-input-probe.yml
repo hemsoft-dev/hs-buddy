@@ -43,7 +43,6 @@ jobs:
           cp .build/release/buddy-ocr-words "$RUNNER_TEMP/buddy-ocr-words"
           swiftc scripts/native-smoke/macos-mouse-trace.swift -o "$RUNNER_TEMP/buddy-mouse-trace"
           printf 'BUDDY_SETTINGS_OCR_HELPER=%s\n' "$RUNNER_TEMP/buddy-ocr-words" >> "$GITHUB_ENV"
-          printf 'BUDDY_MAC_MOUSE_MONITOR=%s\n' "$RUNNER_TEMP/buddy-mouse-trace" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.12.0
@@ -87,6 +86,8 @@ jobs:
               environment.write(f'ORIGINAL_PACKAGE_DIRECTORY={manifests[0].parent}\n')
           PY
       - name: Exercise unchanged package with passive owned-process mouse tracing
+        env:
+          BUDDY_MAC_MOUSE_MONITOR: ${{ runner.temp }}/buddy-mouse-trace
         run: bash scripts/native-smoke/settings-input-probe-install.sh "$ORIGINAL_PACKAGE_DIRECTORY" "$RUNNER_TEMP/settings-input-probe"
       - name: Preserve original evidence and source provenance
         if: always()

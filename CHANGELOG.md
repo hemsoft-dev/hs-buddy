@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1460] - 2026-10-18
+
+### Changed
+
+- Scope passive Mac tracing to the desktop step (#817)
+
 ## [0.1.1459] - 2026-10-18
 
 ### Changed
