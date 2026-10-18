@@ -172,10 +172,33 @@ class CellInput(unittest.TestCase):
         self.assertIn(('click', 'Next rows'), actions[waiting + 1:])
         self.assertIn(('wait_text', 'page 2'), actions[waiting + 1:])
 
+    @staticmethod
+    def driven(stage, session):
+        """Actions the Tempo driver hands to the shared driver for one stage."""
+        driver = object.__new__(desktop.TempoDriver)
+        driver.session = session
+        with patch.object(desktop.settings.Driver, 'drive', autospec=True) as drive:
+            driver.drive(stage, CellInput.stage_actions(stage, session))
+        return drive.call_args.args[2]
+
+    def test_every_mac_tempo_input_gets_one_bounded_offset_and_other_sessions_are_unchanged(self):
+        stages = ('connect-dark', 'range-navigation-dark', 'grid-navigation-dark', 'template-dark', 'denied-write-dark')
+        for stage in stages:
+            mac = [action for action in self.driven(stage, 'macos') if action[0] == 'input']
+            self.assertTrue(mac, stage)
+            for action in mac:
+                self.assertEqual(sum(isinstance(item, dict) for item in action), 1, action[:2])
+                self.assertEqual(action[-1], {'labelBottomOffset': 30}, action[:2])
+            for session in ('windows', 'x11'):
+                self.assertEqual(self.driven(stage, session), self.stage_actions(stage, session))
+        start, = [action for action in self.driven('denied-write-dark', 'macos')
+            if action[:2] == ('input', 'Start time in the account timezone')]
+        self.assertEqual(start[3:], ({'labelBottomOffset': 30},))
+
     def test_mac_jira_password_uses_the_measured_inner_editor_without_changing_windows_spacing(self):
-        actions = self.stage_actions('connect-dark', 'macos')
+        actions = self.driven('connect-dark', 'macos')
         action, = [action for action in actions if action[:2] == ('input', 'Jira API token')]
-        windows = self.stage_actions('connect-dark', 'windows')
+        windows = self.driven('connect-dark', 'windows')
         self.assertEqual(len(next(action for action in windows if action[:2] == ('input', 'Jira API token'))), 3)
         driver = object.__new__(desktop.settings.Driver)
         driver.session = 'macos'
@@ -196,8 +219,8 @@ class CellInput(unittest.TestCase):
 
     def test_mac_connection_inputs_all_target_the_inner_editor_independent_of_label_descenders(self):
         labels = ('Tempo API token', 'Jira HTTPS origin', 'Jira email', 'Jira API token')
-        mac = {action[1]: action for action in self.stage_actions('connect-dark', 'macos') if action[0] == 'input'}
-        windows = {action[1]: action for action in self.stage_actions('connect-dark', 'windows') if action[0] == 'input'}
+        mac = {action[1]: action for action in self.driven('connect-dark', 'macos') if action[0] == 'input'}
+        windows = {action[1]: action for action in self.driven('connect-dark', 'windows') if action[0] == 'input'}
         self.assertEqual(set(mac), set(labels))
         for label in labels:
             self.assertEqual(mac[label][3:], ({'labelBottomOffset': 30},))

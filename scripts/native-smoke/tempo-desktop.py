@@ -145,6 +145,22 @@ def assert_copy(api, original, expected_start):
     return state
 
 
+class TempoDriver(settings.Driver):
+    """Target the inner editor of every macOS Tempo input.
+
+    Mac OCR label height depends on descenders: Intel measured "Jira email" at
+    10pt, so the default 20pt offset below the label reached an editor's top
+    border and typed nothing. The driver's bounded 30pt offset reaches each
+    inner editor. Other sessions keep their measured spacing.
+    """
+
+    def drive(self, name, actions, concurrent=False, record=False):
+        if self.session == 'macos':
+            actions = [action + ({'labelBottomOffset': 30},)
+                if action[0] == 'input' and not isinstance(action[-1], dict) else action for action in actions]
+        return super().drive(name, actions, concurrent, record)
+
+
 def week_actions():
     # Date ranges belong to the open session. Every new process starts at the
     # account month, so choose the test week through the UI in each sequence.
@@ -214,7 +230,7 @@ def qualify(executable, output, session, version, source, backend):
     value = json.loads(config.read_text())
     value['native']['activeSection'] = 'tempo'
     config.write_text(json.dumps(value), encoding='utf-8')
-    driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
+    driver = TempoDriver(executable, output, session, backend, HERE.parent.parent)
     marker = config.parent / '.buddy-tempo-fixture.json'
     if marker.exists():
         raise RuntimeError('Tempo qualification needs a fresh owned marker')
@@ -231,18 +247,10 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_text', 'Tempo and Jira connection'), ('capture', 'missing-connection-dark'),
                     ('click', 'Europe'), ('wait_text', 'https://api.eu.tempo.io'),
                     ('capture', 'regional-connection-dark'),
-                    # Mac OCR label height varies with descenders (10pt for
-                    # "Jira email" on Intel), so the default 20pt offset can
-                    # land on an editor's top border. 30pt reaches every
-                    # inner editor; other sessions keep their measured spacing.
-                    ('input', 'Tempo API token', tempo.TEMPO_TOKEN,
-                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
-                    ('input', 'Jira HTTPS origin', tempo.JIRA_ORIGIN,
-                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
-                    ('input', 'Jira email', tempo.JIRA_EMAIL,
-                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
-                    ('input', 'Jira API token', tempo.JIRA_TOKEN,
-                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
+                    ('input', 'Tempo API token', tempo.TEMPO_TOKEN),
+                    ('input', 'Jira HTTPS origin', tempo.JIRA_ORIGIN),
+                    ('input', 'Jira email', tempo.JIRA_EMAIL),
+                    ('input', 'Jira API token', tempo.JIRA_TOKEN),
                     ('wait_scroll_text', 'Save and connect', 'Jira API token'),
                     ('click', 'Save and connect'), ('wait_text', 'America/New_York'),
                     ('capture', 'complete-month-dark'),

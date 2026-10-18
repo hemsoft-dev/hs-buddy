@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1473] - 2026-10-18
+
+### Fixed
+
+- Locate long Tempo field labels and offset every Mac input (#818)
+
 ## [0.1.1472] - 2026-10-18
 
 ### Fixed
