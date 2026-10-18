@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1480] - 2026-10-18
+
+### Fixed
+
+- Reveal Tempo Cancel editor in fine steps (#818)
+
 ## [0.1.1479] - 2026-10-18
 
 ### Fixed
