@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1461] - 2026-10-18
+
+### Changed
+
+- Identify native mouse target window owners (#817)
+
 ## [0.1.1460] - 2026-10-18
 
 ### Changed

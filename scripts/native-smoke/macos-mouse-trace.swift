@@ -19,6 +19,22 @@ final class MouseTrace {
         output = try FileHandle(forWritingTo: path)
     }
 
+    func windowMetadata(_ identifier: Int64) -> [String: Any] {
+        var value: [String: Any] = ["windowNumber": identifier, "available": false]
+        guard identifier > 0, identifier <= Int64(UInt32.max),
+              let rows = CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(identifier)) as? [[String: Any]],
+              let row = rows.first(where: {
+                  ($0[kCGWindowNumber as String] as? NSNumber)?.int64Value == identifier
+              }) else { return value }
+        value["available"] = true
+        // Allowlist metadata only. Never persist window titles or contents.
+        for key in [kCGWindowOwnerPID, kCGWindowOwnerName, kCGWindowBounds,
+                    kCGWindowLayer, kCGWindowAlpha, kCGWindowIsOnscreen] {
+            if let field = row[key as String] { value[key as String] = field }
+        }
+        return value
+    }
+
     func record(type: CGEventType, event: CGEvent) {
         do {
             count += 1
@@ -36,6 +52,10 @@ final class MouseTrace {
                 "clickState": event.getIntegerValueField(.mouseEventClickState),
                 "windowUnderPointer": event.getIntegerValueField(.mouseEventWindowUnderMousePointer),
                 "handlingWindow": event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent),
+                "referencedWindows": Array(Set([
+                    event.getIntegerValueField(.mouseEventWindowUnderMousePointer),
+                    event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent),
+                ])).sorted().map { windowMetadata($0) },
                 "tapDisabled": type == .tapDisabledByTimeout || type == .tapDisabledByUserInput,
             ]
             var data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
