@@ -68,7 +68,8 @@ class ScenarioFixture(tempo.TempoFixture):
         if method == 'GET' and path == '/rest/api/3/myself' and self.preflight_identity_reads is not None:
             if self.preflight_identity_reads == 0:
                 self.preflight_identity_reads = None
-                self.preflight_failures.append(dict(writes=len(self.writes), attempts=len(self.attempts)))
+                mutations = sum(row['method'] in ('POST', 'PUT', 'DELETE') for row in self.attempts)
+                self.preflight_failures.append(dict(writes=len(self.writes), mutationAttempts=mutations))
                 return 503, dict(error='Synthetic dispatch checkpoint unavailable')
             self.preflight_identity_reads -= 1
         if (method == 'POST' and path == '/4/worklogs' and self.deny_next_create
@@ -284,7 +285,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_up', 'Tempo confirmed the worklog change'), ('capture', 'template-created-dark'),
                 ])
                 state = require_writes(api, 1)
-                if state['preflightFailures'] != [dict(writes=0, attempts=0)]:
+                if state['preflightFailures'] != [dict(writes=0, mutationAttempts=0)]:
                     raise RuntimeError('The explicit captured retry did not follow exactly one unsent preflight failure')
                 body = write_body(state['writes'][0])
                 expected_template = dict(authorAccountId=tempo.ACCOUNT, issueId=tempo.ISSUE_ID,

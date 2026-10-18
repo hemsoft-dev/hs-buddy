@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1469] - 2026-10-18
+
+### Fixed
+
+- Count only mutations in Tempo recovery qualification (#818)
+
 ## [0.1.1468] - 2026-10-18
 
 ### Fixed

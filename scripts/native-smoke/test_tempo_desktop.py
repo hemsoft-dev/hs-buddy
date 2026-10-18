@@ -18,17 +18,34 @@ spec.loader.exec_module(desktop)
 
 
 class FixtureScenarios(unittest.TestCase):
-    def test_dispatch_checkpoint_failure_is_one_shot_after_capture_and_has_no_writes(self):
+    def test_real_http_preflight_counts_only_mutations_after_recorded_reads(self):
         with desktop.ScenarioFixture() as api:
             api.preflight_after_lookup = True
             jira_auth = 'Basic ' + base64.b64encode((desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode()
             tempo_auth = 'Bearer ' + desktop.tempo.TEMPO_TOKEN
-            with api.lock:
-                self.assertEqual(api.respond('GET', '/4/accounts?limit=50&offset=0', tempo_auth, b'')[0], 200)
-                for expected in [200, 200, 503, 200]:
-                    self.assertEqual(api.respond('GET', '/rest/api/3/myself', jira_auth, b'')[0], expected)
-            self.assertEqual(api.snapshot()['preflightFailures'], [dict(writes=0, attempts=0)])
-            self.assertEqual((api.attempts, api.writes), ([], []))
+            address = urlsplit(api.url)
+            def request(method, path, authorization, body=None):
+                connection = HTTPConnection(address.hostname, address.port, timeout=3)
+                try:
+                    connection.request(method, path, body=json.dumps(body) if body is not None else None,
+                        headers={'Authorization': authorization})
+                    response = connection.getresponse()
+                    response.read()
+                    return response.status
+                finally:
+                    connection.close()
+            self.assertEqual(request('GET', '/4/accounts?limit=50&offset=0', tempo_auth), 200)
+            for expected in [200, 200, 503, 200]:
+                self.assertEqual(request('GET', '/rest/api/3/myself', jira_auth), expected)
+            self.assertEqual(len(api.snapshot()['attempts']), 5)
+            self.assertEqual(api.snapshot()['preflightFailures'], [dict(writes=0, mutationAttempts=0)])
+            self.assertTrue(all(row['method'] == 'GET' for row in api.snapshot()['attempts']))
+            body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                startDate='2026-10-14', timeSpentSeconds=3600, attributes=[])
+            self.assertEqual(request('POST', '/4/worklogs', tempo_auth, body), 200)
+            state = desktop.require_writes(api, 1)
+            self.assertEqual(len(state['attempts']), 6)
+            self.assertEqual(desktop.write_body(state['writes'][0]), body)
 
     def test_installed_scenario_requires_the_regional_connection_including_its_template(self):
         with desktop.ScenarioFixture() as api:
