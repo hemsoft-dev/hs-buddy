@@ -31,6 +31,7 @@ enum Operation {
     Today,
     Range(DateRange),
     Cleanup,
+    RetryPrepared,
     Discard,
     Editor(buddy_core::tempo::WorklogId),
     Lookup(uuid::Uuid, String),

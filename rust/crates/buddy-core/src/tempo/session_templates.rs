@@ -50,7 +50,7 @@ impl Session {
             .iter()
             .flat_map(|day| &day.logged.worklogs)
         {
-            let issue = row.issue.ok_or(Error::InvalidDraft)?;
+            let Some(issue) = row.issue else { continue };
             if latest.get(&issue).is_none_or(|old| {
                 (row.date, row.start_time, row.id.get()) > (old.date, old.start_time, old.id.get())
             }) {

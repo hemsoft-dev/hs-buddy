@@ -18,6 +18,18 @@ spec.loader.exec_module(desktop)
 
 
 class FixtureScenarios(unittest.TestCase):
+    def test_dispatch_checkpoint_failure_is_one_shot_after_capture_and_has_no_writes(self):
+        with desktop.ScenarioFixture() as api:
+            api.preflight_after_lookup = True
+            jira_auth = 'Basic ' + base64.b64encode((desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode()
+            tempo_auth = 'Bearer ' + desktop.tempo.TEMPO_TOKEN
+            with api.lock:
+                self.assertEqual(api.respond('GET', '/4/accounts?limit=50&offset=0', tempo_auth, b'')[0], 200)
+                for expected in [200, 200, 503, 200]:
+                    self.assertEqual(api.respond('GET', '/rest/api/3/myself', jira_auth, b'')[0], expected)
+            self.assertEqual(api.snapshot()['preflightFailures'], [dict(writes=0, attempts=0)])
+            self.assertEqual((api.attempts, api.writes), ([], []))
+
     def test_installed_scenario_requires_the_regional_connection_including_its_template(self):
         with desktop.ScenarioFixture() as api:
             self.assertEqual(api.marker()['tempo_origin'], 'https://api.eu.tempo.io')

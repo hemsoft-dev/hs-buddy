@@ -51,6 +51,9 @@ class ScenarioFixture(tempo.TempoFixture):
         self.reject_identity = False
         self.deny_next_create = False
         self.rejections = []
+        self.preflight_after_lookup = False
+        self.preflight_identity_reads = None
+        self.preflight_failures = []
 
     def arm_lost_reply_after(self, confirmed):
         if type(confirmed) is not int or confirmed < 0 or confirmed > 10:
@@ -62,6 +65,12 @@ class ScenarioFixture(tempo.TempoFixture):
 
     def respond(self, method, target, authorization, raw):
         path = urlsplit(target).path
+        if method == 'GET' and path == '/rest/api/3/myself' and self.preflight_identity_reads is not None:
+            if self.preflight_identity_reads == 0:
+                self.preflight_identity_reads = None
+                self.preflight_failures.append(dict(writes=len(self.writes), attempts=len(self.attempts)))
+                return 503, dict(error='Synthetic dispatch checkpoint unavailable')
+            self.preflight_identity_reads -= 1
         if (method == 'POST' and path == '/4/worklogs' and self.deny_next_create
                 and authorization == 'Bearer ' + tempo.TEMPO_TOKEN):
             self.deny_next_create = False
@@ -71,6 +80,9 @@ class ScenarioFixture(tempo.TempoFixture):
             self.reject_identity = False
             return 401, dict(error='Synthetic one-shot expired connection')
         status, value = super().respond(method, target, authorization, raw)
+        if method == 'GET' and path == '/4/accounts' and status == 200 and self.preflight_after_lookup:
+            self.preflight_after_lookup = False
+            self.preflight_identity_reads = 2
         if method == 'GET' and path == '/4/accounts' and status == 200 and self.expire_after_lookup:
             self.expire_after_lookup = False
             self.reject_identity = True
@@ -83,7 +95,7 @@ class ScenarioFixture(tempo.TempoFixture):
 
     def snapshot(self):
         with self.lock:
-            return deepcopy(dict(records=self.records, attempts=self.attempts, writes=self.writes, rejections=self.rejections))
+            return deepcopy(dict(records=self.records, attempts=self.attempts, writes=self.writes, rejections=self.rejections, preflightFailures=self.preflight_failures))
 
 
 @contextmanager
@@ -151,6 +163,7 @@ def evidence_inventory(output):
         'grid-navigation-dark/compact-grid-keyboard-dark.png',
         'grid-navigation-dark/filtered-cell-dark.png', 'grid-navigation-dark/second-page-dark.png',
         'template-dark/template-new-draft-dark.png', 'template-dark/template-created-dark.png',
+        'template-dark/unsent-captured-change-dark.png',
         'denied-write-dark/invalid-duration-dark.png', 'denied-write-dark/permission-denied-dark.png',
         'denied-write-dark/denied-hours-retained-dark.png', 'denied-write-dark/denied-description-retained-dark.png',
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
@@ -254,6 +267,8 @@ def qualify(executable, output, session, version, source, backend):
                 if json.loads(config.read_text())['native'].get('tempoViewMode') != 'grid':
                     raise RuntimeError('Temporary cell filtering changed the saved explicit grid preference')
                 github.check(navigation / 'filtered-cell-dark.png', 'Worklogs for FIX-17', '2026-10-16', 'Show all worklogs')
+                with api.lock:
+                    api.preflight_after_lookup = True
                 templates = driver.drive('template-dark', week_actions() + [
                     ('capture', 'week-grid-dark'), ('click', "Last month's issues"),
                     ('wait_text', 'Loaded 1 issue templates'),
@@ -264,9 +279,13 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'No billing account', 'Description'),
                     ('capture', 'template-new-draft-dark'),
                     ('wait_scroll_text', 'Create worklog', 'Description'), ('click', 'Create worklog'),
+                    ('wait_scroll_up', 'This captured change has not been sent'),
+                    ('capture', 'unsent-captured-change-dark'), ('click', 'Retry captured change'),
                     ('wait_scroll_up', 'Tempo confirmed the worklog change'), ('capture', 'template-created-dark'),
                 ])
                 state = require_writes(api, 1)
+                if state['preflightFailures'] != [dict(writes=0, attempts=0)]:
+                    raise RuntimeError('The explicit captured retry did not follow exactly one unsent preflight failure')
                 body = write_body(state['writes'][0])
                 expected_template = dict(authorAccountId=tempo.ACCOUNT, issueId=tempo.ISSUE_ID,
                     timeSpentSeconds=3600, startDate='2026-10-14', startTime='08:00:00',
@@ -455,6 +474,7 @@ def qualify(executable, output, session, version, source, backend):
                     readOnlyNavigationServiceStateUnchanged=True,
                     gridSingleEditAndMultiLogTimelineVerified=True,
                     templateCreatesOneHourWithExplicitNoBilling=True,
+                    unsentCaptureExplicitRetryCreatesExactlyOnce=True,
                     copyPreservesExactSecondsBillableAttributesAndSource=True,
                     movedEditLoadsItsMonthAndPreservesOriginalFields=True,
                     draftReauthenticationRetainsInputsAndRequiresFreshLookup=True,

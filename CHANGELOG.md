@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1468] - 2026-10-18
+
+### Fixed
+
+- Finish paced Tempo copies and recover unsent changes (#818)
+
 ## [0.1.1467] - 2026-10-18
 
 ### Fixed

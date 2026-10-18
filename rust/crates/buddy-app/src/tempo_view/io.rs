@@ -153,7 +153,10 @@ pub(super) async fn apply(
             Ok(range)=>connection.session.refresh(range,now).await.map(|_|"Month loaded."),Err(_)=>return Err("Use Today or load a whole month before using month navigation.".into()),
         },
         Operation::Cleanup=>connection.session.cleanup().map(|_|"Recovery cleanup finished. Refresh before preparing another change."),
-        Operation::Discard=>connection.session.discard().map(|_|"Local recovery discarded. The remote change may already exist. Refresh before preparing another change."),
+        Operation::Discard=>{
+            let ready=connection.session.pending_phase()==Some(buddy_core::tempo::WritePhase::Ready);
+            connection.session.discard().map(|_|if ready {"The unsent captured change was discarded. Refresh before preparing another change."} else {"Local recovery discarded. The remote change may already exist. Refresh before preparing another change."})
+        },
         Operation::Templates=>{
             let templates=Arc::new(connection.session.previous_month_templates(now).await.map_err(|e|e.to_string())?);
             let message=format!("Loaded {} issue templates from {} to {}. Select an empty cell to prepare a new worklog. No worklogs were saved.",templates.rows().len(),templates.range().start,templates.range().end);
@@ -192,26 +195,13 @@ pub(super) async fn apply(
         Operation::Submit(draft)=>{
             let kind=draft.kind();let date=draft.work_date();
             let report=connection.session.submit(*draft).await.map_err(|e|e.to_string())?;
-            let confirmed=report.phase==buddy_core::tempo::WritePhase::Confirmed;
-            let message=match report.phase {
-                buddy_core::tempo::WritePhase::Confirmed=>"Tempo confirmed the worklog change.",
-                buddy_core::tempo::WritePhase::Rejected=>"Tempo rejected the worklog change. The entered draft was retained.",
-                _=>"The worklog result is unconfirmed. Keep this draft, inspect Tempo, and do not resubmit it.",
-            }.to_owned();
-            let mut problems=Vec::new();
-            if let Some(error)=report.transport_problem {problems.push(error.to_string());}
-            if let Some(error)=report.cleanup_problem {problems.push(format!("The service result requires local recovery cleanup. {error}"));}
-            connection.templates=None;
-            let current=connection.session.snapshot().range;
-            let range=match range_after_write(current,confirmed,kind,date) {
-                Ok(range)=>range,
-                Err(error)=>{problems.push(format!("The service outcome is known, but the work date could not be displayed. {error}"));current},
-            };
-            match connection.session.refresh(range,connection.now()).await {
-                Ok(())=>connection.metadata=Arc::new(super::metadata::Metadata::load(&connection.session).await),
-                Err(error)=>problems.push(format!("The displayed range could not refresh. {error}")),
-            }
-            return Ok(Update::Wrote {confirmed,message,problem:(!problems.is_empty()).then(||problems.join(" "))});
+            return finish_write(connection,report,kind,date).await;
+        },
+        Operation::RetryPrepared=>{
+            let draft=connection.session.pending_draft().ok_or("The captured change is unavailable. Refresh before preparing another change.")?;
+            let kind=draft.kind();let date=draft.work_date();
+            let report=connection.session.dispatch_prepared().await.map_err(|e|e.to_string())?;
+            return finish_write(connection,report,kind,date).await;
         },
     }.map_err(|e|e.to_string())?;
     if reload_metadata {
@@ -219,6 +209,52 @@ pub(super) async fn apply(
         connection.metadata = Arc::new(super::metadata::Metadata::load(&connection.session).await);
     }
     Ok(Update::Message(message.to_owned()))
+}
+
+async fn finish_write(
+    connection: &mut Connection,
+    report: buddy_core::tempo::DispatchReport,
+    kind: buddy_core::tempo::DraftKind,
+    date: chrono::NaiveDate,
+) -> Result<Update, String> {
+    let confirmed = report.phase == buddy_core::tempo::WritePhase::Confirmed;
+    let message=match report.phase {
+                buddy_core::tempo::WritePhase::Confirmed=>"Tempo confirmed the worklog change.",
+                buddy_core::tempo::WritePhase::Rejected=>"Tempo rejected the worklog change. The entered draft was retained.",
+                _=>"The worklog result is unconfirmed. Keep this draft, inspect Tempo, and do not resubmit it.",
+            }.to_owned();
+    let mut problems = Vec::new();
+    if let Some(error) = report.transport_problem {
+        problems.push(error.to_string());
+    }
+    if let Some(error) = report.cleanup_problem {
+        problems.push(format!(
+            "The service result requires local recovery cleanup. {error}"
+        ));
+    }
+    connection.templates = None;
+    let current = connection.session.snapshot().range;
+    let range = match range_after_write(current, confirmed, kind, date) {
+        Ok(range) => range,
+        Err(error) => {
+            problems.push(format!(
+                "The service outcome is known, but the work date could not be displayed. {error}"
+            ));
+            current
+        }
+    };
+    match connection.session.refresh(range, connection.now()).await {
+        Ok(()) => {
+            connection.metadata =
+                Arc::new(super::metadata::Metadata::load(&connection.session).await)
+        }
+        Err(error) => problems.push(format!("The displayed range could not refresh. {error}")),
+    }
+    Ok(Update::Wrote {
+        confirmed,
+        message,
+        problem: (!problems.is_empty()).then(|| problems.join(" ")),
+    })
 }
 
 #[cfg(test)]

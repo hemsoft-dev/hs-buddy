@@ -95,6 +95,147 @@ fn copy_source(id: u64, seconds: u64, date: &str) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn review_regression_fix3_copying_forty_unexpanded_sources_can_finish_its_paced_reads() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let expanded: Vec<_> = (9..49)
+        .map(|id| copy_source(id, 600, "2026-10-14"))
+        .collect();
+    let displayed: Vec<_> = expanded
+        .iter()
+        .map(|row| {
+            let mut row = row.clone();
+            row["attributes"].as_object_mut().unwrap().remove("values");
+            row
+        })
+        .collect();
+    let mut load = complete();
+    load[1] = page(&displayed);
+    let mut replies = load.clone();
+    replies.extend(load);
+    for (row, expanded) in displayed.iter().zip(&expanded) {
+        replies.extend([
+            reply(200, &row.to_string()),
+            reply(200, &json!({"self":expanded["attributes"]["self"],"metadata":{"count":1},"results":expanded["attributes"]["values"]}).to_string()),
+            reply(200, &row.to_string()),
+        ]);
+    }
+    let fixture = Fixture::new(replies);
+    let (client, jira) = clients(&fixture);
+    let mut session = Session::connect_current_month_at(&config, client, jira, now())
+        .await
+        .unwrap();
+    let selected = (9..49)
+        .map(|id| crate::tempo::WorklogId::parse(id).unwrap())
+        .collect();
+    let plan = session
+        .prepare_copy(selected, now())
+        .await
+        .expect("a valid paced selection must produce a plan");
+    assert_eq!(plan.sources().len(), 40);
+    assert_eq!(plan.seconds(), 24000);
+    assert!(session.can_submit() && session.pending_phase().is_none());
+    assert!(file(&config).current().is_none());
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len(), 128);
+    assert!(requests.iter().all(|request| request.starts_with("GET ")));
+}
+
+#[tokio::test]
+async fn review_regression_fix3_an_issue_less_worklog_does_not_hide_valid_templates() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let mut unavailable = copy_source(8, 600, "2026-09-18");
+    unavailable["issue"]["id"] = json!(null);
+    let valid = copy_source(9, 600, "2026-09-19");
+    let mut replies = complete();
+    replies.extend([
+        identity(),
+        page(&[unavailable, valid]),
+        complete()[2].clone(),
+        identity(),
+    ]);
+    let fixture = Fixture::new(replies);
+    let (client, jira) = clients(&fixture);
+    let session = Session::connect_current_month_at(&config, client, jira, now())
+        .await
+        .unwrap();
+    let range = session.snapshot().range;
+    let templates = session
+        .previous_month_templates(now())
+        .await
+        .expect("valid issue templates must remain available");
+    assert_eq!(templates.rows().len(), 1);
+    assert_eq!(templates.rows()[0].id.get(), 9);
+    assert_eq!(session.snapshot().range.start, range.start);
+    assert_eq!(session.snapshot().range.end, range.end);
+    assert!(file(&config).current().is_none());
+    assert_eq!(fixture.requests.lock().unwrap().len(), 8);
+    assert!(
+        fixture
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| request.starts_with("GET "))
+    );
+}
+
+#[tokio::test]
+async fn a_preflight_failure_keeps_the_exact_ready_capture_until_one_explicit_dispatch() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let service = crate::tempo::transport::tests::Fixture::new(vec![
+        complete()[1].clone(),
+        complete()[2].clone(),
+        reply(200, &single_worklog().to_string()),
+    ]);
+    let identities = Fixture::new(vec![
+        identity(),
+        identity(),
+        identity(),
+        identity(),
+        reply(503, "{}"),
+        identity(),
+    ]);
+    let mut session = Session::connect_current_month_at(
+        &config,
+        Arc::new(service.client()),
+        Arc::new(identities.client()),
+        now(),
+    )
+    .await
+    .unwrap();
+    let captured = draft();
+    let body = captured.encode().unwrap();
+    assert!(session.submit(captured).await.is_err());
+    assert_eq!(session.pending_phase(), Some(WritePhase::Ready));
+    assert_eq!(session.pending_draft().unwrap().encode().unwrap(), body);
+    let checkpoint = file(&config).current().unwrap().to_vec();
+    assert!(!checkpoint.is_empty());
+    assert!(
+        service
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| request.starts_with("GET "))
+    );
+    assert!(!session.can_submit());
+    let report = session.dispatch_prepared().await.unwrap();
+    assert_eq!(report.phase, WritePhase::Confirmed);
+    assert!(session.pending_phase().is_none() && file(&config).current().is_none());
+    assert!(session.dispatch_prepared().await.is_err());
+    let requests = service.requests.lock().unwrap();
+    let posts: Vec<_> = requests
+        .iter()
+        .filter(|request| request.starts_with("POST "))
+        .collect();
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].split_once("\r\n\r\n").unwrap().1.as_bytes(), body);
+}
+
+#[tokio::test]
 async fn last_month_templates_keep_the_view_select_latest_work_and_expand_without_writing() {
     for changed in [false, true] {
         let directory = tempfile::tempdir().unwrap();

@@ -552,16 +552,31 @@ impl Render for TempoView {
         if let Some(connection) = &self.connection
             && let Some(phase) = connection.session.pending_phase()
         {
-            let acknowledged = matches!(phase, WritePhase::Confirmed | WritePhase::Rejected);
-            body=body.child(div().whitespace_normal().child(if acknowledged {"The service outcome is known. Finish local recovery cleanup before preparing another worklog change."} else {"A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery."}))
+            let policy = recovery_policy(phase);
+            let acknowledged = policy.acknowledged;
+            body=body.child(div().whitespace_normal().child(if policy.retry {"This captured change has not been sent. Retry this captured worklog or discard it to keep editing."} else if acknowledged {"The service outcome is known. Finish local recovery cleanup before preparing another worklog change."} else {"A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery."}))
                     .child(h_flex().flex_wrap().gap_2()
                         .child(Button::new("tempo-recovery-cleanup").label("Retry cleanup").disabled(self.busy || !acknowledged)
                             .on_click(cx.listener(|this,_,_,cx|this.operate(Operation::Cleanup,cx))))
-                        .child(Button::new("tempo-recovery-discard").label("Discard local recovery").disabled(self.busy || acknowledged)
+                        .child(Button::new("tempo-recovery-discard").label("Discard local recovery").disabled(self.busy || (acknowledged && !policy.retry))
                             .on_click(cx.listener(|this,_,_,cx|{this.discard_confirm=true;cx.notify();}))));
+            if policy.retry {
+                body =
+                    body.child(
+                        Button::new("tempo-retry-captured-change")
+                            .label("Retry captured change")
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.operate(Operation::RetryPrepared, cx)
+                            })),
+                    );
+            }
         }
+        let ready = self.connection.as_ref().is_some_and(|connection| {
+            connection.session.pending_phase() == Some(WritePhase::Ready)
+        });
         if self.discard_confirm {
-            body=body.child(div().whitespace_normal().child("This removes only local recovery. It does not undo a Tempo worklog, and another save could duplicate work already recorded."))
+            body=body.child(div().whitespace_normal().child(if ready {"Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."} else {"This removes only local recovery. It does not undo a Tempo worklog, and another save could duplicate work already recorded."}))
                 .child(h_flex().gap_2().child(Button::new("tempo-confirm-discard").label("Confirm discard").disabled(self.busy)
                     .on_click(cx.listener(|this,_,_,cx|this.operate(Operation::Discard,cx))))
                     .child(Button::new("tempo-keep-recovery").label("Keep recovery").on_click(cx.listener(|this,_,_,cx|{this.discard_confirm=false;cx.notify();}))));
@@ -570,7 +585,7 @@ impl Render for TempoView {
             body = body.child(self.render_copy(plan, cx));
         }
         if let Some(editor) = &self.editor {
-            body = body.child(editor.render_ui(self.busy, self.can_submit(), cx));
+            body = body.child(editor.render_ui(self.busy || ready, self.can_submit(), cx));
         }
         if let Some(target) = &self.delete_target {
             body = body
@@ -712,5 +727,36 @@ impl Render for TempoView {
             .overflow_y_scroll()
             .p(zpx(16.))
             .child(body)
+    }
+}
+
+struct RecoveryPolicy {
+    acknowledged: bool,
+    retry: bool,
+}
+fn recovery_policy(phase: WritePhase) -> RecoveryPolicy {
+    RecoveryPolicy {
+        acknowledged: matches!(phase, WritePhase::Confirmed | WritePhase::Rejected),
+        retry: phase == WritePhase::Ready,
+    }
+}
+
+#[cfg(test)]
+mod recovery_policy_tests {
+    use super::*;
+    #[test]
+    fn review_regression_fix3_only_a_live_ready_capture_offers_explicit_dispatch() {
+        let ready = recovery_policy(WritePhase::Ready);
+        assert!(ready.retry && !ready.acknowledged);
+        for phase in [
+            WritePhase::InFlight,
+            WritePhase::Unconfirmed,
+            WritePhase::Confirmed,
+            WritePhase::Rejected,
+        ] {
+            assert!(!recovery_policy(phase).retry);
+        }
+        assert!(recovery_policy(WritePhase::Confirmed).acknowledged);
+        assert!(recovery_policy(WritePhase::Rejected).acknowledged);
     }
 }

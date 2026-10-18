@@ -51,6 +51,7 @@ worklogs. A template's empty cell prepares a new one-hour worklog on the chosen
 date, with its issue, description and billing selection. An explicit no-billing
 selection remains empty even when the project lists a default account. The new
 draft does not reuse the template's worklog ID or update baseline.
+Worklogs whose issue is unavailable are skipped without hiding valid templates.
 
 ## Creating, editing and copying worklogs
 
@@ -76,6 +77,8 @@ Linux, to prepare copies for Today. Timeline offers Copy to Today for one
 worklog. Copy day prepares every loaded worklog for that date. The confirmation
 lists the captured sources and total seconds. Create copies must be selected
 before any copy is sent; Cancel copy sends nothing.
+Preparation allows the complete range read and each selected source's paced
+expansion to finish within their existing read budgets.
 
 Copies keep their source issue, exact duration, billable seconds, description
 and work attributes. They receive new worklog IDs. Start times follow the
@@ -100,6 +103,14 @@ Before sending a change, Buddy saves its captured request in a recovery file
 for this profile and verifies the account again. Tempo does not promise
 idempotent creation. A missing response may mean the worklog already exists.
 Buddy does not offer a resend for that saved request.
+
+If a checkpoint or preflight check fails before any write request begins, the
+live session offers Retry captured change. It sends only that original captured
+worklog after repeating its checks. Editor inputs stay locked until the capture
+is confirmed or discarded. Discarding an unsent capture retains those inputs
+and requires a refresh before preparing another change. A restored or uncertain
+request never offers this retry, and retrying one unsent copy does not resume
+the rest of a batch.
 
 Restart and Refresh never replay recovery. Inspect the service worklogs before
 deciding how to proceed. An acknowledged result can require Retry cleanup,
@@ -165,7 +176,8 @@ Linux qualification runs its own Secret Service across process restarts.
 
 The installed sequence checks complete pagination, schedule and CapEx totals,
 grid and filtered Timeline navigation, exact edits, a moved work date,
-template creation with no billing, invalid-duration rejection, denied writes,
+template creation with no billing, an unsent preflight failure followed by one
+explicit captured retry, invalid-duration rejection, denied writes,
 copying, a partial batch with a lost reply, draft reauthentication, restart
 without replay, confirmed deletion, both
 themes, a compact keyboard state and protected-credential removal.

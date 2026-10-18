@@ -11,6 +11,8 @@ use super::{
     summarize,
 };
 
+pub(super) const RANGE_READ_TIMEOUT: Duration = Duration::from_secs(120);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlannerError {
     InvalidProfile,
@@ -86,7 +88,7 @@ impl Connection {
             }
             RangeSelection::CurrentMonth => RangeSelection::CurrentMonth,
         };
-        tokio::time::timeout(Duration::from_secs(120), async {
+        tokio::time::timeout(RANGE_READ_TIMEOUT, async {
             let before = self.jira.myself().await?;
             if previous.is_some_and(|old| {
                 old.account != before.account

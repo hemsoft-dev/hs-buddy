@@ -12,7 +12,7 @@ use super::{
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 // Up to 100 pages must fit the documented one-second request spacing.
-const READ_TIMEOUT: Duration = Duration::from_secs(180);
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportError {

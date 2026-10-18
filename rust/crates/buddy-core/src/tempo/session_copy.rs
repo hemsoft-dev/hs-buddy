@@ -116,7 +116,13 @@ impl Session {
             displayed.push(row.clone());
         }
         self.fresh = false;
-        let loaded = tokio::time::timeout(Duration::from_secs(120), async {
+        // Each bounded source expansion has its own paced read budget. The
+        // aggregate deadline must also allow the initial range read to finish.
+        let count = u32::try_from(displayed.len()).map_err(|_| Error::CopyLimit)?;
+        let deadline = crate::tempo::planner::RANGE_READ_TIMEOUT
+            .saturating_add(crate::tempo::transport::READ_TIMEOUT.saturating_mul(count))
+            .saturating_add(Duration::from_secs(5));
+        let loaded = tokio::time::timeout(deadline, async {
             let target = Planner::connect_current_month_at(
                 &self.config,
                 self.client.clone(),
