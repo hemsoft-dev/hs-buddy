@@ -194,6 +194,46 @@ class CellInput(unittest.TestCase):
         helper.click.assert_called_once_with(164, 672)
         helper.replace_text.assert_called_once_with(desktop.tempo.JIRA_TOKEN)
 
+    def test_mac_connection_inputs_all_target_the_inner_editor_independent_of_label_descenders(self):
+        labels = ('Tempo API token', 'Jira HTTPS origin', 'Jira email', 'Jira API token')
+        mac = {action[1]: action for action in self.stage_actions('connect-dark', 'macos') if action[0] == 'input'}
+        windows = {action[1]: action for action in self.stage_actions('connect-dark', 'windows') if action[0] == 'input'}
+        self.assertEqual(set(mac), set(labels))
+        for label in labels:
+            self.assertEqual(mac[label][3:], ({'labelBottomOffset': 30},))
+            self.assertEqual(len(windows[label]), 3)
+        # Intel OCR measured "Jira email" without descenders (10pt high). The
+        # default 20pt offset reached y=513, the top border of the 508..538
+        # editor, so the field stayed empty and Save remained disabled.
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        driver.locate = Mock(return_value=dict(left=64, top=483, width=55, height=10))
+        driver.input_receipt = Mock()
+        helper, window = Mock(), Mock(process='owned-pid')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / 'locator.png'
+            image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + struct.pack('>II', 1200, 820))
+            image.with_suffix('.window.json').write_text(json.dumps(dict(
+                capturePixelsPerWindowPoint=1, kCGWindowBounds=dict(X=80, Y=80, Width=1200, Height=820))))
+            with patch.object(desktop.settings, 'OwnedMacInput', return_value=helper), \
+                    patch.object(desktop.settings, 'run'), patch.object(desktop.settings.time, 'sleep'):
+                action = mac['Jira email']
+                driver.interact(window, root, action[0], list(action[1:]))
+        helper.click.assert_called_once_with(164, 603)
+        helper.replace_text.assert_called_once_with(desktop.tempo.JIRA_EMAIL)
+
+    def test_template_draft_evidence_requires_only_text_visible_at_the_scrolled_editor_end(self):
+        tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))
+        markers, = [[argument.value for argument in node.args[1:]] for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'check'
+            and isinstance(node.args[0], ast.BinOp) and getattr(node.args[0].right, 'value', None) == 'template-new-draft-dark.png']
+        # The capture follows a downward scroll to the billing choices, so the
+        # editor heading is above the viewport. Create worklog, not Update
+        # worklog, is the visible proof that this is a new draft.
+        self.assertNotIn('Log time', markers)
+        self.assertEqual(markers, ['Create worklog', 'No billing account', 'Synthetic prior month template'])
+
     def test_upward_wait_scrolls_the_owned_pane_up_and_requires_fresh_visible_text(self):
         driver = object.__new__(desktop.settings.Driver)
         driver.session = 'x11'

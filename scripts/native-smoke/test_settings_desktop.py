@@ -4,7 +4,9 @@ import base64
 import json
 import os
 from pathlib import Path
+import shutil
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import MagicMock, Mock, patch
@@ -749,6 +751,60 @@ class WindowsScrollAnchors(unittest.TestCase):
             commands = arguments[arguments.index("-Actions") + 1].split(",")
             encoded = [base64.b64encode(value.encode()).decode() for value in (target, anchor)]
             self.assertIn("waitscrolltext64:" + ":".join(encoded), commands)
+
+    @staticmethod
+    def wait_block():
+        lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
+        start = next(index for index, line in enumerate(lines) if "'waitscrolltext64'" in line and "$_ -in" in line)
+        depth, block = 0, []
+        for line in lines[start:]:
+            block.append(line)
+            depth += line.count("{") - line.count("}")
+            if depth == 0:
+                break
+        # The first line is `{ <case condition> } {`; keep only the action body.
+        body = "\n".join([block[0][block[0].rindex("{") + 1:]] + block[1:])
+        return body[:body.rindex("}")]
+
+    def run_wait(self, visible_after, anchor_visible):
+        """Run the real wait case against stub locators; return its call journal."""
+        stubs = (
+            "$journal = [Collections.Generic.List[string]]::new(); $script:probes = 0\n"
+            "function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {\n"
+            "  $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))\n"
+            "  $journal.Add('find:' + $text)\n"
+            "  if ($text -eq 'Load date range') {\n"
+            "    if ($" + str(anchor_visible).lower() + ") { return @(3, 4) }\n"
+            "    throw 'anchor scrolled away'\n"
+            "  }\n"
+            "  $script:probes++; if ($script:probes -le " + str(visible_after) + ") { throw 'not yet visible' }\n"
+            "  return @(1, 2)\n"
+            "}\n"
+            "function Scroll-OwnedWindow($Delta, $Point) { $journal.Add('scroll') }\n"
+            "$parts = @('waitscrolltext64', '" + base64.b64encode(b"Next rows").decode() + "', '"
+            + base64.b64encode(b"Load date range").decode() + "')\n"
+            "try {\n" + self.wait_block() + "\n} catch { $journal.Add('error:' + $_) }\n"
+            "$journal -join '|'\n")
+        with tempfile.TemporaryDirectory(prefix="buddy-wait-anchor-") as root:
+            script = Path(root) / "wait.ps1"
+            script.write_text(stubs, encoding="utf-8")
+            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
+                encoding="utf-8", timeout=60, check=True)
+        return result.stdout.strip().split("|")
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_visible_target_never_requires_its_scroll_anchor(self):
+        # Native run 39128144643: an explicit wheel revealed Next rows and
+        # moved Load date range above the viewport. The eager anchor lookup
+        # failed although the requested target was already visible.
+        self.assertEqual(self.run_wait(0, anchor_visible=False), ["find:Next rows"])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_hidden_target_measures_its_anchor_once_before_scrolling(self):
+        self.assertEqual(self.run_wait(2, anchor_visible=True), ["find:Next rows", "find:Load date range", "scroll",
+            "find:Next rows", "scroll", "find:Next rows"])
+        self.assertEqual(self.run_wait(1, anchor_visible=False),
+            ["find:Next rows", "find:Load date range", "error:anchor scrolled away"])
 
 
 if __name__ == "__main__":

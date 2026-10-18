@@ -231,9 +231,16 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_text', 'Tempo and Jira connection'), ('capture', 'missing-connection-dark'),
                     ('click', 'Europe'), ('wait_text', 'https://api.eu.tempo.io'),
                     ('capture', 'regional-connection-dark'),
-                    ('input', 'Tempo API token', tempo.TEMPO_TOKEN),
-                    ('input', 'Jira HTTPS origin', tempo.JIRA_ORIGIN),
-                    ('input', 'Jira email', tempo.JIRA_EMAIL),
+                    # Mac OCR label height varies with descenders (10pt for
+                    # "Jira email" on Intel), so the default 20pt offset can
+                    # land on an editor's top border. 30pt reaches every
+                    # inner editor; other sessions keep their measured spacing.
+                    ('input', 'Tempo API token', tempo.TEMPO_TOKEN,
+                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
+                    ('input', 'Jira HTTPS origin', tempo.JIRA_ORIGIN,
+                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
+                    ('input', 'Jira email', tempo.JIRA_EMAIL,
+                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
                     ('input', 'Jira API token', tempo.JIRA_TOKEN,
                         *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
                     ('wait_scroll_text', 'Save and connect', 'Jira API token'),
@@ -295,7 +302,7 @@ def qualify(executable, output, session, version, source, backend):
                     description='Synthetic prior month template', attributes=[])
                 if state['writes'][0]['method'] != 'POST' or body != expected_template:
                     raise RuntimeError('The template did not create one hour with explicit no billing')
-                github.check(templates / 'template-new-draft-dark.png', 'Log time', 'No billing account', 'Synthetic prior month template')
+                github.check(templates / 'template-new-draft-dark.png', 'Create worklog', 'No billing account', 'Synthetic prior month template')
                 before_denied = state['records']
                 with api.lock:
                     api.deny_next_create = True

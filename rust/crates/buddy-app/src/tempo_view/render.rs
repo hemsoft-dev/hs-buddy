@@ -306,7 +306,7 @@ impl TempoView {
                         cx.notify();
                     })),
             )
-            .child(format!("{count} rows · page {}", self.page + 1))
+            .child(page_summary(count, self.page))
             .child(
                 Button::new("tempo-page-next")
                     .label("Next rows")
@@ -730,6 +730,11 @@ impl Render for TempoView {
     }
 }
 
+fn page_summary(count: usize, page: usize) -> String {
+    let noun = if count == 1 { "row" } else { "rows" };
+    format!("{count} {noun} · page {}", page + 1)
+}
+
 struct RecoveryPolicy {
     acknowledged: bool,
     retry: bool,
@@ -758,5 +763,11 @@ mod recovery_policy_tests {
         }
         assert!(recovery_policy(WritePhase::Confirmed).acknowledged);
         assert!(recovery_policy(WritePhase::Rejected).acknowledged);
+    }
+    #[test]
+    fn pager_summary_counts_one_row_in_the_singular() {
+        assert_eq!(page_summary(0, 0), "0 rows · page 1");
+        assert_eq!(page_summary(1, 0), "1 row · page 1");
+        assert_eq!(page_summary(51, 1), "51 rows · page 2");
     }
 }

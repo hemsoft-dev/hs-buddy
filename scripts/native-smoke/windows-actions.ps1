@@ -195,7 +195,10 @@ try {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
                 $hasAnchor = $parts[0] -eq 'revealtext64' -or (($parts[0] -in @('waitscrolltext64', 'waituptext64')) -and $parts.Count -eq 3)
-                $scrollPoint = if ($hasAnchor) { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
+                # Measure the anchor only once the target is known to be hidden,
+                # matching the Unix driver: an earlier wheel may already have
+                # revealed the target and moved its anchor out of view.
+                $scrollPoint = $null
                 $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } elseif ($parts[0] -eq 'waituptext64') { 1200 } else { -1200 }
                 # Model discovery includes the existing bounded cold SDK bootstrap.
                 $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
@@ -206,7 +209,10 @@ try {
                         break
                     } catch {
                         if ($timer.Elapsed.TotalSeconds -ge $timeoutSeconds) { throw }
-                        if ($parts[0] -in 'waitscrolltext64', 'waituptext64', 'revealtext64') { Scroll-OwnedWindow $scrollDelta $scrollPoint }
+                        if ($parts[0] -in 'waitscrolltext64', 'waituptext64', 'revealtext64') {
+                            if ($hasAnchor -and $null -eq $scrollPoint) { $scrollPoint = Find-OwnedLabelPoint $parts[2] 'button' }
+                            Scroll-OwnedWindow $scrollDelta $scrollPoint
+                        }
                         Start-Sleep -Milliseconds 100
                     }
                 }
