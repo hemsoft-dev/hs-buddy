@@ -332,7 +332,8 @@ def qualify(executable, output, session, version, backend):
                 ('wait_text', 'Choose a smaller scope'), ('capture', 'large-account-limit-light'),
                 ('click', 'Load calendar tasks'), ('wait_text', 'Task scope loaded'),
                 ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'calendar-scope-light'),
-                ('click', 'Projects'), ('click', 'Synthetic Alpha'), ('wait_text', 'Synthetic created task'),
+                ('click', 'Projects'), ('click', 'Synthetic Alpha'),
+                ('wait_scroll_text', 'Synthetic created task', 'Synthetic today task'),
                 ('capture', 'project-scope-undated-light'),
             ])
             github.check(scoped / 'large-account-limit-light.png', 'smaller scope', 'Load calendar tasks')
