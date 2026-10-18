@@ -410,14 +410,14 @@ def qualify(executable, output, session, version, source, backend):
                     ('capture', 'retained-hours-after-lookup-dark'),
                     # Short anchored hops: one coarse scroll from Hours can
                     # pass the whole draft above the Timeline list.
-                    ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
+                    # A coarse Mac scroll (about 1000pt) jumps past these
+                    # controls and a fine one (about 20pt per frame) cannot
+                    # reach them before its deadline. One explicit wheel event
+                    # (about 200pt on Mac) closes most of each gap first.
+                    ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'), ('wheel', -240),
                     ('reveal_text', 'No billing account', 'Description'),
                     ('capture', 'retained-draft-after-lookup-dark'),
-                    # Cancel editor sits below the fold; a coarse Mac scroll
-                    # jumped past it, and one fine reveal ran out of time.
-                    # Two shorter fine reveals each get their own deadline.
-                    ('reveal_text', 'Synthetic billing account 19', 'No billing account'),
-                    ('reveal_text', 'Cancel editor', 'Synthetic billing account 19'), ('click', 'Cancel editor'),
+                    ('wheel', -240), ('reveal_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor'),
                 ])
                 if require_writes(api, 3, rejected=1)['records'] != state['records']:
                     raise RuntimeError('Read-only draft reauthentication changed remote worklogs')

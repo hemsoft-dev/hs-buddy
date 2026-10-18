@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1483] - 2026-10-18
+
+### Fixed
+
+- Close Mac Tempo scroll gaps with one wheel event (#818)
+
 ## [0.1.1482] - 2026-10-18
 
 ### Fixed

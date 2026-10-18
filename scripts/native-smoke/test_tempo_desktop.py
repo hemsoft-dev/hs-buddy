@@ -281,14 +281,15 @@ class CellInput(unittest.TestCase):
     def test_retained_draft_is_captured_between_its_description_and_billing_choice(self):
         # Run on 4b83e196: one coarse scroll from Hours put Cancel editor at the
         # top on Ubuntu (draft above the view) and skipped it on Apple Silicon.
+        # Run on 8238ef96: a Mac fine reveal moved only 42-84pt in 15 seconds.
+        # One explicit wheel event (about 200pt on Mac) precedes each reveal.
         reauth = self.stage_actions('reauth-draft-dark', 'x11')
         capture = reauth.index(('capture', 'retained-draft-after-lookup-dark'))
-        self.assertEqual(reauth[capture - 2:capture], [
-            ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
+        self.assertEqual(reauth[capture - 3:capture], [
+            ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'), ('wheel', -240),
             ('reveal_text', 'No billing account', 'Description')])
         self.assertEqual(reauth[capture + 1:], [
-            ('reveal_text', 'Synthetic billing account 19', 'No billing account'),
-            ('reveal_text', 'Cancel editor', 'Synthetic billing account 19'), ('click', 'Cancel editor')])
+            ('wheel', -240), ('reveal_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor')])
 
     def test_partial_copy_outcome_wait_covers_the_paced_request_sequence(self):
         # Windows run on 9a39095d: about 24 one-second-paced requests follow
