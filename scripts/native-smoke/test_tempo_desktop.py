@@ -287,7 +287,8 @@ class CellInput(unittest.TestCase):
             ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
             ('reveal_text', 'No billing account', 'Description')])
         self.assertEqual(reauth[capture + 1:], [
-            ('reveal_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor')])
+            ('reveal_text', 'Synthetic billing account 19', 'No billing account'),
+            ('reveal_text', 'Cancel editor', 'Synthetic billing account 19'), ('click', 'Cancel editor')])
 
     def test_partial_copy_outcome_wait_covers_the_paced_request_sequence(self):
         # Windows run on 9a39095d: about 24 one-second-paced requests follow

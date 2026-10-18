@@ -413,9 +413,11 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
                     ('reveal_text', 'No billing account', 'Description'),
                     ('capture', 'retained-draft-after-lookup-dark'),
-                    # Cancel editor sits just below the fold; a coarse Mac
-                    # scroll jumped past it into the Timeline list.
-                    ('reveal_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor'),
+                    # Cancel editor sits below the fold; a coarse Mac scroll
+                    # jumped past it, and one fine reveal ran out of time.
+                    # Two shorter fine reveals each get their own deadline.
+                    ('reveal_text', 'Synthetic billing account 19', 'No billing account'),
+                    ('reveal_text', 'Cancel editor', 'Synthetic billing account 19'), ('click', 'Cancel editor'),
                 ])
                 if require_writes(api, 3, rejected=1)['records'] != state['records']:
                     raise RuntimeError('Read-only draft reauthentication changed remote worklogs')
