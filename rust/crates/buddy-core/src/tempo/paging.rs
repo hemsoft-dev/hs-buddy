@@ -147,7 +147,7 @@ impl ReadPages {
             .as_deref()
             .map(|link| self.next_offset(link))
             .transpose()?;
-        if next.is_some_and(|offset| offset < requested + page.rows.len()) {
+        if next.is_some_and(|offset| Some(offset) != requested.checked_add(page.limit)) {
             return Err(Error::InvalidResponse);
         }
         Ok(next)

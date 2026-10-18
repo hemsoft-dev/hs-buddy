@@ -1,5 +1,37 @@
 use super::*;
 
+#[test]
+fn review_regression_an_unset_billing_attribute_survives_unrelated_edits() {
+    let mut original = row();
+    original.attributes.as_mut().unwrap()[0].value = None;
+    assert_eq!(original.billing_account().unwrap(), None);
+    let mut draft = Draft::edit(&original).unwrap();
+    draft
+        .set_description(Some("Edited description".into()))
+        .unwrap();
+    draft.set_duration(3600).unwrap();
+    draft
+        .set_billing_account(original.billing_account().unwrap())
+        .unwrap();
+    let body = payload(&draft);
+    assert_eq!(
+        body["attributes"],
+        json!([{"key":"_Account_"},{"key":"_Custom_"}])
+    );
+    assert_eq!(body["description"], "Edited description");
+    assert_eq!(body["timeSpentSeconds"], 3600);
+    assert_eq!(original.attributes.as_ref().unwrap()[0].value, None);
+    draft
+        .set_billing_account(Some("explicitly-assigned"))
+        .unwrap();
+    assert_eq!(
+        payload(&draft)["attributes"][0]["value"],
+        "explicitly-assigned"
+    );
+    draft.set_billing_account(None).unwrap();
+    assert_eq!(payload(&draft)["attributes"], json!([{"key":"_Custom_"}]));
+}
+
 fn row() -> Worklog {
     Worklog {
         id: WorklogId::parse(1).unwrap(),

@@ -268,8 +268,10 @@ impl Draft {
                 });
             }
         } else {
+            // No billing is already represented by a value-less attribute.
+            // Preserve its shape when an unrelated edit keeps that selection.
             self.attributes
-                .retain(|attribute| attribute.key != "_Account_");
+                .retain(|attribute| attribute.key != "_Account_" || attribute.value.is_none());
         }
         Ok(())
     }

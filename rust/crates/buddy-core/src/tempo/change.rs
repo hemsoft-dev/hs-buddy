@@ -148,11 +148,16 @@ impl SavedChange {
                 .draft()
                 .baseline()
                 .is_some_and(|row| row.attributes.is_some());
-            let current = if expanded {
+            let mut current = if expanded {
                 self.client.worklog_for_edit(author, id).await?
             } else {
                 self.client.worklog(author, id).await?
             };
+            if !expanded {
+                // Deletion captured no attributes to overwrite. A detail read
+                // may expand them without changing any displayed field.
+                current.attributes = None;
+            }
             request.check_update_baseline(&current)?;
         }
         self.file.persist(&checkpoint)?;

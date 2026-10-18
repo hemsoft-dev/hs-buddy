@@ -5,6 +5,59 @@ use crate::tempo::jira::tests::{Fixture as JiraFixture, reply as jira_reply};
 use crate::tempo::transport::tests::{Fixture as TempoFixture, reply, single_worklog};
 use crate::tempo::{AccountId, IssueId, parse_worklog};
 
+#[tokio::test]
+async fn review_regression_delete_expansion_preserves_displayed_baseline() {
+    for changed_description in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("config.json");
+        let mut displayed = single_worklog();
+        displayed["attributes"]
+            .as_object_mut()
+            .unwrap()
+            .remove("values");
+        let baseline = parse_worklog(&serde_json::to_vec(&displayed).unwrap()).unwrap();
+        assert!(baseline.attributes.is_none());
+        let mut detail = displayed;
+        detail["attributes"]["values"] = json!([{"key":"_Expanded_","value":"retained"}]);
+        if changed_description {
+            detail["description"] = json!("Changed after the list was displayed");
+        }
+        let mut replies = vec![reply(200, &detail.to_string())];
+        if !changed_description {
+            replies.push(reply(204, ""));
+        }
+        let identity = jira(2);
+        let service = TempoFixture::new(replies);
+        let mut change = SavedChange::capture(
+            Arc::new(service.client()),
+            Arc::new(identity.client()),
+            &config,
+            Draft::delete(&baseline).unwrap(),
+        )
+        .await
+        .unwrap();
+        let checkpoint = stored(&config).current().unwrap().to_vec();
+        let outcome = change.dispatch().await;
+        if changed_description {
+            assert!(matches!(
+                outcome,
+                Err(ChangeError::Domain(Error::ChangedWhileLoading))
+            ));
+            assert_eq!(stored(&config).current(), Some(checkpoint.as_slice()));
+        } else {
+            assert!(outcome.unwrap().phase == WritePhase::Confirmed);
+            assert!(stored(&config).current().is_none());
+        }
+        let requests = service.requests.lock().unwrap();
+        assert_eq!(requests.len(), if changed_description { 1 } else { 2 });
+        assert!(requests[0].starts_with("GET /4/worklogs/7 HTTP/1.1\r\n"));
+        if !changed_description {
+            assert!(requests[1].starts_with("DELETE /4/worklogs/7 HTTP/1.1\r\n"));
+            assert_eq!(requests[1].split_once("\r\n\r\n").unwrap().1, "");
+        }
+    }
+}
+
 fn jira(count: usize) -> JiraFixture {
     JiraFixture::new(
         (0..count)

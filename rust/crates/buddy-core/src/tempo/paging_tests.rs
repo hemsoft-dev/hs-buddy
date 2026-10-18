@@ -3,6 +3,30 @@ use serde_json::json;
 use super::*;
 use crate::tempo::parse_worklogs;
 
+#[test]
+fn review_regression_worklog_offsets_cannot_skip_or_overlap_advertised_pages() {
+    for offset in [25, 49, 51, 100] {
+        let next = format!(
+            "https://api.tempo.io/4/worklogs/user/123456:synthetic-user?offset={offset}&limit=50"
+        );
+        let mut pages = read();
+        assert_eq!(
+            pages.push(0, page(Some(1), 0, Some(&next))),
+            Err(Error::InvalidResponse)
+        );
+        assert_eq!(pages.request_offset(), Err(Error::InvalidResponse));
+        assert!(matches!(pages.finish(), Err(Error::InvalidResponse)));
+    }
+    let mut pages = read();
+    pages.push(0, page(Some(1), 0, Some(NEXT))).unwrap();
+    let gap = "https://api.tempo.io/4/worklogs/user/123456:synthetic-user?offset=150&limit=50";
+    assert_eq!(
+        pages.push(50, page(Some(2), 50, Some(gap))),
+        Err(Error::InvalidResponse)
+    );
+    assert!(matches!(pages.finish(), Err(Error::InvalidResponse)));
+}
+
 fn read() -> ReadPages {
     ReadPages::new(
         AccountId::parse("123456:synthetic-user").unwrap(),
