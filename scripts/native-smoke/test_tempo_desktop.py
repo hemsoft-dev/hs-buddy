@@ -297,6 +297,13 @@ class CellInput(unittest.TestCase):
         click = partial.index(('click', 'Create copies'))
         self.assertEqual(partial[click + 1:click + 3], [('sleep', 30), ('wait_scroll_up', '1 worklog copied to Today')])
 
+    def test_forget_status_is_found_above_the_scrolled_connection_panel(self):
+        # Forget saved connection is reached by scrolling down; its status is
+        # rendered at the top of the page, as with the recheck status.
+        forget = self.stage_actions('forget-light', 'x11')
+        click = forget.index(('click', 'Forget saved connection'))
+        self.assertEqual(forget[click + 1], ('wait_scroll_up', 'credentials were removed'))
+
     def test_recheck_status_is_found_after_the_connection_panel_closes(self):
         # Ubuntu run on d92a456a: after Recheck the view sat in the Timeline
         # list, above which the retained-draft status was never searched.

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1481] - 2026-10-18
+
+### Fixed
+
+- Find the Tempo forget status above the scrolled panel (#818)
+
 ## [0.1.1480] - 2026-10-18
 
 ### Fixed

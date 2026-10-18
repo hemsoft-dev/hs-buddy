@@ -491,7 +491,8 @@ def qualify(executable, output, session, version, source, backend):
                 driver.drive('forget-light', [
                     ('wait_text', 'Tempo timesheet'), ('click', 'Connection'),
                     ('wait_scroll_text', 'Forget saved connection', 'Tempo timesheet'),
-                    ('click', 'Forget saved connection'), ('wait_text', 'credentials were removed'),
+                    # The status renders at the top, above the scrolled panel.
+                    ('click', 'Forget saved connection'), ('wait_scroll_up', 'credentials were removed'),
                     ('capture', 'connection-removed-light'),
                 ])
                 driver.drive('forgotten-restart-light', [
