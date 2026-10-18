@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1463] - 2026-10-18
+
+### Fixed
+
+- Keep native test servers on numeric loopback (#817)
+
 ## [0.1.1462] - 2026-10-18
 
 ### Changed

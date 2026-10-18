@@ -18,6 +18,7 @@ import socket
 import threading
 import urllib.parse
 import uuid
+from loopback_http import LoopbackHTTPServer
 
 TOKEN = 'native-fixture-todoist-token'
 NOW = '2026-11-02T05:30:00Z'
@@ -114,7 +115,7 @@ class Fixture:
             child_order=1, is_archived=False, is_deleted=False),
             dict(id='project-empty', name='Synthetic Empty', color='grey', parent_id=None,
             child_order=2, is_archived=False, is_deleted=False)]
-        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
+        self.server = LoopbackHTTPServer(('127.0.0.1', 0), _Handler)
         self.server.daemon_threads = True
         self.server.fixture = self
         self.url = f'http://127.0.0.1:{self.server.server_port}/api/v1/'
