@@ -19,6 +19,34 @@ sys.modules[SPEC.name] = fixture
 SPEC.loader.exec_module(fixture)
 
 
+class LoopbackDiscoveryTests(unittest.TestCase):
+    def test_shared_fixture_server_refuses_non_loopback_before_binding(self):
+        for host in ('0.0.0.0', 'localhost', '192.168.1.2'):
+            with self.subTest(host=host), unittest.mock.patch('socketserver.TCPServer.server_bind') as bind:
+                with self.assertRaisesRegex(ValueError, 'numeric IPv4 loopback'):
+                    fixture.LoopbackHTTPServer((host, 0), fixture._Handler)
+                bind.assert_not_called()
+
+    def test_real_todoist_requests_never_discover_a_local_hostname(self):
+        with tempfile.TemporaryDirectory(prefix='buddy-no-discovery-') as temporary:
+            root = Path(temporary).resolve()
+            config = root / 'config.json'
+            config.write_text('{}', encoding='utf-8')
+            with unittest.mock.patch.object(fixture.socket, 'getfqdn', side_effect=AssertionError('Numeric loopback must not discover local devices')):
+                api = fixture.Fixture._start_with_host(config, fixture._Host('true', '1', str(root)))
+                try:
+                    self.assertEqual(api.server.server_address[0], '127.0.0.1')
+                    self.assertEqual(api.server.server_name, '127.0.0.1')
+                    request = urllib.request.Request(api.url + 'user', headers={'Authorization': 'Bearer ' + fixture.TOKEN})
+                    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                    with opener.open(request, timeout=3) as response:
+                        self.assertEqual(json.load(response)['id'], 'synthetic-todoist-account')
+                    self.assertEqual(api.snapshot()['traffic'], [{'method':'GET','path':'/api/v1/user'}])
+                finally:
+                    api.close()
+            self.assertFalse((root / fixture.MARKER).exists())
+
+
 class TodoistFixtureTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='buddy-owned-todoist-test-')
@@ -169,7 +197,7 @@ class TodoistFixtureTests(unittest.TestCase):
                            (self.host, Path('relative.json')),
                            (self.host, self.root / 'missing-config.json'),
                            (fixture._Host('true', '1', str(self.root / 'elsewhere')), self.config)]:
-            with self.subTest(host=host, path=path), unittest.mock.patch.object(fixture.http.server, 'ThreadingHTTPServer') as server:
+            with self.subTest(host=host, path=path), unittest.mock.patch.object(fixture, 'LoopbackHTTPServer') as server:
                 with self.assertRaises(RuntimeError):
                     fixture.Fixture._start_with_host(path, host)
                 server.assert_not_called()

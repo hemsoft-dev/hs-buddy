@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1457] - 2026-10-18
+
+### Fixed
+
+- Qualify Todoist scopes without Mac network discovery (#817)
+
 ## [0.1.1456] - 2026-10-17
 
 ### Fixed

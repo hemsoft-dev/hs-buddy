@@ -328,6 +328,7 @@ def qualify(executable, output, session, version, backend):
 
             api.add_large_account()
             scoped = driver.drive('large-account-scopes-light', [
+                ('wait_text', 'Synthetic today task'), ('click', 'Load all tasks'),
                 ('wait_text', 'Choose a smaller scope'), ('capture', 'large-account-limit-light'),
                 ('click', 'Load calendar tasks'), ('wait_text', 'Task scope loaded'),
                 ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'calendar-scope-light'),
@@ -341,8 +342,7 @@ def qualify(executable, output, session, version, backend):
 
             api.arm_removed_project('project-empty')
             fallback = driver.drive('removed-project-reconnect-light', [
-                ('wait_text', 'Choose a smaller scope'), ('click', 'Load calendar tasks'),
-                ('wait_text', 'Task scope loaded'), ('click', 'Projects'), ('click', 'Synthetic Empty'),
+                ('wait_text', 'Synthetic today task'), ('click', 'Projects'), ('click', 'Synthetic Empty'),
                 ('wait_text', 'No tasks in this view'), ('click', 'Connection'),
                 ('click', 'Recheck saved connection'), ('wait_text', 'The previous project is unavailable'),
                 ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'scope-fallback-light'),
@@ -353,7 +353,7 @@ def qualify(executable, output, session, version, backend):
 
             before_forget = api.snapshot()['tasks']
             driver.drive('forget-token-light', [
-                ('wait_text', 'Choose a smaller scope'), ('click', 'Connection'),
+                ('wait_text', 'Synthetic today task'), ('click', 'Connection'),
                 ('click', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'),
                 ('capture', 'token-removed-light'),
             ])
