@@ -301,6 +301,21 @@ fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
         initial.bottom() <= viewport.bottom(),
         "A compact project must show a whole task, including metadata and actions: row {initial:?}, viewport {viewport:?}"
     );
+    let primary = visual.debug_bounds("todoist-primary-controls").unwrap();
+    let controls = visual.debug_bounds("todoist-secondary-controls").unwrap();
+    visual.simulate_event(gpui_kit::ScrollWheelEvent {
+        position: controls.center(),
+        delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-900.))),
+        ..Default::default()
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let pager = visual.debug_bounds("todoist-project-pagination").unwrap();
+    assert!(pager.top() >= controls.top() && pager.bottom() <= controls.bottom());
+    assert_eq!(
+        visual.debug_bounds("todoist-primary-controls").unwrap(),
+        primary
+    );
+    assert_eq!(visual.debug_bounds("todoist-task-row-0").unwrap(), initial);
     visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Upcoming, cx)));
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();

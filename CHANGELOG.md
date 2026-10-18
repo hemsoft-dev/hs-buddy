@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1460] - 2026-10-18
+
+### Fixed
+
+- Keep primary task actions above scrolling controls (#817)
+
 ## [0.1.1459] - 2026-10-18
 
 ### Fixed

@@ -121,6 +121,7 @@ impl TodoistView {
             }
             body = body.child(choices).child(
                 h_flex()
+                    .debug_selector(|| "todoist-project-pagination".into())
                     .gap_2()
                     .child(
                         Button::new("todoist-project-prev")

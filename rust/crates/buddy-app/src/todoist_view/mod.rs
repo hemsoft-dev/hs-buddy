@@ -494,44 +494,45 @@ impl Render for TodoistView {
                     })),
             );
         }
-        let mut body = v_flex().gap_3().child(
-            h_flex()
-                .flex_wrap()
-                .gap_3()
-                .child(div().text_xl().child("Task planner"))
-                .child(tabs),
-        );
-        body = body.child(
-            h_flex()
-                .flex_wrap()
-                .gap_2()
-                .child(
-                    Button::new("todoist-refresh")
-                        .label("Refresh")
-                        .disabled(self.busy || self.planner.is_none())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.delete_target = None;
-                            this.operate(Operation::Refresh, cx);
-                        })),
-                )
-                .child(
-                    Button::new("todoist-new-task")
-                        .label("New task")
-                        .disabled(!self.can_create() || self.editor.is_some())
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.open_editor(None, window, cx)),
-                        ),
-                )
-                .child(
-                    Button::new("todoist-connection")
-                        .label("Connection")
-                        .disabled(self.busy || self.editor.is_some())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.connection_form = !this.connection_form;
-                            cx.notify();
-                        })),
-                ),
-        );
+        let header = h_flex()
+            .flex_wrap()
+            .gap_3()
+            .debug_selector(|| "todoist-primary-controls".into())
+            .child(div().text_xl().child("Task planner"))
+            .child(tabs.flex_shrink_0())
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .flex_shrink_0()
+                    .gap_2()
+                    .child(
+                        Button::new("todoist-refresh")
+                            .label("Refresh")
+                            .disabled(self.busy || self.planner.is_none())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.delete_target = None;
+                                this.operate(Operation::Refresh, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("todoist-new-task")
+                            .label("New task")
+                            .disabled(!self.can_create() || self.editor.is_some())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_editor(None, window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("todoist-connection")
+                            .label("Connection")
+                            .disabled(self.busy || self.editor.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.connection_form = !this.connection_form;
+                                cx.notify();
+                            })),
+                    ),
+            );
+        let mut body = v_flex().gap_3();
         if let Some(data) = &self.data {
             body = body.child(
                 div()
@@ -684,10 +685,10 @@ impl Render for TodoistView {
                 .child(self.render_tasks(cx))
                 .into_any_element()
         };
-        // Scope, project and recovery controls share one bounded scroll area.
-        // Keep enough space for a complete task below it in compact windows.
+        // Secondary controls scroll independently. Navigation and connection
+        // actions stay visible, with room for a whole task in compact windows.
         let controls_height = if window.viewport_size().height < crate::zoom::scaled(cx, 720.0) {
-            120.0
+            64.0
         } else {
             300.0
         };
@@ -696,8 +697,10 @@ impl Render for TodoistView {
             .min_h_0()
             .p_4()
             .gap_3()
+            .child(header)
             .child(
                 body.id("todoist-controls-scroll")
+                    .debug_selector(|| "todoist-secondary-controls".into())
                     .overflow_y_scroll()
                     .max_h(zpx(controls_height))
                     .flex_shrink_0(),
