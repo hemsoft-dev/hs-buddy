@@ -10,20 +10,14 @@ pub(super) const MAX_READ_PAGES: usize = 100;
 pub(super) const MAX_READ_ITEMS: usize = 5000;
 
 pub(super) fn continuation_offset(
+    origin: super::ApiOrigin,
     reference: &str,
     path: &str,
     current_offset: usize,
     filters: &[(&str, String)],
 ) -> Result<usize, Error> {
     let url = Url::parse(reference).map_err(|_| Error::InvalidResponse)?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("api.tempo.io")
-        || url.port_or_known_default() != Some(443)
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-        || url.path() != path
-    {
+    if !origin.matches(&url) || url.path() != path {
         return Err(Error::WrongScope);
     }
     let mut names = HashSet::new();
@@ -51,6 +45,7 @@ pub(super) fn continuation_offset(
 /// Accumulated records remain private until the terminal page is observed.
 /// The transport reapplies this immutable user/range/limit at every offset.
 pub struct ReadPages {
+    origin: super::ApiOrigin,
     author: AccountId,
     range: DateRange,
     path: String,
@@ -63,6 +58,13 @@ pub struct ReadPages {
 }
 impl ReadPages {
     pub fn new(author: AccountId, range: DateRange) -> Result<Self, Error> {
+        Self::in_region(author, range, super::ApiOrigin::Global)
+    }
+    pub(super) fn in_region(
+        author: AccountId,
+        range: DateRange,
+        origin: super::ApiOrigin,
+    ) -> Result<Self, Error> {
         let range = DateRange::new(range.start, range.end)?;
         // Actual Jira account IDs include a colon. Reject route syntax rather
         // than interpolating arbitrary identifiers into an endpoint path.
@@ -75,6 +77,7 @@ impl ReadPages {
         }
         let path = format!("/4/worklogs/user/{}", author.as_str());
         Ok(Self {
+            origin,
             author,
             range,
             path,
@@ -106,6 +109,7 @@ impl ReadPages {
     }
     fn next_offset(&self, reference: &str) -> Result<usize, Error> {
         continuation_offset(
+            self.origin,
             reference,
             &self.path,
             self.offset,

@@ -12,6 +12,7 @@ use std::sync::Arc;
 /// Account/site/profile values deliberately have no Debug or serialization.
 #[derive(Clone)]
 pub(super) struct Binding {
+    tempo_origin: buddy_core::tempo::ApiOrigin,
     account: buddy_core::tempo::AccountId,
     jira_origin: String,
     profile: String,
@@ -22,6 +23,7 @@ impl Binding {
     fn for_session(session: &Session) -> Self {
         let data = session.snapshot();
         Self {
+            tempo_origin: session.tempo_origin(),
             account: data.account.clone(),
             jira_origin: session.jira_origin().to_owned(),
             profile: data.configuration_profile().to_owned(),
@@ -36,7 +38,8 @@ impl Binding {
         retaining_draft: bool,
     ) -> Result<Option<buddy_core::tempo::DateRange>, String> {
         let same = previous.is_some_and(|old| {
-            old.account == candidate.account
+            old.tempo_origin == candidate.tempo_origin
+                && old.account == candidate.account
                 && old.jira_origin == candidate.jira_origin
                 && old.profile == candidate.profile
                 && old.time_zone == candidate.time_zone
@@ -84,7 +87,8 @@ pub(super) async fn connect(
         (owned.tempo, owned.jira, Some(owned.now))
     } else {
         (
-            Client::new(value.tempo_token()).map_err(|e| e.to_string())?,
+            Client::new_in_region(value.tempo_origin(), value.tempo_token())
+                .map_err(|e| e.to_string())?,
             JiraClient::new(value.jira_origin(), value.jira_email(), value.jira_token())
                 .map_err(|e| e.to_string())?,
             None,
@@ -145,8 +149,8 @@ pub(super) async fn apply(
         Operation::Refresh=>{let range=connection.session.snapshot().range;connection.session.refresh(range,now).await.map(|_|"Timesheet refreshed.")},
         Operation::Today=>connection.session.refresh_current_month_at(now).await.map(|_|"Loaded the current account month."),
         Operation::Range(range)=>connection.session.refresh(range,now).await.map(|_|"Date range loaded."),
-        Operation::Month(delta)=>match buddy_core::tempo::DateRange::month_containing(connection.session.snapshot().range.start).and_then(|range|range.shift_month(delta)) {
-            Ok(range)=>connection.session.refresh(range,now).await.map(|_|"Month loaded."),Err(error)=>Err(error.into()),
+        Operation::Month(delta)=>match month_navigation_range(connection.session.snapshot().range,delta) {
+            Ok(range)=>connection.session.refresh(range,now).await.map(|_|"Month loaded."),Err(_)=>return Err("Use Today or load a whole month before using month navigation.".into()),
         },
         Operation::Cleanup=>connection.session.cleanup().map(|_|"Recovery cleanup finished. Refresh before preparing another change."),
         Operation::Discard=>connection.session.discard().map(|_|"Local recovery discarded. The remote change may already exist. Refresh before preparing another change."),
@@ -223,6 +227,7 @@ mod binding_tests {
 
     fn original() -> Binding {
         Binding {
+            tempo_origin: buddy_core::tempo::ApiOrigin::Global,
             account: buddy_core::tempo::AccountId::parse("synthetic-author").unwrap(),
             jira_origin: "https://synthetic.atlassian.net".into(),
             profile: "synthetic-profile-one".into(),
@@ -248,6 +253,9 @@ mod binding_tests {
         assert_eq!(range.end.to_string(), "2026-09-19");
 
         let mut other = current.clone();
+        other.tempo_origin = buddy_core::tempo::ApiOrigin::Europe;
+        assert!(Binding::retained_range(Some(&old), &other, true).is_err());
+        other = current.clone();
         other.account = buddy_core::tempo::AccountId::parse("another-author").unwrap();
         assert!(Binding::retained_range(Some(&old), &other, true).is_err());
         other = current.clone();
@@ -270,6 +278,13 @@ mod binding_tests {
     }
 }
 
+fn month_navigation_range(
+    current: buddy_core::tempo::DateRange,
+    delta: i32,
+) -> Result<buddy_core::tempo::DateRange, buddy_core::tempo::Error> {
+    current.shift_month(delta)
+}
+
 fn range_after_write(
     current: buddy_core::tempo::DateRange,
     confirmed: bool,
@@ -287,6 +302,24 @@ fn range_after_write(
 mod range_tests {
     use super::*;
     use buddy_core::tempo::{DateRange, DraftKind};
+    #[test]
+    fn review_regression_month_navigation_does_not_replace_a_custom_range() {
+        let current =
+            DateRange::new("2026-10-05".parse().unwrap(), "2026-10-19".parse().unwrap()).unwrap();
+        for delta in [-1, 1] {
+            assert!(matches!(
+                month_navigation_range(current, delta),
+                Err(buddy_core::tempo::Error::InvalidRange)
+            ));
+        }
+        assert_eq!(current.start.to_string(), "2026-10-05");
+        assert_eq!(current.end.to_string(), "2026-10-19");
+        let month = DateRange::month_containing(current.start).unwrap();
+        assert_eq!(
+            month_navigation_range(month, 1).unwrap().start.to_string(),
+            "2026-11-01"
+        );
+    }
     #[test]
     fn confirmed_create_and_moved_edit_show_the_work_date_without_losing_other_selected_ranges() {
         let current =

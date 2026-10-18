@@ -48,6 +48,31 @@ fn valid(owned: &Owned) {
 }
 
 #[test]
+fn fixture_clients_require_the_same_region_as_the_owned_marker() {
+    let owned = Owned::new();
+    let mut marker = owned.marker("http://127.0.0.1:12345/4/", "http://127.0.0.1:12345/");
+    marker["tempo_origin"] = json!("https://api.eu.tempo.io");
+    owned.write(&marker);
+    assert!(connect_with_host(&credentials(), &owned.config(), &owned.host()).is_err());
+    let regional = Credentials::new_in_region(
+        super::super::ApiOrigin::Europe,
+        TEMPO_TOKEN,
+        JIRA_ORIGIN,
+        JIRA_EMAIL,
+        JIRA_TOKEN,
+    )
+    .unwrap();
+    let connection = connect_with_host(&regional, &owned.config(), &owned.host()).unwrap();
+    assert_eq!(
+        connection.tempo.api_origin(),
+        super::super::ApiOrigin::Europe
+    );
+    marker["tempo_origin"] = json!("https://unrelated.invalid");
+    owned.write(&marker);
+    assert!(connect_with_host(&regional, &owned.config(), &owned.host()).is_err());
+}
+
+#[test]
 fn explicit_owned_fixture_preserves_protected_logical_https_connection_and_clock() {
     let owned = Owned::new();
     valid(&owned);

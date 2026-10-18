@@ -241,11 +241,18 @@ impl SavedRecovery {
         self.file.current()
     }
     pub async fn open(config: &Path, jira: &JiraClient) -> Result<Option<Self>, ChangeError> {
+        Self::open_in_region(config, jira, super::ApiOrigin::Global).await
+    }
+    pub(super) async fn open_in_region(
+        config: &Path,
+        jira: &JiraClient,
+        origin: super::ApiOrigin,
+    ) -> Result<Option<Self>, ChangeError> {
         let file = PendingFile::open(config, RecoverySlot::Tempo, recovery::MAX_STORED_BYTES)?;
         let Some(bytes) = file.current() else {
             return Ok(None);
         };
-        let recovered = recovery::inspect(bytes, config, jira).await?;
+        let recovered = recovery::inspect_in_region(bytes, config, jira, origin).await?;
         Ok(Some(Self { file, recovered }))
     }
     pub fn phase(&self) -> WritePhase {

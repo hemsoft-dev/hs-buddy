@@ -33,7 +33,7 @@ settings = github.settings
 
 class ScenarioFixture(tempo.TempoFixture):
     def __init__(self):
-        super().__init__()
+        super().__init__(tempo_origin='https://api.eu.tempo.io')
         self.records[tempo.FIRST_ID]['startDate'] = '2026-10-15'
         for offset in (48, 49, 50):
             self.records[tempo.FIRST_ID + offset]['startDate'] = '2026-10-13'
@@ -42,7 +42,7 @@ class ScenarioFixture(tempo.TempoFixture):
         template.update(tempoWorklogId=identifier, startDate='2026-09-30',
             timeSpentSeconds=1800, billableSeconds=0, description='Synthetic prior month template',
             attributes=dict(values=[dict(key='_Unrelated_', value='preserve\n界'), dict(key='_Unset_')]))
-        template['self'] = f'https://api.tempo.io/4/worklogs/{identifier}'
+        template['self'] = f'{self.tempo_origin}/4/worklogs/{identifier}'
         template['attributes']['self'] = template['self'] + '/work-attribute-values'
         self.records[identifier] = template
         self.next_id = identifier + 1
@@ -146,7 +146,8 @@ def week_actions():
 
 def evidence_inventory(output):
     required = {
-        'connect-dark/missing-connection-dark.png', 'connect-dark/complete-month-dark.png',
+        'connect-dark/missing-connection-dark.png', 'connect-dark/regional-connection-dark.png',
+        'connect-dark/complete-month-dark.png', 'range-navigation-dark/custom-range-retained-dark.png',
         'grid-navigation-dark/compact-grid-keyboard-dark.png',
         'grid-navigation-dark/filtered-cell-dark.png', 'grid-navigation-dark/second-page-dark.png',
         'template-dark/template-new-draft-dark.png', 'template-dark/template-created-dark.png',
@@ -214,6 +215,8 @@ def qualify(executable, output, session, version, source, backend):
                 (output / 'initial-state.json').write_text(json.dumps(initial, indent=2), encoding='utf-8')
                 connected = driver.drive('connect-dark', [
                     ('wait_text', 'Tempo and Jira connection'), ('capture', 'missing-connection-dark'),
+                    ('click', 'Europe'), ('wait_text', 'https://api.eu.tempo.io'),
+                    ('capture', 'regional-connection-dark'),
                     ('input', 'Tempo API token', tempo.TEMPO_TOKEN),
                     ('input', 'Jira HTTPS origin', tempo.JIRA_ORIGIN),
                     ('input', 'Jira email', tempo.JIRA_EMAIL),
@@ -223,6 +226,15 @@ def qualify(executable, output, session, version, source, backend):
                     ('capture', 'complete-month-dark'),
                 ])
                 github.check(connected / 'complete-month-dark.png', 'Tempo timesheet', 'Logged 1:51:01', 'CapEx 1:51:01', 'Required 168:00')
+                custom = driver.drive('range-navigation-dark', [
+                    ('wait_scroll_text', 'Load date range', 'Tempo timesheet'),
+                    ('input', 'From', '2026-10-05'), ('input', 'Through', '2026-10-19'),
+                    ('click', 'Load date range'), ('wait_text', 'Date range loaded'),
+                    ('click', 'Previous month'), ('wait_scroll_up', 'whole month'),
+                    ('capture', 'custom-range-retained-dark'),
+                    ('click', 'Today'), ('wait_text', 'Loaded the current account month'),
+                ])
+                github.check(custom / 'custom-range-retained-dark.png', '2026-10-05', '2026-10-19', 'whole month')
                 require_writes(api, 0)
                 pages = [row for row in api.snapshot()['attempts'] if '/worklogs/user/' in row['path'] and 'offset=50' in row['path']]
                 if not pages:
@@ -438,6 +450,8 @@ def qualify(executable, output, session, version, source, backend):
                     mutationAttempts=7, serviceWrites=6, acknowledgedServiceWrites=5, deniedMutationAttempts=1,
                     invalidDurationBlockedBeforeHttp=True, deniedCreateRetainedExactDraft=True,
                     completeMonthPagerVerified=True,
+                    tempoApiOrigin=api.tempo_origin, regionalConnectionSurvivedRestart=True,
+                    customRangeRetainedOnMonthNavigation=True,
                     readOnlyNavigationServiceStateUnchanged=True,
                     gridSingleEditAndMultiLogTimelineVerified=True,
                     templateCreatesOneHourWithExplicitNoBilling=True,

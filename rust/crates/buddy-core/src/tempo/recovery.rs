@@ -36,12 +36,17 @@ impl From<Error> for RecoveryError {
 }
 
 struct Context {
+    tempo_origin: super::ApiOrigin,
     profile: String,
     origin: String,
     account: String,
 }
 impl Context {
-    async fn current(config: &Path, jira: &JiraClient) -> Result<Self, RecoveryError> {
+    async fn current(
+        config: &Path,
+        jira: &JiraClient,
+        tempo_origin: super::ApiOrigin,
+    ) -> Result<Self, RecoveryError> {
         let profile = crate::pollen_credentials::account_for_path(config)
             .map_err(|_| Error::InvalidRecovery)?;
         let account = jira
@@ -52,6 +57,7 @@ impl Context {
             .as_str()
             .to_owned();
         Ok(Self {
+            tempo_origin,
             profile,
             origin: jira.origin().into(),
             account,
@@ -62,6 +68,8 @@ impl Context {
 #[serde(deny_unknown_fields)]
 struct Stored {
     version: u8,
+    #[serde(default)]
+    tempo_origin: super::ApiOrigin,
     profile: String,
     origin: String,
     account: String,
@@ -191,7 +199,11 @@ impl Client {
         jira: &JiraClient,
     ) -> Result<Vec<u8>, RecoveryError> {
         let request = attempt.pending_request(self.write_scope())?;
-        encode(request, &Context::current(config, jira).await?).map_err(Into::into)
+        encode(
+            request,
+            &Context::current(config, jira, self.api_origin()).await?,
+        )
+        .map_err(Into::into)
     }
 
     /// Encode an already observed terminal outcome for durable cleanup recovery.
@@ -206,7 +218,7 @@ impl Client {
         let outcome = Terminal::capture(attempt)?;
         encode_with_outcome(
             request,
-            &Context::current(config, jira).await?,
+            &Context::current(config, jira, self.api_origin()).await?,
             Some(outcome),
         )
         .map_err(Into::into)
@@ -219,10 +231,18 @@ pub async fn inspect(
     config: &Path,
     jira: &JiraClient,
 ) -> Result<RecoveredChange, RecoveryError> {
+    inspect_in_region(bytes, config, jira, super::ApiOrigin::Global).await
+}
+pub(super) async fn inspect_in_region(
+    bytes: &[u8],
+    config: &Path,
+    jira: &JiraClient,
+    origin: super::ApiOrigin,
+) -> Result<RecoveredChange, RecoveryError> {
     if bytes.len() > MAX_STORED_BYTES {
         return Err(Error::InvalidRecovery.into());
     }
-    decode(bytes, &Context::current(config, jira).await?).map_err(Into::into)
+    decode(bytes, &Context::current(config, jira, origin).await?).map_err(Into::into)
 }
 fn encode(request: &WriteRequest, context: &Context) -> Result<Vec<u8>, Error> {
     encode_with_outcome(request, context, None)
@@ -240,6 +260,7 @@ fn encode_with_outcome(
     }
     let stored = Stored {
         version: 1,
+        tempo_origin: context.tempo_origin,
         profile: context.profile.clone(),
         origin: context.origin.clone(),
         account: context.account.clone(),
@@ -295,6 +316,7 @@ fn decode(bytes: &[u8], context: &Context) -> Result<RecoveredChange, Error> {
         return Err(Error::InvalidRecovery);
     }
     if stored.profile != context.profile
+        || stored.tempo_origin != context.tempo_origin
         || stored.origin != context.origin
         || stored.account != context.account
     {

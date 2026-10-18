@@ -84,6 +84,37 @@ fn draft() -> Draft {
     draft.set_billing_account(Some("SYNTHETIC")).unwrap();
     draft
 }
+
+#[tokio::test]
+async fn rate_limited_creation_never_retries_and_retains_its_exact_recovery() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    // A second success is deliberately available to catch an automatic retry.
+    let service = TempoFixture::new(vec![reply(429, ""), reply(200, &written_row().to_string())]);
+    let identity = jira(2);
+    let mut change = SavedChange::capture(
+        Arc::new(service.client()),
+        Arc::new(identity.client()),
+        &config,
+        draft(),
+    )
+    .await
+    .unwrap();
+    let checkpoint = stored(&config).current().unwrap().to_vec();
+    let result = change.dispatch().await.unwrap();
+    assert!(result.phase == WritePhase::Unconfirmed);
+    assert_eq!(result.transport_problem, Some(TransportError::RateLimited));
+    assert_eq!(stored(&config).current(), Some(checkpoint.as_slice()));
+    {
+        let requests = service.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].starts_with("POST /4/worklogs HTTP/1.1\r\n"));
+    }
+    assert!(matches!(
+        change.dispatch().await,
+        Err(ChangeError::Domain(Error::WriteBlocked))
+    ));
+}
 fn written_row() -> Value {
     let mut row = single_worklog();
     row["timeSpentSeconds"] = json!(3600);

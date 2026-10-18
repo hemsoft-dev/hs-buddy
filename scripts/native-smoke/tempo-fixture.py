@@ -46,7 +46,10 @@ def exact_date(value):
 
 
 class TempoFixture:
-    def __init__(self):
+    def __init__(self, tempo_origin='https://api.tempo.io'):
+        if tempo_origin not in ('https://api.tempo.io', 'https://api.eu.tempo.io', 'https://api.us.tempo.io'):
+            raise ValueError('Use a documented Tempo cloud origin')
+        self.tempo_origin = tempo_origin
         self.attempts, self.writes = [], []
         self.fail_tempo = self.fail_jira = self.drop_next_create = False
         self.drop_next_delete = False
@@ -66,10 +69,10 @@ class TempoFixture:
                 author=dict(accountId=ACCOUNT), timeSpentSeconds=3661 if index == 0 else 60,
                 billableSeconds=3600 if index == 0 else 0, startDate='2026-10-16', startTime='09:00:00',
                 description='Synthetic worklog 界' if index == 0 else f'Synthetic page row {index}',
-                attributes={'self': f'https://api.tempo.io/4/worklogs/{identifier}/work-attribute-values',
+                attributes={'self': f'{self.tempo_origin}/4/worklogs/{identifier}/work-attribute-values',
                     'values': [dict(key='_Account_', value='synthetic-billing-17'),
                         dict(key='_Unrelated_', value='preserve\n界'), dict(key='_Unset_')]},
-                createdAt=NOW, updatedAt=NOW, **{'self': f'https://api.tempo.io/4/worklogs/{identifier}'})
+                createdAt=NOW, updatedAt=NOW, **{'self': f'{self.tempo_origin}/4/worklogs/{identifier}'})
         self.next_id = FIRST_ID + 51
 
     def __enter__(self):
@@ -152,7 +155,7 @@ class TempoFixture:
     def marker(self):
         if self.server is None:
             raise RuntimeError('Start the owned Tempo fixture first')
-        return dict(version=1, nonce=str(uuid.uuid4()), tempo_url=self.url + '/4/',
+        return dict(version=1, nonce=str(uuid.uuid4()), tempo_origin=self.tempo_origin, tempo_url=self.url + '/4/',
             jira_url=self.url + '/', now_utc=NOW)
 
     def worklog(self, identifier, expanded=False):
@@ -187,7 +190,7 @@ class TempoFixture:
                     return 400, {'error': 'Synthetic project account scope required'}
                 if self.fail_project_accounts:
                     return 503, {'error': 'Synthetic project accounts unavailable'}
-                links = [dict(id=identifier, account={'self': f'https://api.tempo.io/4/accounts/{identifier}'},
+                links = [dict(id=identifier, account={'self': f'{self.tempo_origin}/4/accounts/{identifier}'},
                     default=identifier == 17, scope=dict(id=PROJECT_ID, type='PROJECT')) for identifier in (17, 18, 19)]
                 return 200, dict(metadata=dict(count=len(links)), results=links)
             if path == '/4/accounts':
@@ -219,7 +222,7 @@ class TempoFixture:
                             row['holiday'] = dict(name='Synthetic holiday')
                         rows.append(row)
                     return 200, dict(metadata=dict(count=len(rows)), results=rows,
-                        **{'self': 'https://api.tempo.io' + target})
+                        **{'self': self.tempo_origin + target})
                 if set(query) != {'from', 'to', 'limit', 'offset'} or query['limit'] != ['50']:
                     raise ValueError('Unexpected fixture pager')
                 offset = int(query['offset'][0])
@@ -232,10 +235,10 @@ class TempoFixture:
                 following['offset'] = str(offset + 50)
                 # The consumer must reconstruct the next loopback request from
                 # captured scope. Never teach it to follow service URLs.
-                next_page = ('https://api.tempo.io' + path + '?' + urlencode(following)) if offset + 50 < len(available) else None
+                next_page = (self.tempo_origin + path + '?' + urlencode(following)) if offset + 50 < len(available) else None
                 return 200, dict(metadata=dict(count=len(selected), limit=50, offset=offset, next=next_page),
                     results=[self.worklog(identifier) for identifier in selected],
-                    **{'self': 'https://api.tempo.io' + target})
+                    **{'self': self.tempo_origin + target})
             parts = path.strip('/').split('/')
             if len(parts) in (3, 4) and parts[:2] == ['4', 'worklogs'] and parts[2].isdigit() and not query:
                 identifier = int(parts[2])
@@ -246,7 +249,7 @@ class TempoFixture:
                 if parts[3] == 'work-attribute-values':
                     values = deepcopy(self.records[identifier]['attributes']['values'])
                     return 200, dict(metadata=dict(count=len(values)), results=values,
-                        **{'self': f'https://api.tempo.io/4/worklogs/{identifier}/work-attribute-values'})
+                        **{'self': f'{self.tempo_origin}/4/worklogs/{identifier}/work-attribute-values'})
             return 404, {'error': 'Synthetic route unavailable'}
         if method == 'DELETE':
             parts = path.strip('/').split('/')
@@ -306,8 +309,8 @@ class TempoFixture:
         issue = ISSUE_ID if method == 'POST' else self.records[identifier]['issue']['id']
         record = dict(tempoWorklogId=identifier, issue=dict(id=issue, **{'self': JIRA_ORIGIN + 'rest/api/3/issue/' + str(issue)}),
             author=dict(accountId=ACCOUNT), startDate=value['startDate'], timeSpentSeconds=value['timeSpentSeconds'],
-            attributes={'self': f'https://api.tempo.io/4/worklogs/{identifier}/work-attribute-values', 'values': deepcopy(attributes)},
-            createdAt=NOW, updatedAt=NOW, **{'self': f'https://api.tempo.io/4/worklogs/{identifier}'})
+            attributes={'self': f'{self.tempo_origin}/4/worklogs/{identifier}/work-attribute-values', 'values': deepcopy(attributes)},
+            createdAt=NOW, updatedAt=NOW, **{'self': f'{self.tempo_origin}/4/worklogs/{identifier}'})
         for key in ('description', 'billableSeconds', 'startTime'):
             if key in value:
                 record[key] = value[key]

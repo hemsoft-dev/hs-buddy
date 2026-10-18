@@ -17,6 +17,20 @@ spec.loader.exec_module(tempo)
 
 
 class TempoFixtureTests(unittest.TestCase):
+    def test_regional_fixture_binds_its_marker_continuations_and_attribute_references(self):
+        for origin in ('https://api.tempo.io', 'https://api.eu.tempo.io', 'https://api.us.tempo.io'):
+            with self.subTest(origin=origin), tempo.TempoFixture(tempo_origin=origin) as fixture:
+                self.assertEqual(fixture.marker()['tempo_origin'], origin)
+                query = urlencode(dict(**{'from': '2026-10-01', 'to': '2026-10-31'}, limit=50, offset=0))
+                page = self.request(fixture, f'/4/worklogs/user/{tempo.ACCOUNT}?' + query)
+                self.assertTrue(page['metadata']['next'].startswith(origin + '/4/worklogs/user/'))
+                self.assertTrue(page['results'][0]['self'].startswith(origin + '/4/worklogs/'))
+                detail = self.request(fixture, f'/4/worklogs/{tempo.FIRST_ID}/work-attribute-values')
+                self.assertEqual(detail['self'], f'{origin}/4/worklogs/{tempo.FIRST_ID}/work-attribute-values')
+                self.assertEqual(fixture.writes, [])
+        with self.assertRaises(ValueError):
+            tempo.TempoFixture(tempo_origin='https://unrelated.invalid')
+
     def test_real_authenticated_identity_uses_only_numeric_loopback_without_hostname_discovery(self):
         with patch.object(socket, 'getfqdn', side_effect=AssertionError('Numeric fixture must not discover local devices')):
             with tempo.TempoFixture() as fixture:
@@ -168,7 +182,8 @@ class TempoFixtureTests(unittest.TestCase):
     def test_numeric_loopback_marker_and_jira_identity_keep_exact_large_issue_id(self):
         with tempo.TempoFixture() as fixture:
             marker = fixture.marker()
-            self.assertEqual(set(marker), {'version', 'nonce', 'tempo_url', 'jira_url', 'now_utc'})
+            self.assertEqual(set(marker), {'version', 'nonce', 'tempo_origin', 'tempo_url', 'jira_url', 'now_utc'})
+            self.assertEqual(marker['tempo_origin'], 'https://api.tempo.io')
             self.assertEqual(uuid.UUID(marker['nonce']).version, 4)
             self.assertEqual(urlsplit(marker['tempo_url']).hostname, '127.0.0.1')
             self.assertEqual(marker['jira_url'], fixture.url + '/')

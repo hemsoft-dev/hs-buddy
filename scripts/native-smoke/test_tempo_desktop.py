@@ -18,6 +18,13 @@ spec.loader.exec_module(desktop)
 
 
 class FixtureScenarios(unittest.TestCase):
+    def test_installed_scenario_requires_the_regional_connection_including_its_template(self):
+        with desktop.ScenarioFixture() as api:
+            self.assertEqual(api.marker()['tempo_origin'], 'https://api.eu.tempo.io')
+            self.assertTrue(all(row['self'].startswith(api.tempo_origin + '/4/worklogs/') for row in api.records.values()))
+            self.assertTrue(all(row['attributes']['self'].startswith(api.tempo_origin + '/4/worklogs/') for row in api.records.values()))
+            self.assertEqual((api.attempts, api.writes), ([], []))
+
     def test_real_permission_denial_records_request_without_changing_any_worklog(self):
         with desktop.ScenarioFixture() as api:
             before = deepcopy(api.records)

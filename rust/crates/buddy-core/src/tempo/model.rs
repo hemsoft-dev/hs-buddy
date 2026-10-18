@@ -254,6 +254,13 @@ pub fn parse_worklog(bytes: &[u8]) -> Result<Worklog, Error> {
 }
 
 pub fn parse_worklog_attributes(bytes: &[u8], id: WorklogId) -> Result<Vec<Attribute>, Error> {
+    parse_worklog_attributes_in_region(bytes, id, super::ApiOrigin::Global)
+}
+pub(super) fn parse_worklog_attributes_in_region(
+    bytes: &[u8],
+    id: WorklogId,
+    origin: super::ApiOrigin,
+) -> Result<Vec<Attribute>, Error> {
     if bytes.len() > MAX_RESPONSE_BYTES {
         return Err(Error::TooLarge);
     }
@@ -267,7 +274,8 @@ pub fn parse_worklog_attributes(bytes: &[u8], id: WorklogId) -> Result<Vec<Attri
     let raw: Results = serde_json::from_slice(bytes).map_err(|_| Error::InvalidResponse)?;
     let reference = reqwest::Url::parse(&raw.reference).map_err(|_| Error::InvalidResponse)?;
     let expected = format!(
-        "https://api.tempo.io/4/worklogs/{}/work-attribute-values",
+        "{}/4/worklogs/{}/work-attribute-values",
+        origin.as_str(),
         id.get()
     );
     if reference.as_str().trim_end_matches('/') != expected {

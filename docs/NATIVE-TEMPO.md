@@ -1,16 +1,32 @@
 # Native Tempo timesheets
 
-Open Tempo in Buddy Native. Enter the Tempo API token, Jira HTTPS origin,
+Open Tempo in Buddy Native. Choose the Tempo data region, then enter the Tempo API token, Jira HTTPS origin,
 Jira email and Jira API token, then choose Save and connect. Buddy verifies the
 Jira account and loads its complete current month before saving the connection
 in the OS credential store. Credentials belong to the configuration profile.
 They are not saved in `config.json`, Convex or application logs.
+
+Global uses `https://api.tempo.io`, Europe uses `https://api.eu.tempo.io`, and
+Americas uses `https://api.us.tempo.io`. Choose the origin for the account's data
+cluster, as described in [Tempo's regional API guide](https://help.tempo.io/kb/latest/export-tempo-data-to-ms-excel-with-api).
+The saved connection, open draft and recovery record retain that region. Older
+saved connections without a region use Global. A different region cannot take
+over an open draft or saved recovery. Continuations and billing/attribute
+references must match the captured region; requests never follow those URLs.
 
 The header identifies the account, its Jira timezone, loaded dates and last
 successful refresh. Today opens the account's current month. Previous month
 and Next month move between calendar months. From, Through and Load date range
 select an inclusive range of up to 366 days. An incomplete read retains the
 last complete timesheet instead of showing partial totals.
+Previous month and Next month require a complete calendar month. A custom range
+stays selected and shows guidance to choose Today or load a whole month first.
+
+The captured Tempo client spaces all requests at least one second apart. Reads
+may retry a 429 at most three times with bounded backoff and `Retry-After`
+handling. A longer server-directed pause stops the read and retains the previous
+timesheet. Worklog writes never retry automatically, including a 429 or lost
+reply. See [Tempo's rate-limit guidance](https://help.tempo.io/kb/latest/tempo-api-rate-limits-and-429-errors).
 
 Logged time retains whole seconds. Required time comes from Tempo's daily
 schedule, including holidays and nonworking days. Missing schedule data remains

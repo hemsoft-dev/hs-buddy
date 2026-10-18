@@ -39,6 +39,8 @@ pub struct Connection {
 #[serde(deny_unknown_fields)]
 struct Marker {
     version: u8,
+    #[serde(default)]
+    tempo_origin: super::ApiOrigin,
     nonce: String,
     tempo_url: String,
     jira_url: String,
@@ -72,7 +74,9 @@ fn connect_with_host(
     host: &Host,
 ) -> Result<Connection, Unavailable> {
     let routes = validate(credentials, config, host)?;
-    let tempo = Client::build(TEMPO_TOKEN, routes.tempo, false).map_err(|_| Unavailable)?;
+    let tempo =
+        Client::build_in_region(credentials.tempo_origin(), TEMPO_TOKEN, routes.tempo, false)
+            .map_err(|_| Unavailable)?;
     let jira =
         JiraClient::build(routes.jira, JIRA_EMAIL, JIRA_TOKEN, false).map_err(|_| Unavailable)?;
     Ok(Connection {
@@ -153,7 +157,10 @@ fn validate(credentials: &Credentials, config: &Path, host: &Host) -> Result<Rou
     }
     let marker: Marker = serde_json::from_slice(&bytes).map_err(|_| Unavailable)?;
     let nonce = Uuid::parse_str(&marker.nonce).map_err(|_| Unavailable)?;
-    if marker.version != 1 || nonce.get_version_num() != 4 {
+    if marker.version != 1
+        || nonce.get_version_num() != 4
+        || marker.tempo_origin != credentials.tempo_origin()
+    {
         return Err(Unavailable);
     }
     let now = DateTime::parse_from_rfc3339(&marker.now_utc)

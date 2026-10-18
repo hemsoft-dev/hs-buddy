@@ -76,6 +76,7 @@ struct RawPage {
 }
 
 pub(super) struct AccountPages {
+    origin: super::ApiOrigin,
     offset: usize,
     pages: usize,
     rows: Vec<BillingAccount>,
@@ -83,8 +84,13 @@ pub(super) struct AccountPages {
     keys: HashSet<String>,
 }
 impl AccountPages {
+    #[cfg(test)]
     pub(super) fn new() -> Self {
+        Self::in_region(super::ApiOrigin::Global)
+    }
+    pub(super) fn in_region(origin: super::ApiOrigin) -> Self {
         Self {
+            origin,
             offset: 0,
             pages: 0,
             rows: Vec::new(),
@@ -119,7 +125,13 @@ impl AccountPages {
             .next
             .as_deref()
             .map(|reference| {
-                super::paging::continuation_offset(reference, "/4/accounts", self.offset, &[])
+                super::paging::continuation_offset(
+                    self.origin,
+                    reference,
+                    "/4/accounts",
+                    self.offset,
+                    &[],
+                )
             })
             .transpose()?;
         if next.is_some_and(|offset| {

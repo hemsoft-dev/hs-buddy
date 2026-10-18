@@ -74,6 +74,9 @@ pub struct IssueSummary {
     pub capitalization: Result<Option<bool>, super::JiraError>,
 }
 impl Session {
+    pub fn tempo_origin(&self) -> super::ApiOrigin {
+        self.client.api_origin()
+    }
     /// The authenticated Jira site stays bound to this session's clients.
     pub fn jira_origin(&self) -> &str {
         self.jira.origin()
@@ -132,7 +135,7 @@ impl Session {
         jira: Arc<JiraClient>,
         now: DateTime<Utc>,
     ) -> Result<Self, SessionError> {
-        let recovered = SavedRecovery::open(config, &jira).await;
+        let recovered = SavedRecovery::open_in_region(config, &jira, client.api_origin()).await;
         let planner =
             Planner::connect_current_month_at(config, client.clone(), jira.clone(), now).await?;
         let (restored, recovery_problem) = match recovered {

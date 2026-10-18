@@ -9,7 +9,7 @@ mod preferences;
 mod render;
 use crate::runtime::Runtime;
 use buddy_core::tempo::{
-    DateRange, Snapshot, WritePhase,
+    ApiOrigin, DateRange, Snapshot, WritePhase,
     credentials::{self, Credentials},
 };
 use gpui_kit::component::input::InputState;
@@ -53,6 +53,7 @@ pub struct TempoView {
     copy_plan: Option<Box<buddy_core::tempo::CopyPlan>>,
     cell_filter: Option<(chrono::NaiveDate, Option<buddy_core::tempo::IssueId>)>,
     credentials: [Entity<InputState>; 4],
+    tempo_origin: ApiOrigin,
     from: Entity<InputState>,
     to: Entity<InputState>,
     pane: Pane,
@@ -90,6 +91,7 @@ impl TempoView {
             copy_plan: None,
             cell_filter: None,
             credentials,
+            tempo_origin: ApiOrigin::Global,
             from: cx.new(|cx| InputState::new(window, cx).placeholder("YYYY-MM-DD")),
             to: cx.new(|cx| InputState::new(window, cx).placeholder("YYYY-MM-DD")),
             pane,
@@ -116,7 +118,13 @@ impl TempoView {
             .iter()
             .map(|field| field.read(cx).value().to_string())
             .collect();
-        match Credentials::new(&values[0], &values[1], &values[2], &values[3]) {
+        match Credentials::new_in_region(
+            self.tempo_origin,
+            &values[0],
+            &values[1],
+            &values[2],
+            &values[3],
+        ) {
             Ok(value) => self.connect(Some(value), cx),
             Err(error) => {
                 self.error = Some(error.to_string());
@@ -166,6 +174,7 @@ impl TempoView {
                 this.busy=false;this.notice=None;
                 match result {
                     Ok(Ok(Some(connection)))=>{
+                        this.tempo_origin=connection.session.tempo_origin();
                         this.delete_target=None;this.pending_editor=None;this.pending_template=None;this.templates=None;
                         this.data=Some(connection.session.snapshot().clone());
                         this.metadata=connection.metadata.clone();

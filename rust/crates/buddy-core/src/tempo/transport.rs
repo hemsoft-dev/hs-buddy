@@ -1,16 +1,18 @@
 //! Scoped reads rebuild each request from captured filters, not next URLs.
 use std::time::Duration;
+#[path = "rate_limit.rs"]
+mod rate_limit;
 
 use reqwest::{StatusCode, Url, header};
 
 use super::{
     AccountId, DateRange, DaySchedule, Error, MAX_RESPONSE_BYTES, READ_PAGE_SIZE, ReadPages,
-    Worklog, WorklogId, parse_schedule, parse_worklog, parse_worklog_attributes, parse_worklogs,
+    Worklog, WorklogId, parse_schedule, parse_worklog, parse_worklogs,
 };
 
-const API: &str = "https://api.tempo.io/4/";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
-const READ_TIMEOUT: Duration = Duration::from_secs(45);
+// Up to 100 pages must fit the documented one-second request spacing.
+const READ_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportError {
@@ -50,8 +52,38 @@ pub struct Client {
     base: Url,
     authorization: header::HeaderValue,
     scope: super::WriteScope,
+    origin: super::ApiOrigin,
+    pacer: rate_limit::Pacer,
 }
 impl Client {
+    pub fn api_origin(&self) -> super::ApiOrigin {
+        self.origin
+    }
+    async fn read_response(
+        &self,
+        builder: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, TransportError> {
+        let request = builder.build().map_err(|_| TransportError::Unavailable)?;
+        for retry in 0..=3 {
+            self.pacer.wait().await?;
+            let response = self
+                .http
+                .execute(request.try_clone().ok_or(TransportError::Unavailable)?)
+                .await
+                .map_err(|_| TransportError::Unavailable)?;
+            if response.status() != StatusCode::TOO_MANY_REQUESTS {
+                return Ok(response);
+            }
+            let delay = rate_limit::retry_delay(response.headers(), retry);
+            self.pacer.defer(delay).await;
+            // A long server-directed pause is retained, but never blocks this
+            // worker indefinitely or causes an early automatic retry.
+            if retry == 3 || delay > Duration::from_secs(30) {
+                return Err(TransportError::RateLimited);
+            }
+        }
+        unreachable!("bounded read retries return on the last attempt")
+    }
     pub(super) async fn send_captured(
         &self,
         request: &super::WriteRequest,
@@ -83,10 +115,16 @@ impl Client {
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(request.body().to_vec())
         };
+        self.pacer.wait().await?;
         let response = builder
             .send()
             .await
             .map_err(|_| TransportError::Unavailable)?;
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            self.pacer
+                .defer(rate_limit::retry_delay(response.headers(), 0))
+                .await;
+        }
         let status = response.status().as_u16();
         let rejected = match status {
             401 | 403 => Some(TransportError::Authentication),
@@ -128,16 +166,17 @@ impl Client {
                 .join(&format!("account-links/project/{}", project.get()))
                 .map_err(|_| Error::InvalidResponse)?;
             let response = self
-                .http
-                .get(url)
-                .header(header::AUTHORIZATION, self.authorization.clone())
-                .query(&[("includeGlobalAccounts", "true")])
-                .send()
-                .await
-                .map_err(|_| TransportError::Unavailable)?;
-            let links = super::project_accounts::ProjectLinks::parse(
+                .read_response(
+                    self.http
+                        .get(url)
+                        .header(header::AUTHORIZATION, self.authorization.clone())
+                        .query(&[("includeGlobalAccounts", "true")]),
+                )
+                .await?;
+            let links = super::project_accounts::ProjectLinks::parse_in_region(
                 &bounded_body(response).await?,
                 project,
+                self.origin,
             )?;
             let choices = links.resolve(self.billing_accounts().await?)?;
             Ok(super::ProjectBillingAccounts {
@@ -156,16 +195,16 @@ impl Client {
             .join("accounts")
             .map_err(|_| Error::InvalidResponse)?;
         tokio::time::timeout(READ_TIMEOUT, async {
-            let mut pages = super::accounts::AccountPages::new();
+            let mut pages = super::accounts::AccountPages::in_region(self.origin);
             loop {
                 let response = self
-                    .http
-                    .get(url.clone())
-                    .header(header::AUTHORIZATION, self.authorization.clone())
-                    .query(&[("limit", READ_PAGE_SIZE), ("offset", pages.offset())])
-                    .send()
-                    .await
-                    .map_err(|_| TransportError::Unavailable)?;
+                    .read_response(
+                        self.http
+                            .get(url.clone())
+                            .header(header::AUTHORIZATION, self.authorization.clone())
+                            .query(&[("limit", READ_PAGE_SIZE), ("offset", pages.offset())]),
+                    )
+                    .await?;
                 let (next, complete) = pages.push(&bounded_body(response).await?)?;
                 pages = next;
                 if complete {
@@ -177,13 +216,21 @@ impl Client {
         .map_err(|_| TransportError::Unavailable)?
     }
     pub fn new(token: &str) -> Result<Self, TransportError> {
-        Self::build(
-            token,
-            Url::parse(API).expect("static Tempo HTTPS origin"),
-            true,
-        )
+        Self::new_in_region(super::ApiOrigin::Global, token)
     }
+    pub fn new_in_region(origin: super::ApiOrigin, token: &str) -> Result<Self, TransportError> {
+        Self::build_in_region(origin, token, origin.base(), true)
+    }
+    #[cfg(test)]
     pub(super) fn build(token: &str, base: Url, https: bool) -> Result<Self, TransportError> {
+        Self::build_in_region(super::ApiOrigin::Global, token, base, https)
+    }
+    pub(super) fn build_in_region(
+        origin: super::ApiOrigin,
+        token: &str,
+        base: Url,
+        https: bool,
+    ) -> Result<Self, TransportError> {
         if !super::valid_token(token) {
             return Err(TransportError::InvalidCredential);
         }
@@ -203,6 +250,8 @@ impl Client {
             base,
             authorization,
             scope: super::WriteScope::new(),
+            origin,
+            pacer: rate_limit::Pacer::new(),
         })
     }
     /// Read a captured identity without accepting a server-provided URL.
@@ -218,12 +267,12 @@ impl Client {
             .join(&format!("worklogs/{}", id.get()))
             .map_err(|_| Error::InvalidResponse)?;
         let response = self
-            .http
-            .get(url)
-            .header(header::AUTHORIZATION, self.authorization.clone())
-            .send()
-            .await
-            .map_err(|_| TransportError::Unavailable)?;
+            .read_response(
+                self.http
+                    .get(url)
+                    .header(header::AUTHORIZATION, self.authorization.clone()),
+            )
+            .await?;
         let row = parse_worklog(&bounded_body(response).await?)?;
         if row.id != id || &row.author != author {
             return Err(Error::WrongScope.into());
@@ -248,13 +297,17 @@ impl Client {
                 .join(&format!("worklogs/{}/work-attribute-values", id.get()))
                 .map_err(|_| Error::InvalidResponse)?;
             let response = self
-                .http
-                .get(url)
-                .header(header::AUTHORIZATION, self.authorization.clone())
-                .send()
-                .await
-                .map_err(|_| TransportError::Unavailable)?;
-            let attributes = parse_worklog_attributes(&bounded_body(response).await?, id)?;
+                .read_response(
+                    self.http
+                        .get(url)
+                        .header(header::AUTHORIZATION, self.authorization.clone()),
+                )
+                .await?;
+            let attributes = super::model::parse_worklog_attributes_in_region(
+                &bounded_body(response).await?,
+                id,
+                self.origin,
+            )?;
             let mut latest = self.worklog(author, id).await?;
             let loaded_attributes = latest.attributes.take();
             if latest != row {
@@ -271,7 +324,7 @@ impl Client {
         author: AccountId,
         range: DateRange,
     ) -> Result<Vec<Worklog>, TransportError> {
-        let mut pages = ReadPages::new(author, range)?;
+        let mut pages = ReadPages::in_region(author, range, self.origin)?;
         let url = self
             .base
             .join(&format!("worklogs/user/{}", pages.author().as_str()))
@@ -282,18 +335,18 @@ impl Client {
             loop {
                 let offset = pages.request_offset()?;
                 let response = self
-                    .http
-                    .get(url.clone())
-                    .header(header::AUTHORIZATION, self.authorization.clone())
-                    .query(&[
-                        ("from", from.as_str()),
-                        ("to", to.as_str()),
-                        ("limit", &READ_PAGE_SIZE.to_string()),
-                        ("offset", &offset.to_string()),
-                    ])
-                    .send()
-                    .await
-                    .map_err(|_| TransportError::Unavailable)?;
+                    .read_response(
+                        self.http
+                            .get(url.clone())
+                            .header(header::AUTHORIZATION, self.authorization.clone())
+                            .query(&[
+                                ("from", from.as_str()),
+                                ("to", to.as_str()),
+                                ("limit", &READ_PAGE_SIZE.to_string()),
+                                ("offset", &offset.to_string()),
+                            ]),
+                    )
+                    .await?;
                 let bytes = bounded_body(response).await?;
                 pages.push(offset, parse_worklogs(&bytes)?)?;
                 if pages.is_complete() {
@@ -315,16 +368,16 @@ impl Client {
             .join(&format!("user-schedule/{}", scope.author().as_str()))
             .map_err(|_| Error::InvalidResponse)?;
         let response = self
-            .http
-            .get(url)
-            .header(header::AUTHORIZATION, self.authorization.clone())
-            .query(&[
-                ("from", scope.range().start.to_string()),
-                ("to", scope.range().end.to_string()),
-            ])
-            .send()
-            .await
-            .map_err(|_| TransportError::Unavailable)?;
+            .read_response(
+                self.http
+                    .get(url)
+                    .header(header::AUTHORIZATION, self.authorization.clone())
+                    .query(&[
+                        ("from", scope.range().start.to_string()),
+                        ("to", scope.range().end.to_string()),
+                    ]),
+            )
+            .await?;
         let rows = parse_schedule(&bounded_body(response).await?)?;
         if rows.iter().any(|row| !scope.range().contains(row.date)) {
             return Err(Error::WrongScope.into());

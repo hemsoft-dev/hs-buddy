@@ -31,6 +31,7 @@ impl std::error::Error for CredentialError {}
 
 /// No Debug or Serialize. The only encoded representation belongs in the vault.
 pub struct Credentials {
+    tempo_origin: super::ApiOrigin,
     tempo_token: String,
     jira_origin: String,
     jira_email: String,
@@ -43,12 +44,28 @@ impl Credentials {
         jira_email: &str,
         jira_token: &str,
     ) -> Result<Self, CredentialError> {
+        Self::new_in_region(
+            super::ApiOrigin::Global,
+            tempo_token,
+            jira_origin,
+            jira_email,
+            jira_token,
+        )
+    }
+    pub fn new_in_region(
+        tempo_origin: super::ApiOrigin,
+        tempo_token: &str,
+        jira_origin: &str,
+        jira_email: &str,
+        jira_token: &str,
+    ) -> Result<Self, CredentialError> {
         if !super::valid_token(tempo_token) {
             return Err(CredentialError::Invalid);
         }
         let origin = super::jira::connection_origin(jira_origin, jira_email, jira_token)
             .map_err(|_| CredentialError::Invalid)?;
         Ok(Self {
+            tempo_origin,
             tempo_token: tempo_token.into(),
             jira_origin: origin.into(),
             jira_email: jira_email.into(),
@@ -57,6 +74,9 @@ impl Credentials {
     }
     pub fn tempo_token(&self) -> &str {
         &self.tempo_token
+    }
+    pub fn tempo_origin(&self) -> super::ApiOrigin {
+        self.tempo_origin
     }
     pub fn jira_origin(&self) -> &str {
         &self.jira_origin
@@ -73,6 +93,8 @@ impl Credentials {
 #[serde(deny_unknown_fields)]
 struct Stored {
     version: u8,
+    #[serde(default)]
+    tempo_origin: super::ApiOrigin,
     tempo_token: String,
     jira_origin: String,
     jira_email: String,
@@ -81,6 +103,7 @@ struct Stored {
 fn encode(value: &Credentials) -> Result<String, CredentialError> {
     serde_json::to_string(&Stored {
         version: 1,
+        tempo_origin: value.tempo_origin,
         tempo_token: value.tempo_token.clone(),
         jira_origin: value.jira_origin.clone(),
         jira_email: value.jira_email.clone(),
@@ -96,7 +119,8 @@ fn decode(value: &str) -> Result<Credentials, CredentialError> {
     if stored.version != 1 {
         return Err(CredentialError::Invalid);
     }
-    Credentials::new(
+    Credentials::new_in_region(
+        stored.tempo_origin,
         &stored.tempo_token,
         &stored.jira_origin,
         &stored.jira_email,

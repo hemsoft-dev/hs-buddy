@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1467] - 2026-10-18
+
+### Fixed
+
+- Bind Tempo regions and pace service requests (#818)
+
 ## [0.1.1466] - 2026-10-18
 
 ### Fixed

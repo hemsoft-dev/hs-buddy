@@ -21,6 +21,8 @@ mod jira;
 mod model;
 #[path = "tempo/mutation.rs"]
 mod mutation;
+#[path = "tempo/origin.rs"]
+mod origin;
 #[path = "tempo/paging.rs"]
 mod paging;
 #[path = "tempo/planner.rs"]
@@ -49,6 +51,7 @@ pub use model::{
     parse_schedule, parse_worklog, parse_worklog_attributes, parse_worklogs,
 };
 pub use mutation::{WriteAttempt, WriteOutcome, WritePhase, WriteRequest, WriteScope};
+pub use origin::ApiOrigin;
 pub use paging::{READ_PAGE_SIZE, ReadPages};
 pub use planner::{Planner, PlannerError, Snapshot};
 pub use project_accounts::{ProjectBillingAccount, ProjectBillingAccounts};

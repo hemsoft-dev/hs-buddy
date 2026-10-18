@@ -51,7 +51,15 @@ struct Links {
 
 pub(super) struct ProjectLinks(Vec<(BillingAccountId, bool)>);
 impl ProjectLinks {
+    #[cfg(test)]
     pub(super) fn parse(bytes: &[u8], project: JiraProjectId) -> Result<Self, Error> {
+        Self::parse_in_region(bytes, project, super::ApiOrigin::Global)
+    }
+    pub(super) fn parse_in_region(
+        bytes: &[u8],
+        project: JiraProjectId,
+        origin: super::ApiOrigin,
+    ) -> Result<Self, Error> {
         if bytes.len() > MAX_RESPONSE_BYTES {
             return Err(Error::TooLarge);
         }
@@ -68,7 +76,7 @@ impl ProjectLinks {
             if link.scope.kind != "PROJECT" || link.scope.id != project.get() {
                 return Err(Error::WrongScope);
             }
-            let account = account_identity(&link.account)?;
+            let account = account_identity(&link.account, origin)?;
             defaults += usize::from(link.default);
             if !link_ids.insert(link_id) || !account_ids.insert(account) || defaults > 1 {
                 return Err(Error::InvalidResponse);
@@ -98,19 +106,15 @@ impl ProjectLinks {
     }
 }
 
-fn account_identity(reference: &Reference) -> Result<BillingAccountId, Error> {
+fn account_identity(
+    reference: &Reference,
+    origin: super::ApiOrigin,
+) -> Result<BillingAccountId, Error> {
     if reference.reference.len() > 2048 {
         return Err(Error::InvalidResponse);
     }
     let url = Url::parse(&reference.reference).map_err(|_| Error::InvalidResponse)?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("api.tempo.io")
-        || url.port_or_known_default() != Some(443)
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
+    if !origin.matches(&url) || url.query().is_some() {
         return Err(Error::WrongScope);
     }
     let raw = url

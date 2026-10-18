@@ -7,10 +7,188 @@ use serde_json::json;
 
 use super::*;
 
+#[tokio::test]
+async fn regional_clients_bind_paging_accounts_and_expanded_attributes_to_their_origin() {
+    for origin in [
+        super::super::ApiOrigin::Global,
+        super::super::ApiOrigin::Europe,
+        super::super::ApiOrigin::Americas,
+    ] {
+        let regional = |value: String| value.replace("https://api.tempo.io", origin.as_str());
+        let next = format!(
+            "{}/4/worklogs/user/123456:synthetic-user?offset=50&limit=50",
+            origin.as_str()
+        );
+        let mut detail = single_worklog();
+        detail["attributes"]
+            .as_object_mut()
+            .unwrap()
+            .remove("values");
+        let service = Fixture::new(vec![
+            reply(200, &regional(page(0, Some(&next)))),
+            reply(200, &regional(page(50, None))),
+            reply(200, &regional(project_links(11))),
+            reply(200, &regional(account_page(0, 1, None))),
+            reply(200, &regional(detail.to_string())),
+            reply(200, &regional(attribute_response().to_string())),
+            reply(200, &regional(detail.to_string())),
+        ]);
+        let client =
+            Client::build_in_region(origin, "synthetic-tempo-token", service.base.clone(), false)
+                .unwrap();
+        assert_eq!(client.api_origin(), origin);
+        let (author, range) = scope();
+        assert!(
+            client
+                .worklogs(author.clone(), range)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            client
+                .project_billing_accounts(super::super::JiraProjectId::parse(11).unwrap())
+                .await
+                .unwrap()
+                .choices
+                .len(),
+            1
+        );
+        assert_eq!(
+            client
+                .worklog_for_edit(&author, WorklogId::parse(7).unwrap())
+                .await
+                .unwrap()
+                .attributes
+                .unwrap()
+                .len(),
+            2
+        );
+        let requests = service.requests.lock().unwrap();
+        assert_eq!(requests.len(), 7);
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.starts_with("GET /4/")
+                    && !request.starts_with("GET https://"))
+        );
+        assert!(requests[1].starts_with("GET /4/worklogs/user/123456:synthetic-user?from=2026-10-16&to=2026-10-17&limit=50&offset=50 "));
+    }
+}
+
+#[tokio::test]
+async fn regional_clients_reject_another_cluster_before_following_a_continuation() {
+    let next = "https://api.tempo.io/4/worklogs/user/123456:synthetic-user?offset=50";
+    let service = Fixture::new(vec![reply(200, &page(0, Some(next)))]);
+    let client = Client::build_in_region(
+        super::super::ApiOrigin::Europe,
+        "synthetic-tempo-token",
+        service.base.clone(),
+        false,
+    )
+    .unwrap();
+    let (author, range) = scope();
+    assert!(matches!(
+        client.worklogs(author, range).await,
+        Err(TransportError::Domain(Error::WrongScope))
+    ));
+    assert_eq!(service.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_long_retry_after_stops_without_an_early_automatic_read_retry() {
+    let response =
+        reply(429, "").replacen("Content-Length:", "Retry-After: 60\r\nContent-Length:", 1);
+    let service = Fixture::new(vec![response]);
+    let client = service.client();
+    let (author, range) = scope();
+    let started = Instant::now();
+    assert!(matches!(
+        client.worklogs(author.clone(), range).await,
+        Err(TransportError::RateLimited)
+    ));
+    assert!(matches!(
+        client.schedule(author, range).await,
+        Err(TransportError::RateLimited)
+    ));
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(service.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn review_regression_a_rate_limited_read_backs_off_and_loads_the_complete_result() {
+    let service = Fixture::new(vec![reply(429, ""), reply(200, &page(0, None))]);
+    let client = service.client();
+    let (author, range) = scope();
+    let started = Instant::now();
+    let result = client.worklogs(author, range).await;
+    assert!(
+        result.is_ok(),
+        "a bounded read retry should recover from 429"
+    );
+    assert!(result.unwrap().is_empty());
+    assert_eq!(service.requests.lock().unwrap().len(), 2);
+    assert!(started.elapsed() >= Duration::from_millis(900));
+}
+
+#[tokio::test]
+async fn review_regression_one_client_spaces_requests_across_different_read_methods() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let capture = observed.clone();
+    let schedule =
+        r#"{"self":"https://api.tempo.io/4/user-schedule","metadata":{"count":0},"results":[]}"#;
+    let service = Fixture::with_before_reply(
+        vec![
+            reply(200, schedule),
+            reply(200, &page(0, None)),
+            reply(200, schedule),
+        ],
+        move |_| capture.lock().unwrap().push(Instant::now()),
+    );
+    let client = service.client();
+    let (author, range) = scope();
+    client.schedule(author.clone(), range).await.unwrap();
+    client.worklogs(author.clone(), range).await.unwrap();
+    client.schedule(author, range).await.unwrap();
+    let observed = observed.lock().unwrap();
+    assert_eq!(observed.len(), 3);
+    assert!(
+        observed
+            .windows(2)
+            .all(|pair| pair[1].duration_since(pair[0]) >= Duration::from_millis(900))
+    );
+}
+
 pub(in crate::tempo) struct Fixture {
     pub(in crate::tempo) base: Url,
     pub(in crate::tempo) requests: Arc<Mutex<Vec<String>>>,
     join: Option<std::thread::JoinHandle<()>>,
+}
+
+#[tokio::test]
+async fn concurrent_reads_on_one_client_cannot_form_a_request_burst() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let capture = observed.clone();
+    let schedule =
+        r#"{"self":"https://api.tempo.io/4/user-schedule","metadata":{"count":0},"results":[]}"#;
+    let service = Fixture::with_before_reply(vec![reply(200, schedule); 3], move |_| {
+        capture.lock().unwrap().push(Instant::now())
+    });
+    let client = service.client();
+    let (author, range) = scope();
+    let results = tokio::join!(
+        client.schedule(author.clone(), range),
+        client.schedule(author.clone(), range),
+        client.schedule(author, range)
+    );
+    assert!(results.0.is_ok() && results.1.is_ok() && results.2.is_ok());
+    let observed = observed.lock().unwrap();
+    assert_eq!(observed.len(), 3);
+    assert!(
+        observed
+            .windows(2)
+            .all(|pair| pair[1].duration_since(pair[0]) >= Duration::from_millis(900))
+    );
 }
 impl Fixture {
     pub(in crate::tempo) fn new(responses: Vec<String>) -> Self {
@@ -207,26 +385,31 @@ async fn account_catalog_rebuilds_every_request_using_the_captured_connection() 
 }
 
 #[tokio::test]
-async fn account_catalog_later_failure_returns_no_partial_choices_or_replay() {
+async fn account_catalog_later_failure_never_publishes_partial_choices() {
     for (status, expected) in [
         (401, TransportError::Authentication),
         (429, TransportError::RateLimited),
         (500, TransportError::Service),
     ] {
-        let fixture = Fixture::new(vec![
-            reply(
-                200,
-                &account_page(0, 50, Some("https://api.tempo.io/4/accounts?offset=50")),
-            ),
+        let mut responses = vec![reply(
+            200,
+            &account_page(0, 50, Some("https://api.tempo.io/4/accounts?offset=50")),
+        )];
+        responses.extend(vec![
             reply(
                 status,
-                "synthetic private response must not appear in errors",
-            ),
+                "synthetic private response must not appear in errors"
+            );
+            if status == 429 { 4 } else { 1 }
         ]);
+        let fixture = Fixture::new(responses);
         assert!(
             matches!(fixture.client().billing_accounts().await, Err(error) if error == expected)
         );
-        assert_eq!(fixture.requests.lock().unwrap().len(), 2);
+        assert_eq!(
+            fixture.requests.lock().unwrap().len(),
+            if status == 429 { 5 } else { 2 }
+        );
         assert!(!expected.to_string().contains("synthetic private"));
     }
 }
@@ -506,7 +689,7 @@ async fn next_link_scope_changes_fail_before_another_request() {
 }
 
 #[tokio::test]
-async fn status_failures_are_static_and_not_retried_or_redirected() {
+async fn status_failures_are_static_with_bounded_rate_retries_and_no_redirects() {
     for (status, expected) in [
         (302, TransportError::Redirect),
         (401, TransportError::Authentication),
@@ -519,13 +702,14 @@ async fn status_failures_are_static_and_not_retried_or_redirected() {
             "Location: http://unrelated.invalid/\r\nContent-Length:",
             1,
         );
-        let fixture = Fixture::new(vec![response]);
+        let attempts = if status == 429 { 4 } else { 1 };
+        let fixture = Fixture::new(vec![response; attempts]);
         let (author, range) = scope();
         assert!(
             matches!(fixture.client().worklogs(author, range).await, Err(error) if error == expected)
         );
         assert!(!expected.to_string().contains("private server detail"));
-        assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+        assert_eq!(fixture.requests.lock().unwrap().len(), attempts);
     }
 }
 

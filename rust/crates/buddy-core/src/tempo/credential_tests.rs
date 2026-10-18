@@ -2,6 +2,18 @@ use std::cell::{Cell, RefCell};
 
 use super::*;
 
+#[test]
+fn review_regression_regional_origin_survives_the_protected_connection_roundtrip() {
+    for origin in ["https://api.eu.tempo.io", "https://api.us.tempo.io"] {
+        let stored = serde_json::json!({"version":1,"tempo_origin":origin,
+            "tempo_token":"synthetic-tempo","jira_origin":"https://synthetic.invalid",
+            "jira_email":"synthetic@example.invalid","jira_token":"synthetic-jira"});
+        let loaded = decode(&stored.to_string()).expect("regional connection must load");
+        let encoded: serde_json::Value = serde_json::from_str(&encode(&loaded).unwrap()).unwrap();
+        assert_eq!(encoded["tempo_origin"], origin);
+    }
+}
+
 #[derive(Default)]
 struct MemoryVault {
     value: RefCell<Option<String>>,
@@ -49,6 +61,18 @@ fn credentials() -> Credentials {
         "synthetic-jira",
     )
     .unwrap()
+}
+
+#[test]
+fn legacy_protected_connections_default_to_global_without_losing_credentials() {
+    let mut stored: serde_json::Value =
+        serde_json::from_str(&encode(&credentials()).unwrap()).unwrap();
+    stored.as_object_mut().unwrap().remove("tempo_origin");
+    let loaded = decode(&stored.to_string()).unwrap();
+    assert_eq!(loaded.tempo_origin(), super::super::ApiOrigin::Global);
+    assert_eq!(loaded.tempo_token(), "synthetic-tempo");
+    stored["tempo_origin"] = serde_json::json!("https://unrelated.invalid");
+    assert!(decode(&stored.to_string()).is_err());
 }
 
 #[test]

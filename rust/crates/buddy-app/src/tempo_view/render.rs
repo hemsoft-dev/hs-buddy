@@ -608,6 +608,27 @@ impl Render for TempoView {
             let mut form = v_flex()
                 .gap_2()
                 .child(div().text_lg().child("Tempo and Jira connection"));
+            let mut regions = h_flex().flex_wrap().gap_2();
+            for origin in [ApiOrigin::Global, ApiOrigin::Europe, ApiOrigin::Americas] {
+                regions = regions.child(
+                    Button::new(format!("tempo-region-{}", origin.label()))
+                        .label(origin.label())
+                        .selected(self.tempo_origin == origin)
+                        .disabled(self.busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.tempo_origin = origin;
+                            cx.notify();
+                        })),
+                );
+            }
+            form = form
+                .child(div().child("Tempo data region"))
+                .child(regions)
+                .child(
+                    div()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.tempo_origin.as_str()),
+                );
             for (label, input) in [
                 "Tempo API token",
                 "Jira HTTPS origin",

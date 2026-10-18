@@ -3,6 +3,7 @@ use crate::tempo::{AccountId, IssueId, WorklogId, WriteOutcome};
 
 fn context() -> Context {
     Context {
+        tempo_origin: super::super::ApiOrigin::Global,
         profile: "synthetic-profile-digest".into(),
         origin: "https://synthetic.atlassian.net/".into(),
         account: "synthetic-user".into(),
@@ -16,6 +17,42 @@ fn create() -> Draft {
         9007199254740993,
     )
     .unwrap()
+}
+
+#[test]
+fn recovery_keeps_its_tempo_cluster_and_legacy_records_belong_only_to_global() {
+    for origin in [
+        super::super::ApiOrigin::Global,
+        super::super::ApiOrigin::Europe,
+        super::super::ApiOrigin::Americas,
+    ] {
+        let mut binding = context();
+        binding.tempo_origin = origin;
+        let client = Client::new_in_region(origin, "synthetic-token").unwrap();
+        let attempt = client.capture(create()).unwrap();
+        let request = attempt.pending_request(client.write_scope()).unwrap();
+        let bytes = encode(request, &binding).unwrap();
+        assert!(decode(&bytes, &binding).is_ok());
+        binding.tempo_origin = if origin == super::super::ApiOrigin::Global {
+            super::super::ApiOrigin::Europe
+        } else {
+            super::super::ApiOrigin::Global
+        };
+        assert!(matches!(
+            decode(&bytes, &binding),
+            Err(Error::WrongConnection)
+        ));
+        if origin == super::super::ApiOrigin::Global {
+            let mut legacy: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            legacy.as_object_mut().unwrap().remove("tempo_origin");
+            let legacy = serde_json::to_vec(&legacy).unwrap();
+            assert!(decode(&legacy, &context()).is_ok());
+            assert!(matches!(
+                decode(&legacy, &binding),
+                Err(Error::WrongConnection)
+            ));
+        }
+    }
 }
 fn row() -> Worklog {
     parse_worklog(&serde_json::to_vec(&json!({"tempoWorklogId":123,"self":"https://api.tempo.io/4/worklogs/123", "issue":{"id":456,"self":"https://api.tempo.io/4/issues/456"},
