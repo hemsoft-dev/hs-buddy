@@ -181,12 +181,17 @@ class CellInput(unittest.TestCase):
             driver.drive(stage, CellInput.stage_actions(stage, session))
         return drive.call_args.args[2]
 
-    def test_every_mac_tempo_input_gets_one_bounded_offset_and_other_sessions_are_unchanged(self):
+    def test_every_mac_tempo_editor_gets_one_bounded_offset_and_other_sessions_are_unchanged(self):
         stages = ('connect-dark', 'range-navigation-dark', 'grid-navigation-dark', 'template-dark', 'denied-write-dark')
         for stage in stages:
             mac = [action for action in self.driven(stage, 'macos') if action[0] == 'input']
             self.assertTrue(mac, stage)
             for action in mac:
+                if action[1] in ('From', 'Through'):
+                    # ARM run on e0a4da68: these editors start 17pt below their
+                    # labels, so 30pt reached the Through border and typed nothing.
+                    self.assertEqual(len(action), 3, action[:2])
+                    continue
                 self.assertEqual(sum(isinstance(item, dict) for item in action), 1, action[:2])
                 self.assertEqual(action[-1], {'labelBottomOffset': 30}, action[:2])
             for session in ('windows', 'x11'):
@@ -258,6 +263,16 @@ class CellInput(unittest.TestCase):
         description = max(index for index, action in enumerate(reauth) if action[:2] == ('input', 'Description'))
         self.assertEqual(reauth[description + 1], ('key', 'Tab'))
         self.assertFalse([action for action in reauth[description + 1:] if action[0] == 'input'])
+
+    def test_retained_value_captures_reveal_the_whole_editor_not_only_its_label(self):
+        # Ubuntu run on e0a4da68: the Description label was visible, so the
+        # wait never scrolled and the retained value was cut off below.
+        denied = self.stage_actions('denied-write-dark', 'x11')
+        capture = denied.index(('capture', 'denied-description-retained-dark'))
+        self.assertEqual(denied[capture - 1], ('reveal_text', 'Denied native draft', 'Description'))
+        reauth = self.stage_actions('reauth-draft-dark', 'x11')
+        capture = reauth.index(('capture', 'retained-hours-after-lookup-dark'))
+        self.assertEqual(reauth[capture - 1], ('reveal_text', 'Work date', 'Hours or H:MM:SS'))
 
     def test_template_draft_evidence_requires_only_text_visible_at_the_scrolled_editor_end(self):
         tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))

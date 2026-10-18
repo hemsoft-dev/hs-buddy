@@ -150,14 +150,17 @@ class TempoDriver(settings.Driver):
 
     Mac OCR label height depends on descenders: Intel measured "Jira email" at
     10pt, so the default 20pt offset below the label reached an editor's top
-    border and typed nothing. The driver's bounded 30pt offset reaches each
-    inner editor. Other sessions keep their measured spacing.
+    border and typed nothing. Stacked editors start about 25pt below their
+    labels, and the bounded 30pt offset reaches each inner editor. The From
+    and Through editors start about 17pt below, so they keep the default.
+    Other sessions keep their measured spacing.
     """
 
     def drive(self, name, actions, concurrent=False, record=False):
         if self.session == 'macos':
             actions = [action + ({'labelBottomOffset': 30},)
-                if action[0] == 'input' and not isinstance(action[-1], dict) else action for action in actions]
+                if action[0] == 'input' and action[1] not in ('From', 'Through')
+                and not isinstance(action[-1], dict) else action for action in actions]
         return super().drive(name, actions, concurrent, record)
 
 
@@ -334,7 +337,10 @@ def qualify(executable, output, session, version, source, backend):
                     # to the next editor so the retained hours are legible.
                     ('key', 'Tab'),
                     ('wait_scroll_text', 'Hours or H:MM:SS', 'Tempo timesheet'), ('capture', 'denied-hours-retained-dark'),
-                    ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'), ('capture', 'denied-description-retained-dark'),
+                    # A visible label does not mean its editor is: reveal the
+                    # retained value in fine steps before the capture.
+                    ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
+                    ('reveal_text', 'Denied native draft', 'Description'), ('capture', 'denied-description-retained-dark'),
                     ('wait_scroll_text', 'Cancel editor', 'Description'), ('click', 'Cancel editor'),
                 ])
                 state = require_writes(api, 1, rejected=1)
@@ -392,6 +398,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('capture', 'draft-needs-fresh-lookup-dark'),
                     ('click', 'Look up issue and billing accounts'), ('wait_text', 'Capitalization: CapEx'),
                     ('wait_scroll_text', 'Hours or H:MM:SS', 'Look up issue and billing accounts'),
+                    ('reveal_text', 'Work date', 'Hours or H:MM:SS'),
                     ('capture', 'retained-hours-after-lookup-dark'),
                     ('wait_scroll_text', 'Cancel editor', 'Hours or H:MM:SS'),
                     ('capture', 'retained-draft-after-lookup-dark'), ('click', 'Cancel editor'),

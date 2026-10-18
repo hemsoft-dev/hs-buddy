@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1475] - 2026-10-18
+
+### Fixed
+
+- Reveal retained Tempo editors and keep date-field offsets (#818)
+
 ## [0.1.1474] - 2026-10-18
 
 ### Fixed
