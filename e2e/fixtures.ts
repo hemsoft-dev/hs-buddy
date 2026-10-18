@@ -12,8 +12,12 @@ import { installGitHubNetwork } from './github-network'
  * Extend Playwright's base test with automatic IPC mocking.
  * All E2E specs should import { test, expect } from this file.
  */
-export const test = base.extend<{ convexQueries: Record<string, unknown> }>({
+export const test = base.extend<{
+  convexQueries: Record<string, unknown>
+  githubAccounts: Array<{ username: string; org: string }>
+}>({
   convexQueries: [{}, { option: true }],
+  githubAccounts: [[{ username: 'test-user', org: 'test-org' }], { option: true }],
   context: async ({ context, baseURL }, use, testInfo) => {
     if (testInfo.project.name === 'electron-cdp') {
       // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -27,7 +31,7 @@ export const test = base.extend<{ convexQueries: Record<string, unknown> }>({
     await Promise.all(context.pages().map(page => page.close()))
     expect(unexpected, 'Unhandled external requests').toEqual([])
   },
-  page: async ({ page, convexQueries }, use, testInfo) => {
+  page: async ({ page, convexQueries, githubAccounts }, use, testInfo) => {
     // Only inject mocks for browser-e2e project.
     // The electron-cdp project connects to a real Electron app with preload APIs.
     if (testInfo.project.name === 'electron-cdp') {
@@ -61,7 +65,7 @@ export const test = base.extend<{ convexQueries: Record<string, unknown> }>({
 
     // Inject Electron API mocks BEFORE any page scripts execute.
     // This mimics what the preload script provides in the real Electron environment.
-    await page.addInitScript(() => {
+    await page.addInitScript(accounts => {
       // Track IPC listeners for event simulation
       const ipcListeners: Record<string, Array<(...args: unknown[]) => void>> = {}
 
@@ -89,7 +93,7 @@ export const test = base.extend<{ convexQueries: Record<string, unknown> }>({
             case 'config:get-config':
               return Promise.resolve({
                 github: {
-                  accounts: [{ username: 'test-user', org: 'test-org' }],
+                  accounts,
                 },
                 ui: {
                   theme: 'dark',
@@ -228,7 +232,7 @@ export const test = base.extend<{ convexQueries: Record<string, unknown> }>({
         onStatusChange: () => {},
         offStatusChange: () => {},
       }
-    })
+    }, githubAccounts)
 
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page)

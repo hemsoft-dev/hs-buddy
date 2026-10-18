@@ -13,6 +13,16 @@ class Point(c.Structure):
     _fields_ = [("x", c.c_double), ("y", c.c_double)]
 
 
+def _focus_diagnostic(script):
+    try:
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        # AX geometry is ancillary telemetry. Never replace an actual app
+        # assertion with its timeout, and never invent successful focus flags.
+        return dict(returncode=None, text="", error="Owned Mac focus diagnostics timed out.")
+    return dict(returncode=result.returncode, text=result.stdout.strip(), error=result.stderr.strip())
+
+
 class OwnedMacInput:
     def __init__(self, process):
         if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1":
@@ -72,6 +82,8 @@ class OwnedMacInput:
         """Normalize the guarded runner's input after System Events shortcuts."""
         self.require_focus()
         before = self.graphics.CGEventSourceFlagsState(COMBINED_SESSION)
+        if not before & MODIFIER_MASK:
+            return dict(before=before, after=before)
         for code in (54, 55, 56, 60, 58, 61, 59, 62):  # Both Command/Shift/Option/Control keys.
             self.post(self.graphics.CGEventCreateKeyboardEvent(None, code, False))
         for _ in range(20):
@@ -82,6 +94,7 @@ class OwnedMacInput:
         raise RuntimeError("The disposable Mac keyboard modifier state did not clear")
 
     def click(self, x, y):
+        self.last_click_trace = []
         self.release_modifiers()
         # System Events' accessibility click can invoke a button without focusing
         # GPUI's text input. Send the actual mouse events to the owned process.
@@ -92,6 +105,14 @@ class OwnedMacInput:
                 self.graphics.CGEventSetIntegerValueField(event, 1, 1)
             self.post(event)
             time.sleep(0.05)
+            # State telemetry is not proof that the GPUI callback ran. Keep
+            # every phase of the one click, without retrying a failed action.
+            try:
+                down = bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, 0))
+            except Exception:
+                # Ancillary telemetry must not interrupt the down/up sequence.
+                down = None
+            self.last_click_trace.append(dict(eventType=kind, leftButtonDown=down))
 
     def replace_text(self, text):
         self.release_modifiers()
@@ -120,7 +141,7 @@ class OwnedMacInput:
             f'whose unix id is {self.process.pid}\n'
             'return {value of attribute "AXMain" of window 1, '
             'value of attribute "AXFocused" of window 1}\nend tell')
-        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+        result = _focus_diagnostic(script)
         # Read geometry and role only. Do not read an input's value, title,
         # description, or any other potentially sensitive field content.
         script = (f'tell application "System Events" to tell first application process '
@@ -128,7 +149,7 @@ class OwnedMacInput:
             'set focusedElement to value of attribute "AXFocusedUIElement"\n'
             'return {role of focusedElement, enabled of focusedElement, '
             'position of focusedElement, size of focusedElement}\nend tell')
-        focused = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+        focused = _focus_diagnostic(script)
         event = self.graphics.CGEventCreate(None)
         if not event:
             raise RuntimeError("Could not inspect the disposable Mac pointer")
@@ -136,11 +157,11 @@ class OwnedMacInput:
             pointer = self.graphics.CGEventGetLocation(event)
         finally:
             self.core.CFRelease(event)
-        return dict(returncode=result.returncode, flags=result.stdout.strip(), error=result.stderr.strip(),
+        return dict(returncode=result['returncode'], flags=result['text'], error=result['error'],
             modifiers=self.graphics.CGEventSourceFlagsState(COMBINED_SESSION),
             postEventAccess=bool(self.graphics.CGPreflightPostEventAccess()), pointer=[pointer.x, pointer.y],
             leftButtonDown=bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, 0)),
-            focusedElement=dict(returncode=focused.returncode, geometry=focused.stdout.strip(), error=focused.stderr.strip()))
+            focusedElement=dict(returncode=focused['returncode'], geometry=focused['text'], error=focused['error']))
 
     def scroll(self, x, y, delta, *, precise=False):
         self.require_focus()

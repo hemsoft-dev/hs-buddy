@@ -9,6 +9,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1464] - 2026-10-18
+
+### Fixed
+
+- Handle exited macOS process groups during cleanup (#817)
+
+## [0.1.1463] - 2026-10-18
+
+### Changed
+
+- Capture Todoist requests before sending responses (#817)
+
+## [0.1.1462] - 2026-10-18
+
+### Fixed
+
+- Keep sidebar empty states readable in both themes (#817)
+
+## [0.1.1461] - 2026-10-18
+
+### Fixed
+
+- Select visible Todoist projects without disabled-label waits (#817)
+
+## [0.1.1460] - 2026-10-18
+
+### Fixed
+
+- Keep primary task actions above scrolling controls (#817)
+
+## [0.1.1459] - 2026-10-18
+
+### Fixed
+
+- Preserve actionable Todoist tasks in compact windows (#817)
+
+## [0.1.1458] - 2026-10-18
+
+### Fixed
+
+- Reveal scoped Todoist tasks before desktop assertions (#817)
+
+## [0.1.1457] - 2026-10-18
+
+### Fixed
+
+- Qualify Todoist scopes without Mac network discovery (#817)
+
+## [0.1.1456] - 2026-10-17
+
+### Fixed
+
+- Normalize native input and reveal task confirmation (#817)
+
+## [0.1.1455] - 2026-10-17
+
+### Changed
+
+- Reveal confirmed task after recovery (#817)
+
+## [0.1.1454] - 2026-10-17
+
+### Changed
+
+- Trace native account focus and reveal undated task details (#817)
+
+## [0.1.1453] - 2026-10-17
+
+### Changed
+
+- Preserve native qualification trace filters (#817)
+
+## [0.1.1452] - 2026-10-17
+
+### Changed
+
+- Retain Windows Todoist input spacing (#817)
+
+## [0.1.1451] - 2026-10-17
+
+### Fixed
+
+- Isolate Todoist task scope scroll positions (#817)
+
+## [0.1.1450] - 2026-10-17
+
+### Changed
+
+- Reveal offscreen Todoist tasks during qualification (#817)
+
+## [0.1.1449] - 2026-10-17
+
+### Changed
+
+- Identify offline SDK qualification failure stages (#817)
+
+## [0.1.1448] - 2026-10-17
+
+### Fixed
+
+- Validate Todoist cursor reads and credential replacement (#817)
+
+## [0.1.1447] - 2026-10-17
+
+### Fixed
+
+- Refresh Todoist account dates and reconnect scopes (#817)
+
+## [0.1.1446] - 2026-10-17
+
+### Fixed
+
+- Report unavailable Mac focus diagnostics
+
+## [0.1.1445] - 2026-10-17
+
+### Fixed
+
+- Preserve Todoist recovery and scoped planning (#817)
+
+## [0.1.1444] - 2026-10-17
+
+### Added
+
+- Port Todoist task planning to Rust and GPUI (#817)
+
 ## [0.1.1443] - 2026-10-17
 
 ### Fixed

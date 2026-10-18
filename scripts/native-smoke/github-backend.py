@@ -1,23 +1,15 @@
 """Synthetic GitHub API for installed native qualification; never forwards traffic."""
 from datetime import date, timedelta
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import re
-from socketserver import TCPServer
 import threading
 from urllib.parse import urlparse, parse_qs
+from loopback_http import LoopbackHTTPServer
 
 NOW = "2026-10-15T12:00:00Z"
 SHA = "a" * 40
 REPO = "fixture-org/native-demo"
-
-
-class LoopbackHTTPServer(ThreadingHTTPServer):
-    def server_bind(self):
-        # HTTPServer resolves its bound hostname. That unnecessary discovery
-        # opens a macOS local-network permission dialog over the CI app.
-        TCPServer.server_bind(self)
-        self.server_name, self.server_port = self.server_address[:2]
 
 
 def connection(nodes, more=False):

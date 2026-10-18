@@ -228,4 +228,5 @@ jobs:
             release/native/**/*.deb
             release/native/**/*.dmg
             ${{ runner.temp }}/native-evidence/**
+            ${{ runner.temp }}/buddy-settings-backend-*/backend.log
           if-no-files-found: error

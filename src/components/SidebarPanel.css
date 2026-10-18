@@ -432,9 +432,8 @@
 }
 
 .sidebar-item-empty {
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-style: italic;
-  opacity: 0.7;
   cursor: default !important;
   display: flex;
   align-items: center;

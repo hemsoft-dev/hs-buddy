@@ -193,10 +193,16 @@ class Driver:
             for action in actions:
                 kind, *values = action
                 if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
-                    # Unix OCR may name the adjacent row control. Windows
-                    # resolves the input semantically and only needs its value.
+                    # An adjacent Unix row control is not part of the Windows
+                    # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
-                    commands.append(kind + "64:" + ":".join(map(b64, encoded)))
+                    command = kind + "64:" + ":".join(map(b64, encoded))
+                    if kind == "input" and len(values) > 2 and isinstance(values[2], dict):
+                        hint = values[2]
+                        if set(hint) != {"labelBottomOffset"} or type(hint["labelBottomOffset"]) is not int or not 20 <= hint["labelBottomOffset"] <= 40:
+                            raise RuntimeError("The input needs a bounded label-to-editor offset")
+                        command += ":" + str(hint["labelBottomOffset"])
+                    commands.append(command)
                 elif kind == "capture":
                     commands.append("capture:" + str(directory / (values[0] + ".png")))
                 elif kind == "resize":
@@ -205,7 +211,8 @@ class Driver:
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above"):
-                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + b64(values[0]))
+                    encoded = values[:2] if kind == "wait_scroll_text" else values[:1]
+                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + ":".join(map(b64, encoded)))
                 elif kind == "wait_models":
                     commands.append("waitmodeltext64:" + b64(values[0]))
                 elif kind == "reveal_text":
@@ -235,7 +242,7 @@ class Driver:
     def unix(self, directory, actions, concurrent, record):
         if os.environ.get("GITHUB_ACTIONS") != "true":
             raise RuntimeError("Unix settings input requires a disposable CI desktop")
-        environment = dict(os.environ, BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
+        environment = dict(os.environ, RUST_LOG=(os.environ.get("RUST_LOG") or "warn") + ",buddy::settings_view=debug", BUDDY_CONFIG_PATH=str(self.config), BUDDY_CONVEX_URL=self.backend.url,
             GH_CONFIG_DIR=str(self.profile / "empty-gh"))
         for key in ("GH_TOKEN", "GITHUB_TOKEN", "ELECTRON_RUN_AS_NODE"):
             environment.pop(key, None)
@@ -403,12 +410,23 @@ class Driver:
 
     def input_receipt(self, helper, directory, stage, kind, label, target):
         with (directory / "input-state.jsonl").open("a", encoding="utf-8") as receipt:
-            receipt.write(json.dumps(dict(stage=stage, kind=kind, label=label,
-                target=target, state=helper.focus_state())) + "\n")
+            value = dict(stage=stage, kind=kind, label=label, target=target, state=helper.focus_state())
+            trace = getattr(helper, "last_click_trace", None)
+            if isinstance(trace, list):
+                value["clickTrace"] = trace
+            receipt.write(json.dumps(value) + "\n")
 
     def interact(self, window, directory, kind, values):
         image = directory / "locator.png"
-        row_control = values[2] if kind == "input" and len(values) == 3 else None
+        hint = values[2] if kind == "input" and len(values) == 3 else None
+        offset = 20
+        if isinstance(hint, dict):
+            if set(hint) != {"labelBottomOffset"} or type(hint["labelBottomOffset"]) is not int or not 20 <= hint["labelBottomOffset"] <= 40:
+                raise RuntimeError("The input needs a bounded label-to-editor offset")
+            offset = hint["labelBottomOffset"]
+            row_control = None
+        else:
+            row_control = hint
         if row_control is None:
             label = self.locate(window, image, kind, values[0])
         else:
@@ -431,9 +449,10 @@ class Driver:
             elif kind == "rightfield":
                 x = width / scale * 3 / 4
             elif kind == "input":
-                # GitHub fields can occupy a narrow column and have no Save
-                # control. Target the editor immediately below its own label.
+                # Compact fields and spaced forms have different label gaps.
+                # Only an explicit form hint may change the default target.
                 x = label["left"] / scale + 20
+                y = (label["top"] + label["height"]) / scale + offset
         if "row_control" in label:
             control = label["row_control"]
             y = (control["top"] + control["height"] / 2) / scale
@@ -611,12 +630,12 @@ def qualify(executable, output, session, checkout, backend):
     if saved["packageQualificationSentinel"] != {"preserve": True}:
         raise RuntimeError("Unknown shared config fields were lost")
     verify_text(appearance / "keyboard-compact-light.png", "six-digit hex color")
-    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"),
-        ("click", "Automatic refresh: on"), ("capture", "pr-light"), ("nav", "Copilot"),
-        ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"),
+    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"), ("wait_text", "Saved"),
+        ("click", "Automatic refresh: on"), ("wait_text", "Saved"), ("capture", "pr-light"), ("nav", "Copilot"),
+        ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"), ("wait_text", "Saved"),
         ("field", "Model ID|Model 1D|Model lD", "fixture-model"),
-        ("save", "Model ID|Model 1D|Model lD"), ("capture", "copilot-light"),
-        ("nav", "Notifications"), ("click", "Review completion sound: off"),
+        ("save", "Model ID|Model 1D|Model lD"), ("wait_text", "Saved"), ("capture", "copilot-light"),
+        ("nav", "Notifications"), ("click", "Review completion sound: off"), ("wait_text", "Review completion sound: on"),
         ("field", "Notification audio file", "relative.wav"), ("save", "Notification audio file"),
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
         ("nav", "Advanced"), ("capture", "advanced-light")])

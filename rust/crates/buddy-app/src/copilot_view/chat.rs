@@ -136,7 +136,6 @@ impl ChatView {
     fn send(&mut self, saved: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.models_loading
             || self.review_loading
-            || self.review_loading
             || (!saved && self.review.is_some())
             || !cx.has_global::<Runtime>()
         {

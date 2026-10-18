@@ -215,30 +215,51 @@ async fn exercise(owned: PathBuf) -> Result<serde_json::Value, ()> {
         owned.join("runtime"),
     )
     .await
-    .map_err(|_| ())?;
+    .map_err(|error| {
+        eprintln!("Offline SDK auth preparation failed: {error:?}");
+    })?;
+    eprintln!("Offline SDK qualification: create unauthenticated state directory");
     let directory = tempfile::Builder::new()
         .prefix("auth-check-")
         .tempdir_in(owned.join("turns"))
-        .map_err(|_| ())?;
+        .map_err(|error| report_io_failure("auth-directory-create", &error))?;
+    eprintln!("Offline SDK qualification: start unauthenticated transport");
     let runtime = AssistantRuntime::start(program.program(), directory.path(), None)
         .await
-        .map_err(|_| ())?;
-    if !matches!(
-        runtime.create_session("synthetic-account", "gpt-4.1").await,
-        Err(Failure::AuthenticationRequired)
-    ) {
-        return Err(());
+        .map_err(|failure| {
+            eprintln!("Offline SDK unauthenticated transport failed: {failure:?}");
+        })?;
+    eprintln!("Offline SDK qualification: reject unauthenticated session");
+    match runtime.create_session("synthetic-account", "gpt-4.1").await {
+        Err(Failure::AuthenticationRequired) => {}
+        Err(failure) => {
+            eprintln!("Offline SDK authentication rejection returned: {failure:?}");
+            return Err(());
+        }
+        Ok(_) => {
+            eprintln!("Offline SDK authentication rejection unexpectedly created a session.");
+            return Err(());
+        }
     }
-    runtime.stop().await.map_err(|_| ())?;
+    eprintln!("Offline SDK qualification: stop unauthenticated transport");
+    runtime.stop().await.map_err(|failure| {
+        eprintln!("Offline SDK unauthenticated stop failed: {failure:?}");
+    })?;
     drop(runtime);
-    directory.close().map_err(|_| ())?;
+    eprintln!("Offline SDK qualification: close unauthenticated state directory");
+    directory
+        .close()
+        .map_err(|error| report_io_failure("auth-directory-close", &error))?;
+    eprintln!("Offline SDK qualification: create retained-session state directory");
     let directory = tempfile::Builder::new()
         .prefix("clone-check-")
         .tempdir_in(owned.join("turns"))
-        .map_err(|_| ())?;
+        .map_err(|error| report_io_failure("clone-directory-create", &error))?;
+    eprintln!("Offline SDK qualification: load retained-session fixture");
     let fixture = crate::copilot_fixture::load(&owned)
         .map_err(|_| ())?
         .ok_or(())?;
+    eprintln!("Offline SDK qualification: start retained-session transport");
     let runtime = AssistantRuntime::start_with_fixture(
         program.program(),
         directory.path(),
@@ -246,33 +267,53 @@ async fn exercise(owned: PathBuf) -> Result<serde_json::Value, ()> {
         Some(fixture),
     )
     .await
-    .map_err(|_| ())?;
+    .map_err(|failure| {
+        eprintln!("Offline SDK retained-session transport failed: {failure:?}");
+    })?;
+    eprintln!("Offline SDK qualification: create retained session");
     let session = Arc::new(
         runtime
             .create_session("synthetic-account", "gpt-4.1")
             .await
-            .map_err(|_| ())?,
+            .map_err(|failure| {
+                eprintln!("Offline SDK retained-session creation failed: {failure:?}");
+            })?,
     );
     let retained = session.clone();
     drop(session);
+    eprintln!("Offline SDK qualification: drop runtime while retaining session");
     drop(runtime);
     if !matches!(
         tokio::time::timeout(Duration::from_secs(5), retained.send("BUDDYSTREAM61527")).await,
         Ok(Err(_))
     ) {
+        eprintln!("Offline SDK retained session did not reject sending after runtime drop.");
         return Err(());
     }
     drop(retained);
-    directory.close().map_err(|_| ())?;
+    eprintln!("Offline SDK qualification: close retained-session state directory");
+    directory
+        .close()
+        .map_err(|error| report_io_failure("clone-directory-close", &error))?;
+    eprintln!("Offline SDK qualification: verify no temporary turn directories remain");
     let remaining = std::fs::read_dir(owned.join("turns"))
-        .map_err(|_| ())?
+        .map_err(|error| report_io_failure("turn-directories-read", &error))?
         .count();
     if remaining != 0 {
+        eprintln!("Offline SDK temporary turn directories remaining: {remaining}");
         return Err(());
     }
     Ok(
         serde_json::json!({"offline":true,"actualSdkStream":true,"unicodeDeltas":true,"unsavedNoRecord":true,"cancelPartialRetained":true,"savedOutputReadBack":true,"savedCancellationReadBack":true,"activeHandleDropStopped":true,"unauthenticatedSessionRejected":true,"retainedSessionTransportStopped":true,"temporaryTurnDirectories":remaining,"upstreamForwarder":false}),
     )
+}
+
+fn report_io_failure(stage: &'static str, error: &std::io::Error) {
+    eprintln!(
+        "Offline SDK check {stage}: kind={:?}, os_code={:?}",
+        error.kind(),
+        error.raw_os_error()
+    );
 }
 
 #[cfg(test)]
