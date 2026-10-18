@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1471] - 2026-10-18
+
+### Fixed
+
+- Retry busy memory profiles without hiding measurement failures (#818)
+
 ## [0.1.1470] - 2026-10-18
 
 ### Fixed
