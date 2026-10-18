@@ -153,14 +153,55 @@ pub(crate) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result
         }) {
             continue;
         }
-        if unsafe { libc::kill(-group, signal) } != 0 {
+        let result = if unsafe { libc::kill(-group, signal) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        };
+        group_signal_result(result, || group_has_running_member(group))?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn group_signal_result(
+    result: std::io::Result<()>,
+    has_running_member: impl FnOnce() -> std::io::Result<bool>,
+) -> std::io::Result<()> {
+    match result {
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
+        // Darwin returns EPERM for a group containing only unreaped zombies.
+        // The last live member can exit after our ownership check. Confirm
+        // absence with a fresh inventory; a live group or failed query stays red.
+        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {
+            if has_running_member()? {
+                Err(error)
+            } else {
+                Ok(())
+            }
+        }
+        result => result,
+    }
+}
+
+#[cfg(unix)]
+fn group_has_running_member(group: i32) -> std::io::Result<bool> {
+    for pid in process_ids()? {
+        if pid <= 1 {
+            continue;
+        }
+        let actual = unsafe { libc::getpgid(pid) };
+        if actual == group {
+            return Ok(true);
+        }
+        if actual < 0 {
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() != Some(libc::ESRCH) {
                 return Err(error);
             }
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -212,6 +253,121 @@ fn process_ids() -> std::io::Result<Vec<i32>> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn permission_errors_require_a_fresh_empty_group_before_cleanup_succeeds() {
+        let permission = || std::io::Error::from_raw_os_error(libc::EPERM);
+        assert!(super::group_signal_result(Err(permission()), || Ok(false)).is_ok());
+        assert_eq!(
+            super::group_signal_result(Err(permission()), || Ok(true))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::EPERM)
+        );
+        assert_eq!(
+            super::group_signal_result(Err(permission()), || {
+                Err(std::io::Error::from_raw_os_error(libc::EIO))
+            })
+            .unwrap_err()
+            .raw_os_error(),
+            Some(libc::EIO)
+        );
+    }
+
+    #[test]
+    fn a_group_that_exits_after_validation_is_already_stopped() {
+        use std::io::Write;
+        use std::os::unix::process::CommandExt;
+        let mut command = std::process::Command::new("/bin/sh");
+        command
+            .args(["-c", "read value; exit 7"])
+            .stdin(std::process::Stdio::piped());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let pid = child.id() as i32;
+        assert!(super::group_has_live_member(pid, pid, &[pid], |member| {
+            (unsafe { libc::getsid(member) }, unsafe {
+                libc::getpgid(member)
+            })
+        }));
+        child.stdin.take().unwrap().write_all(b"q\n").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !super::shell_exited(pid).unwrap() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let result = if unsafe { libc::kill(-pid, libc::SIGKILL) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        };
+        if let Err(error) = &result {
+            assert_eq!(error.raw_os_error(), Some(libc::EPERM));
+        }
+        let cleanup = super::group_signal_result(result, || super::group_has_running_member(pid));
+        assert_eq!(child.wait().unwrap().code(), Some(7));
+        assert!(cleanup.is_ok(), "Exited owned session cleanup: {cleanup:?}");
+    }
+
+    #[test]
+    fn exited_leader_cleanup_stops_its_live_descendant_and_preserves_an_unrelated_child() {
+        use std::io::{BufRead, Write};
+        use std::os::unix::process::CommandExt;
+        let mut unrelated = std::process::Command::new("/bin/sh")
+            .args(["-c", "read value"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut command = std::process::Command::new("/bin/sh");
+        command
+            .args(["-c", "sleep 30 & echo $!; read value; exit 7"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let pid = child.id() as i32;
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let descendant: i32 = line.trim().parse().unwrap();
+        assert_eq!(unsafe { libc::getsid(descendant) }, pid);
+        child.stdin.take().unwrap().write_all(b"q\n").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !super::shell_exited(pid).unwrap() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let cleanup = super::signal_shell_session(pid, libc::SIGKILL);
+        let status = child.wait().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while unsafe { libc::getsid(descendant) } == pid {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let unrelated_alive = unrelated.try_wait().unwrap().is_none();
+        unrelated.kill().unwrap();
+        unrelated.wait().unwrap();
+        assert_eq!(status.code(), Some(7));
+        assert!(cleanup.is_ok(), "Exited owned session cleanup: {cleanup:?}");
+        assert!(unrelated_alive);
+    }
+
     #[test]
     fn observing_shell_exit_leaves_its_original_child_identity_waitable() {
         let mut child = std::process::Command::new("/bin/sh")
