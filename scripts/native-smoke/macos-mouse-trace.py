@@ -10,6 +10,29 @@ import time
 from desktop import finish_cleanup
 
 
+def _capture_dialogs(rows, directory):
+    """Capture only the system windows already proven to intercept this app."""
+    identifiers = sorted({window["windowNumber"] for row in rows
+        for window in row.get("referencedWindows", [])
+        if window.get("available") is True
+        and window.get("kCGWindowOwnerName") == "UserNotificationCenter"
+        and window.get("kCGWindowOwnerPID") != row.get("ownedPid")
+        and type(window.get("windowNumber")) is int and window["windowNumber"] > 0})
+    if not identifiers:
+        return
+    if (sys.platform != "darwin" or os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1"):
+        raise RuntimeError("System-dialog capture requires the disposable CI Mac fixture")
+    for identifier in identifiers:
+        target = directory / f"foreign-system-dialog-{identifier}.png"
+        if target.exists():
+            raise RuntimeError("System-dialog diagnostics must not reuse earlier evidence")
+        subprocess.run(["screencapture", "-x", "-o", "-l", str(identifier), str(target)],
+            check=True, capture_output=True, timeout=10)
+        if not target.is_file() or target.stat().st_size == 0:
+            raise RuntimeError("The intercepted system dialog did not produce a window capture")
+
+
 @contextmanager
 def monitor(process, directory):
     executable = os.environ.get("BUDDY_MAC_MOUSE_MONITOR")
@@ -65,4 +88,5 @@ def _owned_monitor(executable, pid, directory):
                     if ((had_mouse_actions and not rows)
                             or any(row.get("ownedPid") != pid or row.get("tapDisabled") for row in rows)):
                         raise RuntimeError("The passive monitor did not preserve valid owned-process events")
+                    _capture_dialogs(rows, directory)
                 finish_cleanup(cleanup, primary, "Passive mouse diagnostic cleanup")

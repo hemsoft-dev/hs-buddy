@@ -1,6 +1,7 @@
 """Lifecycle regressions; no native APIs, desktops, credentials or UI are used."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,42 @@ spec.loader.exec_module(trace)
 
 
 class MouseTraceLifecycle(unittest.TestCase):
+    def dialog_rows(self):
+        window = dict(available=True, windowNumber=27, kCGWindowOwnerName="UserNotificationCenter", kCGWindowOwnerPID=99)
+        return [dict(ownedPid=123, referencedWindows=[window, dict(window, windowNumber=28, kCGWindowOwnerName="Another app")]),
+            dict(ownedPid=123, referencedWindows=[window])]
+
+    def test_capture_is_one_exact_intercepted_dialog_and_never_the_whole_display(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            target = directory / "foreign-system-dialog-27.png"
+            def capture(command, **kwargs):
+                self.assertEqual(command, ["screencapture", "-x", "-o", "-l", "27", str(target)])
+                self.assertEqual(kwargs, dict(check=True, capture_output=True, timeout=10))
+                target.write_bytes(b"Synthetic window capture fixture")
+            with patch.object(trace.sys, "platform", "darwin"), patch.dict(os.environ, GITHUB_ACTIONS="true", BUDDY_SETTINGS_FIXTURE="1"), patch.object(trace.subprocess, "run", side_effect=capture) as run:
+                trace._capture_dialogs(self.dialog_rows(), directory)
+            run.assert_called_once()
+            self.assertEqual(target.read_bytes(), b"Synthetic window capture fixture")
+
+    def test_dialog_capture_refuses_non_ci_before_any_native_call(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, GITHUB_ACTIONS="false"), patch.object(trace.subprocess, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "disposable CI Mac"):
+                trace._capture_dialogs(self.dialog_rows(), Path(temp))
+            run.assert_not_called()
+
+    def test_dialog_capture_failure_preserves_the_exact_primary_application_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            primary = RuntimeError("Actual failed account assertion")
+            with patch.object(trace.subprocess, "Popen", side_effect=lambda *a, **k: self.fixture(directory)), patch.object(trace, "_capture_dialogs", side_effect=OSError("Synthetic screenshot failure")) as capture:
+                with self.assertRaises(RuntimeError) as observed:
+                    with trace._owned_monitor("monitor", 123, directory):
+                        raise primary
+            self.assertIs(observed.exception, primary)
+            self.assertIn("primary failure retained", primary.__notes__[0])
+            capture.assert_called_once()
+
     def fixture(self, directory, *, code=-15, disabled=False):
         child = Mock()
         child.poll.return_value = None
