@@ -246,6 +246,19 @@ class CellInput(unittest.TestCase):
         helper.click.assert_called_once_with(164, 603)
         helper.replace_text.assert_called_once_with(desktop.tempo.JIRA_EMAIL)
 
+    def test_retained_value_captures_move_focus_off_the_checked_editor(self):
+        # Ubuntu run on 8adcc55a: Tesseract read every unfocused editor but
+        # never the focused Hours value 1:30:01 inside its focus ring.
+        denied = self.stage_actions('denied-write-dark', 'x11')
+        last_hours = max(index for index, action in enumerate(denied) if action[:2] == ('input', 'Hours or H:MM:SS'))
+        capture = denied.index(('capture', 'denied-hours-retained-dark'))
+        self.assertIn(('key', 'Tab'), denied[last_hours + 1:capture])
+        self.assertFalse([action for action in denied[last_hours + 1:capture] if action[0] == 'input'])
+        reauth = self.stage_actions('reauth-draft-dark', 'x11')
+        description = max(index for index, action in enumerate(reauth) if action[:2] == ('input', 'Description'))
+        self.assertEqual(reauth[description + 1], ('key', 'Tab'))
+        self.assertFalse([action for action in reauth[description + 1:] if action[0] == 'input'])
+
     def test_template_draft_evidence_requires_only_text_visible_at_the_scrolled_editor_end(self):
         tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))
         markers, = [[argument.value for argument in node.args[1:]] for node in ast.walk(tree)
