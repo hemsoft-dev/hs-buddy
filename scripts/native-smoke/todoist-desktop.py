@@ -190,13 +190,17 @@ def qualify(executable, output, session, version, backend):
                 ('input', 'Todoist API token', todoist.TOKEN, {'labelBottomOffset': 32}), ('click', 'Save and connect'),
                 ('wait_text', 'Synthetic today task'), ('capture', 'today-dark'),
                 ('click', 'Upcoming'), ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'upcoming-dark'),
-                ('click', 'Projects'), ('click', 'Synthetic Beta'),
+                ('click', 'Projects'), ('wait_scroll_text', 'Previous projects', 'Loaded scope'),
+                ('click', 'Synthetic Beta'),
                 ('wait_scroll_text', 'No due date', 'Synthetic undated task'),
                 ('capture', 'project-undated-dark'), ('resize', 900, 650), ('key', 'Tab'),
                 ('capture', 'projects-compact-keyboard-dark'),
             ])
             github.check(connected / 'today-dark.png', 'America/Winnipeg', 'Synthetic today task', 'Overdue')
             github.check(connected / 'project-undated-dark.png', 'Synthetic undated task', 'No due date')
+            github.check(connected / 'projects-compact-keyboard-dark.png',
+                         'Synthetic undated task', 'No due date', 'Synthetic Beta',
+                         'Complete', 'Edit', 'Delete')
             navigation = check_read_only_navigation(api, initial)
             navigation_path = output / 'navigation-state.json'
             navigation_path.write_text(json.dumps(navigation, indent=2), encoding='utf-8')
@@ -243,7 +247,8 @@ def qualify(executable, output, session, version, backend):
             retried = driver.drive('retry-light', [
                 ('wait_text', 'Retry saved change'), ('click', 'Retry saved change'),
                 ('wait_text', 'Todoist confirmed the change'), ('capture', 'confirmed-retry-light'),
-                ('click', 'Projects'), ('click', 'Synthetic Alpha'),
+                ('click', 'Projects'), ('wait_scroll_text', 'Previous projects', 'Loaded scope'),
+                ('click', 'Synthetic Alpha'),
                 ('wait_scroll_text', 'Synthetic created task', 'Synthetic today task'),
                 ('capture', 'created-task-light'),
                 ('click', 'Synthetic Empty'), ('wait_text', 'No tasks in this view'),
@@ -258,7 +263,8 @@ def qualify(executable, output, session, version, backend):
             # Narrow the real list before operating its row, so identical action
             # labels cannot accidentally target a different synthetic task.
             edited = driver.drive('edit-light', [
-                ('wait_text', 'Synthetic today task'), ('click', 'Projects'), ('click', 'Synthetic Beta'),
+                ('wait_text', 'Synthetic today task'), ('click', 'Projects'),
+                ('wait_scroll_text', 'Previous projects', 'Loaded scope'), ('click', 'Synthetic Beta'),
                 ('input', 'Filter tasks', 'Synthetic undated task', {'labelBottomOffset': 32}), ('wait_text', 'Synthetic undated task'),
                 ('click', 'Edit'), ('input', 'Task name', 'Synthetic undated task revised', {'labelBottomOffset': 32}),
                 ('wait_scroll_text', 'Save task'), ('click', 'Save task'),
@@ -278,7 +284,8 @@ def qualify(executable, output, session, version, backend):
                 raise RuntimeError('Editing, completing or deleting sent an unexpected task write')
 
             permissions = driver.drive('project-permissions-light', [
-                ('wait_text', 'Synthetic today task'), ('click', 'Projects'), ('click', 'Synthetic Complete Only'),
+                ('wait_text', 'Synthetic today task'), ('click', 'Projects'),
+                ('wait_scroll_text', 'Previous projects', 'Loaded scope'), ('click', 'Synthetic Complete Only'),
                 ('wait_text', 'This project permits completing tasks only'), ('capture', 'complete-only-light'),
                 ('click', 'Complete'), ('wait_text', 'Todoist confirmed the change'),
                 ('wait_text', 'No tasks in this view'), ('capture', 'complete-only-completed-light'),
@@ -332,7 +339,8 @@ def qualify(executable, output, session, version, backend):
                 ('wait_text', 'Choose a smaller scope'), ('capture', 'large-account-limit-light'),
                 ('click', 'Load calendar tasks'), ('wait_text', 'Task scope loaded'),
                 ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'calendar-scope-light'),
-                ('click', 'Projects'), ('click', 'Synthetic Alpha'),
+                ('click', 'Projects'), ('wait_scroll_text', 'Previous projects', 'Loaded scope'),
+                ('click', 'Synthetic Alpha'),
                 ('wait_scroll_text', 'Synthetic created task', 'Synthetic today task'),
                 ('capture', 'project-scope-undated-light'),
             ])
@@ -343,7 +351,8 @@ def qualify(executable, output, session, version, backend):
 
             api.arm_removed_project('project-empty')
             fallback = driver.drive('removed-project-reconnect-light', [
-                ('wait_text', 'Synthetic today task'), ('click', 'Projects'), ('click', 'Synthetic Empty'),
+                ('wait_text', 'Synthetic today task'), ('click', 'Projects'),
+                ('wait_scroll_text', 'Previous projects', 'Loaded scope'), ('click', 'Synthetic Empty'),
                 ('wait_text', 'No tasks in this view'), ('click', 'Connection'),
                 ('click', 'Recheck saved connection'), ('wait_text', 'The previous project is unavailable'),
                 ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'scope-fallback-light'),

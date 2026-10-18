@@ -280,6 +280,10 @@ fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
                             fixed_now: Some(now),
                         }));
                         view.connection_form = false;
+                        view.catalog = Some(Arc::new(ProjectCatalog {
+                            projects: view.data.as_ref().unwrap().projects.clone(),
+                        }));
+                        view.notice = Some("Tasks refreshed.".into());
                         view.pane = Pane::Projects;
                         view.project = Some(Id::parse("beta").unwrap());
                         view
@@ -293,6 +297,10 @@ fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
     let initial = visual.debug_bounds("todoist-task-row-0").unwrap();
     let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();
     assert!(initial.top() >= viewport.top());
+    assert!(
+        initial.bottom() <= viewport.bottom(),
+        "A compact project must show a whole task, including metadata and actions: row {initial:?}, viewport {viewport:?}"
+    );
     visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Upcoming, cx)));
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();

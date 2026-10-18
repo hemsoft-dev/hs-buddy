@@ -494,10 +494,13 @@ impl Render for TodoistView {
                     })),
             );
         }
-        let mut body = v_flex()
-            .gap_3()
-            .child(div().text_xl().child("Task planner"))
-            .child(tabs);
+        let mut body = v_flex().gap_3().child(
+            h_flex()
+                .flex_wrap()
+                .gap_3()
+                .child(div().text_xl().child("Task planner"))
+                .child(tabs),
+        );
         body = body.child(
             h_flex()
                 .flex_wrap()
@@ -621,6 +624,9 @@ impl Render for TodoistView {
                 );
             }
         }
+        if !self.connection_form && self.editor.is_none() {
+            body = body.child(self.render_task_controls(cx));
+        }
         let content = if self.connection_form {
             v_flex()
                 .flex_1()
@@ -678,6 +684,13 @@ impl Render for TodoistView {
                 .child(self.render_tasks(cx))
                 .into_any_element()
         };
+        // Scope, project and recovery controls share one bounded scroll area.
+        // Keep enough space for a complete task below it in compact windows.
+        let controls_height = if window.viewport_size().height < crate::zoom::scaled(cx, 720.0) {
+            120.0
+        } else {
+            300.0
+        };
         v_flex()
             .size_full()
             .min_h_0()
@@ -686,7 +699,7 @@ impl Render for TodoistView {
             .child(
                 body.id("todoist-controls-scroll")
                     .overflow_y_scroll()
-                    .max_h(zpx(300.0))
+                    .max_h(zpx(controls_height))
                     .flex_shrink_0(),
             )
             .child(content)

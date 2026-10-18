@@ -76,8 +76,8 @@ impl TodoistView {
         }
     }
 
-    pub(super) fn render_tasks(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut body = v_flex().gap_3().flex_1().min_h_0();
+    pub(super) fn render_task_controls(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut body = v_flex().gap_3();
         if self.catalog.is_some() {
             let coverage = self.data.as_ref().map(|data| &data.coverage);
             body = body.child(div().whitespace_normal().child(match coverage {
@@ -141,15 +141,33 @@ impl TodoistView {
                             })),
                     ),
             );
-            if self.project.is_none() {
-                return body
-                    .child(div().child(if projects.is_empty() {
-                        "No active projects."
-                    } else {
-                        "Choose a project to see its tasks, including tasks without a due date."
-                    }))
-                    .into_any_element();
-            }
+        }
+        body.into_any_element()
+    }
+
+    pub(super) fn render_tasks(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut body = v_flex().gap_3().flex_1().min_h_0();
+        if self.pane == Pane::Projects && self.project.is_none() {
+            let projects = self
+                .catalog
+                .as_ref()
+                .map(|catalog| catalog.projects.as_slice())
+                .or_else(|| self.data.as_ref().map(|data| data.projects.as_slice()))
+                .unwrap_or(&[]);
+            return body
+                .child(
+                    div().child(
+                        if !projects
+                            .iter()
+                            .any(|project| !project.archived && !project.deleted)
+                        {
+                            "No active projects."
+                        } else {
+                            "Choose a project to see its tasks, including tasks without a due date."
+                        },
+                    ),
+                )
+                .into_any_element();
         }
         let Some(data) = &self.data else {
             return body
