@@ -752,6 +752,18 @@ class WindowsScrollAnchors(unittest.TestCase):
             encoded = [base64.b64encode(value.encode()).decode() for value in (target, anchor)]
             self.assertIn("waitscrolltext64:" + ":".join(encoded), commands)
 
+    def test_visible_text_markers_match_across_ocr_line_wraps_only(self):
+        # Ubuntu run on 9a39095d: Tesseract wrapped "1 worklog was" and
+        # "not attempted." onto two lines of one status paragraph.
+        wrapped = "1 worklog copied to today.\n1 worklog was\nnot attempted.\n"
+        with tempfile.TemporaryDirectory(prefix="buddy-ocr-wrap-") as root:
+            image = Path(root) / "status.png"
+            with patch.object(desktop, "run", return_value=wrapped):
+                desktop.verify_text(image, "1 worklog was not attempted", "1 Worklog  copied")
+                with self.assertRaises(desktop.MissingVisibleText):
+                    desktop.verify_text(image, "2 worklogs were not attempted")
+            self.assertEqual(image.with_suffix(".ocr.txt").read_text(encoding="utf-8"), wrapped.casefold())
+
     def test_explicit_sleeps_extend_the_windows_stage_deadline(self):
         with tempfile.TemporaryDirectory(prefix="buddy-sleep-budget-") as root:
             directory = Path(root)

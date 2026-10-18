@@ -575,8 +575,10 @@ def verify_text(path, *markers, mode=11):
     text = run("tesseract", path, "stdout", "--psm", mode, encoding="utf-8").casefold()
     path.with_suffix(".ocr.txt").write_text(text, encoding="utf-8")
     path.with_suffix(f".ocr-{mode}.txt").write_text(text, encoding="utf-8")
+    # OCR wraps one paragraph onto several lines; compare words, not breaks.
+    words = " ".join(text.split())
     for marker in markers:
-        if marker.casefold() not in text:
+        if " ".join(marker.casefold().split()) not in words:
             raise MissingVisibleText(f"Settings screenshot is missing {marker!r}")
 
 
