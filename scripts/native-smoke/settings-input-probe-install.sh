@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Temporary ARM settings-input diagnosis. Not full installed qualification.
+# Trace an unchanged previously failed package on disposable Mac CI.
 set -euo pipefail
 if [[ "${GITHUB_ACTIONS:-}" != true || -z "${RUNNER_TEMP:-}" ]]; then
   echo 'Installer qualification requires an ephemeral GitHub Actions runner' >&2
@@ -56,3 +56,8 @@ done
 test -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT"
 python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
 BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
+# Each additional sequence has a new fixture/backend/profile and every original
+# assertion. Stop at the first failure; never replay an action to make it pass.
+for sequence in 2 3; do
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings-$sequence" --session macos
+done

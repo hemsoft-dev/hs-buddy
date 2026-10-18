@@ -30,6 +30,7 @@ def load(name):
 ocr = load("settings-ocr")
 SettingsBackend = load("settings-backend").SettingsBackend
 OwnedMacInput = load("macos-input").OwnedMacInput
+monitor_mouse = load("macos-mouse-trace").monitor
 
 
 @contextmanager
@@ -276,7 +277,7 @@ class Driver:
                             raise RuntimeError("Electron config companion did not become ready")
                         time.sleep(0.1)
                     current_companion(self.profile, "ready")
-                with recording(window, directory / "frames") if record else nullcontext():
+                with monitor_mouse(process, directory), recording(window, directory / "frames") if record else nullcontext():
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
