@@ -325,6 +325,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('input', 'Hours or H:MM:SS', '0'), ('input', 'Work date', '2026-10-14'),
                     ('input', 'Start time in the account timezone', '09:30:01'),
                     ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
+                    ('reveal_text', 'Work description', 'Description'),
                     ('input', 'Description', 'Denied native draft 界'),
                     ('wait_scroll_text', 'No billing account', 'Description'), ('click', 'No billing account'),
                     ('wait_scroll_text', 'Create worklog', 'No billing account'), ('click', 'Create worklog'),
@@ -386,14 +387,21 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'Issue key or ID', 'Tempo timesheet'),
                     ('input', 'Issue key or ID', 'FIX-17'),
                     ('click', 'Look up issue and billing accounts'), ('wait_text', 'Capitalization: CapEx'),
-                    ('input', 'Hours or H:MM:SS', '1:01:01'),
-                    ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
-                    ('input', 'Description', 'Retained native draft 界'), ('key', 'Tab'),
-                    ('wait_scroll_up', 'Refresh', 'Description'),
+                    # Description is a multi-line textarea where Tab does not
+                    # move focus. Type it first, then leave the Hours editor
+                    # with Tab so OCR can read both retained values.
+                    ('wait_scroll_text', 'Description', 'Capitalization: CapEx'),
+                    ('reveal_text', 'Work description', 'Description'),
+                    ('input', 'Description', 'Retained native draft 界'),
+                    ('wait_scroll_up', 'Hours or H:MM:SS', 'Description'),
+                    ('input', 'Hours or H:MM:SS', '1:01:01'), ('key', 'Tab'),
+                    ('wait_scroll_up', 'Refresh', 'Hours or H:MM:SS'),
                     ('click', 'Refresh'), ('wait_text', 'Jira rejected this connection'),
                     ('capture', 'expired-open-draft-dark'),
                     ('click', 'Connection'), ('wait_scroll_text', 'Recheck saved connection', 'Tempo timesheet'),
-                    ('click', 'Recheck saved connection'), ('wait_text', 'Your draft was retained'),
+                    # The connection panel closes after a recheck, so the view
+                    # can land in the worklog list below the status.
+                    ('click', 'Recheck saved connection'), ('wait_scroll_up', 'Your draft was retained'),
                     ('wait_scroll_text', 'Look up issue and billing accounts', 'Tempo timesheet'),
                     ('capture', 'draft-needs-fresh-lookup-dark'),
                     ('click', 'Look up issue and billing accounts'), ('wait_text', 'Capitalization: CapEx'),

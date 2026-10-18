@@ -259,10 +259,31 @@ class CellInput(unittest.TestCase):
         capture = denied.index(('capture', 'denied-hours-retained-dark'))
         self.assertIn(('key', 'Tab'), denied[last_hours + 1:capture])
         self.assertFalse([action for action in denied[last_hours + 1:capture] if action[0] == 'input'])
+        # Description is a multi-line textarea, where Tab is not a focus move.
+        # Type it first and leave focus from the single-line Hours editor.
         reauth = self.stage_actions('reauth-draft-dark', 'x11')
-        description = max(index for index, action in enumerate(reauth) if action[:2] == ('input', 'Description'))
-        self.assertEqual(reauth[description + 1], ('key', 'Tab'))
-        self.assertFalse([action for action in reauth[description + 1:] if action[0] == 'input'])
+        inputs = [index for index, action in enumerate(reauth) if action[0] == 'input']
+        labels = [reauth[index][1] for index in inputs]
+        self.assertEqual(labels, ['Issue key or ID', 'Description', 'Hours or H:MM:SS'])
+        self.assertEqual(reauth[inputs[-1] + 1], ('key', 'Tab'))
+        self.assertNotEqual(reauth[inputs[1] + 1], ('key', 'Tab'))
+
+    def test_description_editor_is_revealed_before_typing(self):
+        # A visible label can leave its textarea below the viewport; the empty
+        # editor's placeholder proves the input itself is on screen.
+        for stage in ('denied-write-dark', 'reauth-draft-dark'):
+            actions = self.stage_actions(stage, 'x11')
+            typed = [index for index, action in enumerate(actions) if action[:2] == ('input', 'Description')]
+            self.assertTrue(typed, stage)
+            for index in typed:
+                self.assertEqual(actions[index - 1], ('reveal_text', 'Work description', 'Description'), stage)
+
+    def test_recheck_status_is_found_after_the_connection_panel_closes(self):
+        # Ubuntu run on d92a456a: after Recheck the view sat in the Timeline
+        # list, above which the retained-draft status was never searched.
+        reauth = self.stage_actions('reauth-draft-dark', 'x11')
+        recheck = reauth.index(('click', 'Recheck saved connection'))
+        self.assertEqual(reauth[recheck + 1], ('wait_scroll_up', 'Your draft was retained'))
 
     def test_retained_value_captures_reveal_the_whole_editor_not_only_its_label(self):
         # Ubuntu run on e0a4da68: the Description label was visible, so the
