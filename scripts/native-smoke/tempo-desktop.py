@@ -408,8 +408,12 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'Hours or H:MM:SS', 'Look up issue and billing accounts'),
                     ('reveal_text', 'Work date', 'Hours or H:MM:SS'),
                     ('capture', 'retained-hours-after-lookup-dark'),
-                    ('wait_scroll_text', 'Cancel editor', 'Hours or H:MM:SS'),
-                    ('capture', 'retained-draft-after-lookup-dark'), ('click', 'Cancel editor'),
+                    # Short anchored hops: one coarse scroll from Hours can
+                    # pass the whole draft above the Timeline list.
+                    ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
+                    ('reveal_text', 'No billing account', 'Description'),
+                    ('capture', 'retained-draft-after-lookup-dark'),
+                    ('wait_scroll_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor'),
                 ])
                 if require_writes(api, 3, rejected=1)['records'] != state['records']:
                     raise RuntimeError('Read-only draft reauthentication changed remote worklogs')

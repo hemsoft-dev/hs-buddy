@@ -278,6 +278,17 @@ class CellInput(unittest.TestCase):
             for index in typed:
                 self.assertEqual(actions[index - 1], ('reveal_text', 'Work description', 'Description'), stage)
 
+    def test_retained_draft_is_captured_between_its_description_and_billing_choice(self):
+        # Run on 4b83e196: one coarse scroll from Hours put Cancel editor at the
+        # top on Ubuntu (draft above the view) and skipped it on Apple Silicon.
+        reauth = self.stage_actions('reauth-draft-dark', 'x11')
+        capture = reauth.index(('capture', 'retained-draft-after-lookup-dark'))
+        self.assertEqual(reauth[capture - 2:capture], [
+            ('wait_scroll_text', 'Description', 'Hours or H:MM:SS'),
+            ('reveal_text', 'No billing account', 'Description')])
+        self.assertEqual(reauth[capture + 1:], [
+            ('wait_scroll_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor')])
+
     def test_recheck_status_is_found_after_the_connection_panel_closes(self):
         # Ubuntu run on d92a456a: after Recheck the view sat in the Timeline
         # list, above which the retained-draft status was never searched.

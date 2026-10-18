@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1477] - 2026-10-18
+
+### Fixed
+
+- Capture the retained Tempo draft between short anchored hops (#818)
+
 ## [0.1.1476] - 2026-10-18
 
 ### Fixed
