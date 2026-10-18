@@ -752,6 +752,18 @@ class WindowsScrollAnchors(unittest.TestCase):
             encoded = [base64.b64encode(value.encode()).decode() for value in (target, anchor)]
             self.assertIn("waitscrolltext64:" + ":".join(encoded), commands)
 
+    def test_explicit_sleeps_extend_the_windows_stage_deadline(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-sleep-budget-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("paced", [("click", "Create copies"), ("sleep", 30), ("sleep", 1)])
+            self.assertEqual(run.call_args.kwargs["timeout"], 180 + 31)
+            self.assertIn("sleep:30000", run.call_args.args[run.call_args.args.index("-Actions") + 1].split(","))
+
     @staticmethod
     def wait_block():
         lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()

@@ -428,7 +428,8 @@ def qualify(executable, output, session, version, source, backend):
                     ('cell', 'Copy day to Today', '13 Oct'), ('wait_scroll_up', 'Copy worklogs to Today'),
                     ('capture', 'three-copy-confirmation-dark'),
                     ('wait_scroll_text', 'Create copies', 'Copy worklogs to Today'), ('click', 'Create copies'),
-                    ('wait_scroll_up', '1 worklog copied to Today'),
+                    # About 24 one-second-paced requests precede the outcome.
+                    ('sleep', 30), ('wait_scroll_up', '1 worklog copied to Today'),
                     ('capture', 'partial-copy-unconfirmed-dark'),
                 ])
                 state = require_writes(api, 5, rejected=1)

@@ -231,8 +231,10 @@ class Driver:
                 "-OutDir", directory, "-ConfigPath", self.config, "-ConvexUrl", self.backend.url, "-Actions", ",".join(commands)]
             if concurrent:
                 arguments += ["-CompanionExe", self.electron, "-CompanionScript", self.profile]
-            # Preserve the ordinary action budget around the separate cold-model wait.
+            # Preserve the ordinary action budget around the separate cold-model
+            # wait and around explicit sleeps for paced service work.
             extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] == "wait_models")
+            extra += math.ceil(sum(action[1] for action in actions if action[0] == "sleep"))
             run(*arguments, cwd=self.checkout, timeout=180 + extra)
         else:
             self.unix(directory, actions, concurrent, record)

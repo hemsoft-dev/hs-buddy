@@ -289,6 +289,14 @@ class CellInput(unittest.TestCase):
         self.assertEqual(reauth[capture + 1:], [
             ('wait_scroll_text', 'Cancel editor', 'No billing account'), ('click', 'Cancel editor')])
 
+    def test_partial_copy_outcome_wait_covers_the_paced_request_sequence(self):
+        # Windows run on 9a39095d: about 24 one-second-paced requests follow
+        # Create copies, so the result was still "Working with Tempo..." when
+        # the ordinary 15-second status wait ended.
+        partial = self.stage_actions('partial-copy-dark', 'x11')
+        click = partial.index(('click', 'Create copies'))
+        self.assertEqual(partial[click + 1:click + 3], [('sleep', 30), ('wait_scroll_up', '1 worklog copied to Today')])
+
     def test_recheck_status_is_found_after_the_connection_panel_closes(self):
         # Ubuntu run on d92a456a: after Recheck the view sat in the Timeline
         # list, above which the retained-draft status was never searched.
