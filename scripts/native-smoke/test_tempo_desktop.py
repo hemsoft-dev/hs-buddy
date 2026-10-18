@@ -1,5 +1,6 @@
 """Headless contract tests. Every native API is mocked before use."""
 import base64
+import ast
 from copy import deepcopy
 from http.client import HTTPConnection, RemoteDisconnected
 import importlib.util
@@ -150,6 +151,49 @@ class FixtureScenarios(unittest.TestCase):
 
 
 class CellInput(unittest.TestCase):
+    @staticmethod
+    def stage_actions(stage, session):
+        tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))
+        call, = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute) and node.func.attr == 'drive'
+            and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == stage]
+        expression = ast.Expression(call.args[1])
+        for node in ast.walk(expression):
+            if isinstance(node, ast.Call) and not (isinstance(node.func, ast.Name) and node.func.id == 'week_actions'):
+                raise AssertionError('Stage action construction must remain headless')
+        return eval(compile(expression, str(desktop.__file__), 'eval'),
+            dict(__builtins__={}, tempo=desktop.tempo, week_actions=desktop.week_actions, session=session))
+
+    def test_timeline_pager_gets_a_coarse_owned_scroll_before_expensive_ocr_waits(self):
+        actions = self.stage_actions('grid-navigation-dark', 'windows')
+        cleared = actions.index(('click', 'Show all worklogs'))
+        waiting = next(index for index, action in enumerate(actions) if action[:2] == ('wait_scroll_text', 'Next rows'))
+        self.assertIn(('wheel', -7200), actions[cleared + 1:waiting])
+        self.assertIn(('click', 'Next rows'), actions[waiting + 1:])
+        self.assertIn(('wait_text', 'page 2'), actions[waiting + 1:])
+
+    def test_mac_jira_password_uses_the_measured_inner_editor_without_changing_windows_spacing(self):
+        actions = self.stage_actions('connect-dark', 'macos')
+        action, = [action for action in actions if action[:2] == ('input', 'Jira API token')]
+        windows = self.stage_actions('connect-dark', 'windows')
+        self.assertEqual(len(next(action for action in windows if action[:2] == ('input', 'Jira API token'))), 3)
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        driver.locate = Mock(return_value=dict(left=64, top=552, width=80, height=10))
+        driver.input_receipt = Mock()
+        helper, window = Mock(), Mock(process='owned-pid')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / 'locator.png'
+            image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + struct.pack('>II', 1200, 820))
+            image.with_suffix('.window.json').write_text(json.dumps(dict(
+                capturePixelsPerWindowPoint=1, kCGWindowBounds=dict(X=80, Y=80, Width=1200, Height=820))))
+            with patch.object(desktop.settings, 'OwnedMacInput', return_value=helper), \
+                    patch.object(desktop.settings, 'run'), patch.object(desktop.settings.time, 'sleep'):
+                driver.interact(window, root, action[0], list(action[1:]))
+        helper.click.assert_called_once_with(164, 672)
+        helper.replace_text.assert_called_once_with(desktop.tempo.JIRA_TOKEN)
+
     def test_upward_wait_scrolls_the_owned_pane_up_and_requires_fresh_visible_text(self):
         driver = object.__new__(desktop.settings.Driver)
         driver.session = 'x11'

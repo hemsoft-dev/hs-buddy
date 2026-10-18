@@ -234,7 +234,8 @@ def qualify(executable, output, session, version, source, backend):
                     ('input', 'Tempo API token', tempo.TEMPO_TOKEN),
                     ('input', 'Jira HTTPS origin', tempo.JIRA_ORIGIN),
                     ('input', 'Jira email', tempo.JIRA_EMAIL),
-                    ('input', 'Jira API token', tempo.JIRA_TOKEN),
+                    ('input', 'Jira API token', tempo.JIRA_TOKEN,
+                        *([{'labelBottomOffset': 30}] if session == 'macos' else [])),
                     ('wait_scroll_text', 'Save and connect', 'Jira API token'),
                     ('click', 'Save and connect'), ('wait_text', 'America/New_York'),
                     ('capture', 'complete-month-dark'),
@@ -260,6 +261,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_text', 'Worklogs for FIX-17 on 2026-10-16'),
                     ('wait_scroll_text', 'Show all worklogs', 'Load date range'),
                     ('capture', 'filtered-cell-dark'), ('click', 'Show all worklogs'),
+                    ('wheel', -7200),
                     ('wait_scroll_text', 'Next rows', 'Load date range'), ('click', 'Next rows'),
                     ('wait_text', 'page 2'), ('capture', 'second-page-dark'),
                 ])
