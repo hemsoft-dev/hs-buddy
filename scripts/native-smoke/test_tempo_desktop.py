@@ -1,0 +1,195 @@
+"""Headless contract tests. Every native API is mocked before use."""
+import base64
+from copy import deepcopy
+from http.client import HTTPConnection, RemoteDisconnected
+import importlib.util
+import json
+import os
+from pathlib import Path
+import struct
+import tempfile
+import unittest
+from unittest.mock import Mock, patch
+from urllib.parse import urlsplit
+
+spec = importlib.util.spec_from_file_location('tempo_desktop', Path(__file__).with_name('tempo-desktop.py'))
+desktop = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(desktop)
+
+
+class FixtureScenarios(unittest.TestCase):
+    def test_real_permission_denial_records_request_without_changing_any_worklog(self):
+        with desktop.ScenarioFixture() as api:
+            before = deepcopy(api.records)
+            api.deny_next_create = True
+            body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                startDate='2026-10-14', timeSpentSeconds=5401, attributes=[])
+            address = urlsplit(api.url)
+            connection = HTTPConnection(address.hostname, address.port, timeout=3)
+            try:
+                connection.request('POST', '/4/worklogs', body=json.dumps(body),
+                    headers={'Authorization': 'Bearer ' + desktop.tempo.TEMPO_TOKEN})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 403)
+                self.assertEqual(json.loads(response.read()), {'error': 'Synthetic worklog permission denied'})
+            finally:
+                connection.close()
+            state = desktop.require_writes(api, 0, rejected=1)
+            self.assertEqual(desktop.write_body(state['rejections'][0]), body)
+            self.assertEqual(state['records'], before)
+            self.assertFalse(api.deny_next_create)
+            with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
+                desktop.require_writes(api, 0)
+
+    def test_owned_seed_has_complete_pager_today_stack_template_and_three_source_logs(self):
+        api = desktop.ScenarioFixture()
+        original = api.records[desktop.tempo.FIRST_ID]
+        self.assertEqual(original['startDate'], '2026-10-15')
+        today = [row for row in api.records.values() if row['startDate'] == '2026-10-16']
+        self.assertEqual((len(today), sum(row['timeSpentSeconds'] for row in today)), (47, 2820))
+        self.assertEqual(sum(row['startDate'].startswith('2026-10') for row in api.records.values()), 51)
+        self.assertEqual(sum(row['startDate'] == '2026-10-13' for row in api.records.values()), 3)
+        template, = [row for row in api.records.values() if row['startDate'].startswith('2026-09')]
+        self.assertEqual(template['description'], 'Synthetic prior month template')
+        self.assertFalse(any(row['key'] == '_Account_' for row in template['attributes']['values']))
+        self.assertEqual((api.attempts, api.writes), ([], []))
+
+    def test_real_lost_reply_records_exactly_two_posts_without_deduplication(self):
+        with desktop.ScenarioFixture() as api:
+            original = deepcopy(api.records[desktop.tempo.FIRST_ID])
+            api.arm_lost_reply_after(1)
+            body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                startDate='2026-10-16', timeSpentSeconds=60, attributes=[])
+            address = urlsplit(api.url)
+            for index in range(2):
+                connection = HTTPConnection(address.hostname, address.port, timeout=3)
+                try:
+                    connection.request('POST', '/4/worklogs', body=json.dumps(body),
+                        headers={'Authorization': 'Bearer ' + desktop.tempo.TEMPO_TOKEN})
+                    if index == 0:
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, 200)
+                        response.read()
+                    else:
+                        with self.assertRaises(RemoteDisconnected):
+                            connection.getresponse()
+                finally:
+                    connection.close()
+            state = desktop.require_writes(api, 2)
+            self.assertEqual(len(state['records']), 54)
+            self.assertEqual(state['records'][desktop.tempo.FIRST_ID], original)
+            self.assertIsNone(api.drop_after)
+            with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
+                desktop.require_writes(api, 1)
+
+    def test_public_entrypoint_refuses_home_before_parsing_or_launching_anything(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(desktop.github, 'installed_binary') as installed, \
+                patch.object(desktop.settings, 'SettingsBackend') as backend:
+            with self.assertRaisesRegex(RuntimeError, 'owned disposable'):
+                desktop.main()
+        installed.assert_not_called()
+        backend.assert_not_called()
+
+    def test_unverified_package_source_refuses_before_running_an_installed_binary(self):
+        with patch.object(desktop.github, 'installed_binary') as installed:
+            with self.assertRaisesRegex(RuntimeError, 'package source provenance'):
+                desktop.qualify(Path('never-launch'), Path('never-write'), 'windows', '0.1.0', 'invalid', Mock())
+        installed.assert_not_called()
+
+    def test_expiry_arms_only_after_a_billing_lookup_and_rejects_one_identity_read(self):
+        with desktop.ScenarioFixture() as api:
+            api.expire_after_lookup = True
+            with api.lock:
+                first = api.respond('GET', '/rest/api/3/myself', 'Basic ' + base64.b64encode(
+                    (desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode(), b'')
+                self.assertEqual(first[0], 200)
+                self.assertFalse(api.reject_identity)
+                catalog = api.respond('GET', '/4/accounts?limit=50&offset=0', 'Bearer ' + desktop.tempo.TEMPO_TOKEN, b'')
+                self.assertEqual(catalog[0], 200)
+                authorization = 'Basic ' + base64.b64encode((desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode()
+                self.assertEqual(api.respond('GET', '/rest/api/3/myself', authorization, b'')[0], 401)
+                self.assertEqual(api.respond('GET', '/rest/api/3/myself', authorization, b'')[0], 200)
+            self.assertEqual(api.writes, [])
+
+
+class CellInput(unittest.TestCase):
+    def test_upward_wait_scrolls_the_owned_pane_up_and_requires_fresh_visible_text(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'x11'
+        driver.scroll_anchor = Mock(return_value=(120, 500))
+        driver.scroll = Mock()
+        with patch.object(desktop.settings.ocr, 'locate_image', side_effect=[RuntimeError('offscreen'), dict(left=120)]), \
+                patch.object(desktop.settings.time, 'monotonic', side_effect=[0, 1]), patch.object(desktop.settings.time, 'sleep'):
+            window = Mock()
+            driver.wait_scrolled(window, Path('mocked-capture'), 'Refresh', 'Description', up=True)
+        driver.scroll.assert_called_once_with(window, 1200, (120, 500), precise=False)
+
+    def test_windows_encoding_preserves_two_visible_labels_without_sending_native_input(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session, driver.large_size = 'windows', (1200, 820)
+        driver.executable, driver.backend, driver.checkout = Path('installed'), Mock(url='loopback'), Path('repo')
+        with tempfile.TemporaryDirectory() as directory:
+            driver.profile, driver.config = Path(directory), Path(directory) / 'config.json'
+            with patch.object(desktop.settings, 'run') as run:
+                driver.drive('cell', [('cell', 'FIX-17', '14 Oct')])
+            arguments = run.call_args.args
+            command = arguments[arguments.index('-Actions') + 1]
+            encoded = next(item for item in command.split(',') if item.startswith('cell64:'))
+            self.assertEqual([base64.b64decode(item).decode() for item in encoded.split(':')[1:]], ['FIX-17', '14 Oct'])
+
+    def test_retina_cell_uses_owned_origin_and_one_click_after_stable_measurements(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        driver.input_receipt = Mock()
+        point = dict(x=840, y=696, column={}, row={})
+        owned = Mock()
+        window = Mock(process='owned-pid')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def screenshot(path):
+                path.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + struct.pack('>II', 2400, 1640))
+                path.with_suffix('.window.json').write_text(json.dumps(dict(
+                    capturePixelsPerWindowPoint=2, kCGWindowBounds=dict(X=80, Y=40, Width=1200, Height=820))))
+            window.screenshot.side_effect = screenshot
+            with patch.object(desktop.settings, 'load', return_value=Mock(locate_image=Mock(return_value=point))), \
+                    patch.object(desktop.settings, 'OwnedMacInput', return_value=owned), \
+                    patch.object(desktop.settings, 'run'), patch.object(desktop.settings.time, 'sleep'):
+                driver.interact(window, root, 'cell', ['FIX-17', '14 Oct'])
+        self.assertEqual(window.screenshot.call_count, 2)
+        owned.click.assert_called_once_with(500, 388)
+        driver.input_receipt.assert_called_once()
+
+    def test_clipped_capture_refuses_all_mac_input(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        window, owned = Mock(), Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            def screenshot(path):
+                path.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + struct.pack('>II', 2400, 1640))
+                path.with_suffix('.window.json').write_text(json.dumps(dict(
+                    capturePixelsPerWindowPoint=2, kCGWindowBounds=dict(X=80, Y=40, Width=900, Height=650))))
+            window.screenshot.side_effect = screenshot
+            with patch.object(desktop.settings, 'load', return_value=Mock(locate_image=Mock(return_value=dict(x=840, y=696)))), \
+                    patch.object(desktop.settings, 'OwnedMacInput', return_value=owned), patch.object(desktop.settings, 'run') as run:
+                with self.assertRaisesRegex(RuntimeError, 'does not match'):
+                    driver.interact(window, Path(directory), 'cell', ['FIX-17', '14 Oct'])
+            run.assert_not_called()
+        owned.click.assert_not_called()
+
+    def test_unstable_mac_cell_is_measured_four_times_without_replaying_input(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        window, owned = Mock(), Mock()
+        grid = Mock(locate_image=Mock(side_effect=[dict(x=index, y=100) for index in range(4)]))
+        with patch.object(desktop.settings, 'load', return_value=grid), \
+                patch.object(desktop.settings, 'OwnedMacInput', return_value=owned), patch.object(desktop.settings, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                driver.interact(window, Path('mocked-capture'), 'cell', ['FIX-17', '14 Oct'])
+        self.assertEqual(window.screenshot.call_count, 4)
+        run.assert_not_called()
+        owned.click.assert_not_called()
+
+
+if __name__ == '__main__':
+    unittest.main()

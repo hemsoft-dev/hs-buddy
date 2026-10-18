@@ -51,6 +51,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed Copilot qualification failed' }
     & python (Join-Path $PSScriptRoot 'todoist-desktop.py') --executable $exe --output (Join-Path $Output 'todoist') --session windows --version $metadata.version
     if ($LASTEXITCODE -ne 0) { throw 'Installed Todoist qualification failed' }
+    & python (Join-Path $PSScriptRoot 'tempo-desktop.py') --executable $exe --output (Join-Path $Output 'tempo') --session windows --version $metadata.version --source-sha $metadata.sourceSha
+    if ($LASTEXITCODE -ne 0) { throw 'Installed Tempo qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

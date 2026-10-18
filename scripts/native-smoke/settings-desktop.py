@@ -192,7 +192,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save"):
+                if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -210,9 +210,10 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
-                elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above"):
-                    encoded = values[:2] if kind == "wait_scroll_text" else values[:1]
-                    commands.append(("waittext64:" if kind == "wait_text" else "waitscrolltext64:") + ":".join(map(b64, encoded)))
+                elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
+                    encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
+                    command = "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
+                    commands.append(command + ":".join(map(b64, encoded)))
                 elif kind == "wait_models":
                     commands.append("waitmodeltext64:" + b64(values[0]))
                 elif kind == "reveal_text":
@@ -287,10 +288,10 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
-                        elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_models"):
-                            if kind in ("wait_scroll_text", "wait_scroll_above"):
+                        elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
+                            if kind in ("wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                                 self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
-                                    above_anchor=kind == "wait_scroll_above")
+                                    above_anchor=kind == "wait_scroll_above", up=kind == "wait_scroll_up")
                             else:
                                 timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
                                 wait_visible(window, directory, values[0], timeout=timeout)
@@ -356,7 +357,7 @@ class Driver:
         for _ in range(2 if self.session == "macos" else 1):
             self.scroll(window, -120, point)
 
-    def wait_scrolled(self, window, directory, text, anchor=None, *, above_anchor=False):
+    def wait_scrolled(self, window, directory, text, anchor=None, *, above_anchor=False, up=False):
         if above_anchor and anchor is None:
             raise RuntimeError("Scrolling above a control requires its measured label")
         point = None
@@ -367,14 +368,14 @@ class Driver:
                 point = (self.scroll_anchor(window, directory, anchor, above=True) if above_anchor
                     else self.scroll_anchor(window, directory, anchor))
             if point is None:
-                self.scroll(window, -1200)
+                self.scroll(window, 1200 if up else -1200)
             else:
                 # Measure the owning content, retaining the ordinary coarse
                 # step. Fine reveal gestures are for nearby chat feedback.
                 # A Mac OCR miss can consume most of the wait. Reach the
                 # bounded request page's end before inspecting another frame.
                 for _ in range(2 if above_anchor and self.session == "macos" else 1):
-                    self.scroll(window, -1200, point, precise=False)
+                    self.scroll(window, 1200 if up else -1200, point, precise=False)
 
         wait_visible(window, directory, text, scroll=move)
 
@@ -416,7 +417,53 @@ class Driver:
                 value["clickTrace"] = trace
             receipt.write(json.dumps(value) + "\n")
 
+    def interact_cell(self, window, directory, values):
+        if len(values) != 2 or not all(isinstance(value, str) and value for value in values):
+            raise RuntimeError("A cell needs its visible row and date labels")
+        grid = load("tempo-grid")
+        image = directory / "cell-locator.png"
+        previous = None
+        for _ in range(4 if self.session == "macos" else 1):
+            window.screenshot(image)
+            point = grid.locate_image(image, *values)
+            if self.session != "macos" or point == previous:
+                break
+            previous = point
+        else:
+            raise RuntimeError("The visible grid cell did not become stable")
+        x, y = point["x"], point["y"]
+        if self.session == "macos":
+            import struct
+            width, height = struct.unpack(">II", image.read_bytes()[16:24])
+            metadata = json.loads(image.with_suffix(".window.json").read_text())
+            bounds, scale = metadata["kCGWindowBounds"], metadata["capturePixelsPerWindowPoint"]
+            if (type(scale) not in (int, float) or not math.isfinite(scale) or scale <= 0
+                    or not all(type(bounds.get(key)) in (int, float) and math.isfinite(bounds[key]) for key in ("X", "Y", "Width", "Height"))
+                    or bounds["Width"] <= 0 or bounds["Height"] <= 0
+                    or abs(width - bounds["Width"] * scale) > 1
+                    or abs(height - bounds["Height"] * scale) > 1):
+                raise RuntimeError("The grid capture does not match its owned window bounds")
+            target = [bounds["X"] + x / scale, bounds["Y"] + y / scale]
+            run("osascript", "-e", window.apple("set frontmost to true"))
+            helper = OwnedMacInput(window.process)
+            try:
+                helper.click(*target)
+            except Exception as failure:
+                try:
+                    self.input_receipt(helper, directory, "failed-click", "cell", values, target)
+                    window.screenshot(directory / "failed-click.png")
+                except Exception as diagnostic_error:
+                    failure.add_note(f"Input diagnostic failed: {type(diagnostic_error).__name__}")
+                raise
+            self.input_receipt(helper, directory, "after-click", "cell", values, target)
+        else:
+            run("xdotool", "windowactivate", "--sync", window.window)
+            run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
+        time.sleep(0.7)
+
     def interact(self, window, directory, kind, values):
+        if kind == "cell":
+            return self.interact_cell(window, directory, values)
         image = directory / "locator.png"
         hint = values[2] if kind == "input" and len(values) == 3 else None
         offset = 20
