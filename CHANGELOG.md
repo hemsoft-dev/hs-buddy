@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1463] - 2026-10-18
+
+### Changed
+
+- Capture Todoist requests before sending responses (#817)
+
 ## [0.1.1462] - 2026-10-18
 
 ### Fixed

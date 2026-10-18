@@ -537,25 +537,79 @@ fn server(
                 }
             };
             let request = capture(&mut stream);
-            if let Some(reply) = handler(&request, index) {
-                let response = format!(
-                    "HTTP/1.1 {} Test\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n{}",
-                    reply.status,
-                    reply.body.len(),
-                    reply.headers,
-                    reply.body
-                );
-                if stream.write_all(response.as_bytes()).is_err() {
-                    assert!(
-                        reply.body.len() > MAX_RESPONSE_BYTES,
-                        "unexpected early response close"
-                    );
-                }
-            }
-            recorded.lock().unwrap().push(request);
+            let reply = handler(&request, index);
+            respond(&mut stream, request, reply, &recorded);
         }
     });
     (client, worker, captures)
+}
+
+fn respond(
+    stream: &mut impl Write,
+    request: Captured,
+    reply: Option<Response>,
+    recorded: &Mutex<Vec<Captured>>,
+) {
+    // The client can finish as soon as response bytes arrive.
+    recorded.lock().unwrap().push(request);
+    if let Some(reply) = reply {
+        let response = format!(
+            "HTTP/1.1 {} Test\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n{}",
+            reply.status,
+            reply.body.len(),
+            reply.headers,
+            reply.body
+        );
+        if stream.write_all(response.as_bytes()).is_err() {
+            assert!(
+                reply.body.len() > MAX_RESPONSE_BYTES,
+                "unexpected early response close"
+            );
+        }
+    }
+}
+
+#[test]
+fn request_capture_precedes_any_response_bytes() {
+    struct ResponseObserver<'a> {
+        captured: &'a Mutex<Vec<Captured>>,
+        bytes: Vec<u8>,
+    }
+    impl Write for ResponseObserver<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let count = self.captured.lock().unwrap().len();
+            assert_eq!(count, 1, "A response must not race request capture");
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let captured = Mutex::new(Vec::new());
+    let mut observer = ResponseObserver {
+        captured: &captured,
+        bytes: Vec::new(),
+    };
+    respond(
+        &mut observer,
+        Captured {
+            line: "GET /fixture HTTP/1.1".into(),
+            headers: String::new(),
+            body: "fixture".into(),
+        },
+        Some(Response::json(json!({}))),
+        &captured,
+    );
+    let traffic = captured.lock().unwrap();
+    assert_eq!(traffic.len(), 1);
+    assert_eq!(traffic[0].line, "GET /fixture HTTP/1.1");
+    assert_eq!(traffic[0].body, "fixture");
+    assert!(
+        String::from_utf8(observer.bytes)
+            .unwrap()
+            .ends_with("\r\n\r\n{}")
+    );
 }
 fn task(id: &str) -> Value {
     json!({"id":id,"content":"Synthetic task","description":"","project_id":"project", "priority":1,"due":null,"labels":[],"checked":false,"child_order":0})
