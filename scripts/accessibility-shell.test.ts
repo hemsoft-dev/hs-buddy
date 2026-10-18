@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 const colors = readFileSync('src/index.css', 'utf8')
 const appStyles = readFileSync('src/App.css', 'utf8')
 const statusStyles = readFileSync('src/components/StatusBar.css', 'utf8')
+const sidebarStyles = readFileSync('src/components/SidebarPanel.css', 'utf8')
 
 function cssBlock(pattern: RegExp): string {
   const block = colors.match(pattern)?.[1]
@@ -41,12 +42,35 @@ function blendWhite(hex: string, alpha: number): string {
     .join('')}`
 }
 
+function blendColor(foreground: string, background: string, opacity: number): string {
+  return `#${[1, 3, 5]
+    .map(offset => {
+      const front = Number.parseInt(foreground.slice(offset, offset + 2), 16)
+      const back = Number.parseInt(background.slice(offset, offset + 2), 16)
+      return Math.round(front * opacity + back * (1 - opacity))
+        .toString(16)
+        .padStart(2, '0')
+    })
+    .join('')}`
+}
+
 const themes = [
   cssBlock(/:root\s*\{([\s\S]*?)\n\}/),
   cssBlock(/\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/),
 ]
 
 describe('renderer shell contrast', () => {
+  it.each(themes)('keeps informational sidebar empty states at WCAG AA contrast', theme => {
+    const rule = sidebarStyles.match(/\.sidebar-item-empty\s*\{([^}]*)\}/s)?.[1]
+    if (!rule) throw new Error('Missing sidebar empty-state style')
+    const property = rule.match(/color:\s*var\(--([a-z-]+)\)/)?.[1]
+    if (!property) throw new Error('Missing empty-state theme color')
+    const opacity = Number(rule.match(/opacity:\s*([\d.]+)/)?.[1] ?? 1)
+    const background = cssColor(theme, 'sidebar-bg')
+    const foreground = blendColor(cssColor(theme, property), background, opacity)
+    expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5)
+  })
+
   it.each(themes)('keeps loading and idle-status text at WCAG AA contrast', theme => {
     expect(
       contrast(cssColor(theme, 'text-secondary'), cssColor(theme, 'bg-primary'))
