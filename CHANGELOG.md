@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1488] - 2026-10-19
+
+### Fixed
+
+- Widen Tempo day columns and always show the grid scrollbar (#818)
+
 ## [0.1.1487] - 2026-10-19
 
 ### Fixed

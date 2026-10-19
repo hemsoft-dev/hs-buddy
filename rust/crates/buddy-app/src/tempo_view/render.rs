@@ -3,7 +3,7 @@ use crate::zoom::zpx;
 use chrono::{Datelike, NaiveDate, Weekday};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
-use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::scroll::{Scrollbar, ScrollbarAxis, ScrollbarMode};
 use gpui_kit::component::{
     ActiveTheme, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -52,7 +52,7 @@ fn pager_needed(count: usize, size: usize) -> bool {
 }
 
 const GRID_LABEL: f32 = 160.;
-const GRID_DAY: f32 = 76.;
+const GRID_DAY: f32 = 92.;
 const GRID_HEAD: f32 = 40.;
 const GRID_ROW: f32 = 40.;
 const GRID_LINE: f32 = 28.;
@@ -258,7 +258,16 @@ impl TempoView {
                             .overflow_x_scroll()
                             .track_scroll(&self.grid_scroll)
                             .child(columns.w(zpx(width)))
-                            .horizontal_scrollbar(&self.grid_scroll),
+                            // Always shown, so the scrollable dates are discoverable.
+                            .child(
+                                div().absolute().inset_0().child(
+                                    Scrollbar::new(&self.grid_scroll)
+                                        .id("tempo-timesheet-scrollbar")
+                                        .axis(ScrollbarAxis::Horizontal)
+                                        .mode(ScrollbarMode::Always)
+                                        .viewport_from_layout(),
+                                ),
+                            ),
                     ),
             );
         if pager_needed(issues.len(), 8) {
@@ -289,13 +298,15 @@ impl TempoView {
                     self.metadata.label(issue)
                 )))
                 .child(
-                    Button::new("tempo-clear-cell-filter")
-                        .label("Show all worklogs")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.cell_filter = None;
-                            this.page = 0;
-                            cx.notify();
-                        })),
+                    h_flex().child(
+                        Button::new("tempo-clear-cell-filter")
+                            .label("Show all worklogs")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cell_filter = None;
+                                this.page = 0;
+                                cx.notify();
+                            })),
+                    ),
                 );
         }
         if worklogs.is_empty() {
