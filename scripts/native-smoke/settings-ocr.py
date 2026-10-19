@@ -52,8 +52,11 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
             group.append(word)
         if group:
             groups.append(group)
+    # Field labels are short, so longer groups are prose. A requested label
+    # with more words still bounds its own group, never a longer line.
+    longest = max(5, len(label.split()))
     for line in groups:
-        if field and len(line) > 5:
+        if field and len(line) > longest:
             continue
         # A field label starts its spatial group. OCR may combine the sidebar
         # and both account columns into one line. A missing Model ID must still

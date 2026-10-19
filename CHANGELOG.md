@@ -9,6 +9,174 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1492] - 2026-10-19
+
+### Fixed
+
+- Keep Tempo grid headings at 4.5:1 contrast (#818)
+
+## [0.1.1491] - 2026-10-19
+
+### Fixed
+
+- Let a status wait observe its full deadline (#818)
+
+## [0.1.1490] - 2026-10-19
+
+### Changed
+
+- Keep the Spotlight workflow check outside the packaging suite (#818)
+
+## [0.1.1489] - 2026-10-19
+
+### Fixed
+
+- Keep the Tempo grid scrollbar on screen and harden native qualification (#818)
+
+## [0.1.1488] - 2026-10-19
+
+### Fixed
+
+- Widen Tempo day columns and always show the grid scrollbar (#818)
+
+## [0.1.1487] - 2026-10-19
+
+### Fixed
+
+- Keep Today marked while Tempo works (#818)
+
+## [0.1.1486] - 2026-10-19
+
+### Fixed
+
+- Apply the Tempo documentation review (#818)
+
+## [0.1.1485] - 2026-10-19
+
+### Fixed
+
+- Address the Tempo finish review (#818)
+
+## [0.1.1484] - 2026-10-19
+
+### Fixed
+
+- Show copy confirmations in timesheet durations (#818)
+
+## [0.1.1483] - 2026-10-18
+
+### Fixed
+
+- Close Mac Tempo scroll gaps with one wheel event (#818)
+
+## [0.1.1482] - 2026-10-18
+
+### Fixed
+
+- Split the Tempo Cancel editor reveal into two short hops (#818)
+
+## [0.1.1481] - 2026-10-18
+
+### Fixed
+
+- Find the Tempo forget status above the scrolled panel (#818)
+
+## [0.1.1480] - 2026-10-18
+
+### Fixed
+
+- Reveal Tempo Cancel editor in fine steps (#818)
+
+## [0.1.1479] - 2026-10-18
+
+### Fixed
+
+- Match OCR text markers across wrapped lines (#818)
+
+## [0.1.1478] - 2026-10-18
+
+### Fixed
+
+- Wait out the paced partial-copy outcome (#818)
+
+## [0.1.1477] - 2026-10-18
+
+### Fixed
+
+- Capture the retained Tempo draft between short anchored hops (#818)
+
+## [0.1.1476] - 2026-10-18
+
+### Fixed
+
+- Keep Tempo reauthentication drafts legible and on screen (#818)
+
+## [0.1.1475] - 2026-10-18
+
+### Fixed
+
+- Reveal retained Tempo editors and keep date-field offsets (#818)
+
+## [0.1.1474] - 2026-10-18
+
+### Fixed
+
+- Blur Tempo editors before retained-value captures (#818)
+
+## [0.1.1473] - 2026-10-18
+
+### Fixed
+
+- Locate long Tempo field labels and offset every Mac input (#818)
+
+## [0.1.1472] - 2026-10-18
+
+### Fixed
+
+- Keep installed Tempo checks on visible controls (#818)
+
+## [0.1.1471] - 2026-10-18
+
+### Fixed
+
+- Retry busy memory profiles without hiding measurement failures (#818)
+
+## [0.1.1470] - 2026-10-18
+
+### Fixed
+
+- Target Tempo connection input and reveal timeline paging (#818)
+
+## [0.1.1469] - 2026-10-18
+
+### Fixed
+
+- Count only mutations in Tempo recovery qualification (#818)
+
+## [0.1.1468] - 2026-10-18
+
+### Fixed
+
+- Finish paced Tempo copies and recover unsent changes (#818)
+
+## [0.1.1467] - 2026-10-18
+
+### Fixed
+
+- Bind Tempo regions and pace service requests (#818)
+
+## [0.1.1466] - 2026-10-18
+
+### Fixed
+
+- Preserve Tempo baselines and complete paging (#818)
+
+## [0.1.1465] - 2026-10-18
+
+### Added
+
+- Port Tempo timesheets and worklogs to GPUI (#818)
+
 ## [0.1.1464] - 2026-10-18
 
 ### Fixed

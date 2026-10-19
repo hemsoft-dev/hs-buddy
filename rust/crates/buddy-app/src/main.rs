@@ -15,6 +15,7 @@ mod runtime;
 mod settings;
 mod settings_view;
 mod shell;
+mod tempo_view;
 mod terminal_view;
 mod theme;
 mod todoist_view;

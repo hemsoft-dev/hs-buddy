@@ -17,6 +17,7 @@ use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::settings_view::{SettingsEvent, SettingsView};
 use crate::shell::{activity_bar, status_bar, tab_bar, title_bar};
+use crate::tempo_view::TempoView;
 use crate::terminal_view::TerminalView;
 use crate::todoist_view::TodoistView;
 use crate::window_persistence::{Placement, SAVE_DELAY, WindowPersistence};
@@ -115,6 +116,7 @@ pub struct BuddyApp {
     terminal_view: Entity<TerminalView>,
     copilot_view: Entity<CopilotView>,
     todoist_view: Entity<TodoistView>,
+    tempo_view: Entity<TempoView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -145,6 +147,9 @@ impl BuddyApp {
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
         if section == Some(Section::Tasks) {
             self.todoist_view.update(cx, |view, cx| view.activate(cx));
+        }
+        if section == Some(Section::Tempo) {
+            self.tempo_view.update(cx, |view, cx| view.activate(cx));
         }
         self.terminal_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Terminal), cx)
@@ -322,6 +327,10 @@ impl BuddyApp {
         let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
         let copilot_view = cx.new(|cx| CopilotView::new(window, cx));
         let todoist_view = cx.new(|cx| TodoistView::new(window, cx));
+        let tempo_view = cx.new(|cx| TempoView::new(window, cx));
+        if section == Some(Section::Tempo) {
+            tempo_view.update(cx, |view, cx| view.activate(cx));
+        }
         if section == Some(Section::Tasks) {
             todoist_view.update(cx, |view, cx| view.activate(cx));
         }
@@ -362,6 +371,7 @@ impl BuddyApp {
             terminal_view,
             copilot_view,
             todoist_view,
+            tempo_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -379,6 +389,7 @@ impl BuddyApp {
             Some(Section::Terminal) => container.child(self.terminal_view.clone()),
             Some(Section::Copilot) => container.child(self.copilot_view.clone()),
             Some(Section::Tasks) => container.child(self.todoist_view.clone()),
+            Some(Section::Tempo) => container.child(self.tempo_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -461,6 +472,7 @@ mod tests {
                         terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
                         copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
                         todoist_view: cx.new(|cx| TodoistView::new(window, cx)),
+                        tempo_view: cx.new(|cx| TempoView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

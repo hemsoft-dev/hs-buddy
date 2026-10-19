@@ -332,6 +332,18 @@ class LabelGuards(unittest.TestCase):
         words += [word("Organization", 640, 300, "field")]
         self.assertEqual(ocr.find_label(words, "Organization", field=True)["top"], 300)
 
+    def test_a_field_label_longer_than_five_words_is_still_a_field_label(self):
+        # Windows OCR from native run 39139528913 read this six-word Tempo
+        # label as one line; the five-word group guard rejected it.
+        actual = [("Start", 72), ("time", 102), ("in", 132), ("the", 145), ("account", 168), ("timezone", 217)]
+        words = [dict(text=text, left=left, top=620, width=26, height=13, line="22") for text, left in actual]
+        label = ocr.find_label(words, "Start time in the account timezone", field=True)
+        self.assertEqual(label, dict(left=72, top=620, width=171, height=13))
+        # A longer prose line that merely starts with the label stays excluded.
+        prose = words + [dict(text="here", left=260, top=620, width=26, height=13, line="22")]
+        with self.assertRaises(RuntimeError):
+            ocr.find_label(prose, "Start time in the account timezone", field=True)
+
     def test_navigation_uses_the_heading_not_the_reload_button(self):
         words = [word("Settings", 80, 100, "heading"), word("Reload", 800, 100, "button"), word("synced", 840, 100, "button"), word("settings", 880, 100, "button"), word("Accounts", 80, 150, "nav")]
         self.assertEqual(ocr.find_label(words, "Accounts", navigation=True)["top"], 150)

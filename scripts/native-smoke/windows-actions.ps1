@@ -126,10 +126,32 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     if ($Mode -eq 'save') { $x = ($rect.r-$rect.l) - 49 * $scale }
     return @{ X=[int]($rect.l + $x - $origin.x); Y=[int]($rect.t + $y - $origin.y) }
 }
+function Find-OwnedCellPoint([string] $EncodedRow, [string] $EncodedDate) {
+    $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'tempo-cell-locator.png'
+    Save-OwnedImage $image
+    $row = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedRow))
+    $date = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedDate))
+    $raw = & python (Join-Path $PSScriptRoot 'tempo-grid.py') --image $image --issue $row --date $date
+    if ($LASTEXITCODE -ne 0) { throw 'Owned grid cell was not found unambiguously' }
+    $point = $raw | ConvertFrom-Json
+    $rect = New-Object Drive+RECT
+    if (-not [Drive]::GetWindowRect($h, [ref]$rect)) { throw 'Owned grid window disappeared' }
+    if ($rect.r-$rect.l -ne $point.captureWidth -or $rect.b-$rect.t -ne $point.captureHeight) {
+        throw 'Grid capture does not match the current owned window'
+    }
+    $origin = New-Object Drive+POINT
+    if (-not [Drive]::ClientToScreen($h, [ref]$origin)) { throw 'Owned grid client origin is unavailable' }
+    return @{ X=[int]($rect.l + $point.x - $origin.x); Y=[int]($rect.t + $point.y - $origin.y) }
+}
 try {
     foreach ($action in $Actions.Split(',')) {
         $parts = $action.Split(':')
         switch ($parts[0]) {
+            'cell64' {
+                if ($parts.Length -ne 3) { throw 'A grid cell needs one row and one date' }
+                $point = Find-OwnedCellPoint $parts[1] $parts[2]
+                Click-OwnedPoint $point.X $point.Y
+            }
             'record-start' {
                 if ($recorder) { throw 'A recording is already active' }
                 $recordDirectory = $parts[1..($parts.Length - 1)] -join ':'
@@ -169,22 +191,31 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'revealtext64' } {
+            { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'waituptext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
-                $hasAnchor = $parts[0] -eq 'revealtext64' -or ($parts[0] -eq 'waitscrolltext64' -and $parts.Count -eq 3)
-                $scrollPoint = if ($hasAnchor) { Find-OwnedLabelPoint $parts[2] 'button' } else { $null }
-                $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } else { -1200 }
+                $hasAnchor = $parts[0] -eq 'revealtext64' -or (($parts[0] -in @('waitscrolltext64', 'waituptext64')) -and $parts.Count -eq 3)
+                # Measure the anchor only once the target is known to be hidden,
+                # matching the Unix driver: an earlier wheel may already have
+                # revealed the target and moved its anchor out of view.
+                $scrollPoint = $null
+                $scrollDelta = if ($parts[0] -eq 'revealtext64') { -120 } elseif ($parts[0] -eq 'waituptext64') { 1200 } else { -1200 }
                 # Model discovery includes the existing bounded cold SDK bootstrap.
                 $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 while ($true) {
+                    # A slow OCR pass can outlast the timeout. Give up only after a
+                    # probe that started at or after the deadline.
+                    $started = $timer.Elapsed.TotalSeconds
                     try {
                         Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
                         break
                     } catch {
-                        if ($timer.Elapsed.TotalSeconds -ge $timeoutSeconds) { throw }
-                        if ($parts[0] -in 'waitscrolltext64', 'revealtext64') { Scroll-OwnedWindow $scrollDelta $scrollPoint }
+                        if ($started -ge $timeoutSeconds) { throw }
+                        if ($parts[0] -in 'waitscrolltext64', 'waituptext64', 'revealtext64') {
+                            if ($hasAnchor -and $null -eq $scrollPoint) { $scrollPoint = Find-OwnedLabelPoint $parts[2] 'button' }
+                            Scroll-OwnedWindow $scrollDelta $scrollPoint
+                        }
                         Start-Sleep -Milliseconds 100
                     }
                 }

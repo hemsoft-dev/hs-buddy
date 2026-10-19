@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { withProfileCleanup } from './electron-memory-cleanup'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -245,50 +246,55 @@ async function runFreshProfile(
 ): Promise<HarnessRun> {
   const profilePath = await mkdtemp(path.join(tmpdir(), `buddy-memory-${randomUUID()}-`))
   let runtime: LaunchedRuntime | null = null
-  try {
-    if (!executablePath) throw new Error('No Electron executable was prepared')
-    runtime = await launchRuntime(options.mode, executablePath, profilePath)
-    const page = runtime.page
-    await page.waitForSelector('.activity-bar', { visible: true, timeout: 60_000 })
-    const state = await validateLaunch(runtime, profilePath)
-    console.log(`Run ${run}: Electron ${state.electronVersion}, profile ${profilePath}`)
+  return withProfileCleanup(
+    profilePath,
+    async () => {
+      if (!executablePath) throw new Error('No Electron executable was prepared')
+      runtime = await launchRuntime(options.mode, executablePath, profilePath)
+      const page = runtime.page
+      await page.waitForSelector('.activity-bar', { visible: true, timeout: 60_000 })
+      const state = await validateLaunch(runtime, profilePath)
+      console.log(`Run ${run}: Electron ${state.electronVersion}, profile ${profilePath}`)
 
-    const scenarios: Record<string, ScenarioMetrics> = {}
-    scenarios['dashboard-cold'] = await collectScenario('dashboard-cold', runtime)
-    await waitWithProgress(options.warmupMs, 'dashboard idle warmup')
-    scenarios['dashboard-warm'] = await collectScenario('dashboard-warm', runtime)
+      const scenarios: Record<string, ScenarioMetrics> = {}
+      scenarios['dashboard-cold'] = await collectScenario('dashboard-cold', runtime)
+      await waitWithProgress(options.warmupMs, 'dashboard idle warmup')
+      scenarios['dashboard-warm'] = await collectScenario('dashboard-warm', runtime)
 
-    await navigate(page, 'settings-accounts')
-    await new Promise(resolve => setTimeout(resolve, options.settleMs))
-    scenarios['settings-idle'] = await collectScenario('settings-idle', runtime)
+      await navigate(page, 'settings-accounts')
+      await new Promise(resolve => setTimeout(resolve, options.settleMs))
+      scenarios['settings-idle'] = await collectScenario('settings-idle', runtime)
 
-    await runNavigationScenario(page, 1)
-    await waitWithProgress(options.settleMs, 'navigation post-warmup baseline')
-    scenarios['navigation-baseline'] = await collectScenario('navigation-baseline', runtime)
+      await runNavigationScenario(page, 1)
+      await waitWithProgress(options.settleMs, 'navigation post-warmup baseline')
+      scenarios['navigation-baseline'] = await collectScenario('navigation-baseline', runtime)
 
-    await runNavigationScenario(page, options.navigationCycles)
-    await waitWithProgress(options.settleMs, 'navigation cleanup')
-    scenarios['navigation-cleanup'] = await collectScenario('navigation-cleanup', runtime)
+      await runNavigationScenario(page, options.navigationCycles)
+      await waitWithProgress(options.settleMs, 'navigation cleanup')
+      scenarios['navigation-cleanup'] = await collectScenario('navigation-cleanup', runtime)
 
-    await runTerminalLifecycle(page, runtime, options, scenarios)
-    await runBrowserLifecycle(page, runtime, options, scenarios)
+      await runTerminalLifecycle(page, runtime, options, scenarios)
+      await runBrowserLifecycle(page, runtime, options, scenarios)
 
-    const observedProcessKinds = [
-      ...new Set(Object.values(scenarios).flatMap(scenario => scenario.processes.map(p => p.kind))),
-    ].sort()
-    return {
-      run,
-      mode: options.mode,
-      electronVersion: state.electronVersion,
-      appVersion: state.appVersion,
-      profilePath,
-      scenarios,
-      observedProcessKinds,
+      const observedProcessKinds = [
+        ...new Set(
+          Object.values(scenarios).flatMap(scenario => scenario.processes.map(p => p.kind))
+        ),
+      ].sort()
+      return {
+        run,
+        mode: options.mode,
+        electronVersion: state.electronVersion,
+        appVersion: state.appVersion,
+        profilePath,
+        scenarios,
+        observedProcessKinds,
+      }
+    },
+    async () => {
+      if (runtime) await closeRuntime(runtime)
     }
-  } finally {
-    if (runtime) await closeRuntime(runtime)
-    await rm(profilePath, { recursive: true, force: true })
-  }
+  )
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
