@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1492] - 2026-10-19
+
+### Fixed
+
+- Keep Tempo grid headings at 4.5:1 contrast (#818)
+
 ## [0.1.1491] - 2026-10-19
 
 ### Fixed

@@ -38,7 +38,8 @@ missing classification remains unclassified and does not become non-CapEx.
 Timesheet groups issues into rows and account dates into columns. The issue
 column stays in place while the dates scroll horizontally with a visible
 scrollbar. Each column heading names the weekday and date. Today's column is
-highlighted and weekends are shaded. After each load, the grid scrolls so that
+highlighted, with a bold heading under an accent bar; weekends are shaded.
+Headings keep the normal text color on both tints. After each load, the grid scrolls so that
 Today is visible when the range contains it. Select an empty cell to prepare
 one hour on that date. Select a cell with one worklog to edit it. A cell with
 several worklogs opens a filtered Timeline with Show all worklogs.

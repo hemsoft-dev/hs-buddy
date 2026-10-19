@@ -47,6 +47,18 @@ fn day_heading(date: NaiveDate) -> (String, String) {
     )
 }
 /// A pager only appears when there is another page to reach.
+/// Column tints for Today and weekends.
+fn day_tints(theme: &gpui_kit::component::theme::Theme) -> (Hsla, Hsla) {
+    (theme.primary.opacity(0.12), theme.muted.opacity(0.6))
+}
+
+/// Headings keep the ordinary foreground on every tint. Primary text on the
+/// primary tint and muted text on the weekend tint fell below 4.5:1; the
+/// column tint, weekday name, weight and an accent bar carry the marker instead.
+fn heading_color(_marker: DayMarker, theme: &gpui_kit::component::theme::Theme) -> Hsla {
+    theme.foreground
+}
+
 fn pager_needed(count: usize, size: usize) -> bool {
     count > size
 }
@@ -141,7 +153,7 @@ impl TempoView {
         }
         let today = self.today;
         let theme = cx.theme();
-        let (today_tint, weekend_tint) = (theme.primary.opacity(0.12), theme.muted.opacity(0.6));
+        let (today_tint, weekend_tint) = day_tints(theme);
         // The issue labels stay pinned while the day columns scroll beside
         // them; fixed row heights keep both halves aligned.
         let label = |text: String, height: f32| {
@@ -177,14 +189,16 @@ impl TempoView {
             let mut text = v_flex()
                 .child(div().text_xs().child(weekday))
                 .child(div().child(label));
-            text = match day_marker(date, today) {
-                DayMarker::Today => text
-                    .text_color(theme.primary)
-                    .font_weight(FontWeight::SEMIBOLD),
-                DayMarker::Weekend => text.text_color(theme.muted_foreground),
-                DayMarker::Plain => text,
-            };
-            heading = heading.child(cell(date, GRID_HEAD).child(text));
+            let marker = day_marker(date, today);
+            text = text.text_color(heading_color(marker, theme));
+            let mut head = cell(date, GRID_HEAD);
+            if marker == DayMarker::Today {
+                // A bar, not an underline: OCR reads these headings in the
+                // installed qualification.
+                text = text.font_weight(FontWeight::SEMIBOLD);
+                head = head.border_t(zpx(2.)).border_color(theme.primary);
+            }
+            heading = heading.child(head.child(text));
         }
         let mut columns = v_flex().child(heading);
         for issue in issues.iter().skip(self.page * 8).take(8) {
@@ -1122,5 +1136,65 @@ mod scroll_area_tests {
             overlay == viewport,
             "The scrollbar overlay must cover the visible grid: overlay {overlay:?}, viewport {viewport:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod heading_contrast_tests {
+    use super::*;
+    use buddy_core::application_settings::LocalEdit;
+    use buddy_core::config::{AppConfig, ThemeName};
+    use gpui_kit::component::theme::Theme;
+
+    fn luminance(color: Hsla) -> f32 {
+        let rgb = color.to_rgb();
+        let linear = |channel: f32| {
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
+    }
+
+    fn over(top: Hsla, base: Hsla) -> Hsla {
+        let (top, base) = (top.to_rgb(), base.to_rgb());
+        let mix = |a: f32, b: f32| a * top.a + b * (1. - top.a);
+        gpui_kit::Rgba {
+            r: mix(top.r, base.r),
+            g: mix(top.g, base.g),
+            b: mix(top.b, base.b),
+            a: 1.,
+        }
+        .into()
+    }
+
+    fn contrast(text: Hsla, background: Hsla) -> f32 {
+        let (a, b) = (luminance(text), luminance(background));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[gpui_kit::test]
+    fn finish_review_tinted_day_headings_meet_text_contrast(cx: &mut gpui_kit::TestAppContext) {
+        // Verdict on fbd904e9: the primary-colored Today heading measured about
+        // 2.4:1 (dark) and 3.9:1 (light) on its own tint, and muted weekend
+        // headings about 4.0:1 on the dark weekend tint.
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            for mode in [ThemeName::Dark, ThemeName::Light] {
+                // Selecting a theme applies its incumbent color preset.
+                let mut config = AppConfig::default();
+                LocalEdit::Theme(mode).apply(&mut config).unwrap();
+                crate::theme::install(&config, cx);
+                let theme = Theme::global(cx);
+                let (today, weekend) = day_tints(theme);
+                for (marker, tint) in [(DayMarker::Today, today), (DayMarker::Weekend, weekend)] {
+                    let ratio =
+                        contrast(heading_color(marker, theme), over(tint, theme.background));
+                    assert!(ratio >= 4.5, "{mode:?} heading contrast is {ratio:.2}:1");
+                }
+            }
+        });
     }
 }
