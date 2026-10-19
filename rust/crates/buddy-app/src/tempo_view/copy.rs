@@ -24,6 +24,16 @@ fn copy_row(
     )
 }
 
+pub(super) fn copy_tone(report: &CopyReport) -> Tone {
+    if report.rejected.is_some() {
+        Tone::Error
+    } else if report.complete() {
+        Tone::Success
+    } else {
+        Tone::Warning
+    }
+}
+
 pub(super) fn copy_message(report: &CopyReport) -> (String, Option<String>) {
     let noun = |count| if count == 1 { "worklog" } else { "worklogs" };
     let mut parts = vec![format!(
@@ -114,7 +124,8 @@ impl TempoView {
         content.child(div().whitespace_normal().child("Starts follow the account's complete Today totals from 08:00. Copying stops at the first failure. An uncertain result requires inspection before any new change."))
             .child(h_flex().gap_2()
                 .child(Button::new("tempo-confirm-copy").label("Create copies").disabled(!self.can_submit())
-                    .on_click(cx.listener(|this, _, _, cx| this.confirm_copy(cx))))
+                    // Leave any range input so focus does not stay behind the result.
+                    .on_click(cx.listener(|this, _, window, cx| { window.blur(cx); this.confirm_copy(cx) })))
                 .child(Button::new("tempo-cancel-copy").label("Cancel copy").disabled(self.busy)
                     .on_click(cx.listener(|this, _, _, cx| { this.copy_plan = None; cx.notify(); }))))
             .into_any_element()
@@ -140,6 +151,7 @@ mod tests {
             refresh_problem: None,
         };
         let (message, problem) = copy_message(&report);
+        assert!(copy_tone(&report) == super::super::Tone::Warning);
         assert!(
             message.contains("1 worklog copied")
                 && message.contains("One worklog has an unconfirmed result")
@@ -150,6 +162,10 @@ mod tests {
         assert!(problem.is_none() && !report.complete());
         report.unconfirmed = None;
         report.unattempted.clear();
+        assert!(copy_tone(&report) == super::super::Tone::Success);
+        report.rejected = Some(id(8));
+        assert!(copy_tone(&report) == super::super::Tone::Error);
+        report.rejected = None;
         report.refresh_problem = Some(SessionError::Domain(Error::IncompleteRead));
         let (message, problem) = copy_message(&report);
         assert!(message.contains("1 worklog copied"));

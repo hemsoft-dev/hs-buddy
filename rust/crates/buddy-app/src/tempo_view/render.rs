@@ -1,11 +1,54 @@
 use super::*;
 use crate::zoom::zpx;
+use chrono::{Datelike, NaiveDate, Weekday};
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
-use gpui_kit::component::{ActiveTheme, button::Button, h_flex, input::Input, v_flex};
-use gpui_kit::{
-    AnyElement, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement,
-    Styled, div,
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::{
+    ActiveTheme, Icon, Sizable as _,
+    button::{Button, ButtonVariants as _},
+    h_flex,
+    input::Input,
+    v_flex,
 };
+use gpui_kit::{
+    AnyElement, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Render, StatefulInteractiveElement, Styled, div, point, px,
+};
+
+/// Recheck and Forget act on the saved connection, so they need one.
+fn connection_actions_enabled(saved: Option<bool>) -> bool {
+    saved != Some(false)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DayMarker {
+    Today,
+    Weekend,
+    Plain,
+}
+fn day_marker(date: NaiveDate, today: Option<NaiveDate>) -> DayMarker {
+    if Some(date) == today {
+        DayMarker::Today
+    } else if matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+        DayMarker::Weekend
+    } else {
+        DayMarker::Plain
+    }
+}
+fn today_offset(days: &[NaiveDate], today: Option<NaiveDate>) -> Option<usize> {
+    days.iter().position(|day| Some(*day) == today)
+}
+/// A pager only appears when there is another page to reach.
+fn pager_needed(count: usize, size: usize) -> bool {
+    count > size
+}
+
+const GRID_LABEL: f32 = 160.;
+const GRID_DAY: f32 = 76.;
+const GRID_HEAD: f32 = 28.;
+const GRID_ROW: f32 = 40.;
+const GRID_LINE: f32 = 28.;
 
 pub(super) fn duration(seconds: u64) -> String {
     if seconds.is_multiple_of(60) {
@@ -20,6 +63,13 @@ pub(super) fn duration(seconds: u64) -> String {
     }
 }
 impl TempoView {
+    pub(super) fn today(&self) -> Option<NaiveDate> {
+        let connection = self.connection.as_ref()?;
+        let data = self.data.as_ref()?;
+        buddy_core::tempo::AccountCalendar::from_zone(data.time_zone.as_deref())
+            .and_then(|calendar| calendar.today_at(connection.now()))
+            .ok()
+    }
     fn render_timesheet(&self, cx: &Context<Self>) -> AnyElement {
         let Some(data) = &self.data else {
             return div()
@@ -45,20 +95,54 @@ impl TempoView {
                 )
                 .into_any_element();
         }
-        let width = 160. + data.summary.days.len() as f32 * 76.;
-        let mut heading = h_flex().child(div().w(zpx(160.)).flex_shrink_0().child("Issue / day"));
+        let today = self.today();
+        let theme = cx.theme();
+        let (today_tint, weekend_tint) = (theme.primary.opacity(0.12), theme.muted.opacity(0.6));
+        // The issue labels stay pinned while the day columns scroll beside
+        // them; fixed row heights keep both halves aligned.
+        let label = |text: String, height: f32| {
+            div()
+                .w(zpx(GRID_LABEL))
+                .h(zpx(height))
+                .flex()
+                .items_center()
+                .child(text)
+        };
+        let cell = |date: NaiveDate, height: f32| {
+            let cell = div()
+                .w(zpx(GRID_DAY))
+                .h(zpx(height))
+                .flex_shrink_0()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .px(zpx(2.));
+            match day_marker(date, today) {
+                DayMarker::Today => cell.bg(today_tint),
+                DayMarker::Weekend => cell.bg(weekend_tint),
+                DayMarker::Plain => cell,
+            }
+        };
+        let mut labels = v_flex()
+            .flex_shrink_0()
+            .child(label("Issue / day".into(), GRID_HEAD));
+        let mut heading = h_flex();
         for day in &data.summary.days {
-            heading = heading.child(
-                div()
-                    .w(zpx(76.))
-                    .flex_shrink_0()
-                    .child(day.logged.date.format("%d %b").to_string()),
-            );
+            let date = day.logged.date;
+            let mut text = div().child(date.format("%d %b").to_string());
+            text = match day_marker(date, today) {
+                DayMarker::Today => text
+                    .text_color(theme.primary)
+                    .font_weight(FontWeight::SEMIBOLD),
+                DayMarker::Weekend => text.text_color(theme.muted_foreground),
+                DayMarker::Plain => text,
+            };
+            heading = heading.child(cell(date, GRID_HEAD).child(text));
         }
-        let mut rows = v_flex().gap_2().w(zpx(width)).child(heading);
+        let mut columns = v_flex().child(heading);
         for issue in issues.iter().skip(self.page * 8).take(8) {
-            let label = self.metadata.label(*issue);
-            let mut row = h_flex().child(div().w(zpx(160.)).flex_shrink_0().child(label));
+            labels = labels.child(label(self.metadata.label(*issue), GRID_ROW));
+            let mut row = h_flex();
             for day in &data.summary.days {
                 let seconds: u64 = day
                     .logged
@@ -70,7 +154,7 @@ impl TempoView {
                 let issue = *issue;
                 let date = day.logged.date;
                 row = row.child(
-                    div().w(zpx(76.)).flex_shrink_0().child(
+                    cell(date, GRID_ROW).child(
                         Button::new(format!(
                             "tempo-cell-{}-{date}",
                             issue.map(|id| id.get()).unwrap_or(0)
@@ -101,28 +185,26 @@ impl TempoView {
                     ),
                 );
             }
-            rows = rows.child(row);
+            columns = columns.child(row);
         }
-        let mut totals = h_flex().child(div().w(zpx(160.)).flex_shrink_0().child("Day total"));
+        let mut totals = h_flex();
+        let mut schedule = h_flex();
+        let mut copy = h_flex();
         for day in &data.summary.days {
-            totals = totals.child(
-                div()
-                    .w(zpx(76.))
-                    .flex_shrink_0()
-                    .child(duration(day.logged.seconds)),
+            let date = day.logged.date;
+            totals = totals.child(cell(date, GRID_LINE).child(duration(day.logged.seconds)));
+            schedule = schedule.child(
+                cell(date, GRID_LINE).child(
+                    day.schedule
+                        .as_ref()
+                        .map(|s| duration(s.required_seconds))
+                        .unwrap_or_else(|| "Unknown".into()),
+                ),
             );
-        }
-        let mut copy = h_flex().child(
-            div()
-                .w(zpx(160.))
-                .flex_shrink_0()
-                .child("Copy day to Today"),
-        );
-        for day in &data.summary.days {
             let ids: Vec<_> = day.logged.worklogs.iter().map(|row| row.id).collect();
             copy = copy.child(
-                div().w(zpx(76.)).flex_shrink_0().child(
-                    Button::new(format!("tempo-copy-day-{}", day.logged.date))
+                cell(date, GRID_ROW).child(
+                    Button::new(format!("tempo-copy-day-{date}"))
                         .label("Copy day")
                         .disabled(
                             ids.is_empty()
@@ -136,21 +218,15 @@ impl TempoView {
                 ),
             );
         }
-        let mut schedule = h_flex().child(div().w(zpx(160.)).flex_shrink_0().child("Required"));
-        for day in &data.summary.days {
-            schedule = schedule.child(
-                div().w(zpx(76.)).flex_shrink_0().child(
-                    day.schedule
-                        .as_ref()
-                        .map(|s| duration(s.required_seconds))
-                        .unwrap_or_else(|| "Unknown".into()),
-                ),
-            );
-        }
-        rows = rows.child(totals).child(schedule);
-        v_flex()
+        labels = labels
+            .child(label("Day total".into(), GRID_LINE))
+            .child(label("Required".into(), GRID_LINE))
+            .child(label("Copy day to Today".into(), GRID_ROW));
+        columns = columns.child(totals).child(schedule).child(copy);
+        let width = data.summary.days.len() as f32 * GRID_DAY;
+        let mut body = v_flex()
             .gap_3()
-            .child(div().whitespace_normal().text_color(cx.theme().muted_foreground).child(
+            .child(div().whitespace_normal().text_color(theme.muted_foreground).child(
                 if cfg!(target_os = "macos") {
                     "Select a cell to log or edit time. Cells with multiple worklogs open their list. Command-click a filled cell to copy its worklogs to Today, or use Copy day."
                 } else {
@@ -158,14 +234,25 @@ impl TempoView {
                 }
             ))
             .child(
-                div()
-                    .id("tempo-timesheet-horizontal")
-                    .w_full()
-                    .overflow_x_scroll()
-                    .child(rows.child(copy)),
-            )
-            .child(self.pagination(issues.len(), 8, cx))
-            .into_any_element()
+                h_flex()
+                    .items_start()
+                    .child(labels)
+                    .child(
+                        div()
+                            .id("tempo-timesheet-horizontal")
+                            .flex_1()
+                            .min_w_0()
+                            .pb(zpx(12.))
+                            .overflow_x_scroll()
+                            .track_scroll(&self.grid_scroll)
+                            .child(columns.w(zpx(width)))
+                            .horizontal_scrollbar(&self.grid_scroll),
+                    ),
+            );
+        if pager_needed(issues.len(), 8) {
+            body = body.child(self.pagination(issues.len(), 8, cx));
+        }
+        body.into_any_element()
     }
     fn render_timeline(&self, cx: &Context<Self>) -> AnyElement {
         let Some(data) = &self.data else {
@@ -205,9 +292,18 @@ impl TempoView {
         for row in worklogs.iter().skip(self.page * 20).take(20) {
             let id = row.id;
             let target = (**row).clone();
+            // Billing appears only when it is known; listing reads omit it.
+            let billing = match row.billing_account() {
+                Ok(Some(account)) => Some(format!("Billing account: {account}")),
+                Ok(None) => Some("Billing account: none".into()),
+                Err(_) => None,
+            };
             rows = rows.child(
                 v_flex()
                     .gap_1()
+                    .pb_3()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
                         h_flex()
                             .flex_wrap()
@@ -236,16 +332,12 @@ impl TempoView {
                                 .unwrap_or_else(|| "No description".into()),
                         ),
                     )
-                    .child(
+                    .children(billing.map(|text| {
                         div()
                             .text_color(cx.theme().muted_foreground)
                             .whitespace_normal()
-                            .child(match row.billing_account() {
-                                Ok(Some(account)) => format!("Billing account: {account}"),
-                                Ok(None) => "Billing account: none".into(),
-                                Err(_) => "Billing account: load worklog details to inspect".into(),
-                            }),
-                    )
+                            .child(text)
+                    }))
                     .child(
                         h_flex()
                             .gap_2()
@@ -282,16 +374,20 @@ impl TempoView {
                                             || self.copy_plan.is_some(),
                                     )
                                     .on_click(cx.listener(move |this, _, _, cx| {
+                                        // The confirmation replaces any stale status.
                                         this.delete_target = Some(target.clone());
                                         this.error = None;
+                                        this.notice = None;
                                         cx.notify();
                                     })),
                             ),
                     ),
             );
         }
-        rows.child(self.pagination(worklogs.len(), 20, cx))
-            .into_any_element()
+        if pager_needed(worklogs.len(), 20) {
+            rows = rows.child(self.pagination(worklogs.len(), 20, cx));
+        }
+        rows.into_any_element()
     }
     fn pagination(&self, count: usize, size: usize, cx: &Context<Self>) -> AnyElement {
         h_flex()
@@ -337,7 +433,10 @@ impl Render for TempoView {
                 cx,
             ) {
                 Ok(mut editor) => {
-                    let query = row.issue.map(|id| id.get().to_string()).unwrap_or_default();
+                    let query = info.issue.key.clone();
+                    editor
+                        .issue
+                        .update(cx, |input, cx| input.set_value(query.clone(), window, cx));
                     if let Err(error) = editor.accept_lookup(query, info, cx) {
                         self.error = Some(error);
                     }
@@ -349,10 +448,13 @@ impl Render for TempoView {
         }
         if let Some((row, info)) = self.pending_editor.take() {
             self.editor_binding = self.connection.as_ref().map(io::Connection::binding);
-            let query = row.issue.map(|id| id.get().to_string()).unwrap_or_default();
+            let query = info.issue.key.clone();
             let date = row.date;
             let mut editor =
                 editor::Editor::new(Some(row), date, editor::next_start_time(0), window, cx);
+            editor
+                .issue
+                .update(cx, |input, cx| input.set_value(query.clone(), window, cx));
             if let Err(error) = editor.accept_lookup(query, info, cx) {
                 self.error = Some(error);
             }
@@ -374,6 +476,18 @@ impl Render for TempoView {
                 });
             }
             self.populate_range = false;
+        }
+        if self.scroll_to_today {
+            let days: Vec<_> = self
+                .data
+                .iter()
+                .flat_map(|data| &data.summary.days)
+                .map(|day| day.logged.date)
+                .collect();
+            let column = today_offset(&days, self.today()).unwrap_or(0);
+            let x = zpx(GRID_DAY * column.saturating_sub(1) as f32).to_pixels(window.rem_size());
+            self.grid_scroll.set_offset(point(-x, px(0.)));
+            self.scroll_to_today = false;
         }
         let mut body = v_flex()
             .gap_3()
@@ -477,10 +591,29 @@ impl Render for TempoView {
                             data.read_at.format("%Y-%m-%d %H:%M")
                         )),
                 )
-                .child(
+                .child({
+                    let balance = data.summary.required_seconds.map(|seconds| {
+                        i128::from(data.summary.logged_seconds) - i128::from(seconds)
+                    });
+                    let mut shown = div().child(
+                        balance
+                            .map(|balance| {
+                                format!(
+                                    "Balance {}{}",
+                                    if balance < 0 { "-" } else { "+" },
+                                    duration(balance.unsigned_abs() as u64)
+                                )
+                            })
+                            .unwrap_or_else(|| "Balance unknown".into()),
+                    );
+                    if balance.is_some_and(|balance| balance < 0) {
+                        shown = shown.text_color(cx.theme().danger);
+                    }
                     h_flex()
                         .flex_wrap()
-                        .gap_4()
+                        .gap_6()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
                         .child(format!("Logged {}", duration(data.summary.logged_seconds)))
                         .child(
                             data.summary
@@ -490,21 +623,8 @@ impl Render for TempoView {
                                     "Required hours unavailable for part of this range".into()
                                 }),
                         )
-                        .child(
-                            data.summary
-                                .required_seconds
-                                .map(|seconds| {
-                                    let balance = i128::from(data.summary.logged_seconds)
-                                        - i128::from(seconds);
-                                    format!(
-                                        "Balance {}{}",
-                                        if balance < 0 { "-" } else { "+" },
-                                        duration(balance.unsigned_abs() as u64)
-                                    )
-                                })
-                                .unwrap_or_else(|| "Balance unknown".into()),
-                        ),
-                );
+                        .child(shown)
+                });
             match data
                 .summary
                 .capitalization_totals(&self.metadata.classifications)
@@ -538,31 +658,33 @@ impl Render for TempoView {
                 body=body.child(div().whitespace_normal().child(format!("Issue details could not load for {} issues. Classification stays unknown. {error}",self.metadata.failed)));
             }
         }
+        let ready = self.connection.as_ref().is_some_and(|connection| {
+            connection.session.pending_phase() == Some(WritePhase::Ready)
+        });
+        let mut lines: Vec<(Tone, String)> = Vec::new();
         if let Some(notice) = &self.notice {
-            body = body.child(div().whitespace_normal().child(notice.clone()));
+            lines.push((self.notice_tone, notice.clone()));
         }
         if let Some(error) = &self.error {
-            body = body.child(
-                div()
-                    .text_color(cx.theme().danger)
-                    .whitespace_normal()
-                    .child(error.clone()),
-            );
+            lines.push((Tone::Error, error.clone()));
         }
+        let mut actions = Vec::new();
         if let Some(connection) = &self.connection
             && let Some(phase) = connection.session.pending_phase()
         {
             let policy = recovery_policy(phase);
             let acknowledged = policy.acknowledged;
-            body=body.child(div().whitespace_normal().child(if policy.retry {"This captured change has not been sent. Retry this captured worklog or discard it to keep editing."} else if acknowledged {"The service outcome is known. Finish local recovery cleanup before preparing another worklog change."} else {"A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery."}))
-                    .child(h_flex().flex_wrap().gap_2()
-                        .child(Button::new("tempo-recovery-cleanup").label("Retry cleanup").disabled(self.busy || !acknowledged)
-                            .on_click(cx.listener(|this,_,_,cx|this.operate(Operation::Cleanup,cx))))
-                        .child(Button::new("tempo-recovery-discard").label("Discard local recovery").disabled(self.busy || (acknowledged && !policy.retry))
-                            .on_click(cx.listener(|this,_,_,cx|{this.discard_confirm=true;cx.notify();}))));
+            lines.push(if policy.retry {
+                (Tone::Warning, "This captured change has not been sent. Retry this captured worklog or discard it to keep editing.".to_owned())
+            } else if acknowledged {
+                (Tone::Info, "The service outcome is known. Finish local recovery cleanup before preparing another worklog change.".to_owned())
+            } else {
+                (Tone::Warning, "A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery.".to_owned())
+            });
+            let mut row = h_flex().flex_wrap().gap_2();
             if policy.retry {
-                body =
-                    body.child(
+                row =
+                    row.child(
                         Button::new("tempo-retry-captured-change")
                             .label("Retry captured change")
                             .disabled(self.busy)
@@ -571,15 +693,55 @@ impl Render for TempoView {
                             })),
                     );
             }
+            // Cleanup only applies once the outcome is known; it is not offered before.
+            if acknowledged {
+                row = row.child(
+                    Button::new("tempo-recovery-cleanup")
+                        .label("Retry cleanup")
+                        .disabled(self.busy)
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.operate(Operation::Cleanup, cx)),
+                        ),
+                );
+            }
+            row = row.child(
+                Button::new("tempo-recovery-discard")
+                    .label("Discard local recovery")
+                    .disabled(self.busy || (acknowledged && !policy.retry))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.discard_confirm = true;
+                        cx.notify();
+                    })),
+            );
+            actions.push(row.into_any_element());
         }
-        let ready = self.connection.as_ref().is_some_and(|connection| {
-            connection.session.pending_phase() == Some(WritePhase::Ready)
-        });
         if self.discard_confirm {
-            body=body.child(div().whitespace_normal().child(if ready {"Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."} else {"This removes only local recovery. It does not undo a Tempo worklog, and another save could duplicate work already recorded."}))
-                .child(h_flex().gap_2().child(Button::new("tempo-confirm-discard").label("Confirm discard").disabled(self.busy)
-                    .on_click(cx.listener(|this,_,_,cx|this.operate(Operation::Discard,cx))))
-                    .child(Button::new("tempo-keep-recovery").label("Keep recovery").on_click(cx.listener(|this,_,_,cx|{this.discard_confirm=false;cx.notify();}))));
+            lines.push((Tone::Warning, if ready {"Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."} else {"This removes only local recovery. It does not undo a Tempo worklog, and another save could duplicate work already recorded."}.to_owned()));
+            actions.push(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("tempo-confirm-discard")
+                            .label("Confirm discard")
+                            .danger()
+                            .disabled(self.busy)
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.operate(Operation::Discard, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new("tempo-keep-recovery")
+                            .label("Keep recovery")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.discard_confirm = false;
+                                cx.notify();
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        if !lines.is_empty() || !actions.is_empty() {
+            body = body.child(status_block(lines, actions, cx));
         }
         if let Some(plan) = &self.copy_plan {
             body = body.child(self.render_copy(plan, cx));
@@ -605,6 +767,7 @@ impl Render for TempoView {
                         .child(
                             Button::new("tempo-confirm-delete")
                                 .label("Confirm deletion")
+                                .danger()
                                 .disabled(!self.can_submit())
                                 .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
                         )
@@ -664,9 +827,9 @@ impl Render for TempoView {
                 .child(h_flex().flex_wrap().gap_2()
                     .child(Button::new("tempo-save-connect").label("Save and connect").disabled(self.busy || self.credentials.iter().any(|field|field.read(cx).value().is_empty()))
                         .on_click(cx.listener(|this,_,_,cx|this.entered_connection(cx))))
-                    .child(Button::new("tempo-recheck-connect").label("Recheck saved connection").disabled(self.busy)
+                    .child(Button::new("tempo-recheck-connect").label("Recheck saved connection").disabled(self.busy || !connection_actions_enabled(self.saved))
                         .on_click(cx.listener(|this,_,_,cx|this.connect(None,cx))))
-                    .child(Button::new("tempo-forget-connect").label("Forget saved connection").disabled(self.busy || recovery || self.editor.is_some())
+                    .child(Button::new("tempo-forget-connect").label("Forget saved connection").danger().disabled(self.busy || recovery || self.editor.is_some() || !connection_actions_enabled(self.saved))
                         .on_click(cx.listener(|this,_,_,cx|this.forget_connection(cx))))));
         } else {
             body = body
@@ -723,11 +886,62 @@ impl Render for TempoView {
         }
         div()
             .id("tempo-page-scroll")
+            // Tabular numerals keep every time column aligned.
+            .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
             .size_full()
             .overflow_y_scroll()
             .p(zpx(16.))
             .child(body)
     }
+}
+
+/// One status region. Lines keep their order: the primary outcome first.
+fn status_block(
+    lines: Vec<(Tone, String)>,
+    actions: Vec<AnyElement>,
+    cx: &Context<TempoView>,
+) -> AnyElement {
+    let theme = cx.theme();
+    let color = |tone: Tone| -> Hsla {
+        match tone {
+            Tone::Info => theme.info,
+            Tone::Success => theme.success,
+            Tone::Warning => theme.warning,
+            Tone::Error => theme.danger,
+        }
+    };
+    let worst = lines
+        .iter()
+        .map(|(tone, _)| *tone)
+        .max_by_key(|tone| match tone {
+            Tone::Info => 0,
+            Tone::Success => 1,
+            Tone::Warning => 2,
+            Tone::Error => 3,
+        })
+        .unwrap_or(Tone::Info);
+    let mut block = v_flex()
+        .gap_2()
+        .p_3()
+        .rounded_md()
+        .border_1()
+        .border_color(color(worst));
+    for (tone, text) in lines {
+        let icon = match tone {
+            Tone::Info => IconName::Info,
+            Tone::Success => IconName::CircleCheck,
+            Tone::Warning => IconName::TriangleAlert,
+            Tone::Error => IconName::CircleX,
+        };
+        block = block.child(
+            h_flex()
+                .gap_2()
+                .items_start()
+                .child(Icon::new(icon).small().text_color(color(tone)))
+                .child(div().flex_1().min_w_0().whitespace_normal().child(text)),
+        );
+    }
+    block.children(actions).into_any_element()
 }
 
 fn page_summary(count: usize, page: usize) -> String {
@@ -763,6 +977,33 @@ mod recovery_policy_tests {
         }
         assert!(recovery_policy(WritePhase::Confirmed).acknowledged);
         assert!(recovery_policy(WritePhase::Rejected).acknowledged);
+    }
+    #[test]
+    fn finish_review_connection_actions_need_a_saved_connection() {
+        assert!(connection_actions_enabled(None));
+        assert!(connection_actions_enabled(Some(true)));
+        assert!(!connection_actions_enabled(Some(false)));
+    }
+    #[test]
+    fn finish_review_today_and_weekends_are_marked_in_the_grid() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
+        let day = |d| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap();
+        assert!(day_marker(day(16), Some(today)) == DayMarker::Today);
+        assert!(day_marker(day(17), Some(today)) == DayMarker::Weekend);
+        assert!(day_marker(day(18), Some(today)) == DayMarker::Weekend);
+        assert!(day_marker(day(15), Some(today)) == DayMarker::Plain);
+        assert!(day_marker(day(18), None) == DayMarker::Weekend);
+        assert_eq!(
+            today_offset(&[day(1), day(2), day(16)], Some(today)),
+            Some(2)
+        );
+        assert_eq!(today_offset(&[day(1), day(2)], Some(today)), None);
+    }
+    #[test]
+    fn finish_review_a_pager_appears_only_with_more_than_one_page() {
+        assert!(!pager_needed(0, 20));
+        assert!(!pager_needed(20, 20));
+        assert!(pager_needed(21, 20));
     }
     #[test]
     fn pager_summary_counts_one_row_in_the_singular() {

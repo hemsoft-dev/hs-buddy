@@ -315,6 +315,7 @@ impl Editor {
         can_save: bool,
         cx: &Context<TempoView>,
     ) -> gpui_kit::AnyElement {
+        use crate::zoom::zpx;
         use buddy_core::tempo::BillingAccountStatus;
         use gpui_kit::base::{Disableable, Selectable};
         use gpui_kit::component::{
@@ -324,6 +325,8 @@ impl Editor {
             v_flex,
         };
         use gpui_kit::{IntoElement, ParentElement, Styled, div};
+        // Inputs are sized to their values and actions sit inline, as in the
+        // incumbent forms, instead of spanning the whole pane.
         let mut body = v_flex()
             .gap_2()
             .child(div().text_lg().child(if self.original.is_some() {
@@ -332,12 +335,18 @@ impl Editor {
                 "Log time"
             }))
             .child(div().child("Issue key or ID"))
-            .child(Input::new(&self.issue).disabled(busy || self.original.is_some()))
             .child(
-                Button::new("tempo-editor-lookup")
-                    .label("Look up issue and billing accounts")
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, _, cx| this.lookup_editor(cx))),
+                div()
+                    .w(zpx(280.))
+                    .child(Input::new(&self.issue).disabled(busy || self.original.is_some())),
+            )
+            .child(
+                h_flex().child(
+                    Button::new("tempo-editor-lookup")
+                        .label("Look up issue and billing accounts")
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.lookup_editor(cx))),
+                ),
             );
         if let Some(issue) = &self.resolved {
             body = body.child(div().whitespace_normal().child(format!(
@@ -361,34 +370,41 @@ impl Editor {
         ] {
             body = body
                 .child(div().child(label))
-                .child(Input::new(input).disabled(busy));
+                .child(div().w(zpx(240.)).child(Input::new(input).disabled(busy)));
         }
-        body = body
-            .child(div().child("Description"))
-            .child(Textarea::new(&self.description).disabled(busy));
+        body = body.child(div().child("Description")).child(
+            div()
+                .w_full()
+                .max_w(zpx(640.))
+                .child(Textarea::new(&self.description).disabled(busy)),
+        );
         if let Some(billing) = &self.billing {
-            body = body
-                .child(div().child("Billing account"))
-                .child(Input::new(&self.billing_filter).disabled(busy));
+            body = body.child(div().child("Billing account")).child(
+                div()
+                    .w(zpx(320.))
+                    .child(Input::new(&self.billing_filter).disabled(busy)),
+            );
             if !billing.selection_is_listed() {
                 body=body.child(div().whitespace_normal().child(format!("The existing account {} is unavailable. It will be preserved unless you explicitly choose another account.",billing.selected_key().unwrap_or_default())));
             }
             let editor_id = self.id;
             body = body.child(
-                Button::new("tempo-editor-no-billing")
-                    .label("No billing account")
-                    .selected(billing.selected_key().is_none())
-                    .disabled(busy)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(editor) = &mut this.editor
-                            && editor.id == editor_id
-                            && let Some(billing) = &mut editor.billing
-                            && let Err(error) = billing.select(None)
-                        {
-                            this.error = Some(error.to_string());
-                        }
-                        cx.notify();
-                    })),
+                h_flex().child(
+                    Button::new("tempo-editor-no-billing")
+                        .label("No billing account")
+                        .selected(billing.selected_key().is_none())
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(editor) = &mut this.editor
+                                && editor.id == editor_id
+                                && let Some(billing) = &mut editor.billing
+                                && let Err(error) = billing.select(None)
+                            {
+                                this.error = Some(error.to_string());
+                            }
+                            cx.notify();
+                        })),
+                ),
             );
             let filter = self.billing_filter.read(cx).value().to_lowercase();
             let choices: Vec<_> = billing

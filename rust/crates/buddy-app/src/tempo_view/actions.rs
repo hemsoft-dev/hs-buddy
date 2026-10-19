@@ -2,13 +2,14 @@ use super::*;
 use buddy_core::tempo::{AccountCalendar, Draft, EditorIssue, Worklog, WorklogId};
 
 pub(super) enum Update {
-    Message(String),
+    Message(Tone, String),
     TemplateEditor(Box<(Worklog, EditorIssue, chrono::NaiveDate)>),
     CopyReady(Box<buddy_core::tempo::CopyPlan>),
     Editor(Box<(Worklog, EditorIssue)>),
     Lookup(Box<(uuid::Uuid, String, EditorIssue)>),
     Wrote {
         confirmed: bool,
+        tone: Tone,
         message: String,
         problem: Option<String>,
     },
@@ -119,7 +120,7 @@ impl TempoView {
         };
         self.busy = true;
         self.error = None;
-        self.notice = Some("Working with Tempo…".into());
+        self.set_notice(Tone::Info, "Working with Tempo…");
         self.discard_confirm = false;
         let generation = self.generation;
         let rx = Runtime::global(cx).spawn(async move {
@@ -135,7 +136,7 @@ impl TempoView {
                     Ok((connection,outcome))=>{
                         this.data=Some(connection.session.snapshot().clone());this.metadata=connection.metadata.clone();this.templates=connection.templates.clone();this.connection=Some(connection);
                         match outcome {
-                            Ok(Update::Message(message))=>{this.notice=Some(message);this.populate_range=true;this.page=0;this.cell_filter=None;},
+                            Ok(Update::Message(tone,message))=>{this.set_notice(tone,message);this.populate_range=true;this.scroll_to_today=true;this.page=0;this.cell_filter=None;},
                             Ok(Update::CopyReady(plan))=>{this.copy_plan=Some(plan);this.delete_target=None;},
                             Ok(Update::TemplateEditor(value))=>this.pending_template=Some(*value),
                             Ok(Update::Editor(value))=>this.pending_editor=Some(*value),
@@ -144,9 +145,9 @@ impl TempoView {
                                 if let Some(editor)=&mut this.editor && editor.id==id
                                     && let Err(error)=editor.accept_lookup(query,info,cx) {this.error=Some(error);}
                             },
-                            Ok(Update::Wrote{confirmed,message,problem})=>{
+                            Ok(Update::Wrote{confirmed,tone,message,problem})=>{
                                 if confirmed {this.editor=None;this.editor_binding=None;this.delete_target=None;}
-                                this.notice=Some(message);this.error=problem;this.populate_range=true;this.cell_filter=None;this.page=0;
+                                this.set_notice(tone,message);this.error=problem;this.populate_range=true;this.scroll_to_today=true;this.cell_filter=None;this.page=0;
                             },
                             Err(error)=>this.error=Some(error),
                         }

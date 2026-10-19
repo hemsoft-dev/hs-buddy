@@ -1,4 +1,4 @@
-use super::{Operation, actions::Update};
+use super::{Operation, Tone, actions::Update};
 use buddy_core::tempo::{
     Client, JiraClient, Session,
     credentials::{self, Credentials},
@@ -145,6 +145,11 @@ pub(super) async fn apply(
         &operation,
         Operation::Refresh | Operation::Today | Operation::Range(_) | Operation::Month(_)
     );
+    let tone = match &operation {
+        Operation::Cleanup => Tone::Success,
+        Operation::Discard => Tone::Warning,
+        _ => Tone::Info,
+    };
     let message=match operation {
         Operation::Refresh=>{let range=connection.session.snapshot().range;connection.session.refresh(range,now).await.map(|_|"Timesheet refreshed.")},
         Operation::Today=>connection.session.refresh_current_month_at(now).await.map(|_|"Loaded the current account month."),
@@ -162,7 +167,7 @@ pub(super) async fn apply(
             let message=format!("Loaded {} issue templates from {} to {}. Select an empty cell to prepare a new worklog. No worklogs were saved.",templates.rows().len(),templates.range().start,templates.range().end);
             connection.metadata=Arc::new(super::metadata::Metadata::load_with_templates(&connection.session,Some(&templates)).await);
             connection.templates=Some(templates);
-            return Ok(Update::Message(message));
+            return Ok(Update::Message(Tone::Info, message));
         },
         Operation::Template(id,date)=>{
             let templates=connection.templates.as_ref().ok_or("Load last month's issues again before using a template.")?;
@@ -186,11 +191,21 @@ pub(super) async fn apply(
             return Ok(Update::CopyReady(Box::new(plan)));
         },
         Operation::ExecuteCopy(plan)=>{
+            let before=connection.session.snapshot().range;
             let report=connection.session.execute_copy(*plan,now).await;
-            let (message,problem)=super::copy::copy_message(&report);
+            let tone=super::copy::copy_tone(&report);
+            let (message,mut problem)=super::copy::copy_message(&report);
+            // Copies refresh the current month for exact Today totals. Return
+            // to the user's own range afterwards when it shows Today.
+            let today=buddy_core::tempo::AccountCalendar::from_zone(connection.session.snapshot().time_zone.as_deref()).and_then(|c|c.today_at(now)).ok();
+            if let Some(range)=range_after_copy(before,connection.session.snapshot().range,today)
+                && let Err(error)=connection.session.refresh(range,now).await {
+                let text=format!("The copies are recorded, but your date range could not reload. {error}");
+                problem=Some(match problem {Some(first)=>format!("{first} {text}"),None=>text});
+            }
             connection.templates=None;
             connection.metadata=Arc::new(super::metadata::Metadata::load(&connection.session).await);
-            return Ok(Update::Wrote{confirmed:false,message,problem});
+            return Ok(Update::Wrote{confirmed:false,tone,message,problem});
         },
         Operation::Submit(draft)=>{
             let kind=draft.kind();let date=draft.work_date();
@@ -208,7 +223,7 @@ pub(super) async fn apply(
         connection.templates = None;
         connection.metadata = Arc::new(super::metadata::Metadata::load(&connection.session).await);
     }
-    Ok(Update::Message(message.to_owned()))
+    Ok(Update::Message(tone, message.to_owned()))
 }
 
 async fn finish_write(
@@ -218,6 +233,7 @@ async fn finish_write(
     date: chrono::NaiveDate,
 ) -> Result<Update, String> {
     let confirmed = report.phase == buddy_core::tempo::WritePhase::Confirmed;
+    let tone = write_tone(report.phase);
     let message=match report.phase {
                 buddy_core::tempo::WritePhase::Confirmed=>"Tempo confirmed the worklog change.",
                 buddy_core::tempo::WritePhase::Rejected=>"Tempo rejected the worklog change. The entered draft was retained.",
@@ -252,6 +268,7 @@ async fn finish_write(
     }
     Ok(Update::Wrote {
         confirmed,
+        tone,
         message,
         problem: (!problems.is_empty()).then(|| problems.join(" ")),
     })
@@ -321,6 +338,23 @@ fn month_navigation_range(
     current.shift_month(delta)
 }
 
+pub(super) fn write_tone(phase: buddy_core::tempo::WritePhase) -> Tone {
+    match phase {
+        buddy_core::tempo::WritePhase::Confirmed => Tone::Success,
+        buddy_core::tempo::WritePhase::Rejected => Tone::Error,
+        _ => Tone::Warning,
+    }
+}
+
+fn range_after_copy(
+    before: buddy_core::tempo::DateRange,
+    current: buddy_core::tempo::DateRange,
+    today: Option<chrono::NaiveDate>,
+) -> Option<buddy_core::tempo::DateRange> {
+    let unchanged = before.start == current.start && before.end == current.end;
+    (!unchanged && today.is_some_and(|date| before.contains(date))).then_some(before)
+}
+
 fn range_after_write(
     current: buddy_core::tempo::DateRange,
     confirmed: bool,
@@ -355,6 +389,30 @@ mod range_tests {
             month_navigation_range(month, 1).unwrap().start.to_string(),
             "2026-11-01"
         );
+    }
+    #[test]
+    fn finish_review_write_outcomes_carry_their_severity() {
+        use super::super::Tone;
+        use buddy_core::tempo::WritePhase;
+        assert!(write_tone(WritePhase::Confirmed) == Tone::Success);
+        assert!(write_tone(WritePhase::Rejected) == Tone::Error);
+        assert!(write_tone(WritePhase::Unconfirmed) == Tone::Warning);
+    }
+    #[test]
+    fn finish_review_a_copy_returns_to_the_users_range_when_it_shows_today() {
+        let week =
+            DateRange::new("2026-10-12".parse().unwrap(), "2026-10-18".parse().unwrap()).unwrap();
+        let month = DateRange::month_containing("2026-10-16".parse().unwrap()).unwrap();
+        let today = "2026-10-16".parse().unwrap();
+        assert!(
+            range_after_copy(week, month, Some(today)).map(|r| (r.start, r.end))
+                == Some((week.start, week.end))
+        );
+        assert!(range_after_copy(week, week, Some(today)).is_none());
+        let earlier =
+            DateRange::new("2026-09-01".parse().unwrap(), "2026-09-07".parse().unwrap()).unwrap();
+        assert!(range_after_copy(earlier, month, Some(today)).is_none());
+        assert!(range_after_copy(week, month, None).is_none());
     }
     #[test]
     fn confirmed_create_and_moved_edit_show_the_work_date_without_losing_other_selected_ranges() {

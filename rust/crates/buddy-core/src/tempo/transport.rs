@@ -19,6 +19,7 @@ pub enum TransportError {
     InvalidCredential,
     Unavailable,
     Authentication,
+    Forbidden,
     RateLimited,
     Service,
     NotFound,
@@ -31,6 +32,7 @@ impl std::fmt::Display for TransportError {
             Self::InvalidCredential => "Enter a valid Tempo API token.",
             Self::Unavailable => "Could not reach Tempo. Existing worklogs are retained. Check your connection and refresh.",
             Self::Authentication => "Tempo rejected this connection. Check its API token before refreshing.",
+            Self::Forbidden => "Tempo denied permission for this worklog change. The draft and existing worklogs are retained.",
             Self::RateLimited => "Tempo is limiting requests. Wait before refreshing.",
             Self::Service => "Tempo could not load these worklogs. Existing worklogs are retained.",
             Self::NotFound => "This Tempo worklog is unavailable. The existing draft is retained. Refresh before saving.",
@@ -127,7 +129,8 @@ impl Client {
         }
         let status = response.status().as_u16();
         let rejected = match status {
-            401 | 403 => Some(TransportError::Authentication),
+            401 => Some(TransportError::Authentication),
+            403 => Some(TransportError::Forbidden),
             400 if kind != super::DraftKind::Delete => {
                 Some(TransportError::Domain(Error::InvalidDraft))
             }

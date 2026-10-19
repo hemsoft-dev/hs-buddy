@@ -35,14 +35,21 @@ missing classification remains unclassified and does not become non-CapEx.
 
 ## Grid and Timeline
 
-Timesheet groups issues into rows and account dates into columns. The grid
-scrolls horizontally when needed. Select an empty cell to prepare one hour on
-that date. Select a cell with one worklog to edit it. A cell with several
-worklogs opens a filtered Timeline with Show all worklogs.
+Timesheet groups issues into rows and account dates into columns. The issue
+column stays in place while the dates scroll horizontally with a visible
+scrollbar. Today's column is highlighted and weekends are shaded. After each
+load, the grid scrolls so that Today is visible when the range contains it.
+Select an empty cell to prepare one hour on that date. Select a cell with one
+worklog to edit it. A cell with several worklogs opens a filtered Timeline with
+Show all worklogs.
 
-Timeline shows each worklog's date, start time, duration, issue, description and
-billing account. Both views have explicit row pages. Choosing Timesheet or
-Timeline saves that preference. Opening a filtered cell does not replace the
+Timeline shows each worklog's date, start time, duration, issue and
+description. Its billing account appears when the loaded details include one.
+Row page controls appear when a view has more than one page. Logged, Required
+and Balance lead the summary, and a negative balance is marked. Status
+messages share one region that puts the outcome first and marks it as
+information, success, a warning or an error. Choosing Timesheet or Timeline
+saves that preference. Opening a filtered cell does not replace the
 saved preference. Keyboard Tab reaches the inputs and actions.
 
 Last month's issues loads a separate set of templates from the calendar month
@@ -75,8 +82,10 @@ does not turn a confirmed service result into an unconfirmed result.
 Command-click a filled grid cell on macOS, or Ctrl-click it on Windows or
 Linux, to prepare copies for Today. Timeline offers Copy to Today for one
 worklog. Copy day prepares every loaded worklog for that date. The confirmation
-lists the captured sources and total seconds. Create copies must be selected
-before any copy is sent; Cancel copy sends nothing.
+lists the captured sources and their total duration. Create copies must be
+selected before any copy is sent; Cancel copy sends nothing. After the copies,
+Buddy returns to the selected range when it contains Today. Otherwise the
+current month stays loaded so that the new copies are visible.
 Preparation allows the complete range read and each selected source's paced
 expansion to finish within their existing read budgets.
 
@@ -92,6 +101,12 @@ Delete worklog requires confirmation for its captured worklog. Deleting a
 worklog does not change the displayed date range.
 
 ## Authentication and recovery
+
+Tempo can deny a worklog change for permission reasons. Buddy then reports the
+denial without blaming the connection, and keeps the draft.
+
+Recheck saved connection and Forget saved connection are available only when
+this profile has a saved connection.
 
 Recheck saved connection loads the protected connection again. With an open
 draft, it must verify the same account, Jira site, profile and timezone. It
@@ -113,8 +128,8 @@ request never offers this retry, and retrying one unsent copy does not resume
 the rest of a batch.
 
 Restart and Refresh never replay recovery. Inspect the service worklogs before
-deciding how to proceed. An acknowledged result can require Retry cleanup,
-which only finishes local file cleanup. An uncertain result offers Discard
+deciding how to proceed. Once Tempo's outcome is known, Retry cleanup appears
+if local file cleanup is still unfinished; it changes nothing in Tempo. An uncertain result offers Discard
 local recovery with a second confirmation. Discard removes local recovery; it
 does not undo remote work. A changed or unreadable recovery record blocks new
 changes. A partial copy batch follows the same rules and never automatically

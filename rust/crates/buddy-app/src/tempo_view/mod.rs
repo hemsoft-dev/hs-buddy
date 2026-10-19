@@ -16,6 +16,14 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::{AppContext as _, Context, Entity, Window};
 use std::sync::Arc;
 
+/// Severity of the single status block; the primary outcome leads it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tone {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pane {
     Timesheet,
@@ -67,7 +75,12 @@ pub struct TempoView {
     populate_range: bool,
     discard_confirm: bool,
     notice: Option<String>,
+    notice_tone: Tone,
     error: Option<String>,
+    /// Whether this profile has a saved connection; `None` until checked.
+    saved: Option<bool>,
+    grid_scroll: gpui_kit::ScrollHandle,
+    scroll_to_today: bool,
 }
 impl TempoView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -105,8 +118,16 @@ impl TempoView {
             populate_range: false,
             discard_confirm: false,
             notice: None,
+            notice_tone: Tone::Info,
             error: None,
+            saved: None,
+            grid_scroll: gpui_kit::ScrollHandle::new(),
+            scroll_to_today: false,
         }
+    }
+    fn set_notice(&mut self, tone: Tone, message: impl Into<String>) {
+        self.notice = Some(message.into());
+        self.notice_tone = tone;
     }
     pub fn activate(&mut self, cx: &mut Context<Self>) {
         if !self.initialized && cx.has_global::<Runtime>() {
@@ -160,7 +181,10 @@ impl TempoView {
         self.initialized = true;
         self.busy = true;
         self.error = None;
-        self.notice = Some("Checking the Tempo connection and loading the account month…".into());
+        self.set_notice(
+            Tone::Info,
+            "Checking the Tempo connection and loading the account month…",
+        );
         let retained = self.data.is_some();
         let generation = self.generation;
         let rx = Runtime::global(cx).spawn(async move {
@@ -183,11 +207,11 @@ impl TempoView {
                         if let Some(editor)=&mut this.editor {
                             editor.invalidate_connection();
                             this.editor_binding=Some(connection.binding());
-                            this.notice=Some("Connection checked. Your draft was retained. Look up its issue and billing accounts again before saving.".into());
+                            this.set_notice(Tone::Warning,"Connection checked. Your draft was retained. Look up its issue and billing accounts again before saving.");
                         } else {this.editor_binding=None;}
-                        this.connection=Some(connection);this.connection_form=false;this.clear_credentials=true;this.populate_range=true;this.page=0;
+                        this.connection=Some(connection);this.saved=Some(true);this.connection_form=false;this.clear_credentials=true;this.populate_range=true;this.scroll_to_today=true;this.page=0;
                     },
-                    Ok(Ok(None))=>{this.connection_form=true;this.notice=Some(if retained {"No connection is saved. The displayed timesheet was retained. Reconnect to continue."} else {"Connect Tempo and Jira. No connection is saved for this profile."}.into());},
+                    Ok(Ok(None))=>{this.connection_form=true;this.saved=Some(false);this.set_notice(Tone::Info,if retained {"No connection is saved. The displayed timesheet was retained. Reconnect to continue."} else {"Connect Tempo and Jira. No connection is saved for this profile."});},
                     Ok(Err(error))=>this.error=Some(error),
                     Err(_)=>this.error=Some("The connection check stopped. The displayed timesheet was retained. Recheck the saved connection.".into()),
                 }
@@ -242,7 +266,7 @@ impl TempoView {
                 if this.generation!=generation {return;}
                 this.busy=false;
                 match result {
-                    Ok(Ok(()))=>{this.connection=None;this.data=None;this.templates=None;this.pending_template=None;this.metadata=Arc::new(metadata::Metadata::default());this.editor_binding=None;this.connection_form=true;this.clear_credentials=true;this.notice=Some("The saved Tempo and Jira credentials were removed. Connect again to load a timesheet.".into());},
+                    Ok(Ok(()))=>{this.connection=None;this.data=None;this.templates=None;this.pending_template=None;this.metadata=Arc::new(metadata::Metadata::default());this.editor_binding=None;this.connection_form=true;this.clear_credentials=true;this.saved=Some(false);this.set_notice(Tone::Success,"The saved Tempo and Jira credentials were removed. Connect again to load a timesheet.");},
                     Ok(Err(error))=>this.error=Some(error),
                     Err(_)=>this.error=Some("Credential removal is unconfirmed. Check secure storage before reconnecting.".into()),
                 }

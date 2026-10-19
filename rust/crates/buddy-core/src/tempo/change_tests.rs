@@ -445,10 +445,10 @@ async fn denied_write_retains_the_draft_and_cannot_replay_the_rejected_attempt()
     .unwrap();
     let report = change.dispatch().await.unwrap();
     assert!(report.phase == WritePhase::Rejected && report.acknowledgement_durable);
-    assert_eq!(
-        report.transport_problem,
-        Some(TransportError::Authentication)
-    );
+    // A 403 on a write is a permission denial, not a broken connection.
+    assert_eq!(report.transport_problem, Some(TransportError::Forbidden));
+    let message = TransportError::Forbidden.to_string();
+    assert!(message.contains("denied permission") && !message.contains("API token"));
     let body: Value = serde_json::from_slice(&change.draft().encode().unwrap()).unwrap();
     assert_eq!(body["description"], "private synthetic work");
     assert!(stored(&config).current().is_none());
