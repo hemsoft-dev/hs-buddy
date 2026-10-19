@@ -195,6 +195,13 @@ jobs:
           version="$(node -p "require('./desktop-package.json').packagerVersion")"
           cargo install cargo-packager --version "=$version" --locked
 
+      # Spotlight indexing of the freshly mounted DMG volume kept it busy, and
+      # create-dmg's three detach attempts failed with "Resource busy".
+      - name: Stop Spotlight indexing for DMG packaging
+        if: runner.os == 'macOS'
+        working-directory: .
+        run: sudo mdutil -a -i off
+
       - name: Build native release package
         id: package
         working-directory: .

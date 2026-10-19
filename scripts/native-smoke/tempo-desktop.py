@@ -357,7 +357,8 @@ def qualify(executable, output, session, version, source, backend):
                 github.check(denied / 'denied-description-retained-dark.png', 'Description', 'Denied native draft')
                 copied = driver.drive('copy-dark', week_actions() + [
                     ('wait_scroll_text', 'Copy day to Today', 'Load date range'),
-                    ('cell', 'Copy day to Today', '15 Oct'),
+                    # About 12 one-second-paced source reads precede the confirmation.
+                    ('cell', 'Copy day to Today', '15 Oct'), ('sleep', 10),
                     ('wait_scroll_up', 'Copy worklogs to Today'), ('capture', 'copy-confirmation-dark'),
                     ('wait_scroll_text', 'Create copies', 'Copy worklogs to Today'),
                     # Returning to the user's range adds paced reads first.
@@ -430,7 +431,7 @@ def qualify(executable, output, session, version, source, backend):
                 api.arm_lost_reply_after(1)
                 partial = driver.drive('partial-copy-dark', week_actions() + [
                     ('wait_scroll_text', 'Copy day to Today', 'Load date range'),
-                    ('cell', 'Copy day to Today', '13 Oct'), ('wait_scroll_up', 'Copy worklogs to Today'),
+                    ('cell', 'Copy day to Today', '13 Oct'), ('sleep', 10), ('wait_scroll_up', 'Copy worklogs to Today'),
                     ('capture', 'three-copy-confirmation-dark'),
                     ('wait_scroll_text', 'Create copies', 'Copy worklogs to Today'), ('click', 'Create copies'),
                     # About 24 one-second-paced requests precede the outcome.

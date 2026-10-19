@@ -299,6 +299,15 @@ class CellInput(unittest.TestCase):
         click = partial.index(('click', 'Create copies'))
         self.assertEqual(partial[click + 1:click + 3], [('sleep', 30), ('wait_scroll_up', '1 worklog copied to Today')])
 
+    def test_copy_confirmation_wait_covers_the_paced_source_reads(self):
+        # Apple Silicon run on c14ca7c7: about 12 one-second-paced reads
+        # follow Copy day, and one slow OCR pass used the rest of the
+        # 15-second wait before the confirmation appeared.
+        for stage, day in (('copy-dark', '15 Oct'), ('partial-copy-dark', '13 Oct')):
+            actions = self.stage_actions(stage, 'x11')
+            click = actions.index(('cell', 'Copy day to Today', day))
+            self.assertEqual(actions[click + 1:click + 3], [('sleep', 10), ('wait_scroll_up', 'Copy worklogs to Today')])
+
     def test_forget_status_is_found_above_the_scrolled_connection_panel(self):
         # Forget saved connection is reached by scrolling down; its status is
         # rendered at the top of the page, as with the recheck status.

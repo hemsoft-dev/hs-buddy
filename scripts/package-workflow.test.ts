@@ -98,6 +98,18 @@ describe('desktop package qualification workflow', () => {
     expect(workflow).toContain("node-version: ${{ matrix.node-version || '24.12.0' }}")
   })
 
+  it('keeps Spotlight off the native DMG while it is detached', () => {
+    // Native macOS packaging failed twice (main 201a, #839 c14ca7c7) when
+    // create-dmg could not detach its volume: "hdiutil: couldn't eject - Resource busy".
+    const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
+    const indexing = native.indexOf('sudo mdutil -a -i off')
+    const packaging = native.indexOf('- name: Build native release package')
+    expect(indexing).toBeGreaterThan(-1)
+    expect(indexing).toBeLessThan(packaging)
+    const step = native.slice(native.lastIndexOf('- name:', indexing), indexing)
+    expect(step).toContain("if: runner.os == 'macOS'")
+  })
+
   it('launches each generated distributable rather than its staging tree', () => {
     expect(workflow).toContain('sudo apt-get install --yes "./$package_file"')
     expect(workflow).toContain('./scripts/install-windows-package.ps1')

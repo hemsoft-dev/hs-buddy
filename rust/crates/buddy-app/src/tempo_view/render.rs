@@ -51,6 +51,41 @@ fn pager_needed(count: usize, size: usize) -> bool {
     count > size
 }
 
+/// The day columns scroll under an always-visible scrollbar, so the dates
+/// beyond the pane are discoverable. The bar overlays the viewport as a
+/// sibling; inside the scrolled element it would move with the content.
+fn horizontal_scroll_area(
+    handle: &gpui_kit::ScrollHandle,
+    content: impl IntoElement,
+) -> gpui_kit::Div {
+    div()
+        .relative()
+        .flex_1()
+        .min_w_0()
+        .child(
+            div()
+                .id("tempo-timesheet-horizontal")
+                .debug_selector(|| "tempo-timesheet-viewport".into())
+                .w_full()
+                .pb(zpx(12.))
+                .overflow_x_scroll()
+                .track_scroll(handle)
+                .child(content),
+        )
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .debug_selector(|| "tempo-timesheet-scrollbar-overlay".into())
+                .child(
+                    Scrollbar::new(handle)
+                        .id("tempo-timesheet-scrollbar")
+                        .axis(ScrollbarAxis::Horizontal)
+                        .mode(ScrollbarMode::Always),
+                ),
+        )
+}
+
 const GRID_LABEL: f32 = 160.;
 const GRID_DAY: f32 = 92.;
 const GRID_HEAD: f32 = 40.;
@@ -249,26 +284,7 @@ impl TempoView {
                 h_flex()
                     .items_start()
                     .child(labels)
-                    .child(
-                        div()
-                            .id("tempo-timesheet-horizontal")
-                            .flex_1()
-                            .min_w_0()
-                            .pb(zpx(12.))
-                            .overflow_x_scroll()
-                            .track_scroll(&self.grid_scroll)
-                            .child(columns.w(zpx(width)))
-                            // Always shown, so the scrollable dates are discoverable.
-                            .child(
-                                div().absolute().inset_0().child(
-                                    Scrollbar::new(&self.grid_scroll)
-                                        .id("tempo-timesheet-scrollbar")
-                                        .axis(ScrollbarAxis::Horizontal)
-                                        .mode(ScrollbarMode::Always)
-                                        .viewport_from_layout(),
-                                ),
-                            ),
-                    ),
+                    .child(horizontal_scroll_area(&self.grid_scroll, columns.w(zpx(width)))),
             );
         if pager_needed(issues.len(), 8) {
             body = body.child(self.pagination(issues.len(), 8, cx));
@@ -1044,5 +1060,67 @@ mod recovery_policy_tests {
         assert_eq!(page_summary(0, 0), "0 rows · page 1");
         assert_eq!(page_summary(1, 0), "1 row · page 1");
         assert_eq!(page_summary(51, 1), "51 rows · page 2");
+    }
+}
+
+#[cfg(test)]
+mod scroll_area_tests {
+    use super::*;
+    use gpui_kit::{
+        Bounds, Context, Point, VisualTestContext, Window, WindowBounds, WindowOptions, size,
+    };
+
+    struct Grid(gpui_kit::ScrollHandle);
+    impl Render for Grid {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            h_flex()
+                .items_start()
+                .child(div().w(px(160.)).h(px(80.)))
+                .child(horizontal_scroll_area(
+                    &self.0,
+                    div().w(px(2000.)).h(px(80.)),
+                ))
+        }
+    }
+
+    #[gpui_kit::test]
+    fn finish_review_the_grid_scrollbar_stays_on_the_viewport_when_scrolled(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        // Installed month views on c14ca7c7 opened scrolled to today, and the
+        // overlay moved with the scrolled content, so no scrollbar was visible.
+        let handle = gpui_kit::ScrollHandle::new();
+        let (window, _) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+            gpui_kit::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: Point::default(),
+                        size: size(px(812.), px(300.)),
+                    })),
+                    ..Default::default()
+                },
+                cx,
+                |_, cx| cx.new(|_| Grid(handle.clone())),
+            )
+            .unwrap()
+        });
+        let mut visual = VisualTestContext::from_window(window, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle.set_offset(point(px(-900.), px(0.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let viewport = visual.debug_bounds("tempo-timesheet-viewport").unwrap();
+        let overlay = visual
+            .debug_bounds("tempo-timesheet-scrollbar-overlay")
+            .unwrap();
+        assert!(
+            handle.offset().x < px(0.),
+            "The regression must actually scroll"
+        );
+        assert!(
+            overlay == viewport,
+            "The scrollbar overlay must cover the visible grid: overlay {overlay:?}, viewport {viewport:?}"
+        );
     }
 }

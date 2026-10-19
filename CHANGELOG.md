@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1489] - 2026-10-19
+
+### Fixed
+
+- Keep the Tempo grid scrollbar on screen and harden native qualification (#818)
+
 ## [0.1.1488] - 2026-10-19
 
 ### Fixed
