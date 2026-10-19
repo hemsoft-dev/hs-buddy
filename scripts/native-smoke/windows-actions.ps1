@@ -204,11 +204,14 @@ try {
                 $timeoutSeconds = if ($parts[0] -eq 'waitmodeltext64') { 200 } else { 15 }
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 while ($true) {
+                    # A slow OCR pass can outlast the timeout. Give up only after a
+                    # probe that started at or after the deadline.
+                    $started = $timer.Elapsed.TotalSeconds
                     try {
                         Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
                         break
                     } catch {
-                        if ($timer.Elapsed.TotalSeconds -ge $timeoutSeconds) { throw }
+                        if ($started -ge $timeoutSeconds) { throw }
                         if ($parts[0] -in 'waitscrolltext64', 'waituptext64', 'revealtext64') {
                             if ($hasAnchor -and $null -eq $scrollPoint) { $scrollPoint = Find-OwnedLabelPoint $parts[2] 'button' }
                             Scroll-OwnedWindow $scrollDelta $scrollPoint

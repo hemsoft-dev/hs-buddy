@@ -99,12 +99,15 @@ def wait_visible(window, directory, text, timeout=15, scroll=None):
     image = directory / "wait-status.png"
     deadline = time.monotonic() + timeout
     while True:
+        # A slow OCR pass can outlast the timeout. Give up only after a frame
+        # captured at or after the deadline, so the full wait is observed.
+        started = time.monotonic()
         window.screenshot(image)
         try:
             ocr.locate_image(image, text)
             return
         except RuntimeError as failure:
-            if time.monotonic() >= deadline:
+            if started >= deadline:
                 raise RuntimeError(f"The owned window did not show the expected status {text!r}") from failure
             if scroll is not None:
                 scroll()

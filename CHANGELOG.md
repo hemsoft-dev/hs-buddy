@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1491] - 2026-10-19
+
+### Fixed
+
+- Let a status wait observe its full deadline (#818)
+
 ## [0.1.1490] - 2026-10-19
 
 ### Changed

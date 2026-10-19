@@ -356,7 +356,7 @@ class CellInput(unittest.TestCase):
         driver.scroll_anchor = Mock(return_value=(120, 500))
         driver.scroll = Mock()
         with patch.object(desktop.settings.ocr, 'locate_image', side_effect=[RuntimeError('offscreen'), dict(left=120)]), \
-                patch.object(desktop.settings.time, 'monotonic', side_effect=[0, 1]), patch.object(desktop.settings.time, 'sleep'):
+                patch.object(desktop.settings.time, 'monotonic', side_effect=[0, 0, 1]), patch.object(desktop.settings.time, 'sleep'):
             window = Mock()
             driver.wait_scrolled(window, Path('mocked-capture'), 'Refresh', 'Description', up=True)
         driver.scroll.assert_called_once_with(window, 1200, (120, 500), precise=False)

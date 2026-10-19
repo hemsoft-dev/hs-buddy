@@ -322,7 +322,7 @@ class LabeledInputs(unittest.TestCase):
     def test_cold_model_wait_requires_the_catalog_and_still_expires(self):
         window, directory = Mock(), MagicMock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("loading"), dict(left=10)]), \
-                patch.object(desktop.time, "monotonic", side_effect=[0, 16]), patch.object(desktop.time, "sleep"):
+                patch.object(desktop.time, "monotonic", side_effect=[0, 0, 16]), patch.object(desktop.time, "sleep"):
             desktop.wait_visible(window, directory, "Synthetic offline model", timeout=desktop.MODEL_CATALOG_TIMEOUT)
         self.assertEqual(window.screenshot.call_count, 2)
         window.key.assert_not_called()
@@ -354,10 +354,39 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[4], "waitscrolltext64:" + desktop.b64("Inspect synthetic request 20"))
             self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
 
+    def test_a_slow_read_that_began_before_the_deadline_earns_one_fresh_capture(self):
+        # Intel run on e55a910a: one OCR pass took about 30 seconds, so the only
+        # frame of the 15-second wait predated the status it was waiting for.
+        clock = [0.0]
+
+        def slow_read(_image, _text):
+            clock[0] += 29
+            if clock[0] < 50:
+                raise RuntimeError("not yet rendered")
+            return dict(left=10)
+
+        window = Mock()
+        with patch.object(desktop.ocr, "locate_image", side_effect=slow_read), \
+                patch.object(desktop.time, "monotonic", side_effect=lambda: clock[0]), patch.object(desktop.time, "sleep"):
+            desktop.wait_visible(window, MagicMock(), "Your draft was retained")
+        self.assertEqual(window.screenshot.call_count, 2)
+
+        def absent_read(_image, _text):
+            clock[0] += 29
+            raise RuntimeError("absent")
+
+        # A capture that starts after the deadline ends the wait.
+        clock[0] = 0.0
+        with patch.object(desktop.ocr, "locate_image", side_effect=absent_read), \
+                patch.object(desktop.time, "monotonic", side_effect=lambda: clock[0]), patch.object(desktop.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not show the expected status"):
+                desktop.wait_visible(window, MagicMock(), "Your draft was retained")
+        self.assertEqual(window.screenshot.call_count, 4)
+
     def test_scrolling_reveals_feedback_but_requires_a_new_observation(self):
         window, directory, scroll = Mock(), MagicMock(), Mock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("offscreen"), dict(left=10)]), \
-                patch.object(desktop.time, "monotonic", side_effect=[0, 1]), patch.object(desktop.time, "sleep"):
+                patch.object(desktop.time, "monotonic", side_effect=[0, 0, 1]), patch.object(desktop.time, "sleep"):
             desktop.wait_visible(window, directory, "Saved to results", scroll=scroll)
         self.assertEqual(window.screenshot.call_count, 2)
         scroll.assert_called_once_with()
@@ -381,7 +410,7 @@ class LabeledInputs(unittest.TestCase):
     def test_status_barrier_waits_for_an_observed_acknowledgment_without_posting_input(self):
         window, directory = Mock(), MagicMock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("not ready"), dict(left=10)]) as locate, \
-                patch.object(desktop.time, "monotonic", side_effect=[0, 1]), patch.object(desktop.time, "sleep"):
+                patch.object(desktop.time, "monotonic", side_effect=[0, 0, 1]), patch.object(desktop.time, "sleep"):
             desktop.wait_visible(window, directory, "Paste written. No Enter key was added.")
         self.assertEqual(window.screenshot.call_count, 2)
         self.assertEqual(locate.call_count, 2)
@@ -829,6 +858,31 @@ class WindowsScrollAnchors(unittest.TestCase):
             "find:Next rows", "scroll", "find:Next rows"])
         self.assertEqual(self.run_wait(1, anchor_visible=False),
             ["find:Next rows", "find:Load date range", "error:anchor scrolled away"])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_a_slow_probe_that_began_before_the_deadline_earns_one_fresh_probe(self):
+        # The Unix wait failed on e55a910a when one slow OCR pass outlasted the
+        # deadline; the Windows case follows the same rule. A 1-second budget
+        # and a 1.2-second first probe keep the real Stopwatch case fast.
+        block = self.wait_block()
+        assert block.count("else { 15 }") == 1
+        stubs = (
+            "$journal = [Collections.Generic.List[string]]::new(); $script:probes = 0\n"
+            "function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode) {\n"
+            "  $script:probes++; $journal.Add('find')\n"
+            "  if ($script:probes -eq 1) { Start-Sleep -Milliseconds 1200; throw 'not yet visible' }\n"
+            "  return @(1, 2)\n"
+            "}\n"
+            "function Scroll-OwnedWindow($Delta, $Point) { $journal.Add('scroll') }\n"
+            "$parts = @('waittext64', '" + base64.b64encode(b"Your draft was retained").decode() + "')\n"
+            "try {\n" + block.replace("else { 15 }", "else { 1 }") + "\n} catch { $journal.Add('error:' + $_) }\n"
+            "$journal -join '|'\n")
+        with tempfile.TemporaryDirectory(prefix="buddy-wait-deadline-") as root:
+            script = Path(root) / "wait.ps1"
+            script.write_text(stubs, encoding="utf-8")
+            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
+                encoding="utf-8", timeout=60, check=True)
+        self.assertEqual(result.stdout.strip().split("|"), ["find", "find"])
 
 
 if __name__ == "__main__":
