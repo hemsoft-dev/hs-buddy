@@ -360,7 +360,8 @@ def qualify(executable, output, session, version, source, backend):
                     ('cell', 'Copy day to Today', '15 Oct'),
                     ('wait_scroll_up', 'Copy worklogs to Today'), ('capture', 'copy-confirmation-dark'),
                     ('wait_scroll_text', 'Create copies', 'Copy worklogs to Today'),
-                    ('click', 'Create copies'), ('wait_scroll_up', '1 worklog copied to Today'),
+                    # Returning to the user's range adds paced reads first.
+                    ('click', 'Create copies'), ('sleep', 15), ('wait_scroll_up', '1 worklog copied to Today'),
                     ('capture', 'copy-confirmed-dark'),
                 ], record=True)
                 assert_copy(api, original, '08:47:00')

@@ -80,6 +80,7 @@ pub struct TempoView {
     /// Whether this profile has a saved connection; `None` until checked.
     saved: Option<bool>,
     grid_scroll: gpui_kit::ScrollHandle,
+    today: Option<chrono::NaiveDate>,
     scroll_to_today: bool,
 }
 impl TempoView {
@@ -122,6 +123,7 @@ impl TempoView {
             error: None,
             saved: None,
             grid_scroll: gpui_kit::ScrollHandle::new(),
+            today: None,
             scroll_to_today: false,
         }
     }

@@ -306,6 +306,13 @@ class CellInput(unittest.TestCase):
         click = forget.index(('click', 'Forget saved connection'))
         self.assertEqual(forget[click + 1], ('wait_scroll_up', 'credentials were removed'))
 
+    def test_confirmed_copy_outcome_wait_covers_the_range_restore(self):
+        # Apple Silicon run on 9013d767: returning to the user's range adds
+        # paced reads, and the outcome arrived after the 15-second wait.
+        copied = self.stage_actions('copy-dark', 'x11')
+        click = copied.index(('click', 'Create copies'))
+        self.assertEqual(copied[click + 1:click + 3], [('sleep', 15), ('wait_scroll_up', '1 worklog copied to Today')])
+
     def test_recheck_status_is_found_after_the_connection_panel_closes(self):
         # Ubuntu run on d92a456a: after Recheck the view sat in the Timeline
         # list, above which the retained-draft status was never searched.

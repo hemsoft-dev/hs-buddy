@@ -70,7 +70,9 @@ pub(super) fn duration(seconds: u64) -> String {
     }
 }
 impl TempoView {
-    pub(super) fn today(&self) -> Option<NaiveDate> {
+    /// Today in the account timezone. The worker holds the connection
+    /// while busy, so the last known value stays on screen meanwhile.
+    fn live_today(&self) -> Option<NaiveDate> {
         let connection = self.connection.as_ref()?;
         let data = self.data.as_ref()?;
         buddy_core::tempo::AccountCalendar::from_zone(data.time_zone.as_deref())
@@ -102,7 +104,7 @@ impl TempoView {
                 )
                 .into_any_element();
         }
-        let today = self.today();
+        let today = self.today;
         let theme = cx.theme();
         let (today_tint, weekend_tint) = (theme.primary.opacity(0.12), theme.muted.opacity(0.6));
         // The issue labels stay pinned while the day columns scroll beside
@@ -427,6 +429,9 @@ impl TempoView {
 }
 impl Render for TempoView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(today) = self.live_today() {
+            self.today = Some(today);
+        }
         if let Some((row, info, date)) = self.pending_template.take() {
             let seconds = self
                 .data
@@ -494,7 +499,7 @@ impl Render for TempoView {
                 .flat_map(|data| &data.summary.days)
                 .map(|day| day.logged.date)
                 .collect();
-            let column = today_offset(&days, self.today()).unwrap_or(0);
+            let column = today_offset(&days, self.today).unwrap_or(0);
             let x = zpx(GRID_DAY * column.saturating_sub(1) as f32).to_pixels(window.rem_size());
             self.grid_scroll.set_offset(point(-x, px(0.)));
             self.scroll_to_today = false;
