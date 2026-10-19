@@ -71,6 +71,18 @@ it('bounds the optional package-smoke dependency cache restore', () => {
   )
 })
 
+it('keeps Spotlight off the native DMG while it is detached', () => {
+  // Native macOS packaging failed twice (main 201a, #839 c14ca7c7) when
+  // create-dmg could not detach its volume: "hdiutil: couldn't eject - Resource busy".
+  const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
+  const indexing = native.indexOf('sudo mdutil -a -i off')
+  const packaging = native.indexOf('- name: Build native release package')
+  expect(indexing).toBeGreaterThan(-1)
+  expect(indexing).toBeLessThan(packaging)
+  const step = native.slice(native.lastIndexOf('- name:', indexing), indexing)
+  expect(step).toContain("if: runner.os == 'macOS'")
+})
+
 describe('desktop package qualification workflow', () => {
   it.each(qualifiedTargets)('builds and starts $name packages on a native runner', target => {
     const matrixEntry = workflow.split(`- name: ${target.name}`)[1]?.split(/\n\s+- name: /, 1)[0]
@@ -96,18 +108,6 @@ describe('desktop package qualification workflow', () => {
     const linuxEntry = workflow.split('- name: Linux x64')[1]?.split(/\n\s+- name: /, 1)[0]
     expect(linuxEntry).toContain('node-version: 22.12.0')
     expect(workflow).toContain("node-version: ${{ matrix.node-version || '24.12.0' }}")
-  })
-
-  it('keeps Spotlight off the native DMG while it is detached', () => {
-    // Native macOS packaging failed twice (main 201a, #839 c14ca7c7) when
-    // create-dmg could not detach its volume: "hdiutil: couldn't eject - Resource busy".
-    const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
-    const indexing = native.indexOf('sudo mdutil -a -i off')
-    const packaging = native.indexOf('- name: Build native release package')
-    expect(indexing).toBeGreaterThan(-1)
-    expect(indexing).toBeLessThan(packaging)
-    const step = native.slice(native.lastIndexOf('- name:', indexing), indexing)
-    expect(step).toContain("if: runner.os == 'macOS'")
   })
 
   it('launches each generated distributable rather than its staging tree', () => {
