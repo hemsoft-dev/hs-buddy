@@ -39,6 +39,13 @@ fn day_marker(date: NaiveDate, today: Option<NaiveDate>) -> DayMarker {
 fn today_offset(days: &[NaiveDate], today: Option<NaiveDate>) -> Option<usize> {
     days.iter().position(|day| Some(*day) == today)
 }
+/// Weekday and date, so weekends are not marked by color alone.
+fn day_heading(date: NaiveDate) -> (String, String) {
+    (
+        date.format("%a").to_string(),
+        date.format("%d %b").to_string(),
+    )
+}
 /// A pager only appears when there is another page to reach.
 fn pager_needed(count: usize, size: usize) -> bool {
     count > size
@@ -46,7 +53,7 @@ fn pager_needed(count: usize, size: usize) -> bool {
 
 const GRID_LABEL: f32 = 160.;
 const GRID_DAY: f32 = 76.;
-const GRID_HEAD: f32 = 28.;
+const GRID_HEAD: f32 = 40.;
 const GRID_ROW: f32 = 40.;
 const GRID_LINE: f32 = 28.;
 
@@ -129,7 +136,10 @@ impl TempoView {
         let mut heading = h_flex();
         for day in &data.summary.days {
             let date = day.logged.date;
-            let mut text = div().child(date.format("%d %b").to_string());
+            let (weekday, label) = day_heading(date);
+            let mut text = v_flex()
+                .child(div().text_xs().child(weekday))
+                .child(div().child(label));
             text = match day_marker(date, today) {
                 DayMarker::Today => text
                     .text_color(theme.primary)
@@ -576,6 +586,7 @@ impl Render for TempoView {
                         })),
                 ),
         );
+        let mut problems: Vec<String> = Vec::new();
         if let Some(data) = &self.data {
             body = body
                 .child(
@@ -647,15 +658,11 @@ impl Render for TempoView {
                     )
                 }
                 Err(error) => {
-                    body = body.child(
-                        div()
-                            .whitespace_normal()
-                            .child(format!("Classification totals are unavailable. {error}")),
-                    )
+                    problems.push(format!("Classification totals are unavailable. {error}"))
                 }
             }
             if let Some(error) = self.metadata.first_problem {
-                body=body.child(div().whitespace_normal().child(format!("Issue details could not load for {} issues. Classification stays unknown. {error}",self.metadata.failed)));
+                problems.push(format!("Issue details could not load for {} issues. Classification stays unknown. {error}",self.metadata.failed));
             }
         }
         let ready = self.connection.as_ref().is_some_and(|connection| {
@@ -668,6 +675,7 @@ impl Render for TempoView {
         if let Some(error) = &self.error {
             lines.push((Tone::Error, error.clone()));
         }
+        lines.extend(problems.into_iter().map(|text| (Tone::Warning, text)));
         let mut actions = Vec::new();
         if let Some(connection) = &self.connection
             && let Some(phase) = connection.session.pending_phase()
@@ -740,6 +748,41 @@ impl Render for TempoView {
                     .into_any_element(),
             );
         }
+        // The delete confirmation shares the status region with discard.
+        if let Some(target) = &self.delete_target {
+            lines.push((
+                Tone::Warning,
+                format!(
+                    "Delete the {} worklog on {}? This removes recorded work from Tempo.",
+                    duration(target.seconds),
+                    target.date
+                ),
+            ));
+            if let Some(description) = target.description.clone().filter(|text| !text.is_empty()) {
+                lines.push((Tone::Info, description));
+            }
+            actions.push(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("tempo-confirm-delete")
+                            .label("Confirm deletion")
+                            .danger()
+                            .disabled(!self.can_submit())
+                            .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
+                    )
+                    .child(
+                        Button::new("tempo-keep-worklog")
+                            .label("Keep worklog")
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.delete_target = None;
+                                cx.notify();
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
         if !lines.is_empty() || !actions.is_empty() {
             body = body.child(status_block(lines, actions, cx));
         }
@@ -748,39 +791,6 @@ impl Render for TempoView {
         }
         if let Some(editor) = &self.editor {
             body = body.child(editor.render_ui(self.busy || ready, self.can_submit(), cx));
-        }
-        if let Some(target) = &self.delete_target {
-            body = body
-                .child(div().whitespace_normal().child(format!(
-                    "Delete the {} worklog on {}? This removes recorded work from Tempo.",
-                    duration(target.seconds),
-                    target.date
-                )))
-                .child(
-                    div()
-                        .whitespace_normal()
-                        .child(target.description.clone().unwrap_or_default()),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("tempo-confirm-delete")
-                                .label("Confirm deletion")
-                                .danger()
-                                .disabled(!self.can_submit())
-                                .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
-                        )
-                        .child(
-                            Button::new("tempo-keep-worklog")
-                                .label("Keep worklog")
-                                .disabled(self.busy)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.delete_target = None;
-                                    cx.notify();
-                                })),
-                        ),
-                );
         }
         if self.connection_form {
             let mut form = v_flex()
@@ -998,6 +1008,14 @@ mod recovery_policy_tests {
             Some(2)
         );
         assert_eq!(today_offset(&[day(1), day(2)], Some(today)), None);
+    }
+    #[test]
+    fn documentation_review_headings_name_the_weekday_not_only_by_color() {
+        let saturday = chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap();
+        assert_eq!(
+            day_heading(saturday),
+            ("Sat".to_owned(), "17 Oct".to_owned())
+        );
     }
     #[test]
     fn finish_review_a_pager_appears_only_with_more_than_one_page() {

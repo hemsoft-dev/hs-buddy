@@ -37,19 +37,23 @@ missing classification remains unclassified and does not become non-CapEx.
 
 Timesheet groups issues into rows and account dates into columns. The issue
 column stays in place while the dates scroll horizontally with a visible
-scrollbar. Today's column is highlighted and weekends are shaded. After each
-load, the grid scrolls so that Today is visible when the range contains it.
-Select an empty cell to prepare one hour on that date. Select a cell with one
-worklog to edit it. A cell with several worklogs opens a filtered Timeline with
-Show all worklogs.
+scrollbar. Each column heading names the weekday and date. Today's column is
+highlighted and weekends are shaded. After each load, the grid scrolls so that
+Today is visible when the range contains it. Select an empty cell to prepare
+one hour on that date. Select a cell with one worklog to edit it. A cell with
+several worklogs opens a filtered Timeline with Show all worklogs.
 
-Timeline shows each worklog's date, start time, duration, issue and
-description. Its billing account appears when the loaded details include one.
-Row page controls appear when a view has more than one page. Logged, Required
-and Balance lead the summary, and a negative balance is marked. Status
-messages share one region that puts the outcome first and marks it as
-information, success, a warning or an error. Choosing Timesheet or Timeline
-saves that preference. Opening a filtered cell does not replace the
+Timeline shows each worklog's date, start time, duration, issue, issue summary
+and description. When its work attributes are loaded, it also shows the
+billing account, or "none" without one. Worklogs read without attributes show
+no billing line. Timesheet pages hold 8 issue rows and Timeline pages hold 20
+worklogs; page controls appear only when a view has more than one page.
+
+Logged, Required and Balance lead the summary, and a negative balance is
+marked. Outcomes, errors, classification problems, recovery guidance and
+delete or discard confirmations share one status region. It puts the outcome
+first and marks each line as information, success, a warning or an error.
+Choosing Timesheet or Timeline saves that preference. Opening a filtered cell does not replace the
 saved preference. Keyboard Tab reaches the inputs and actions.
 
 Last month's issues loads a separate set of templates from the calendar month
@@ -62,7 +66,9 @@ Worklogs whose issue is unavailable are skipped without hiding valid templates.
 
 ## Creating, editing and copying worklogs
 
-Log time prepares a new worklog. Look up issue and billing accounts resolves
+Log time prepares a new one-hour worklog for Today. A new worklog starts after
+its date's logged total, counted from 08:00 in the account timezone. Look up
+issue and billing accounts resolves
 the entered issue against the connected Jira site and loads the project's
 complete account choices. Changing the issue requires a new lookup. Choose a
 listed open account or No billing account. An existing unavailable account is
@@ -82,7 +88,8 @@ does not turn a confirmed service result into an unconfirmed result.
 Command-click a filled grid cell on macOS, or Ctrl-click it on Windows or
 Linux, to prepare copies for Today. Timeline offers Copy to Today for one
 worklog. Copy day prepares every loaded worklog for that date. The confirmation
-lists the captured sources and their total duration. Create copies must be
+shows the total duration and lists up to 12 captured sources with their
+durations, followed by a count of any others. Create copies must be
 selected before any copy is sent; Cancel copy sends nothing. After the copies,
 Buddy returns to the selected range when it contains Today. Otherwise the
 current month stays loaded so that the new copies are visible.
@@ -105,8 +112,9 @@ worklog does not change the displayed date range.
 Tempo can deny a worklog change for permission reasons. Buddy then reports the
 denial without blaming the connection, and keeps the draft.
 
-Recheck saved connection and Forget saved connection are available only when
-this profile has a saved connection.
+Connection shows the connection form, which hides after a successful connect.
+Its Recheck saved connection and Forget saved connection are available only
+when this profile has a saved connection.
 
 Recheck saved connection loads the protected connection again. With an open
 draft, it must verify the same account, Jira site, profile and timezone. It
@@ -129,9 +137,10 @@ the rest of a batch.
 
 Restart and Refresh never replay recovery. Inspect the service worklogs before
 deciding how to proceed. Once Tempo's outcome is known, Retry cleanup appears
-if local file cleanup is still unfinished; it changes nothing in Tempo. An uncertain result offers Discard
-local recovery with a second confirmation. Discard removes local recovery; it
-does not undo remote work. A changed or unreadable recovery record blocks new
+if local file cleanup is still unfinished; it changes nothing in Tempo, and
+Discard is unavailable. An uncertain result offers Discard local recovery with
+a second confirmation. Discard removes local recovery; it does not undo remote
+work. A changed or unreadable recovery record blocks new
 changes. A partial copy batch follows the same rules and never automatically
 attempts its remaining sources.
 
