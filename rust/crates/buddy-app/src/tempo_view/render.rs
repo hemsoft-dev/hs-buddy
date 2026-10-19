@@ -7,7 +7,7 @@ use gpui_kit::{
     Styled, div,
 };
 
-fn duration(seconds: u64) -> String {
+pub(super) fn duration(seconds: u64) -> String {
     if seconds.is_multiple_of(60) {
         format!("{}:{:02}", seconds / 3600, seconds % 3600 / 60)
     } else {

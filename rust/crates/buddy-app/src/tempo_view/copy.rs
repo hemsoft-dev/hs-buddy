@@ -4,6 +4,26 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{button::Button, h_flex, v_flex};
 use gpui_kit::{AnyElement, IntoElement, ParentElement, Styled, div};
 
+fn copy_intro(count: usize, date: impl std::fmt::Display, seconds: u64) -> String {
+    let noun = if count == 1 { "worklog" } else { "worklogs" };
+    format!(
+        "Create {count} new {noun} on {date} for {} of recorded work.",
+        super::render::duration(seconds)
+    )
+}
+
+fn copy_row(
+    issue: impl std::fmt::Display,
+    date: impl std::fmt::Display,
+    seconds: u64,
+    description: &str,
+) -> String {
+    format!(
+        "{issue} · {date} · {} · {description}",
+        super::render::duration(seconds)
+    )
+}
+
 pub(super) fn copy_message(report: &CopyReport) -> (String, Option<String>) {
     let noun = |count| if count == 1 { "worklog" } else { "worklogs" };
     let mut parts = vec![format!(
@@ -74,16 +94,15 @@ impl TempoView {
         let mut content = v_flex().gap_2()
             .child(div().text_lg().child("Copy worklogs to Today"))
             .child(div().whitespace_normal().child(format!(
-                "Create {} new worklogs on {} for {} seconds of recorded work. Each copy retains its issue, description, billing and work attributes. The source worklogs stay unchanged.",
-                plan.sources().len(), plan.date(), plan.seconds()
+                "{} Each copy retains its issue, description, billing and work attributes. The source worklogs stay unchanged.",
+                copy_intro(plan.sources().len(), plan.date(), plan.seconds())
             )));
         for row in plan.sources().iter().take(12) {
-            content = content.child(div().whitespace_normal().child(format!(
-                "{} · {} · {} seconds · {}",
+            content = content.child(div().whitespace_normal().child(copy_row(
                 self.metadata.label(row.issue),
                 row.date,
                 row.seconds,
-                row.description.as_deref().unwrap_or("No description")
+                row.description.as_deref().unwrap_or("No description"),
             )));
         }
         if plan.sources().len() > 12 {
@@ -140,5 +159,21 @@ mod tests {
                 .contains("Confirmed copies remain recorded")
         );
         assert!(!report.complete());
+    }
+
+    #[test]
+    fn copy_confirmation_counts_and_durations_read_like_the_timesheet() {
+        assert_eq!(
+            copy_intro(1, "2026-10-16", 3661),
+            "Create 1 new worklog on 2026-10-16 for 1:01:01 of recorded work."
+        );
+        assert_eq!(
+            copy_intro(3, "2026-10-16", 180),
+            "Create 3 new worklogs on 2026-10-16 for 0:03 of recorded work."
+        );
+        assert_eq!(
+            copy_row("FIX-17", "2026-10-13", 60, "Synthetic page row 48"),
+            "FIX-17 · 2026-10-13 · 0:01 · Synthetic page row 48"
+        );
     }
 }

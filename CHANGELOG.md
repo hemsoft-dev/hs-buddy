@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1484] - 2026-10-19
+
+### Fixed
+
+- Show copy confirmations in timesheet durations (#818)
+
 ## [0.1.1483] - 2026-10-18
 
 ### Fixed
