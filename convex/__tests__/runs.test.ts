@@ -307,6 +307,22 @@ describe('runs', () => {
     expect(completed[0]._id).toBe(id1)
   })
 
+  test('listByStatus can return the oldest pending run first for native claims', async () => {
+    const t = convexTest(schema, modules)
+    const jobId = await t.mutation(api.jobs.create, baseJob)
+    const oldest = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+    const newest = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+
+    const fifo = await t.query(api.runs.listByStatus, {
+      status: 'pending',
+      limit: 1,
+      oldestFirst: true,
+    })
+    expect(fifo.map(run => run._id)).toEqual([oldest])
+    const latest = await t.query(api.runs.listByStatus, { status: 'pending', limit: 1 })
+    expect(latest.map(run => run._id)).toEqual([newest])
+  })
+
   test('claimPending returns null when no pending runs', async () => {
     const t = convexTest(schema, modules)
     const result = await t.mutation(api.runs.claimPending)

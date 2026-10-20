@@ -239,6 +239,11 @@ impl Trigger {
         if self.receipt.is_none() {
             return Err(Error::Pending);
         }
+        self.discard_explicitly()
+    }
+    /// Explicit user action for a request the server rejected or never confirmed.
+    /// A lost request may still have queued its run; this only removes the local copy.
+    pub fn discard_explicitly(&mut self) -> Result<(), Error> {
         self.file.retire()?;
         self.capture = None;
         self.receipt = None;

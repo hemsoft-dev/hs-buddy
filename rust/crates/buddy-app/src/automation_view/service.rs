@@ -30,6 +30,11 @@ pub(super) struct Snapshot {
     pub trigger_receipt: Option<Receipt>,
     pub loaded: bool,
     pub connected: bool,
+    /// The last failed list refresh; cleared when all three reads succeed.
+    pub connection_error: Option<String>,
+    /// The last failed dispatcher tick; cleared by the next successful tick.
+    pub dispatch_error: Option<String>,
+    /// The last failed user command; cleared when the next command starts.
     pub error: Option<String>,
     pub notice: Option<String>,
     pub sequence: u64,
@@ -49,6 +54,8 @@ impl Default for Snapshot {
             trigger_receipt: None,
             loaded: false,
             connected: false,
+            connection_error: None,
+            dispatch_error: None,
             error: None,
             notice: None,
             sequence: 0,
@@ -63,6 +70,7 @@ pub(super) enum Command {
     ReconcileTrigger,
     RetryTrigger,
     ClearTrigger,
+    DiscardTrigger,
     ClearEdit,
     DiscardEdit,
     Cancel(String),
@@ -160,7 +168,10 @@ impl Coordinator {
     fn publish(&mut self, target: &Mutex<Snapshot>) {
         self.snapshot.phase = self.engine.phase();
         self.snapshot.active_run = self.engine.request().map(|request| request.run_id.clone());
-        self.snapshot.output = self.engine.output();
+        self.snapshot.output = super::render::live_output(
+            self.engine.request().map(|request| request.run_id.clone()),
+            self.engine.output(),
+        );
         self.snapshot.edit = self.edit.capture().cloned();
         self.snapshot.edit_acknowledged = self.edit.acknowledged();
         self.snapshot.trigger = self.trigger.capture().cloned();
@@ -181,10 +192,11 @@ impl Coordinator {
                 self.snapshot.runs = runs;
                 self.snapshot.connected = true;
                 self.snapshot.loaded = true;
+                self.snapshot.connection_error = None;
             }
             (jobs, schedules, runs) => {
                 self.snapshot.connected = false;
-                self.snapshot.error = jobs
+                self.snapshot.connection_error = jobs
                     .err()
                     .or(schedules.err())
                     .or(runs.err())
@@ -199,7 +211,6 @@ impl Coordinator {
                 return Ok(());
             }
             Command::Refresh => {
-                self.snapshot.error = None;
                 self.refresh().await;
                 return Ok(());
             }
@@ -255,6 +266,15 @@ impl Coordinator {
                 .trigger
                 .clear_acknowledged()
                 .map_err(|e| e.to_string())?,
+            Command::DiscardTrigger => {
+                self.trigger
+                    .discard_explicitly()
+                    .map_err(|e| e.to_string())?;
+                self.snapshot.notice = Some(
+                    "The local run request was discarded. If the server received it, the run still appears in History."
+                        .into(),
+                );
+            }
             Command::ClearEdit => self.edit.clear_acknowledged().map_err(|e| e.to_string())?,
             Command::DiscardEdit => {
                 self.edit.discard_explicitly().map_err(|e| e.to_string())?;
@@ -305,7 +325,7 @@ impl Coordinator {
                 }
                 _ = ticks.tick() => {
                     let before = self.engine.phase();
-                    if let Err(error) = self.engine.tick(self.context.clone()).await { self.snapshot.error = Some(error.to_string()); }
+                    self.snapshot.dispatch_error = self.engine.tick(self.context.clone()).await.err().map(|error| error.to_string());
                     polls += 1;
                     // A claimed, finished or cancelled run changes History at once.
                     if polls % 5 == 0 || self.engine.phase() != before { self.refresh().await; }

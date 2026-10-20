@@ -148,6 +148,10 @@ impl Queue for Service {
     async fn cancel(&self, id: &str) -> Result<(), BackendError> {
         let mut server = self.0.lock().unwrap();
         assert_eq!(server.run.id, id);
+        // runs:cancel throws for a run that already reached a terminal state.
+        if !server.run.status.is_active() {
+            return Err(BackendError::Rejected);
+        }
         update_run(&mut server, RunStatus::Cancelled, None);
         Ok(())
     }
@@ -305,6 +309,38 @@ async fn a_restored_unconfirmed_claim_does_not_claim_pending_work_again() {
     assert_eq!(pool.starts.load(Ordering::SeqCst), 0);
     restored.cancel().await.unwrap();
     assert!(restored.request().is_none());
+    assert_eq!(pool.starts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cancelling_an_unconfirmed_request_whose_run_finished_elsewhere_retires_it() {
+    let (_root, config, service, pool) = fixture();
+    service.0.lock().unwrap().uncommitted_claim = true;
+    let mut engine = Engine::open(service.clone(), pool.clone(), &config).unwrap();
+    assert_eq!(
+        engine.tick(Context::default()).await,
+        Err(Error::Backend(BackendError::UnknownWrite))
+    );
+    drop(engine);
+    // Another dispatcher completed the captured candidate meanwhile.
+    let finished = result().output;
+    update_run(
+        &mut service.0.lock().unwrap(),
+        RunStatus::Completed,
+        finished.clone(),
+    );
+    let mut restored = Engine::open(service.clone(), pool.clone(), &config).unwrap();
+    assert_eq!(
+        restored.tick(Context::default()).await.unwrap(),
+        Phase::Attention
+    );
+    restored.cancel().await.unwrap();
+    assert!(restored.request().is_none());
+    assert_eq!(restored.phase(), Phase::Idle);
+    let server = service.0.lock().unwrap();
+    assert_eq!(server.run.status, RunStatus::Completed);
+    assert_eq!(server.run.output, finished);
+    assert_eq!(server.claim_calls, 2);
     assert_eq!(pool.starts.load(Ordering::SeqCst), 0);
 }
 

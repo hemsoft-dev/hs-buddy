@@ -257,6 +257,9 @@ pub(super) fn payload(
         args["missedPolicy"] = json!(policy);
         if let Some(params) = parsed(values, "params")? {
             args["params"] = params;
+        } else if target.is_some() && original.get("params").is_some() {
+            // schedules:update copies only defined fields; null clears stored parameters.
+            args["params"] = Value::Null;
         }
         return Ok((
             if target.is_some() {

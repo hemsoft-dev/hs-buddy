@@ -102,7 +102,7 @@ impl AutomationBackend {
             self.client
                 .call(
                     "runs:listByStatus",
-                    json!({"status":"pending","limit":1}),
+                    json!({"status":"pending","limit":1,"oldestFirst":true}),
                     false,
                 )
                 .await?,

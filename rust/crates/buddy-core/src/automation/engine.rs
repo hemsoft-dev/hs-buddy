@@ -283,8 +283,17 @@ impl<Q: Queue, W: Workers> Engine<Q, W> {
         if let Some(worker) = &self.active {
             worker.cancel();
         }
-        self.queue.cancel(&request.run_id).await?;
-        if self.active.is_none() {
+        let cancelled = self.queue.cancel(&request.run_id).await;
+        if self.active.is_some() {
+            cancelled?;
+        } else {
+            // A candidate that already finished elsewhere rejects cancellation;
+            // its idempotent claim still retires this request.
+            if let Err(error) = cancelled
+                && !matches!(error, BackendError::Rejected)
+            {
+                return Err(error.into());
+            }
             let claim = self.queue.claim(&request).await?;
             self.journal.acknowledge_terminal(&claim)?;
             self.phase = Phase::Idle;

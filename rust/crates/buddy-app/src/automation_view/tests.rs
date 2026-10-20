@@ -4,7 +4,7 @@ use buddy_core::automation::models::{Job, MissedPolicy, Run, Schedule, Shell, Wo
 use serde_json::json;
 
 use super::forms::{DraftSpec, payload};
-use super::render::{bounded_output, job_summary, run_output, status_label};
+use super::render::{bounded_output, job_summary, live_output, run_output, status_label};
 use super::*;
 
 fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -197,6 +197,92 @@ fn schedules_send_explicit_state_and_bind_a_job_only_on_create() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn live_output_is_keyed_by_the_active_run_not_by_its_stdout() {
+    assert_eq!(
+        live_output(
+            Some("run-1".into()),
+            Some((
+                "NATIVESTARTED
+"
+                .into(),
+                String::new()
+            ))
+        ),
+        Some((
+            "run-1".into(),
+            "NATIVESTARTED
+"
+            .into()
+        ))
+    );
+    assert_eq!(
+        live_output(Some("run-1".into()), Some(("out".into(), "warn".into()))),
+        Some((
+            "run-1".into(),
+            "out
+
+Standard error:
+warn"
+                .into()
+        ))
+    );
+    assert_eq!(live_output(None, Some(("out".into(), String::new()))), None);
+}
+
+#[test]
+fn stored_command_output_shows_stdout_then_stderr() {
+    let run: Run = serde_json::from_value(
+        json!({"_id":"r","jobId":"j","status":"failed","startedAt":1.0,
+        "output":{"stdout":"done 雪","stderr":"","exitCode":0,"stdoutTruncated":false}}),
+    )
+    .unwrap();
+    assert_eq!(run_output(&run).unwrap(), "done 雪");
+    let run: Run = serde_json::from_value(
+        json!({"_id":"r","jobId":"j","status":"failed","startedAt":1.0,
+        "output":{"stdout":"","stderr":"boom"}}),
+    )
+    .unwrap();
+    assert_eq!(
+        run_output(&run).unwrap(),
+        "Standard error:
+boom"
+    );
+}
+
+#[test]
+fn clearing_existing_schedule_parameters_sends_null() {
+    let original = json!({"_id":"schedule-1","params":{"limit":3}});
+    let spec = DraftSpec {
+        kind: FormKind::Schedule,
+        target: Some("schedule-1"),
+        original: &original,
+        worker: WorkerType::Exec,
+        shell: Shell::Bash,
+        policy: MissedPolicy::Skip,
+        enabled: true,
+        job_id: None,
+    };
+    let fields = values(&[
+        ("name", "n"),
+        ("cron", "0 9 * * *"),
+        ("timezone", "UTC"),
+        ("params", ""),
+    ]);
+    let (_, args) = payload(&spec, &fields).unwrap();
+    assert_eq!(args.get("params"), Some(&Value::Null));
+    let fresh = json!({"_id":"schedule-1"});
+    let (_, args) = payload(
+        &DraftSpec {
+            original: &fresh,
+            ..spec
+        },
+        &fields,
+    )
+    .unwrap();
+    assert!(args.get("params").is_none(), "nothing to clear");
 }
 
 #[test]

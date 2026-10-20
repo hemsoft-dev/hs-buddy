@@ -9,6 +9,7 @@ struct State {
     reads: usize,
     lost: bool,
     wrong: bool,
+    rejected: bool,
 }
 struct Server {
     state: Mutex<State>,
@@ -48,6 +49,9 @@ impl Service for Server {
         assert_eq!(persisted.input, capture.input);
         let mut state = self.state.lock().unwrap();
         state.calls += 1;
+        if state.rejected {
+            return Err(BackendError::Rejected);
+        }
         if state.wrong {
             return Ok(Receipt {
                 kind: Outcome::Recorded,
@@ -144,6 +148,27 @@ async fn an_explicit_retry_uses_the_original_capture_and_never_creates_a_second_
     let state = service.state.lock().unwrap();
     assert_eq!(state.calls, 2);
     assert_eq!(state.receipts.len(), 1);
+}
+
+#[tokio::test]
+async fn a_rejected_request_can_be_discarded_explicitly_and_a_new_one_prepared() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config.json");
+    let service = Server::new(root.path());
+    service.state.lock().unwrap().rejected = true;
+    let mut trigger = Trigger::open(&config, service.deployment()).unwrap();
+    trigger.prepare("deleted-job", None).unwrap();
+    assert!(trigger.dispatch(&service).await.is_err());
+    assert!(trigger.reconcile(&service).await.unwrap().is_none());
+    assert!(matches!(trigger.clear_acknowledged(), Err(Error::Pending)));
+    assert!(matches!(trigger.prepare("job", None), Err(Error::Pending)));
+    trigger.discard_explicitly().unwrap();
+    assert!(trigger.capture().is_none());
+    drop(trigger);
+    let mut reopened = Trigger::open(&config, service.deployment()).unwrap();
+    assert!(reopened.capture().is_none(), "the discard is durable");
+    reopened.prepare("job", None).unwrap();
+    assert_eq!(service.state.lock().unwrap().calls, 1);
 }
 
 #[tokio::test]

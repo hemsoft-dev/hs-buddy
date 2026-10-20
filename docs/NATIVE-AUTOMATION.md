@@ -38,8 +38,10 @@ unless the job names a model. Skills are read from `~/.agents/skills`.
 Run now asks for optional JSON input and queues one run. Buddy saves the
 request with its own ID before sending it. If the reply is lost, the request
 stays on screen: Check again asks the server whether it arrived, and Retry
-same request sends the same ID, which the server accepts at most once. No new
-run can be queued until the request is resolved.
+same request sends the same ID, which the server accepts at most once. Discard
+removes a request the server rejected, for example because the job was
+deleted; if the server did receive it, the run still appears in History. No
+new run can be queued until the request is resolved or discarded.
 
 ## Schedules
 
@@ -56,7 +58,8 @@ local scheduler; it only takes queued runs from the server.
 ## The dispatcher
 
 The dispatcher starts when Buddy Native opens, whichever section is visible,
-and checks the queue every two seconds. It takes one queued run at a time.
+and checks the queue every two seconds. It takes the oldest queued run first,
+one at a time.
 The server's claim is atomic, so when Electron and Native are both open, each
 run executes in exactly one of them.
 
@@ -76,8 +79,9 @@ same way and records a failure.
 
 History lists recent runs with their state, job, whether a schedule or a
 person started them, start time in local time and duration. Failures show
-their error. Show output opens the run's output; a running job's output
-updates live. Very long output shows its last 16 KB.
+their error. Show output opens the run's standard output, followed by any
+standard error; a running job's output updates live. Very long output shows
+its last 16 KB.
 
 ## Unconfirmed changes
 

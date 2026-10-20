@@ -48,10 +48,13 @@ class AutomationDesktopTests(unittest.TestCase):
             desktop.verify_proof(proof, "nonce-1", workspace)
             with self.assertRaisesRegex(RuntimeError, "did not run once"):
                 desktop.verify_proof(proof, "another-run", workspace)
+            with self.assertRaisesRegex(RuntimeError, "did not run once"):
+                desktop.verify_proof(proof, "nonce-1", Path(root))
 
     def test_runs_must_be_single_and_in_the_expected_state(self):
         backend = Mock()
-        backend.query.return_value = [dict(jobId="job", status="completed", output="NATIVEAUTOMATIONREADY\n資料界é\n"),
+        backend.query.return_value = [dict(jobId="job", status="completed",
+            output=dict(stdout="NATIVEAUTOMATIONREADY\n資料界é\n", stderr="", exitCode=0)),
             dict(jobId="other", status="failed")]
         desktop.verify_output(desktop.single_run(backend, "job", "completed"))
         with self.assertRaisesRegex(RuntimeError, "cancelled"):
@@ -59,7 +62,8 @@ class AutomationDesktopTests(unittest.TestCase):
         backend.query.return_value.append(dict(jobId="job", status="completed"))
         with self.assertRaisesRegex(RuntimeError, "exactly one run"):
             desktop.single_run(backend, "job", "completed")
-        for output in (None, "NATIVEAUTOMATIONREADY", {"text": "NATIVEAUTOMATIONREADY 資料界é"}):
+        for output in (None, "NATIVEAUTOMATIONREADY 資料界é", {"stdout": "NATIVEAUTOMATIONREADY"},
+                {"stdout": "NATIVEAUTOMATIONREADY 資料界é", "exitCode": 1}):
             with self.assertRaisesRegex(RuntimeError, "Unicode output"):
                 desktop.verify_output(dict(output=output))
 

@@ -44,6 +44,7 @@ pub struct AutomationView {
     selected_run: Option<String>,
     deletion: Option<(ChangeKind, String, String)>,
     discard_confirm: bool,
+    trigger_discard_confirm: bool,
     busy: bool,
     error: Option<String>,
 }
@@ -99,6 +100,7 @@ impl AutomationView {
             selected_run: None,
             deletion: None,
             discard_confirm: false,
+            trigger_discard_confirm: false,
             busy: false,
             error: None,
         }

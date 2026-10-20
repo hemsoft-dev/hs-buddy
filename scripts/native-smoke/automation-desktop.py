@@ -76,7 +76,9 @@ def job_arguments(name, command, workspace):
 
 def verify_proof(path, nonce, workspace):
     value = json.loads(path.read_text(encoding="utf-8"))
-    if value != dict(run=nonce, cwd=str(workspace), value=UNICODE):
+    # macOS reports getcwd() through symlinks resolved (/var is /private/var).
+    if (set(value) != {"run", "cwd", "value"} or value["run"] != nonce or value["value"] != UNICODE
+            or not isinstance(value["cwd"], str) or Path(value["cwd"]).resolve() != Path(workspace).resolve()):
         raise RuntimeError("The job did not run once in its Unicode directory with its explicit environment")
 
 
@@ -94,8 +96,11 @@ def single_run(backend, job, status):
 
 
 def verify_output(run):
+    # Command workers store {stdout, stderr, exitCode, ...}, as Electron does.
     output = run.get("output")
-    if not isinstance(output, str) or "NATIVEAUTOMATIONREADY" not in output or UNICODE not in output:
+    stdout = output.get("stdout") if isinstance(output, dict) else None
+    if (not isinstance(stdout, str) or "NATIVEAUTOMATIONREADY" not in stdout or UNICODE not in stdout
+            or output.get("exitCode") != 0):
         raise RuntimeError("The completed run did not store the job's exact Unicode output")
 
 

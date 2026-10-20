@@ -78,10 +78,44 @@ pub(super) fn bounded_output(text: &str) -> (String, bool) {
     (text[start..].to_owned(), true)
 }
 
+/// Standard output first, then standard error under its own heading.
+pub(super) fn combined_output(stdout: &str, stderr: &str) -> String {
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (_, true) => stdout.to_owned(),
+        (true, false) => format!(
+            "Standard error:
+{stderr}"
+        ),
+        (false, false) => format!(
+            "{stdout}
+
+Standard error:
+{stderr}"
+        ),
+    }
+}
+
+/// Live `(stdout, stderr)` belongs to the run whose permit started the worker.
+pub(super) fn live_output(
+    run: Option<String>,
+    output: Option<(String, String)>,
+) -> Option<(String, String)> {
+    run.zip(output)
+        .map(|(run, (stdout, stderr))| (run, combined_output(&stdout, &stderr)))
+}
+
+/// Command workers store `{stdout, stderr, …}`; other workers store text or JSON.
 pub(super) fn run_output(run: &Run) -> Option<String> {
     run.output.as_ref().map(|value| match value {
         Value::String(text) => text.clone(),
         Value::Null => String::new(),
+        Value::Object(fields)
+            if fields.get("stdout").is_some_and(Value::is_string)
+                || fields.get("stderr").is_some_and(Value::is_string) =>
+        {
+            let text = |key| fields.get(key).and_then(Value::as_str).unwrap_or("");
+            combined_output(text("stdout"), text("stderr"))
+        }
         other => serde_json::to_string_pretty(other).unwrap_or_default(),
     })
 }
@@ -223,7 +257,7 @@ impl AutomationView {
             "Connected"
         } else if snapshot.loaded {
             "Offline · showing the last loaded data"
-        } else if snapshot.error.is_some() {
+        } else if snapshot.connection_error.is_some() {
             "Offline"
         } else {
             "Connecting…"
@@ -237,10 +271,22 @@ impl AutomationView {
         if let Some(notice) = &snapshot.notice {
             status = status.child(div().whitespace_normal().child(notice.clone()));
         }
-        for error in [snapshot.error.as_ref(), self.error.as_ref()]
-            .into_iter()
-            .flatten()
+        let mut errors: Vec<&String> = Vec::new();
+        for error in [
+            snapshot.connection_error.as_ref(),
+            snapshot.dispatch_error.as_ref(),
+            snapshot.error.as_ref(),
+            self.error.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
         {
+            // A failed command reports the same text through its reply.
+            if !errors.contains(&error) {
+                errors.push(error);
+            }
+        }
+        for error in errors {
             status = status.child(
                 div()
                     .whitespace_normal()
@@ -336,7 +382,7 @@ impl AutomationView {
                 receipt.run_id
             ),
             None => format!(
-                "A run request for {job} has an unknown outcome. Check again, or retry the same request; the server accepts it at most once."
+                "A run request for {job} has an unknown outcome or was rejected. Check again, retry the same request (the server accepts it at most once), or discard it."
             ),
         };
         let mut buttons = h_flex().flex_wrap().gap_2();
@@ -368,6 +414,36 @@ impl AutomationView {
                             this.operate(Command::RetryTrigger, false, cx)
                         })),
                 );
+            buttons = if self.trigger_discard_confirm {
+                buttons
+                    .child(
+                        Button::new("automation-trigger-discard-confirm")
+                            .label("Discard request")
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.trigger_discard_confirm = false;
+                                this.operate(Command::DiscardTrigger, false, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("automation-trigger-discard-cancel")
+                            .label("Keep request")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.trigger_discard_confirm = false;
+                                cx.notify();
+                            })),
+                    )
+            } else {
+                buttons.child(
+                    Button::new("automation-trigger-discard")
+                        .label("Discard…")
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.trigger_discard_confirm = true;
+                            cx.notify();
+                        })),
+                )
+            };
         }
         v_flex()
             .gap_2()
@@ -1095,7 +1171,7 @@ impl Render for AutomationView {
                 .whitespace_normal()
                 .child(if self.handle.is_none() {
                     "Automation has not started."
-                } else if self.snapshot.error.is_some() {
+                } else if self.snapshot.connection_error.is_some() {
                     "Jobs appear when the automation backend is reachable. Buddy keeps trying."
                 } else {
                     "Loading jobs, schedules and runs…"

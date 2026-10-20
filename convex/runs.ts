@@ -222,6 +222,8 @@ export const listByStatus = query({
   args: {
     status: runStatusValidator,
     limit: v.optional(v.number()),
+    // Native dispatchers claim FIFO, like claimPending.
+    oldestFirst: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50
@@ -230,7 +232,7 @@ export const listByStatus = query({
       await ctx.db
         .query('runs')
         .withIndex('by_status', q => q.eq('status', args.status))
-        .order('desc')
+        .order(args.oldestFirst ? 'asc' : 'desc')
         .take(limit)
     ).map(publicRun)
   },
