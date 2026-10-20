@@ -331,6 +331,34 @@ describe('scheduleScanner.scanAndDispatch — stuck-run reaper (job timeout over
     const run = await t.query(api.runs.get, { id: runId })
     expect(run?.status).toBe('failed')
   })
+
+  test('keeps a large snapshot batch past its legacy one-minute timeout until its account budget', async () => {
+    const t = convexTest(schema, modules)
+    const jobId = await t.mutation(api.jobs.create, {
+      ...baseJob,
+      config: { command: '__copilot_snapshot__', timeout: 60_000 },
+    })
+    const accounts = Array.from({ length: 70 }, (_, index) => ({ username: `u${index}`, org: 'o' }))
+    const budgetMs = 30_000 + 60_000 * accounts.length
+    const runId = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+    await t.mutation(api.runs.markRunning, { id: runId })
+    await t.run(async ctx => {
+      await ctx.db.patch(runId, {
+        input: { accounts },
+        startedAt: Date.now() - (STALE_RUN_TIMEOUT_MS + 60_000),
+      })
+    })
+
+    expect((await t.mutation(internal.scheduleScanner.scanAndDispatch)).runsReaped).toBe(0)
+    expect((await t.query(api.runs.get, { id: runId }))?.status).toBe('running')
+
+    await t.run(async ctx => {
+      await ctx.db.patch(runId, {
+        startedAt: Date.now() - (budgetMs + RUNNING_TIMEOUT_HEADROOM_MS + 60_000),
+      })
+    })
+    expect((await t.mutation(internal.scheduleScanner.scanAndDispatch)).runsReaped).toBe(1)
+  })
 })
 
 describe('scheduleScanner.markSnapshotsDue', () => {

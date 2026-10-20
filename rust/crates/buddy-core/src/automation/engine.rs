@@ -294,6 +294,12 @@ impl<Q: Queue, W: Workers> Engine<Q, W> {
             {
                 return Err(error.into());
             }
+            if self.journal.result()?.is_some() {
+                // A finished worker's saved output is reported first; the next
+                // tick publishes it to the cancelled run, then retires the request.
+                self.phase = Phase::Reconciling;
+                return Ok(());
+            }
             let claim = self.queue.claim(&request).await?;
             self.journal.acknowledge_terminal(&claim)?;
             self.phase = Phase::Idle;

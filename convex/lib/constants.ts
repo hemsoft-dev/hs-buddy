@@ -38,3 +38,13 @@ export const RUNNING_TIMEOUT_HEADROOM_MS = 5 * 60 * 1000 // 5 minutes
  * longer running.
  */
 export const MAX_SETTIMEOUT_DELAY_MS = 2_147_483_647 // 2^31 - 1
+
+/**
+ * Copilot usage snapshot runs (the `__copilot_snapshot__` marker job) collect
+ * accounts one after another. The native worker allows 30 seconds plus one
+ * minute per captured account, above the marker job's legacy 60-second
+ * `config.timeout`; the reaper must not fail a large batch before that.
+ */
+export function snapshotRunTimeoutMs(accountCount: number): number {
+  return 30_000 + 60_000 * accountCount
+}

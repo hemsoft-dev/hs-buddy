@@ -3,6 +3,7 @@ import { calculateNextRunAt, DEFAULT_TIMEZONE } from './lib/cronUtils'
 import {
   MAX_SETTIMEOUT_DELAY_MS,
   RUNNING_TIMEOUT_HEADROOM_MS,
+  snapshotRunTimeoutMs,
   STALE_RUN_TIMEOUT_MS,
 } from './lib/constants'
 import { isPendingOrRunning } from './lib/domain'
@@ -106,6 +107,7 @@ interface StaleRunRecord {
   jobId: Id<'jobs'>
   scheduleId?: Id<'schedules'>
   startedAt: number
+  input?: unknown
 }
 
 /**
@@ -149,6 +151,16 @@ async function reapRun(
  * `pending` runs have not started executing yet, so they always use the
  * flat default.
  */
+/** Snapshot batches get their account-scaled budget, never less than the job's own. */
+function effectiveTimeoutMs(
+  config: { command?: string; timeout?: number } | undefined,
+  input: unknown
+): number | undefined {
+  const accounts = (input as { accounts?: unknown } | null | undefined)?.accounts
+  if (config?.command !== '__copilot_snapshot__' || !Array.isArray(accounts)) return config?.timeout
+  return Math.max(config.timeout ?? 0, snapshotRunTimeoutMs(accounts.length))
+}
+
 async function staleRunThresholdMs(
   ctx: { db: GenericDatabaseWriter<DataModel> },
   run: StaleRunRecord,
@@ -157,7 +169,7 @@ async function staleRunThresholdMs(
   if (status !== 'running') return STALE_RUN_TIMEOUT_MS
 
   const job = await ctx.db.get('jobs', run.jobId)
-  const configuredTimeout = job?.config.timeout
+  const configuredTimeout = effectiveTimeoutMs(job?.config, run.input)
   if (
     configuredTimeout != null &&
     configuredTimeout > 0 &&

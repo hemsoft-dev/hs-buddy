@@ -6,6 +6,9 @@ use buddy_core::automation::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+/// `DEFAULT_TIMEZONE` in `shared/utils/cronUtils.ts`.
+pub(super) const DEFAULT_TIMEZONE: &str = "America/New_York";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum FormKind {
     Job,
@@ -62,7 +65,7 @@ impl Form {
         window: &mut Window,
         cx: &mut Context<AutomationView>,
     ) -> Self {
-        let original = schedule.and_then(|value| serde_json::to_value(value).ok()).unwrap_or(json!({"cron":"0 9 * * 1-5","timezone":"America/New_York","enabled":true,"missedPolicy":"skip"}));
+        let original = schedule.and_then(|value| serde_json::to_value(value).ok()).unwrap_or(json!({"cron":"0 9 * * 1-5","timezone":DEFAULT_TIMEZONE,"enabled":true,"missedPolicy":"skip"}));
         let mut form = Self::new(FormKind::Schedule, original, window, cx);
         if form.job_id.is_none() {
             form.job_id = job_id;
@@ -90,6 +93,14 @@ impl Form {
         ] {
             let value = if name == "repository" {
                 repository(&original)
+            } else if name == "timezone" && kind == FormKind::Schedule {
+                // A schedule without a timezone runs in the backend default.
+                original
+                    .get("timezone")
+                    .and_then(Value::as_str)
+                    .filter(|zone| !zone.is_empty())
+                    .unwrap_or(DEFAULT_TIMEZONE)
+                    .to_owned()
             } else {
                 display(
                     original
@@ -365,6 +376,9 @@ pub(super) fn payload(
             return Err("Input parameters must be a JSON array.".into());
         }
         args["inputParams"] = parameters;
+    } else if target.is_some() && original.get("inputParams").is_some() {
+        // jobs:update keeps an omitted field; an empty list clears the definitions.
+        args["inputParams"] = json!([]);
     }
     Ok((
         if target.is_some() {

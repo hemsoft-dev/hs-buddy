@@ -973,7 +973,7 @@ impl AutomationView {
                             "{} · {} {} · {}",
                             self.job_name(&schedule.job_id),
                             schedule.cron,
-                            schedule.timezone.as_deref().unwrap_or("America/New_York"),
+                            schedule.timezone.as_deref().unwrap_or(super::forms::DEFAULT_TIMEZONE),
                             policy_label(schedule.missed_policy)
                         )),
                 )

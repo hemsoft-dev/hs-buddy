@@ -15,6 +15,7 @@ struct Server {
     recover_calls: usize,
     lose_claim: bool,
     lose_finish: bool,
+    fail_finish: bool,
     uncommitted_claim: bool,
     tamper: bool,
     root: PathBuf,
@@ -129,6 +130,9 @@ impl Queue for Service {
     async fn finish(&self, request: &Request, result: &WorkerResult) -> Result<(), BackendError> {
         let mut server = self.0.lock().unwrap();
         server.finish_calls += 1;
+        if server.fail_finish {
+            return Err(BackendError::Unavailable);
+        }
         assert!(server.claims.contains_key(&request.request_id));
         assert_eq!(server.run.id, request.run_id);
         let status = if server.run.status == RunStatus::Cancelled {
@@ -205,6 +209,7 @@ fn fixture() -> (tempfile::TempDir, PathBuf, Service, Pool) {
         recover_calls: 0,
         lose_claim: false,
         lose_finish: false,
+        fail_finish: false,
         uncommitted_claim: false,
         tamper: false,
         root: root.path().to_owned(),
@@ -342,6 +347,37 @@ async fn cancelling_an_unconfirmed_request_whose_run_finished_elsewhere_retires_
     assert_eq!(server.run.output, finished);
     assert_eq!(server.claim_calls, 2);
     assert_eq!(pool.starts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cancelling_after_an_unreported_result_publishes_that_output_before_retiring() {
+    let (_root, config, service, pool) = fixture();
+    let mut engine = Engine::open(service.clone(), pool.clone(), &config).unwrap();
+    assert_eq!(
+        engine.tick(Context::default()).await.unwrap(),
+        Phase::Running
+    );
+    pool.state.lock().unwrap().result = Some(result());
+    service.0.lock().unwrap().fail_finish = true;
+    assert_eq!(
+        engine.tick(Context::default()).await,
+        Err(Error::Backend(BackendError::Unavailable))
+    );
+    service.0.lock().unwrap().fail_finish = false;
+    // The server still shows the run as running, so the user can cancel it.
+    engine.cancel().await.unwrap();
+    assert_eq!(service.0.lock().unwrap().run.status, RunStatus::Cancelled);
+    assert!(
+        engine.request().is_some(),
+        "the saved result is not dropped"
+    );
+    engine.tick(Context::default()).await.unwrap();
+    assert_eq!(engine.tick(Context::default()).await.unwrap(), Phase::Idle);
+    assert!(engine.request().is_none());
+    let server = service.0.lock().unwrap();
+    assert_eq!(server.run.status, RunStatus::Cancelled);
+    assert_eq!(server.run.output, result().output);
+    assert_eq!(pool.starts.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

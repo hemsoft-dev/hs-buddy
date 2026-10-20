@@ -286,6 +286,35 @@ fn clearing_existing_schedule_parameters_sends_null() {
 }
 
 #[test]
+fn an_empty_account_setting_looks_up_the_active_gh_account_with_bounded_caching() {
+    use super::service::lookup_due;
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    assert!(
+        lookup_due(None, start),
+        "the first dispatch resolves the active account"
+    );
+    let signed_in = (Some("HemSoft".to_owned()), start);
+    assert!(!lookup_due(
+        Some(&signed_in),
+        start + Duration::from_secs(299)
+    ));
+    assert!(lookup_due(
+        Some(&signed_in),
+        start + Duration::from_secs(300)
+    ));
+    let signed_out = (None, start);
+    assert!(!lookup_due(
+        Some(&signed_out),
+        start + Duration::from_secs(29)
+    ));
+    assert!(lookup_due(
+        Some(&signed_out),
+        start + Duration::from_secs(30)
+    ));
+}
+
+#[test]
 fn long_output_keeps_its_end_on_a_character_boundary() {
     let short = "done";
     assert_eq!(bounded_output(short), (short.to_owned(), false));
@@ -393,4 +422,51 @@ fn an_operation_in_flight_locks_further_changes(cx: &mut gpui_kit::TestAppContex
         })
     });
     cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn a_stored_schedule_without_a_timezone_edits_in_the_backend_default(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| AutomationView::new(window, cx))
+        })
+        .unwrap()
+    });
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    let schedule: Schedule =
+        serde_json::from_value(json!({"_id":"s-1","jobId":"job-1","name":"Old",
+        "cron":"0 9 * * *","enabled":true,"missedPolicy":"skip"}))
+        .unwrap();
+    let (timezone, arguments) = visual.update(|window, cx| {
+        view.update(cx, |_, cx| {
+            let form = Form::new_schedule(Some(&schedule), None, window, cx);
+            let timezone = form.fields["timezone"].read(cx).value().to_string();
+            (timezone, form.arguments(cx))
+        })
+    });
+    assert_eq!(timezone, "America/New_York");
+    let (kind, args) = arguments.unwrap();
+    assert_eq!(kind, ChangeKind::UpdateSchedule);
+    assert_eq!(args["timezone"], "America/New_York");
+}
+
+#[test]
+fn clearing_existing_input_parameters_sends_an_empty_list() {
+    let original = json!({"_id":"job-1","config":{"command":"x"},"inputParams":[{"name":"a","type":"string","required":true}]});
+    let fields = values(&[("name", "n"), ("command", "x"), ("inputParams", "")]);
+    let (_, args) = payload(
+        &job_spec(&original, Some("job-1"), WorkerType::Exec),
+        &fields,
+    )
+    .unwrap();
+    assert_eq!(args["inputParams"], json!([]));
+    let (_, args) = payload(&job_spec(&original, None, WorkerType::Exec), &fields).unwrap();
+    assert!(
+        args.get("inputParams").is_none(),
+        "a new job has nothing to clear"
+    );
 }

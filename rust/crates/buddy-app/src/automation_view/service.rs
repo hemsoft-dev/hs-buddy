@@ -127,12 +127,25 @@ impl Handle {
     }
 }
 
+/// A signed-in result is reused for five minutes; a signed-out one is retried after
+/// 30 seconds, so a new login is picked up soon.
+pub(super) fn lookup_due(
+    cached: Option<&(Option<String>, std::time::Instant)>,
+    now: std::time::Instant,
+) -> bool {
+    cached.is_none_or(|(account, at)| {
+        now.duration_since(*at) >= Duration::from_secs(if account.is_some() { 300 } else { 30 })
+    })
+}
+
 struct Coordinator {
     backend: AutomationBackend,
     engine: Engine<AutomationBackend, NativeWorkers>,
     edit: Edit,
     trigger: Trigger,
     context: Context,
+    /// The `gh` CLI's active account, used when settings leave the account empty.
+    active_account: Option<(Option<String>, std::time::Instant)>,
     snapshot: Snapshot,
 }
 impl Coordinator {
@@ -162,6 +175,7 @@ impl Coordinator {
             edit,
             trigger,
             context,
+            active_account: None,
             snapshot: Snapshot::default(),
         })
     }
@@ -178,6 +192,22 @@ impl Coordinator {
         self.snapshot.trigger_receipt = self.trigger.receipt().cloned();
         self.snapshot.sequence = self.snapshot.sequence.wrapping_add(1);
         *target.lock().unwrap_or_else(|e| e.into_inner()) = self.snapshot.clone();
+    }
+    /// An empty account setting means the active `gh` account, as in chat and model
+    /// discovery. Resolve it (at most every five minutes; `gh auth status` checks online) so each run captures a real login.
+    async fn dispatch_context(&mut self) -> Context {
+        let mut context = self.context.clone();
+        if context.account.is_none() {
+            if lookup_due(self.active_account.as_ref(), std::time::Instant::now()) {
+                let account = buddy_core::gh::active_account().await;
+                self.active_account = Some((account, std::time::Instant::now()));
+            }
+            context.account = self
+                .active_account
+                .as_ref()
+                .and_then(|(account, _)| account.clone());
+        }
+        context
     }
     async fn refresh(&mut self) {
         let (jobs, schedules, runs) = tokio::join!(
@@ -208,6 +238,7 @@ impl Coordinator {
         match command {
             Command::Context(context) => {
                 self.context = context;
+                self.active_account = None;
                 return Ok(());
             }
             Command::Refresh => {
@@ -325,7 +356,8 @@ impl Coordinator {
                 }
                 _ = ticks.tick() => {
                     let before = self.engine.phase();
-                    self.snapshot.dispatch_error = self.engine.tick(self.context.clone()).await.err().map(|error| error.to_string());
+                    let context = self.dispatch_context().await;
+                    self.snapshot.dispatch_error = self.engine.tick(context).await.err().map(|error| error.to_string());
                     polls += 1;
                     // A claimed, finished or cancelled run changes History at once.
                     if polls % 5 == 0 || self.engine.phase() != before { self.refresh().await; }

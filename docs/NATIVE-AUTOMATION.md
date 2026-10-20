@@ -31,7 +31,9 @@ fields the native editor does not show, such as `maxTokens` and
 "… copy" that is saved as a new job. Delete asks for confirmation.
 
 AI and skill jobs use the GitHub account and model from Copilot settings
-unless the job names a model. Skills are read from `~/.agents/skills`.
+unless the job names a model. When the account setting is empty, Buddy uses
+the GitHub CLI's active account, checked again every few minutes. Each run
+keeps the account it started with. Skills are read from `~/.agents/skills`.
 
 ## Running a job
 
