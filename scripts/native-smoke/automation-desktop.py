@@ -129,7 +129,10 @@ def unreachable_url():
 
 def qualify_offline(executable, output, session):
     driver = settings.Driver(executable, output, session, types.SimpleNamespace(url=unreachable_url()), HERE.parent.parent)
-    offline = driver.drive("offline-dark", [("sleep", 6), ("capture", "offline-dark")])
+    # A backend call gives up after 12 seconds; on Linux the refused connection
+    # is retried until then, so wait for the offline message itself.
+    offline = driver.drive("offline-dark", [("sleep", 10), ("wait_text", "Automation is offline"),
+        ("capture", "offline-dark")])
     github.check(offline / "offline-dark.png", "Offline", "Automation is offline", "Buddy keeps trying",
         absent=("Echo job", "Long job"))
 
