@@ -71,6 +71,7 @@ pub(super) enum Command {
     RetryTrigger,
     ClearTrigger,
     DiscardTrigger,
+    DismissNotice,
     ClearEdit,
     DiscardEdit,
     Cancel(String),
@@ -136,6 +137,26 @@ pub(super) fn lookup_due(
     cached.is_none_or(|(account, at)| {
         now.duration_since(*at) >= Duration::from_secs(if account.is_some() { 300 } else { 30 })
     })
+}
+
+/// A confirmed change reports what it did, in the past tense.
+pub(super) fn save_notice(kind: ChangeKind, arguments: &Value) -> &'static str {
+    match kind {
+        ChangeKind::CreateJob => "Job created.",
+        ChangeKind::UpdateJob => "Job saved.",
+        ChangeKind::DeleteJob => "Job deleted.",
+        ChangeKind::CreateSchedule => "Schedule created.",
+        ChangeKind::UpdateSchedule => match (
+            arguments.as_object().map(|object| object.len()),
+            arguments.get("enabled"),
+        ) {
+            (Some(2), Some(Value::Bool(false))) => "Schedule paused.",
+            (Some(2), Some(Value::Bool(true))) => "Schedule enabled.",
+            _ => "Schedule saved.",
+        },
+        ChangeKind::DeleteSchedule => "Schedule deleted.",
+        ChangeKind::CancelRun => "Cancellation requested.",
+    }
 }
 
 struct Coordinator {
@@ -236,6 +257,10 @@ impl Coordinator {
     }
     async fn command(&mut self, command: Command) -> Result<(), String> {
         match command {
+            Command::DismissNotice => {
+                self.snapshot.notice = None;
+                return Ok(());
+            }
             Command::Context(context) => {
                 self.context = context;
                 self.active_account = None;
@@ -246,6 +271,7 @@ impl Coordinator {
                 return Ok(());
             }
             Command::Save(kind, arguments) => {
+                let notice = save_notice(kind, &arguments);
                 self.edit
                     .prepare(kind, arguments)
                     .map_err(|e| e.to_string())?;
@@ -259,7 +285,7 @@ impl Coordinator {
                     }
                     Err(error) => return Err(error.to_string()),
                 }
-                self.snapshot.notice = Some("Saved. Refreshing automation…".into());
+                self.snapshot.notice = Some(notice.into());
                 self.edit.clear_acknowledged().map_err(|e| e.to_string())?;
                 let created = match kind {
                     ChangeKind::CreateJob => Some("jobsCreated"),

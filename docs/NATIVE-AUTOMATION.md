@@ -34,6 +34,9 @@ AI and skill jobs use the GitHub account and model from Copilot settings
 unless the job names a model. When the account setting is empty, Buddy uses
 the GitHub CLI's active account, checked again every few minutes. Each run
 keeps the account it started with. Skills are read from `~/.agents/skills`.
+An AI or skill run shows its response in History as it arrives. Its private
+working state is removed when the run ends, including after a cancel or
+timeout.
 
 ## Running a job
 
@@ -55,7 +58,9 @@ parameters for the job. Pause and Enable send the intended state, not a
 toggle, so a repeated click cannot flip it back. The cron expression and
 timezone are checked when a schedule is saved, even while it is paused.
 
-The server calculates next run times and missed runs. Buddy Native has no
+The server calculates next run times and missed runs. The Schedules tab shows
+the next and last run in the schedule's own timezone, such as
+"Tue 2026-10-20 09:00 EDT", so it reads against the cron expression. Buddy Native has no
 local scheduler; it only takes queued runs from the server.
 
 ## The dispatcher
@@ -74,7 +79,9 @@ safely, the status says the dispatcher needs attention and no other run starts.
 Cancel stuck run, shown in the status area, settles it even when the run is no
 longer in the recent History list.
 
-Each run's output is captured up to 512,000 bytes. Cancel run on the History
+Each run's output is captured up to 512,000 bytes. The editor allows up to
+1,024 environment variables with 65,536 bytes of names and values, the same
+limit the command worker enforces. Cancel run on the History
 tab asks the server to cancel. Once the server records it, a run this app is
 executing stops its process and every process that process started, at once;
 Buddy then waits up to five seconds for the remaining output. If the server

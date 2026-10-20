@@ -201,6 +201,21 @@ impl Claim {
     }
 }
 
+/// A schedule time in the schedule's own IANA zone, as "Tue 2026-10-20 09:00 EDT",
+/// so it reads against the cron expression. `None` for an unknown zone or time.
+pub fn schedule_time(milliseconds: f64, zone: &str) -> Option<String> {
+    if !milliseconds.is_finite() {
+        return None;
+    }
+    let time = jiff::Timestamp::from_millisecond(milliseconds as i64).ok()?;
+    let zone = jiff::tz::TimeZone::get(zone).ok()?;
+    Some(
+        time.to_zoned(zone)
+            .strftime("%a %Y-%m-%d %H:%M %Z")
+            .to_string(),
+    )
+}
+
 // Configurations, run output and claim identities may contain private data.
 macro_rules! private_debug {
     ($($name:ty),+ $(,)?) => {$(
@@ -236,6 +251,21 @@ mod tests {
                 "config":{"command":"fixture","repoOwner":"owner","maxTokens":22.0,
                     "future":{"$bytes":"AQID"}},"inputParams":[{"name":"x","required":true}],
                 "_creationTime":12.0,"createdAt":12.0,"updatedAt":12.0}})
+    }
+
+    #[test]
+    fn schedule_times_read_in_the_schedule_zone_across_dst() {
+        // 13:00 UTC is 09:00 in New York during daylight time and 08:00 after it.
+        assert_eq!(
+            schedule_time(1_792_501_200_000.0, "America/New_York").as_deref(),
+            Some("Tue 2026-10-20 09:00 EDT")
+        );
+        assert_eq!(
+            schedule_time(1_796_389_200_000.0, "America/New_York").as_deref(),
+            Some("Fri 2026-12-04 08:00 EST")
+        );
+        assert!(schedule_time(1.0, "Nowhere/Invalid").is_none());
+        assert!(schedule_time(f64::NAN, "UTC").is_none());
     }
 
     #[test]

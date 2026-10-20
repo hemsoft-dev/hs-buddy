@@ -23,9 +23,15 @@ pub struct Spec {
     owned: PathBuf,
     skills: Option<PathBuf>,
     deployment: String,
+    /// Names this run's private turn directory, so the supervising process can
+    /// remove it after a cancelled or timed-out host was stopped.
+    turn: String,
     pub(super) timeout_ms: u64,
 }
 impl Spec {
+    pub(super) fn turn_directory(&self) -> PathBuf {
+        self.owned.join("turns").join(format!("job-{}", self.turn))
+    }
     pub fn capture(permit: &Permit, owned: &Path, skills: &Path) -> Result<Self, &'static str> {
         let config = &permit.job.config;
         let skill = permit.job.worker_type == WorkerType::Skill;
@@ -103,6 +109,7 @@ impl Spec {
             owned: owned.to_owned(),
             skills: skill.then(|| skills.to_owned()),
             deployment: permit.request.deployment.clone(),
+            turn: uuid::Uuid::new_v4().to_string(),
             timeout_ms: timeout as u64,
         };
         spec.validate()?;
@@ -135,6 +142,9 @@ impl Spec {
         if self.timeout_ms == 0
             || self.timeout_ms > 86_400_000
             || super::backend::AutomationBackend::new(&self.deployment).is_err()
+            || uuid::Uuid::parse_str(&self.turn).map_or(true, |id| {
+                id.get_version_num() != 4 || id.to_string() != self.turn
+            })
         {
             return Err("The captured worker context is unsupported.");
         }
@@ -172,10 +182,23 @@ pub(super) fn run(spec: Spec) -> i32 {
     runtime.block_on(run_async(spec))
 }
 
+/// Streams the not-yet-written end of the captured output to stdout, which the
+/// supervising session shows live. Returns false when stdout is gone.
+fn emit(output: &str, written: &mut usize) -> bool {
+    if output.len() <= *written || !output.is_char_boundary(*written) {
+        return true;
+    }
+    let mut stdout = std::io::stdout().lock();
+    let ok = stdout.write_all(&output.as_bytes()[*written..]).is_ok() && stdout.flush().is_ok();
+    *written = output.len();
+    ok
+}
+
 async fn run_async(spec: Spec) -> i32 {
     let mut output = String::new();
-    let outcome = execute(&spec, &mut output).await;
-    let written = std::io::stdout().write_all(output.as_bytes()).is_ok();
+    let mut streamed = 0usize;
+    let outcome = execute(&spec, &mut output, &mut streamed).await;
+    let written = emit(&output, &mut streamed);
     match outcome {
         Ok(()) if written => 0,
         result => {
@@ -188,7 +211,11 @@ async fn run_async(spec: Spec) -> i32 {
     }
 }
 
-async fn execute(spec: &Spec, output: &mut String) -> Result<(), &'static str> {
+async fn execute(
+    spec: &Spec,
+    output: &mut String,
+    streamed: &mut usize,
+) -> Result<(), &'static str> {
     crate::copilot_sdk::private_directory(&spec.owned)
         .map_err(|_| "The private worker directory is unavailable.")?;
     let fixture = crate::copilot_fixture::load(&spec.owned)
@@ -218,13 +245,15 @@ async fn execute(spec: &Spec, output: &mut String) -> Result<(), &'static str> {
     let turns = spec.owned.join("turns");
     crate::copilot_sdk::private_directory(&turns)
         .map_err(|_| "The private job state is unavailable.")?;
-    let turn = tempfile::Builder::new()
-        .prefix("job-")
-        .tempdir_in(&turns)
+    let turn = spec.turn_directory();
+    if turn.exists() {
+        return Err("The private job state is unavailable.");
+    }
+    crate::copilot_sdk::private_directory(&turn)
         .map_err(|_| "The private job state is unavailable.")?;
     let mut options = crate::copilot_sdk::client_options(
         runtime.program(),
-        turn.path(),
+        &turn,
         credential,
         std::env::vars_os().map(|(name, _)| name),
     )
@@ -238,7 +267,7 @@ async fn execute(spec: &Spec, output: &mut String) -> Result<(), &'static str> {
         .await
         .map_err(|_| "Copilot worker startup timed out.")?
         .map_err(|_| "The Copilot worker could not start.")?;
-    let outcome = turn_once(&client, spec, fixture.as_deref(), output).await;
+    let outcome = turn_once(&client, spec, fixture.as_deref(), output, streamed).await;
     let stopped = matches!(
         tokio::time::timeout(Duration::from_secs(15), client.stop()).await,
         Ok(Ok(()))
@@ -246,7 +275,7 @@ async fn execute(spec: &Spec, output: &mut String) -> Result<(), &'static str> {
     if !stopped {
         client.force_stop();
     }
-    let closed = turn.close().is_ok();
+    let closed = std::fs::remove_dir_all(&turn).is_ok();
     if !stopped || !closed {
         let _ = writeln!(
             std::io::stderr(),
@@ -264,6 +293,7 @@ async fn turn_once(
     spec: &Spec,
     fixture: Option<&crate::copilot_fixture::Fixture>,
     output: &mut String,
+    streamed: &mut usize,
 ) -> Result<(), &'static str> {
     if fixture.is_none() {
         let auth = tokio::time::timeout(Duration::from_secs(10), client.get_auth_status())
@@ -313,6 +343,8 @@ async fn turn_once(
                 count+=1;if count>10000 {break Err("The worker event limit was reached. The task was not resent.");}
                 let action=crate::copilot_sdk::apply_event(&mut execution,send.key,&event);
                 *output=prefix(execution.output());
+                // Live output; a host stopped by cancel or timeout keeps what it showed.
+                if !emit(output,streamed) {break Err("The captured job output could not be delivered.");}
                 if execution.output().len()>MAX_TEXT {break Err("The worker output limit was reached. The captured prefix is retained.");}
                 match action {
                     crate::copilot_sdk::EventAction::Finished=>break Ok(()),

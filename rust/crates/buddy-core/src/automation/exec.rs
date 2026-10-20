@@ -254,15 +254,18 @@ impl Session {
             executable,
             super::host::Start::Exec(Box::new(spec)),
             timeout_ms,
+            None,
         )
     }
 
     pub fn start_ai(executable: &Path, spec: super::ai::Spec) -> Result<Self, &'static str> {
         let timeout_ms = spec.timeout_ms;
+        let turn = spec.turn_directory();
         Self::launch(
             executable,
             super::host::Start::Ai(Box::new(spec)),
             timeout_ms,
+            Some(turn),
         )
     }
 
@@ -275,6 +278,7 @@ impl Session {
             executable,
             super::host::Start::Snapshot(Box::new(spec)),
             timeout_ms,
+            None,
         )
     }
 
@@ -282,6 +286,8 @@ impl Session {
         executable: &Path,
         start: super::host::Start,
         timeout_ms: u64,
+        // Private state a stopped host could not remove itself.
+        cleanup: Option<std::path::PathBuf>,
     ) -> Result<Self, &'static str> {
         start.validate()?;
         if !executable.is_absolute() || !executable.is_file() {
@@ -396,6 +402,12 @@ impl Session {
                 if !matches!(done.recv_timeout(CLEANUP), Ok(Ok(()))) {
                     failure.get_or_insert("The worker's output cleanup could not be confirmed");
                 }
+            }
+            if let Some(directory) = &cleanup
+                && let Err(error) = std::fs::remove_dir_all(directory)
+                && error.kind() != io::ErrorKind::NotFound
+            {
+                failure.get_or_insert("The worker's private state could not be removed");
             }
             let out = stdout.lock().unwrap_or_else(|error| error.into_inner());
             let err = stderr.lock().unwrap_or_else(|error| error.into_inner());

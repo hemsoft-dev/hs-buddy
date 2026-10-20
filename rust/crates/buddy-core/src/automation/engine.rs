@@ -21,21 +21,39 @@ pub trait Queue: Send + Sync {
     async fn cancel(&self, id: &str) -> Result<(), BackendError>;
 }
 
+/// One schedule the server rejects (say, a legacy invalid cron) must not stop
+/// every other queued run; it stays visible in the Schedules tab. Unavailable or
+/// unconfirmed requests still stop the pass so it is retried.
+async fn recover_each<F, R>(
+    ids: impl IntoIterator<Item = String>,
+    mut recover: F,
+) -> Result<(), BackendError>
+where
+    F: FnMut(String) -> R,
+    R: std::future::Future<Output = Result<(), BackendError>>,
+{
+    for id in ids {
+        match recover(id).await {
+            Ok(()) | Err(BackendError::Rejected) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl Queue for AutomationBackend {
     fn deployment(&self) -> &str {
         self.deployment()
     }
     async fn recover_missed(&self) -> Result<(), BackendError> {
-        for schedule in self
+        let enabled = self
             .schedules()
             .await?
             .into_iter()
             .filter(|schedule| schedule.enabled)
-        {
-            self.recover_missed(&schedule.id).await?;
-        }
-        Ok(())
+            .map(|schedule| schedule.id);
+        recover_each(enabled, |id| async move { self.recover_missed(&id).await }).await
     }
     async fn pending(&self) -> Result<Option<Run>, BackendError> {
         let mut runs = self.pending().await?;

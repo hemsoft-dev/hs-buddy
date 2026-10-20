@@ -410,6 +410,33 @@ async fn an_unsent_cancellation_keeps_the_worker_running_until_the_server_record
 }
 
 #[tokio::test]
+async fn a_rejected_schedule_recovery_does_not_stop_the_others_or_the_queue() {
+    let calls = Mutex::new(Vec::new());
+    let result = recover_each(["a", "bad", "c"].map(String::from), |id| {
+        calls.lock().unwrap().push(id.clone());
+        async move {
+            if id == "bad" {
+                Err(BackendError::Rejected)
+            } else {
+                Ok(())
+            }
+        }
+    })
+    .await;
+    assert_eq!(result, Ok(()));
+    assert_eq!(*calls.lock().unwrap(), ["a", "bad", "c"]);
+    let offline = recover_each(["a", "b"].map(String::from), |_| async {
+        Err(BackendError::Unavailable)
+    })
+    .await;
+    assert_eq!(
+        offline,
+        Err(BackendError::Unavailable),
+        "offline still retries the pass"
+    );
+}
+
+#[tokio::test]
 async fn storage_change_between_claim_and_start_prevents_worker_dispatch() {
     let (root, config, service, pool) = fixture();
     service.0.lock().unwrap().tamper = true;

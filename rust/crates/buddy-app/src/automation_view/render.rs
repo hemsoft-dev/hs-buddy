@@ -1,8 +1,11 @@
 //! Jobs, schedules and run history. Recovery states lock editing until resolved.
 use buddy_core::automation::{
     engine::Phase,
-    models::{Job, MissedPolicy, Run, Schedule, Shell, WorkerType},
+    models::{Job, MissedPolicy, Run, Schedule, Shell, WorkerType, schedule_time},
 };
+use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::select::Select;
+use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::{AnyElement, App, SharedString};
 
 use super::*;
@@ -155,6 +158,14 @@ impl AutomationView {
             .unwrap_or("Deleted job")
     }
 
+    /// An old result does not belong above a new editor.
+    fn dismiss_notice(&mut self) {
+        self.snapshot.notice = None;
+        if let Some(handle) = &self.handle {
+            handle.send(Command::DismissNotice);
+        }
+    }
+
     fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
         self.pane = pane;
         self.page = 0;
@@ -170,6 +181,7 @@ impl AutomationView {
         cx: &mut Context<Self>,
     ) {
         self.form = Some(Form::new_job(job.as_ref(), duplicate, window, cx));
+        self.dismiss_notice();
         self.error = None;
         cx.notify();
     }
@@ -181,35 +193,44 @@ impl AutomationView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.form = Some(Form::new_schedule(schedule.as_ref(), job_id, window, cx));
+        let jobs = self.snapshot.jobs.clone();
+        self.form = Some(Form::new_schedule(
+            schedule.as_ref(),
+            job_id,
+            &jobs,
+            window,
+            cx,
+        ));
+        self.dismiss_notice();
         self.error = None;
         cx.notify();
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut tabs = h_flex().flex_wrap().gap_2();
-        for (index, (label, pane)) in [
-            ("Jobs", Pane::Jobs),
-            ("Schedules", Pane::Schedules),
-            ("History", Pane::History),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            tabs = tabs.child(
-                Button::new(("automation-pane", index))
-                    .label(label)
-                    .selected(self.pane == pane)
-                    .on_click(cx.listener(move |this, _, _, cx| this.select_pane(pane, cx))),
-            );
-        }
+        let panes = [Pane::Jobs, Pane::Schedules, Pane::History];
+        let view = cx.entity().downgrade();
+        // A segmented switch reads as navigation, apart from the command buttons.
+        let tabs = TabBar::new("automation-panes")
+            .segmented()
+            .selected_index(
+                panes
+                    .iter()
+                    .position(|pane| *pane == self.pane)
+                    .unwrap_or(0),
+            )
+            .on_click(move |index, _, cx| {
+                if let Some(pane) = panes.get(*index).copied() {
+                    let _ = view.update(cx, |this, cx| this.select_pane(pane, cx));
+                }
+            })
+            .children(["Jobs", "Schedules", "History"].map(|label| Tab::new().label(label)));
         let editing = self.form.is_some();
-        h_flex()
+        let header = h_flex()
             .flex_wrap()
+            .items_center()
             .gap_3()
             .debug_selector(|| "automation-primary-controls".into())
             .child(div().text_xl().child("Automation"))
-            .child(tabs.flex_shrink_0())
             .child(
                 h_flex()
                     .flex_wrap()
@@ -244,6 +265,14 @@ impl AutomationView {
                                 this.open_schedule(None, job, window, cx)
                             })),
                     ),
+            );
+        v_flex()
+            .gap_3()
+            .child(header)
+            .child(
+                div()
+                    .debug_selector(|| "automation-panes".into())
+                    .child(tabs),
             )
             .into_any_element()
     }
@@ -628,30 +657,16 @@ impl AutomationView {
                 ));
             }
             FormKind::Schedule => {
-                if creating {
-                    let jobs: Vec<(String, String)> = self
-                        .snapshot
-                        .jobs
-                        .iter()
-                        .map(|job| (job.id.clone(), job.name.clone()))
-                        .collect();
-                    let mut row = h_flex().flex_wrap().gap_2();
-                    for (index, (id, name)) in jobs.into_iter().enumerate() {
-                        let selected = form.job_id.as_deref() == Some(id.as_str());
-                        row = row.child(
-                            Button::new(("automation-schedule-job", index))
-                                .label(name)
-                                .selected(selected)
-                                .disabled(busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if let Some(form) = &mut this.form {
-                                        form.job_id = Some(id.clone());
-                                    }
-                                    cx.notify();
-                                })),
-                        );
-                    }
-                    body = body.child(Self::labeled("Job", row));
+                if let (true, Some(select)) = (creating, &form.job_select) {
+                    body = body.child(Self::labeled(
+                        "Job",
+                        div().max_w(zpx(420.)).child(
+                            Select::new(select)
+                                .placeholder("Choose a job")
+                                .search_placeholder("Search jobs")
+                                .disabled(busy),
+                        ),
+                    ));
                 } else {
                     let job = form
                         .job_id
@@ -722,6 +737,7 @@ impl AutomationView {
                             .gap_2()
                             .child(
                                 Button::new("automation-delete-confirm")
+                                    .danger()
                                     .label(confirm)
                                     .disabled(self.locked())
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -884,11 +900,17 @@ impl AutomationView {
                         .whitespace_normal()
                         .text_color(cx.theme().muted_foreground)
                         .child(format!(
-                            "{} · {} · {schedules} schedule{}",
+                            "{} · {schedules} schedule{}",
                             worker_label(job.worker_type),
-                            job_summary(job),
                             if schedules == 1 { "" } else { "s" }
                         )),
+                )
+                .child(
+                    div()
+                        .whitespace_normal()
+                        .text_color(cx.theme().muted_foreground)
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .child(job_summary(job)),
                 );
             if let Some(description) = job.description.as_ref().filter(|text| !text.is_empty()) {
                 row = row.child(div().whitespace_normal().child(description.clone()));
@@ -977,16 +999,19 @@ impl AutomationView {
         }
         let locked = self.locked() || self.form.is_some();
         for (index, schedule) in schedules.iter().skip(page * PAGE).take(PAGE).enumerate() {
-            let next = schedule
-                .extra
-                .get("nextRunAt")
-                .and_then(Value::as_f64)
-                .map(local_time);
-            let last = schedule
-                .extra
-                .get("lastRunAt")
-                .and_then(Value::as_f64)
-                .map(local_time);
+            // Times read in the schedule's own zone, next to its cron expression.
+            let zone = schedule
+                .timezone
+                .as_deref()
+                .unwrap_or(super::forms::DEFAULT_TIMEZONE);
+            let at = |key: &str| {
+                schedule
+                    .extra
+                    .get(key)
+                    .and_then(Value::as_f64)
+                    .map(|ms| schedule_time(ms, zone).unwrap_or_else(|| local_time(ms)))
+            };
+            let (next, last) = (at("nextRunAt"), at("lastRunAt"));
             let (edit, toggle, delete) = (schedule.clone(), schedule.clone(), schedule.clone());
             let row = Self::row(index, "automation-schedule-row", cx)
                 .child(div().whitespace_normal().child(format!(
@@ -1097,7 +1122,8 @@ impl AutomationView {
             let status_color = match run.status {
                 RunStatus::Failed => cx.theme().danger,
                 RunStatus::Completed => cx.theme().success,
-                _ => cx.theme().foreground,
+                RunStatus::Running | RunStatus::Pending => cx.theme().info,
+                RunStatus::Cancelled => cx.theme().warning,
             };
             let mut buttons = h_flex().flex_wrap().gap_2().child(
                 Button::new(("automation-run-details", index))
@@ -1173,15 +1199,21 @@ impl AutomationView {
                                 .text_color(cx.theme().muted_foreground)
                                 .child("Earlier output is not shown.")
                         }))
-                        .child(div().whitespace_normal().child(if shown.is_empty() {
-                            SharedString::from(if run.status.is_active() {
-                                "Waiting for output…"
-                            } else {
-                                "No output."
-                            })
+                        .child(if shown.is_empty() {
+                            div().whitespace_normal().child(SharedString::from(
+                                if run.status.is_active() {
+                                    "Waiting for output…"
+                                } else {
+                                    "No output."
+                                },
+                            ))
                         } else {
-                            SharedString::from(shown)
-                        })),
+                            // Shell output is data: show it in the theme's monospace face.
+                            div()
+                                .whitespace_normal()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .child(SharedString::from(shown))
+                        }),
                 );
             }
             list = list.child(row);

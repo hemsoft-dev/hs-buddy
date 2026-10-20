@@ -3,6 +3,10 @@ use buddy_core::automation::{
     backend::ChangeKind,
     models::{Job, MissedPolicy, Schedule, Shell, WorkerType},
 };
+use gpui_kit::SharedString;
+use gpui_kit::component::IndexPath;
+use gpui_kit::component::searchable_list::SearchableListItem;
+use gpui_kit::component::select::{SelectEvent, SelectState};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -25,6 +29,24 @@ pub(super) struct Form {
     pub job_id: Option<String>,
     pub fields: BTreeMap<&'static str, Entity<InputState>>,
     pub text: BTreeMap<&'static str, Entity<TextareaState>>,
+    /// Searchable job picker for a new schedule; scales to long job lists.
+    pub job_select: Option<Entity<SelectState<Vec<JobChoice>>>>,
+}
+
+/// A job in the schedule form's picker; names may repeat, so the value is the ID.
+#[derive(Clone)]
+pub(super) struct JobChoice {
+    id: String,
+    name: SharedString,
+}
+impl SearchableListItem for JobChoice {
+    type Value = String;
+    fn title(&self) -> SharedString {
+        self.name.clone()
+    }
+    fn value(&self) -> &String {
+        &self.id
+    }
 }
 fn display(value: Option<&Value>) -> String {
     value
@@ -62,6 +84,7 @@ impl Form {
     pub fn new_schedule(
         schedule: Option<&Schedule>,
         job_id: Option<String>,
+        jobs: &[Job],
         window: &mut Window,
         cx: &mut Context<AutomationView>,
     ) -> Self {
@@ -69,6 +92,33 @@ impl Form {
         let mut form = Self::new(FormKind::Schedule, original, window, cx);
         if form.job_id.is_none() {
             form.job_id = job_id;
+        }
+        if form.target.is_none() {
+            let choices: Vec<JobChoice> = jobs
+                .iter()
+                .map(|job| JobChoice {
+                    id: job.id.clone(),
+                    name: job.name.clone().into(),
+                })
+                .collect();
+            let selected = form
+                .job_id
+                .as_ref()
+                .and_then(|id| choices.iter().position(|choice| &choice.id == id))
+                .map(IndexPath::new);
+            let select =
+                cx.new(|cx| SelectState::new(choices, selected, window, cx).searchable(true));
+            cx.subscribe(
+                &select,
+                |this, _, event: &SelectEvent<Vec<JobChoice>>, cx| {
+                    if let (SelectEvent::Confirm(Some(id)), Some(form)) = (event, &mut this.form) {
+                        form.job_id = Some(id.clone());
+                        cx.notify();
+                    }
+                },
+            )
+            .detach();
+            form.job_select = Some(select);
         }
         form
     }
@@ -168,6 +218,7 @@ impl Form {
             original,
             fields,
             text,
+            job_select: None,
         }
     }
     pub fn arguments(&self, cx: &Context<AutomationView>) -> Result<(ChangeKind, Value), String> {
@@ -326,6 +377,23 @@ pub(super) fn payload(
             {
                 return Err(
                     "Environment must be a JSON object of variable names and string values.".into(),
+                );
+            }
+            // The command worker's own limits; a larger environment would only
+            // fail later, after a run was claimed.
+            if field == "env"
+                && value.as_object().is_some_and(|object| {
+                    object.len() > 1024
+                        || object
+                            .iter()
+                            .map(|(key, value)| key.len() + value.as_str().map_or(0, str::len))
+                            .sum::<usize>()
+                            > 64 * 1024
+                })
+            {
+                return Err(
+                    "Environment allows at most 1024 variables and 65536 bytes of names and values."
+                        .into(),
                 );
             }
             config[field] = value;

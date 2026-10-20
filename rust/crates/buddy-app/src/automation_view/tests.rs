@@ -443,7 +443,7 @@ fn a_stored_schedule_without_a_timezone_edits_in_the_backend_default(
         .unwrap();
     let (timezone, arguments) = visual.update(|window, cx| {
         view.update(cx, |_, cx| {
-            let form = Form::new_schedule(Some(&schedule), None, window, cx);
+            let form = Form::new_schedule(Some(&schedule), None, &[], window, cx);
             let timezone = form.fields["timezone"].read(cx).value().to_string();
             (timezone, form.arguments(cx))
         })
@@ -547,5 +547,68 @@ fn the_job_editor_keeps_save_inside_a_compact_window(cx: &mut gpui_kit::TestAppC
     assert!(
         actions.bottom() <= px(650.),
         "Save and Close must be visible without scrolling: {actions:?}"
+    );
+}
+
+#[test]
+fn each_confirmed_change_reports_what_it_did() {
+    use super::service::save_notice;
+    assert_eq!(
+        save_notice(ChangeKind::DeleteJob, &json!({"id":"j"})),
+        "Job deleted."
+    );
+    assert_eq!(
+        save_notice(ChangeKind::DeleteSchedule, &json!({"id":"s"})),
+        "Schedule deleted."
+    );
+    assert_eq!(
+        save_notice(
+            ChangeKind::UpdateSchedule,
+            &json!({"id":"s","enabled":false})
+        ),
+        "Schedule paused."
+    );
+    assert_eq!(
+        save_notice(
+            ChangeKind::UpdateSchedule,
+            &json!({"id":"s","enabled":true})
+        ),
+        "Schedule enabled."
+    );
+    assert_eq!(
+        save_notice(
+            ChangeKind::UpdateSchedule,
+            &json!({"id":"s","enabled":true,"name":"n"})
+        ),
+        "Schedule saved."
+    );
+    assert_eq!(
+        save_notice(ChangeKind::CreateJob, &json!({})),
+        "Job created."
+    );
+}
+
+#[test]
+fn the_editor_applies_the_worker_environment_limits() {
+    let original = json!({"config":{}});
+    let spec = job_spec(&original, None, WorkerType::Exec);
+    let many: serde_json::Map<String, Value> =
+        (0..1025).map(|i| (format!("V{i}"), json!("x"))).collect();
+    let large = json!({"BIG": "x".repeat(64 * 1024)});
+    for env in [Value::Object(many), large] {
+        let error = payload(
+            &spec,
+            &values(&[("name", "n"), ("command", "x"), ("env", &env.to_string())]),
+        )
+        .unwrap_err();
+        assert!(error.starts_with("Environment allows at most"), "{error}");
+    }
+    let fits = json!({"OK": "x".repeat(1000)}).to_string();
+    assert!(
+        payload(
+            &spec,
+            &values(&[("name", "n"), ("command", "x"), ("env", &fits)])
+        )
+        .is_ok()
     );
 }

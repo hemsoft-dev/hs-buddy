@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1500] - 2026-10-20
+
+### Fixed
+
+- Finish-review polish and fourth-round automation findings
+
 ## [0.1.1499] - 2026-10-20
 
 ### Changed
