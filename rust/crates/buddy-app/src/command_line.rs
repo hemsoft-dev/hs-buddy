@@ -9,6 +9,7 @@ pub enum Command {
     Help,
     Version,
     TerminalHost,
+    AutomationHost,
     PrepareCopilotRuntime(PathBuf),
     QualifyCopilot(PathBuf),
 }
@@ -39,6 +40,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
         Some("--help" | "-h") => Ok(Command::Help),
         Some("--version" | "-V") => Ok(Command::Version),
         Some("--terminal-host") => Ok(Command::TerminalHost),
+        Some("--automation-host") => Ok(Command::AutomationHost),
         _ => Err("Unknown argument. Use --help for usage."),
     }
 }
@@ -74,6 +76,15 @@ mod tests {
     fn private_terminal_host_is_a_separate_non_gui_command() {
         assert_eq!(parse(["--terminal-host".into()]), Ok(Command::TerminalHost));
         assert!(parse(["--terminal-host".into(), "unexpected".into()]).is_err());
+    }
+
+    #[test]
+    fn private_automation_host_is_a_separate_non_gui_command() {
+        assert_eq!(
+            parse(["--automation-host".into()]),
+            Ok(Command::AutomationHost)
+        );
+        assert!(parse(["--automation-host".into(), "unexpected".into()]).is_err());
     }
 
     #[test]

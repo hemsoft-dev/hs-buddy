@@ -12,6 +12,19 @@ describe('jobs', () => {
     config: { command: 'echo hello', cwd: '/tmp', timeout: 5000, shell: 'bash' as const },
   }
 
+  test('explicit native environment survives legacy edits and can be cleared explicitly', async () => {
+    const t = convexTest(schema, modules)
+    const env = { BUDDY_FIXTURE_VALUE: '雪 exact' }
+    const id = await t.mutation(api.jobs.create, { ...baseJob, config: { ...baseJob.config, env } })
+    await t.mutation(api.jobs.update, { id, config: { command: 'legacy edit' } })
+    expect((await t.query(api.jobs.get, { id }))?.config.env).toEqual(env)
+    await t.mutation(api.jobs.update, {
+      id,
+      config: { command: 'native clears environment', env: {} },
+    })
+    expect((await t.query(api.jobs.get, { id }))?.config.env).toEqual({})
+  })
+
   test('anonymous clients can list jobs', async () => {
     const t = convexTest(schema, modules)
     const jobs = await t.query(api.jobs.list)

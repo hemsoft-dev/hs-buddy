@@ -4,6 +4,7 @@
 
 mod app;
 mod assets;
+mod automation_view;
 mod command_line;
 mod copilot_view;
 mod dashboard;
@@ -293,6 +294,9 @@ fn main() {
         Ok(command_line::Command::Open) => {}
         Ok(command_line::Command::TerminalHost) => {
             std::process::exit(buddy_core::terminal::run_terminal_host());
+        }
+        Ok(command_line::Command::AutomationHost) => {
+            std::process::exit(buddy_core::automation::run_automation_host());
         }
         Ok(command_line::Command::PrepareCopilotRuntime(root)) => {
             std::process::exit(buddy_core::copilot_runtime::helper_main(&root));

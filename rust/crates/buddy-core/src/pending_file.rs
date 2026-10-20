@@ -12,12 +12,20 @@ use crate::config_lock::{ConfigLock, DEFAULT_TIMEOUT};
 pub(crate) enum RecoverySlot {
     Todoist,
     Tempo,
+    Automation,
+    AutomationResult,
+    AutomationTrigger,
+    AutomationEdit,
 }
 impl RecoverySlot {
     fn name(self) -> &'static str {
         match self {
             Self::Todoist => "todoist",
             Self::Tempo => "tempo",
+            Self::Automation => "automation",
+            Self::AutomationResult => "automation-result",
+            Self::AutomationTrigger => "automation-trigger",
+            Self::AutomationEdit => "automation-edit",
         }
     }
 }

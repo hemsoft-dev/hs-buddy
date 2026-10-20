@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
+import { jobConfigValidator } from './lib/jobConfig'
 
 /**
  * Convex Schema for Buddy
@@ -103,25 +104,7 @@ export default defineSchema({
       v.literal('skill') // Claude skills
     ),
     // Worker-specific configuration
-    config: v.object({
-      // exec-worker
-      command: v.optional(v.string()),
-      cwd: v.optional(v.string()),
-      timeout: v.optional(v.number()),
-      shell: v.optional(v.union(v.literal('powershell'), v.literal('bash'), v.literal('cmd'))),
-      // ai-worker
-      prompt: v.optional(v.string()),
-      model: v.optional(v.string()),
-      maxTokens: v.optional(v.number()),
-      temperature: v.optional(v.number()),
-      // ai/skill target repo (from bookmarks)
-      repoOwner: v.optional(v.string()),
-      repoName: v.optional(v.string()),
-      // skill-worker
-      skillName: v.optional(v.string()),
-      action: v.optional(v.string()),
-      params: v.optional(v.any()),
-    }),
+    config: jobConfigValidator,
     // Input parameters that can be provided at runtime
     inputParams: v.optional(
       v.array(
@@ -366,9 +349,16 @@ export default defineSchema({
     .index('by_status', ['status'])
     .index('by_created', ['createdAt']),
 
-  /**
-   * Runs - execution history for jobs
-   */
+  /** Native request identities survive execution-history cleanup. */
+  automationReceipts: defineTable({
+    kind: v.union(v.literal('claim'), v.literal('trigger')),
+    requestId: v.string(),
+    runId: v.id('runs'),
+    jobId: v.optional(v.id('jobs')),
+    job: v.optional(v.any()),
+  }).index('by_request', ['requestId']),
+
+  /** Runs - execution history for jobs */
   runs: defineTable({
     jobId: v.id('jobs'),
     scheduleId: v.optional(v.id('schedules')),
@@ -382,6 +372,7 @@ export default defineSchema({
     triggeredBy: v.union(v.literal('manual'), v.literal('schedule'), v.literal('api')),
     // Input provided for this run
     input: v.optional(v.any()),
+    nativeClaimRequestId: v.optional(v.string()),
     // Output from the worker
     output: v.optional(v.any()),
     // For large outputs, store in Convex File Storage

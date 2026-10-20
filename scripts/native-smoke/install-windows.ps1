@@ -53,6 +53,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed Todoist qualification failed' }
     & python (Join-Path $PSScriptRoot 'tempo-desktop.py') --executable $exe --output (Join-Path $Output 'tempo') --session windows --version $metadata.version --source-sha $metadata.sourceSha
     if ($LASTEXITCODE -ne 0) { throw 'Installed Tempo qualification failed' }
+    & python (Join-Path $PSScriptRoot 'automation-desktop.py') --executable $exe --output (Join-Path $Output 'automation') --session windows --version $metadata.version
+    if ($LASTEXITCODE -ne 0) { throw 'Installed automation qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1493] - 2026-10-20
+
+### Added
+
+- Port automation scheduling and run history to Rust and GPUI
+
 ## [0.1.1492] - 2026-10-19
 
 ### Fixed
