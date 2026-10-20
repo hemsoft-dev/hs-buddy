@@ -470,3 +470,46 @@ fn clearing_existing_input_parameters_sends_an_empty_list() {
         "a new job has nothing to clear"
     );
 }
+
+#[gpui_kit::test]
+fn a_stuck_run_outside_recent_history_still_offers_cancellation(cx: &mut gpui_kit::TestAppContext) {
+    let (window, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| AutomationView::new(window, cx))
+        })
+        .unwrap()
+    });
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            // The recent-history list no longer contains the restored request's run.
+            view.snapshot = Snapshot {
+                phase: buddy_core::automation::engine::Phase::Attention,
+                active_run: Some("old-run".into()),
+                ..sample()
+            };
+            view.pane = Pane::History;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds("automation-dispatch-recovery")
+            .is_some()
+    );
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot.phase = buddy_core::automation::engine::Phase::Running;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds("automation-dispatch-recovery")
+            .is_none()
+    );
+}

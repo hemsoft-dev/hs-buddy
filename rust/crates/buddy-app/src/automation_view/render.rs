@@ -301,6 +301,32 @@ impl AutomationView {
             let job = self.job_name(&trigger.job_id).to_owned();
             status = status.child(self.render_trigger_recovery(job, cx));
         }
+        if snapshot.phase == Phase::Attention
+            && let Some(run) = snapshot.active_run.clone()
+        {
+            // Reachable even when the run has left the recent History window.
+            let warning = cx.theme().warning;
+            status = status.child(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .border_1()
+                    .rounded_md()
+                    .border_color(warning)
+                    .debug_selector(|| "automation-dispatch-recovery".into())
+                    .child(div().whitespace_normal().child(format!(
+                        "Run {run} could not be settled safely after a restart or lost reply, so no other run starts. It is never started again. Cancel it to continue."
+                    )))
+                    .child(
+                        Button::new("automation-cancel-stuck")
+                            .label("Cancel stuck run")
+                            .disabled(self.busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.operate(Command::Cancel(run.clone()), false, cx)
+                            })),
+                    ),
+            );
+        }
         status.into_any_element()
     }
 

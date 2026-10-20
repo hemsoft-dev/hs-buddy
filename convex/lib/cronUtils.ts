@@ -1,1 +1,5 @@
-export { calculateNextRunAt, DEFAULT_TIMEZONE } from '../../shared/utils/cronUtils'
+export {
+  calculateNextRunAt,
+  DEFAULT_TIMEZONE,
+  validateCronExpression,
+} from '../../shared/utils/cronUtils'

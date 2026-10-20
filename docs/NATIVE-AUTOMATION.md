@@ -52,7 +52,8 @@ month, month, weekday) in an IANA timezone such as `America/New_York`. When
 missed decides what happens to times that passed while no app was running:
 skip them, run the latest one, or run every one. Schedules can carry JSON
 parameters for the job. Pause and Enable send the intended state, not a
-toggle, so a repeated click cannot flip it back.
+toggle, so a repeated click cannot flip it back. The cron expression and
+timezone are checked when a schedule is saved, even while it is paused.
 
 The server calculates next run times and missed runs. Buddy Native has no
 local scheduler; it only takes queued runs from the server.
@@ -70,10 +71,14 @@ configuration file. After a crash, restart or lost reply, Buddy asks the
 server what happened to that run and reports a result it already has. It
 never starts the same run a second time. If the outcome cannot be settled
 safely, the status says the dispatcher needs attention and no other run starts.
+Cancel stuck run, shown in the status area, settles it even when the run is no
+longer in the recent History list.
 
 Each run's output is captured up to 512,000 bytes. Cancel run on the History
-tab asks the server to cancel; a run this app is executing also stops its
-process and the processes it started, with five seconds for them to exit.
+tab asks the server to cancel. Once the server records it, a run this app is
+executing stops its process and every process that process started, at once;
+Buddy then waits up to five seconds for the remaining output. If the server
+cannot be reached, the job keeps running and Cancel can be tried again.
 Processes the job did not start are left alone. A timeout stops the run the
 same way and records a failure.
 

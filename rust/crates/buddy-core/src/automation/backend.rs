@@ -131,6 +131,14 @@ impl AutomationBackend {
             .map_err(Into::into)
     }
 
+    /// Usage counters are best effort, like Electron's editors: one call, never retried.
+    pub async fn increment_stat(&self, field: &str) -> Result<(), Error> {
+        self.client
+            .call("buddyStats:increment", json!({"field": field}), true)
+            .await?;
+        Ok(())
+    }
+
     pub(super) async fn trigger_manual(
         &self,
         request_id: &str,

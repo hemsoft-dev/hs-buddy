@@ -1,8 +1,8 @@
 //! Serialized background I/O and execution; GPUI only reads bounded snapshots.
 use crate::runtime::Runtime;
 use buddy_core::automation::{
-    backend::{AutomationBackend, ChangeKind},
-    edit::Edit,
+    backend::{AutomationBackend, ChangeKind, Error as BackendError},
+    edit::{Edit, Error as EditError},
     engine::{Engine, Phase},
     journal::Context,
     models::{Job, Run, Schedule},
@@ -249,12 +249,27 @@ impl Coordinator {
                 self.edit
                     .prepare(kind, arguments)
                     .map_err(|e| e.to_string())?;
-                self.edit
-                    .dispatch(&self.backend)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                match self.edit.dispatch(&self.backend).await {
+                    Ok(_) => {}
+                    Err(EditError::Backend(BackendError::Rejected)) => {
+                        // A definitive rejection applied nothing: release the lock
+                        // and keep the draft open for correction.
+                        self.edit.discard_explicitly().map_err(|e| e.to_string())?;
+                        return Err("The backend rejected this change, for example an invalid cron expression or timezone. Your draft is still open.".into());
+                    }
+                    Err(error) => return Err(error.to_string()),
+                }
                 self.snapshot.notice = Some("Saved. Refreshing automation…".into());
                 self.edit.clear_acknowledged().map_err(|e| e.to_string())?;
+                let created = match kind {
+                    ChangeKind::CreateJob => Some("jobsCreated"),
+                    ChangeKind::CreateSchedule => Some("schedulesCreated"),
+                    _ => None,
+                };
+                if let Some(field) = created {
+                    // The change is confirmed; a lost counter update is not an error.
+                    let _ = self.backend.increment_stat(field).await;
+                }
             }
             Command::Run(id, input) => {
                 self.trigger

@@ -280,12 +280,17 @@ impl<Q: Queue, W: Workers> Engine<Q, W> {
 
     pub async fn cancel(&mut self) -> Result<(), Error> {
         let request = self.journal.request().ok_or(JournalError::Invalid)?.clone();
-        if let Some(worker) = &self.active {
-            worker.cancel();
-        }
         let cancelled = self.queue.cancel(&request.run_id).await;
-        if self.active.is_some() {
-            cancelled?;
+        if let Some(worker) = &self.active {
+            // Record the cancellation on the server before stopping the worker. A
+            // worker stopped while the server still shows it running would later be
+            // reported as an ordinary failure. Rejected means the run already ended.
+            if let Err(error) = cancelled
+                && !matches!(error, BackendError::Rejected)
+            {
+                return Err(error.into());
+            }
+            worker.cancel();
         } else {
             // A candidate that already finished elsewhere rejects cancellation;
             // its idempotent claim still retires this request.

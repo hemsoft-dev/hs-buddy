@@ -16,6 +16,7 @@ struct Server {
     lose_claim: bool,
     lose_finish: bool,
     fail_finish: bool,
+    fail_cancel: bool,
     uncommitted_claim: bool,
     tamper: bool,
     root: PathBuf,
@@ -152,6 +153,9 @@ impl Queue for Service {
     async fn cancel(&self, id: &str) -> Result<(), BackendError> {
         let mut server = self.0.lock().unwrap();
         assert_eq!(server.run.id, id);
+        if server.fail_cancel {
+            return Err(BackendError::Unavailable);
+        }
         // runs:cancel throws for a run that already reached a terminal state.
         if !server.run.status.is_active() {
             return Err(BackendError::Rejected);
@@ -210,6 +214,7 @@ fn fixture() -> (tempfile::TempDir, PathBuf, Service, Pool) {
         lose_claim: false,
         lose_finish: false,
         fail_finish: false,
+        fail_cancel: false,
         uncommitted_claim: false,
         tamper: false,
         root: root.path().to_owned(),
@@ -378,6 +383,30 @@ async fn cancelling_after_an_unreported_result_publishes_that_output_before_reti
     assert_eq!(server.run.status, RunStatus::Cancelled);
     assert_eq!(server.run.output, result().output);
     assert_eq!(pool.starts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn an_unsent_cancellation_keeps_the_worker_running_until_the_server_records_it() {
+    let (_root, config, service, pool) = fixture();
+    let mut engine = Engine::open(service.clone(), pool.clone(), &config).unwrap();
+    assert_eq!(
+        engine.tick(Context::default()).await.unwrap(),
+        Phase::Running
+    );
+    service.0.lock().unwrap().fail_cancel = true;
+    assert_eq!(
+        engine.cancel().await,
+        Err(Error::Backend(BackendError::Unavailable))
+    );
+    assert!(
+        !pool.state.lock().unwrap().cancelled,
+        "a stopped worker would be reported as an ordinary failure"
+    );
+    assert_eq!(service.0.lock().unwrap().run.status, RunStatus::Running);
+    service.0.lock().unwrap().fail_cancel = false;
+    engine.cancel().await.unwrap();
+    assert!(pool.state.lock().unwrap().cancelled);
+    assert_eq!(service.0.lock().unwrap().run.status, RunStatus::Cancelled);
 }
 
 #[tokio::test]
