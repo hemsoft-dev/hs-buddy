@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1501] - 2026-10-20
+
+### Fixed
+
+- Patch vite and markdown-it advisories
+
 ## [0.1.1500] - 2026-10-20
 
 ### Fixed
