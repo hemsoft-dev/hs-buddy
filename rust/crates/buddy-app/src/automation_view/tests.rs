@@ -513,3 +513,39 @@ fn a_stuck_run_outside_recent_history_still_offers_cancellation(cx: &mut gpui_ki
             .is_none()
     );
 }
+
+#[gpui_kit::test]
+fn the_job_editor_keeps_save_inside_a_compact_window(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::{Bounds, Point, WindowBounds, WindowOptions, px, size};
+    // A long command form once pushed Save below a 1044x788 window (#853 Windows run).
+    let (window, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Point::default(),
+                    size: size(px(900.), px(650.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| AutomationView::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            view.form = Some(Form::new_job(None, false, window, cx));
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let actions = visual.debug_bounds("automation-editor-actions").unwrap();
+    assert!(
+        actions.bottom() <= px(650.),
+        "Save and Close must be visible without scrolling: {actions:?}"
+    );
+}

@@ -376,6 +376,8 @@ impl Coordinator {
                     polls += 1;
                     // A claimed, finished or cancelled run changes History at once.
                     if polls % 5 == 0 || self.engine.phase() != before { self.refresh().await; }
+                    // A "queued" or "waiting to stop" notice is stale once the run settles.
+                    if self.engine.phase() == Phase::Idle && before != Phase::Idle { self.snapshot.notice = None; }
                 }
             }
             self.publish(&target);

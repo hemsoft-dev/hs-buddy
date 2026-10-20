@@ -531,7 +531,31 @@ impl AutomationView {
             .rounded_md()
             .border_color(cx.theme().border)
             .debug_selector(|| "automation-editor".into())
-            .child(div().text_lg().child(title))
+            // Save stays reachable above long command and parameter fields.
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_3()
+                    .debug_selector(|| "automation-editor-actions".into())
+                    .child(div().text_lg().child(title))
+                    .child(
+                        Button::new("automation-save")
+                            .label("Save")
+                            .disabled(self.locked())
+                            .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
+                    )
+                    .child(
+                        Button::new("automation-cancel-edit")
+                            .label("Close")
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.form = None;
+                                this.error = None;
+                                cx.notify();
+                            })),
+                    ),
+            )
             .child(Self::labeled("Name", input("name")))
             .child(Self::labeled("Description", input("description")));
         match form.kind {
@@ -671,28 +695,7 @@ impl AutomationView {
                     .child(Self::labeled("Parameters (JSON, optional)", text("params")));
             }
         }
-        body.child(
-            h_flex()
-                .flex_wrap()
-                .gap_2()
-                .child(
-                    Button::new("automation-save")
-                        .label("Save")
-                        .disabled(self.locked())
-                        .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-                )
-                .child(
-                    Button::new("automation-cancel-edit")
-                        .label("Close")
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.form = None;
-                            this.error = None;
-                            cx.notify();
-                        })),
-                ),
-        )
-        .into_any_element()
+        body.into_any_element()
     }
 
     fn render_confirmations(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
