@@ -1,7 +1,7 @@
 {
   "name": "@hemsoft/buddy",
   "private": true,
-  "version": "0.1.1514",
+  "version": "0.1.1515",
   "description": "Your universal productivity companion - manage skills, tasks, and workflows",
   "type": "module",
   "main": "dist-electron/main.js",

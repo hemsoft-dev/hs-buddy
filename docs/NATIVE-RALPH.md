@@ -55,22 +55,25 @@ The form has the same inputs as Electron Buddy:
 - **Review agents**: the review roles to run on the pull request, each with an
   optional model.
 - **Work iterations** (Scan iterations for Ralph Issues), 1 to 100, and
-  **Repeat cycles**, 1 to 50, for Ralph Loop and templates. A cycle runs the
-  whole script again after the previous one succeeded. Before each further
-  cycle Buddy fast-forwards the checked-out branch from its upstream
-  (`git pull --ff-only`), so the next cycle starts from merged work; a branch
-  without an upstream is left as it is, and a failed fast-forward stops the
-  run. Unlike the old repeat wrapper, Buddy never switches the checkout to
-  another branch.
+  **Repeat cycles**, 1 to 50, for Ralph Loop. A cycle runs the whole script
+  again after the previous one succeeded, and builds on it only once its pull
+  request is merged, so more than one cycle requires the merge option below.
+  Before each further cycle Buddy fast-forwards the checked-out branch from its
+  upstream (`git pull --ff-only`), so the next cycle starts from the merged
+  work; a branch without an upstream is left as it is, and a failed
+  fast-forward stops the run. Unlike the old repeat wrapper (which never worked
+  from Electron), Buddy never switches the checkout to another branch.
+  Templates run one cycle: they have no way to merge.
 - **Branch** for Ralph Loop and templates, **Pull request number** for Ralph
   PR, **Issue labels** and **Dry run** for Ralph Issues.
 - **Prompt**. A template fills in its own prompt.
 - **Merge the PR when it is clean (gh pr merge --admin)**, off by default,
-  for Ralph PR. When on, `ralph-pr.ps1` merges a clean pull request with
-  `gh pr merge --squash --delete-branch --admin`, which bypasses branch
-  protection. Electron's equivalent "Auto-approve" option is on by default;
-  Buddy Native asks for this choice explicitly. A Ralph Loop hands its pull
-  request to the review phase without merging, as `ralph.ps1` does.
+  for Ralph PR and Ralph Loop. When on, `ralph-pr.ps1` merges a clean pull
+  request with `gh pr merge --squash --delete-branch --admin`, which bypasses
+  branch protection. Ralph PR receives it as `-AutoApprove`; a Ralph Loop as
+  `-MergeWhenClean`, which `ralph.ps1` passes on to its review phase.
+  Electron's "Auto-approve" option is on by default but never reached a Ralph
+  Loop's review phase; Buddy Native asks for this choice explicitly.
 - **Announce with audio**, off by default. The scripts' audio needs
   `edge-tts` and saves an mp3 into the repository, so Buddy passes `-NoAudio`
   unless this is on.
@@ -108,7 +111,10 @@ processes ended, the run is recorded as Failed with that message rather than
 Stopped or Completed, so check for leftover processes before retrying. Commits
 and branches the loop already made stay. Retry starts a finished, failed, stopped
 or interrupted run again as a new run with the same settings; Edit and launch
-opens the form with them.
+opens the form with them. A run records what Default meant when it started
+(the provider, the concrete model and the work agent), so a retry after an
+update repeats those choices; review agents left on Default use their role's
+default model from the scripts in use.
 
 ## Closing and reopening Buddy
 

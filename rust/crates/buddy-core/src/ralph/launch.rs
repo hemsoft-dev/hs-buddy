@@ -40,8 +40,14 @@ impl Script {
     pub fn uses_iterations(&self) -> bool {
         !matches!(self, Self::Pr)
     }
+    /// Only a Ralph Loop can merge its pull request (`-MergeWhenClean`), and a further
+    /// cycle builds on the previous one only once that pull request is merged.
     pub fn uses_cycles(&self) -> bool {
-        matches!(self, Self::Ralph | Self::Template(_))
+        matches!(self, Self::Ralph)
+    }
+    /// The scripts that can merge their pull request when it is clean.
+    pub fn can_merge(&self) -> bool {
+        matches!(self, Self::Ralph | Self::Pr)
     }
 }
 
@@ -371,7 +377,12 @@ pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, St
     }
 }
 
+/// A quick check before Git runs. Symlinks are resolved first, so a link to a folder
+/// inside a repository passes; [`verify_repository`] decides.
 fn inside_git_repository(directory: &Path) -> bool {
+    let directory = directory
+        .canonicalize()
+        .unwrap_or_else(|_| directory.to_path_buf());
     directory
         .ancestors()
         .any(|folder| folder.join(".git").exists())
@@ -400,6 +411,23 @@ fn valid_branch(branch: &str) -> bool {
 }
 
 impl Launch {
+    /// This launch with Default replaced by what it means now: the provider, the concrete
+    /// model (an alias or tier resolved) and the work agent. A run records these, so Retry
+    /// repeats them even after the bundled catalog changes. Review agents left on Default
+    /// keep their role's default model.
+    pub fn resolved(&self, catalog: &Catalog) -> Self {
+        let mut launch = self.clone();
+        let model = catalog.effective_model(&self.provider, &self.model);
+        launch.model = catalog
+            .model(model)
+            .map_or_else(|| model.to_owned(), |choice| choice.key.clone());
+        launch.provider = catalog.effective_provider(&self.provider).to_owned();
+        if launch.dev_agent.is_empty() {
+            launch.dev_agent = catalog.default_dev_agent.clone();
+        }
+        launch
+    }
+
     /// Checks every input against the catalog and the scripts folder.
     pub fn validate(
         &self,
@@ -494,6 +522,9 @@ impl Launch {
                 "Repeat cycles must be a whole number from 1 through {MAX_CYCLES}."
             ));
         }
+        if self.cycles > 1 && !self.merge {
+            return Err("Repeat cycles build on each merged pull request. Turn on merging, or run one cycle.".into());
+        }
         if !self.branch.is_empty() && !valid_branch(&self.branch) {
             return Err(
                 "Branch names must be valid Git branches: no spaces, '..', '@{' or ~ ^ : ? * [ \\, no part that is empty, starts with '.' or ends with '.lock', and no leading '-'."
@@ -584,10 +615,13 @@ impl Launch {
         if !self.audio {
             add("NoAudio", None);
         }
-        // ralph.ps1 hands its pull request to ralph-pr.ps1 without AutoApprove, so only a
-        // Ralph PR run can merge.
-        if self.merge && self.script == Script::Pr {
-            add("AutoApprove", None);
+        // ralph-pr.ps1 merges with -AutoApprove; ralph.ps1 passes -MergeWhenClean on as that.
+        if self.merge {
+            match self.script {
+                Script::Pr => add("AutoApprove", None),
+                Script::Ralph => add("MergeWhenClean", None),
+                _ => {}
+            }
         }
         arguments
     }
@@ -890,6 +924,81 @@ mod tests {
                 .arguments(&declared, None)
                 .contains(&"-AutoApprove".into())
         );
+        // A Ralph Loop merges through ralph.ps1's own switch, never -AutoApprove.
+        let declared: BTreeSet<String> =
+            ["AutoApprove".to_string(), "MergeWhenClean".to_string()].into();
+        let launch = Launch {
+            merge: true,
+            ..Launch::default()
+        };
+        let arguments = launch.arguments(&declared, None);
+        assert!(arguments.contains(&"-MergeWhenClean".into()));
+        assert!(!arguments.contains(&"-AutoApprove".into()));
+    }
+
+    #[test]
+    fn repeat_cycles_need_merging_and_only_ralph_loops_repeat() {
+        let repository = repository();
+        let scripts = scripts();
+        let catalog = scripts.catalog().unwrap();
+        let mut launch = launch(repository.path());
+        launch.cycles = 2;
+        assert!(
+            launch
+                .validate(&catalog, &scripts)
+                .unwrap_err()
+                .starts_with("Repeat cycles build on each merged pull request.")
+        );
+        launch.merge = true;
+        assert!(launch.validate(&catalog, &scripts).is_ok());
+        launch.script = Script::Template("ralph-simplisticate.ps1".into());
+        assert!(
+            launch
+                .validate(&catalog, &scripts)
+                .unwrap_err()
+                .starts_with("Repeat cycles must be")
+        );
+        let ralph = std::fs::read_to_string(scripts.path("ralph.ps1")).unwrap();
+        assert!(declared_parameters(&ralph).contains("MergeWhenClean"));
+    }
+
+    #[test]
+    fn a_run_records_what_default_meant() {
+        let catalog = scripts().catalog().unwrap();
+        let resolved = Launch::default().resolved(&catalog);
+        assert_eq!(resolved.provider, catalog.default_provider);
+        assert_eq!(resolved.dev_agent, catalog.default_dev_agent);
+        // The catalog default is a tier; the run records the model it stands for.
+        let tier = catalog.model(&catalog.default_model).unwrap();
+        assert_eq!(resolved.model, tier.key);
+        let resolved = Launch {
+            provider: "openrouter".into(),
+            ..Launch::default()
+        }
+        .resolved(&catalog);
+        assert_eq!(resolved.model, "kimi-k2.6");
+        let chosen = Launch {
+            model: "sonnet".into(),
+            dev_agent: "developer-senior".into(),
+            ..Launch::default()
+        }
+        .resolved(&catalog);
+        assert_eq!(
+            (chosen.model.as_str(), chosen.dev_agent.as_str()),
+            ("claude-sonnet-4.6", "developer-senior")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_into_a_repository_passes_the_quick_check() {
+        let repository = repository();
+        let inner = repository.path().join("packages/app");
+        std::fs::create_dir_all(&inner).unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let link = elsewhere.path().join("project");
+        std::os::unix::fs::symlink(&inner, &link).unwrap();
+        assert!(inside_git_repository(&link));
     }
 
     #[test]

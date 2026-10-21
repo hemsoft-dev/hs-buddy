@@ -578,8 +578,7 @@ impl RalphView {
                 cx,
                 |form| form.dry_run = !form.dry_run,
             ));
-        } else if script == Script::Pr {
-            // Only ralph-pr.ps1 approves; ralph.ps1 hands its PR over without approval.
+        } else if script.can_merge() {
             options = options.child(Self::toggle(
                 "ralph-merge",
                 "Merge the PR when it is clean (gh pr merge --admin)",

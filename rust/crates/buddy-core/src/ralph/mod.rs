@@ -25,6 +25,8 @@ pub fn start(
     let scripts = Scripts::prepare(store.root())?;
     let catalog = scripts.catalog()?;
     let (script, declared) = launch.validate(&catalog, &scripts)?;
+    // Recorded with Default spelled out, so Retry repeats the same choices.
+    let launch = launch.resolved(&catalog);
     let tools = launch::discover_installed()?;
     let repository_key = launch::verify_repository(&launch.repository, &tools)?;
     let cycles = if launch.script.uses_cycles() {

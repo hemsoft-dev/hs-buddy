@@ -17,6 +17,8 @@ param(
     [switch]$Autopilot,
     [switch]$NoAudio,
     [switch]$SkipReview,
+    # Passed on to ralph-pr.ps1 as -AutoApprove: with -Autopilot it merges a clean PR.
+    [switch]$MergeWhenClean,
     [switch]$Install,
     [switch]$All,
     [switch]$Force,
@@ -144,7 +146,8 @@ if ($Help) {
     Write-Host "  -Autopilot             Skip interactive prompts, auto-merge PR when clean"
     Write-Host "  -NoAudio               Suppress audio feedback"
     Write-Host "  -SkipReview            Skip Copilot PR review requests"
-    Write-Host "  -Install               Install ralph-loop scripts and audio into the current repo"
+    Write-Host "  -MergeWhenClean        With -Autopilot, merge the PR once clean (gh pr merge --admin)"
+    Write-Host "  -Install              Install ralph-loop scripts and audio into the current repo"
     Write-Host "    -All                   Install all, skip existing (use with -Install)"
     Write-Host "    -Force                 Install all, overwrite existing (use with -Install)"
     Write-Host "    -Pick                  Choose which scripts to install (use with -Install)"
@@ -821,6 +824,7 @@ if (-not $NoPR) {
                 if ($NoAudio) { $prArgs['NoAudio'] = $true }
                 if ($Autopilot) { $prArgs['Autopilot'] = $true }
                 if ($SkipReview) { $prArgs['SkipReview'] = $true }
+                if ($MergeWhenClean) { $prArgs['AutoApprove'] = $true }
                 if ($reviewAgents.Count -gt 0) { $prArgs['Agents'] = $reviewAgents }
 
                 Write-Host ""

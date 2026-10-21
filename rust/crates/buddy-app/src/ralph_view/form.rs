@@ -387,7 +387,7 @@ impl Form {
                 String::new()
             },
             dry_run: issues && self.dry_run,
-            merge: self.merge,
+            merge: self.script.can_merge() && self.merge,
             audio: self.audio,
         })
     }
