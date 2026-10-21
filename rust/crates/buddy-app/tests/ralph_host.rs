@@ -27,7 +27,7 @@ const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [str
 Write-Host "== Iteration 1/$Max"
 Write-Host "prompt: $(Get-Content -Raw $Prompt)"
 [Console]::Error.WriteLine('warned')
-Write-Host "`e[32mgreen`e[0m ünïcödé"
+Write-Host "`e[32mgreen`e[0m ünïcödé 資料界"
 if ($Beat) {
     $child = Start-Process -FilePath (Get-Process -Id $PID).Path -PassThru -NoNewWindow -ArgumentList @(
         '-NoProfile', '-Command', "while (`$true) { Set-Content -LiteralPath '$Beat' ([DateTime]::UtcNow.Ticks); Start-Sleep -Milliseconds 100 }")
@@ -159,7 +159,10 @@ fn a_finished_loop_records_its_output_progress_and_result() {
         output.contains(&"[stderr] warned".to_string()),
         "{output:?}"
     );
-    assert!(output.contains(&"green ünïcödé".to_string()), "{output:?}");
+    assert!(
+        output.contains(&"green ünïcödé 資料界".to_string()),
+        "{output:?}"
+    );
     // The run's folder still names it; a second host for it does nothing.
     let again = Command::new(env!("CARGO_BIN_EXE_buddy"))
         .arg("--ralph-host")

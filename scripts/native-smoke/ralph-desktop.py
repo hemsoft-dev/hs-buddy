@@ -172,7 +172,7 @@ def qualify(executable, output, session, version):
             ("click", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
             ("click", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "long-running-dark"),
             ("click", "Stop loop"), ("capture", "stop-confirm-dark"),
-            ("click", "Stop now"), ("wait_text", "Stopped"), ("capture", "stopped-dark"),
+            ("click", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "stopped-dark"),
         ], record=True)
         github.check(stopped / "long-running-dark.png", "Running", "RALPH STUB RUNNING")
         github.check(stopped / "stop-confirm-dark.png", "Stop this loop?", "Stop now", "Keep running")
@@ -196,7 +196,7 @@ def qualify(executable, output, session, version):
         reopened = driver.drive("reopen-light", [
             ("wait_text", "Active (1)"), ("capture", "reopened-light"),
             ("click", "Stop"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "reopened-detail-light"),
-            ("click", "Stop now"), ("wait_text", "Stopped"), ("capture", "reopened-stopped-light"),
+            ("click", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "reopened-stopped-light"),
         ], record=True)
         github.check(reopened / "reopened-light.png", "Active (1)", "Running", "Recent (2)")
         github.check(reopened / "reopened-detail-light.png", "Running", "RALPH STUB RUNNING", "Stop now")

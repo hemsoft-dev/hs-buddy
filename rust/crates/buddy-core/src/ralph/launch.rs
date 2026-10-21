@@ -277,16 +277,53 @@ pub struct Plan {
     pub cycles: u32,
 }
 
+/// A PowerShell single-quoted literal. PowerShell also ends such strings at typographic
+/// single quotes, so every quote character is doubled.
+fn quoted(value: &str) -> String {
+    let mut text = String::from("'");
+    for c in value.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            text.push(c);
+        }
+        text.push(c);
+    }
+    text.push('\'');
+    text
+}
+
+fn parameter_name(argument: &str) -> bool {
+    argument
+        .strip_prefix('-')
+        .is_some_and(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphabetic()))
+}
+
 impl Plan {
-    pub fn command_line(&self) -> Vec<OsString> {
-        let mut arguments: Vec<OsString> = vec![
+    /// The run's launcher: UTF-8 output, then the script with each value as a literal.
+    ///
+    /// The console's code page decides PowerShell's output encoding otherwise, and on
+    /// Windows that is a legacy code page that cannot show most text.
+    pub fn launcher(&self) -> String {
+        let mut call = format!("& {}", quoted(&self.script.to_string_lossy()));
+        for argument in &self.arguments {
+            call.push(' ');
+            if parameter_name(argument) {
+                call.push_str(argument);
+            } else {
+                call.push_str(&quoted(argument));
+            }
+        }
+        format!(
+            "# Written by Buddy for this run.\n[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$global:LASTEXITCODE = 0\n{call}\nexit $LASTEXITCODE\n"
+        )
+    }
+
+    pub fn command_line(&self, launcher: &Path) -> Vec<OsString> {
+        vec![
             "-NoProfile".into(),
             "-NonInteractive".into(),
             "-File".into(),
-        ];
-        arguments.push(self.script.clone().into());
-        arguments.extend(self.arguments.iter().map(OsString::from));
-        arguments
+            launcher.as_os_str().to_owned(),
+        ]
     }
 }
 
@@ -709,6 +746,38 @@ mod tests {
                 "tech-debt,automated",
                 "-DryRun"
             ]
+        );
+    }
+
+    #[test]
+    fn the_launcher_sets_utf8_and_passes_every_value_as_a_literal() {
+        let plan = Plan {
+            program: "pwsh".into(),
+            script: PathBuf::from("D:/scripts/it's/ralph.ps1"),
+            arguments: [
+                "-Autopilot",
+                "-Branch",
+                "fix/a’b",
+                "-Prompt",
+                "C:/runs/x y/prompt.md",
+                "-Max",
+                "3",
+            ]
+            .map(String::from)
+            .to_vec(),
+            directory: "D:/repo".into(),
+            path: Default::default(),
+            cycles: 1,
+        };
+        let text = plan.launcher();
+        assert!(text.contains("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"));
+        assert!(text.contains(
+            "& 'D:/scripts/it''s/ralph.ps1' -Autopilot -Branch 'fix/a’’b' -Prompt 'C:/runs/x y/prompt.md' -Max '3'\n"
+        ));
+        assert!(text.ends_with("exit $LASTEXITCODE\n"));
+        assert_eq!(
+            plan.command_line(Path::new("launch.ps1")),
+            ["-NoProfile", "-NonInteractive", "-File", "launch.ps1"].map(OsString::from)
         );
     }
 

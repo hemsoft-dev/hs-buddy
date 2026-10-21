@@ -112,6 +112,7 @@ Runs are folders below `native-ralph/runs` next to the configuration file.
 | `prompt.md`   | Buddy      | The prompt; the scripts read a prompt given as a file path     |
 | `host.lock`   | Host       | Locked while the host lives                                    |
 | `started`     | Host       | Created once; a host finding it never starts the loop          |
+| `launch.ps1`  | Host       | Sets UTF-8 output, then calls the script with its arguments    |
 | `status.json` | Host       | State, phase, iteration, counters and the result               |
 | `output.log`  | Host       | Output with terminal colors removed; stderr lines start `[stderr]` |
 | `stop`        | Buddy      | A stop request                                                 |
@@ -120,7 +121,9 @@ Launch writes the request, then starts `buddy --ralph-host <run folder>`
 detached from Buddy (its own session on macOS and Linux; no console and
 outside Buddy's process group on Windows). The host starts
 `buddy --ralph-exec`, which runs `pwsh -NoProfile -NonInteractive -File
-<script>` in the repository. That process tree belongs to a Job object on
+launch.ps1` in the repository. The launcher switches PowerShell's output to
+UTF-8 (on Windows the console's legacy code page would otherwise drop most
+non-Latin text) and calls the script. That process tree belongs to a Job object on
 Windows and to its own session on macOS and Linux. Stop and the end of a run
 terminate exactly that Job or session. If the host itself dies, Windows closes
 the Job and the exec process on macOS and Linux ends its own session when its
@@ -133,11 +136,10 @@ running.
 
 The scripts are built into the app and written to
 `native-ralph/scripts/<content hash>` before a launch, so every package runs
-the scripts it was built with. Arguments go to PowerShell as separate values,
-never through a shell, so paths with spaces work. Only parameters a script
-declares are passed. A value starting with `-` would still be read as a
-parameter name by PowerShell, so the prompt always travels as a file and
-branch and label values may not start with `-`.
+the scripts it was built with. The launcher passes every value as a quoted
+PowerShell literal, never through a shell, so paths with spaces and quotes
+work. Only parameters a script declares are passed. The prompt always travels
+as a file, and branch and label values may not start with `-`.
 
 Electron Buddy keeps its own in-memory Ralph runs; the two apps do not share
 runs. The Convex `ralphRuns` table is unchanged.

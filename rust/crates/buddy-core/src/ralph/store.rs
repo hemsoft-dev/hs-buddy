@@ -237,11 +237,21 @@ impl Store {
                 request
             }
         };
-        let status: Option<Status> = read_json(&folder.join(STATUS));
-        let settled = status
-            .as_ref()
-            .is_some_and(|status| status.state != HostState::Running);
-        let live = !settled && locked(&folder.join(LOCK));
+        let mut status: Option<Status> = read_json(&folder.join(STATUS));
+        let settled = |status: &Option<Status>| {
+            status
+                .as_ref()
+                .is_some_and(|status| status.state != HostState::Running)
+        };
+        let mut live = false;
+        if !settled(&status) {
+            live = locked(&folder.join(LOCK));
+            if !live {
+                // A host records its result before it releases the lock, so a free lock
+                // after an unsettled read can mean it just finished: read again.
+                status = read_json(&folder.join(STATUS));
+            }
+        }
         let age = Duration::from_millis((now_ms() - request.created_at).max(0) as u64);
         let state = derive(
             status.as_ref(),

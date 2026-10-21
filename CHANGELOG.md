@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1508] - 2026-10-21
+
+### Fixed
+
+- Run Ralph loops through a UTF-8 launcher and settle status reads
+
 ## [0.1.1507] - 2026-10-21
 
 ### Fixed

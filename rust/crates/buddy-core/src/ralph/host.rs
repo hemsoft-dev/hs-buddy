@@ -28,6 +28,8 @@ use super::store::{
 };
 
 const MAX_START: usize = 1024 * 1024;
+/// The generated script PowerShell runs; see [`Plan::launcher`].
+const LAUNCHER: &str = "launch.ps1";
 const MAX_LINE: usize = 64 * 1024;
 const MAX_LOG: u64 = 64 * 1024 * 1024;
 const POLL: Duration = Duration::from_millis(100);
@@ -195,13 +197,6 @@ pub fn run_ralph_exec() -> i32 {
             return 125;
         }
     };
-    #[cfg(windows)]
-    unsafe {
-        // PowerShell takes its output encoding from the console; the host reads UTF-8.
-        use windows_sys::Win32::System::Console::{SetConsoleCP, SetConsoleOutputCP};
-        SetConsoleOutputCP(65001);
-        SetConsoleCP(65001);
-    }
     parent_death(input);
     let mut command = Command::new(&start.program);
     command
@@ -462,9 +457,14 @@ impl Host {
             Ok(owned) => owned,
             Err(error) => return Outcome::Error(error),
         };
+        let launcher = self.folder.join(LAUNCHER);
+        if let Err(error) = std::fs::write(&launcher, plan.launcher()) {
+            let _ = owned.cleanup();
+            return Outcome::Error(format!("The loop launcher could not be written: {error}"));
+        }
         let start = Start {
             program: plan.program.clone(),
-            arguments: plan.command_line(),
+            arguments: plan.command_line(&launcher),
             directory: plan.directory.clone(),
             path: plan.path.clone(),
         };
