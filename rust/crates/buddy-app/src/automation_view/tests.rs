@@ -612,3 +612,20 @@ fn the_editor_applies_the_worker_environment_limits() {
         .is_ok()
     );
 }
+
+#[test]
+fn an_unchanged_tick_does_not_advance_the_redraw_sequence() {
+    use super::service::publish_into;
+    let target = std::sync::Mutex::new(Snapshot::default());
+    assert!(publish_into(&target, sample()), "new data redraws");
+    let first = target.lock().unwrap().sequence;
+    assert!(
+        !publish_into(&target, sample()),
+        "an idle tick changes nothing"
+    );
+    assert_eq!(target.lock().unwrap().sequence, first);
+    let mut running = sample();
+    running.output = Some(("run-1".into(), "more output".into()));
+    assert!(publish_into(&target, running));
+    assert_eq!(target.lock().unwrap().sequence, first + 1);
+}

@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(super) struct Snapshot {
     pub jobs: Vec<Job>,
     pub schedules: Vec<Schedule>,
@@ -139,6 +139,19 @@ pub(super) fn lookup_due(
     })
 }
 
+/// Advances the sequence only when the content changed. The view redraws on a new
+/// sequence, so an idle two-second tick must not repaint the whole window.
+pub(super) fn publish_into(target: &Mutex<Snapshot>, mut next: Snapshot) -> bool {
+    let mut current = target.lock().unwrap_or_else(|e| e.into_inner());
+    next.sequence = current.sequence;
+    if *current == next {
+        return false;
+    }
+    next.sequence = current.sequence.wrapping_add(1);
+    *current = next;
+    true
+}
+
 /// A confirmed change reports what it did, in the past tense.
 pub(super) fn save_notice(kind: ChangeKind, arguments: &Value) -> &'static str {
     match kind {
@@ -211,8 +224,7 @@ impl Coordinator {
         self.snapshot.edit_acknowledged = self.edit.acknowledged();
         self.snapshot.trigger = self.trigger.capture().cloned();
         self.snapshot.trigger_receipt = self.trigger.receipt().cloned();
-        self.snapshot.sequence = self.snapshot.sequence.wrapping_add(1);
-        *target.lock().unwrap_or_else(|e| e.into_inner()) = self.snapshot.clone();
+        publish_into(target, self.snapshot.clone());
     }
     /// An empty account setting means the active `gh` account, as in chat and model
     /// discovery. Resolve it (at most every five minutes; `gh auth status` checks online) so each run captures a real login.

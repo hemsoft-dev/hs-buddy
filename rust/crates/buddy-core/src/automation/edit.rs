@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::path::Path;
 
 const MAX_BYTES: usize = 512 * 1024;
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Capture {
     version: u8,
