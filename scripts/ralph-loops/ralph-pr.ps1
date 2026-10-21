@@ -379,9 +379,10 @@ if ($branchAttachedElsewhere) {
             Write-Host "Branch '$prBranch' checked out in current repo — switching to 'main' and creating worktree (autopilot)." -ForegroundColor Yellow
             git checkout main 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) {
-                Write-Host "Failed to switch to 'main'. Falling back to current directory." -ForegroundColor Yellow
-                $worktreeDir = $repoRoot
-                $worktreeExists = $true
+                # Never let an unattended agent work, commit or push in the user's own checkout.
+                Write-Host "Could not switch the repository off '$prBranch' (no 'main' branch, or local changes)." -ForegroundColor Red
+                Write-Host "  Check out another branch there, then run again; ralph-pr works in its own worktree." -ForegroundColor Yellow
+                exit 1
             }
             # else: fall through to worktree creation below
         }

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1522] - 2026-10-21
+
+### Fixed
+
+- Never let ralph-pr fall back to working in the user's checkout
+
 ## [0.1.1521] - 2026-10-21
 
 ### Fixed

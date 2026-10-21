@@ -23,7 +23,10 @@ most recent run's repository. Nothing starts until Launch.
 Ralph PR works on the pull request's current head and pushes its fixes to that
 branch on `origin`. A pull request from a fork fails at once with a message
 saying so, and a local branch that has diverged from the pull request stops
-the run rather than being used.
+the run rather than being used. If the pull request's branch is checked out in
+the selected repository, the script switches that checkout to `main` so it can
+work in its own worktree; when that is not possible (no `main`, or local
+changes), the run stops instead of working in your checkout.
 
 ## Requirements
 
