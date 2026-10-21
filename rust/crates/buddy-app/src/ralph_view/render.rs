@@ -444,8 +444,9 @@ impl RalphView {
                     .child(div().text_lg().child(script_name(&script, &self.templates)))
                     .child(
                         Button::new("ralph-launch")
+                            // Plain like Save elsewhere: Tesseract cannot read white on the
+                            // light theme's primary blue, so installed qualification could not click it.
                             .label(if busy { "Launching…" } else { "Launch" })
-                            .primary()
                             .disabled(busy)
                             .on_click(cx.listener(|this, _, _, cx| this.launch(cx))),
                     )
