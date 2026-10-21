@@ -60,13 +60,14 @@ The form has the same inputs as Electron Buddy:
   request is merged, so more than one cycle requires the merge option below.
   If a cycle's pull request is not merged (it was never opened, never became
   clean, or the merge failed), the run fails instead of starting the next
-  cycle. Before each
-  further cycle Buddy fast-forwards the checked-out branch from its upstream
-  (`git pull --ff-only`), so the next cycle starts from the merged work; a
-  branch without an upstream is left as it is, and a failed fast-forward stops
-  the run. Unlike the old repeat wrapper (which never worked
-  from Electron), Buddy never switches the checkout to another branch.
-  Templates run one cycle: they have no way to merge.
+  cycle. Each pull request merges into the remote's default branch, so more
+  than one cycle needs the repository checked out on a branch that tracks it
+  (for example `main` tracking `origin/main`); Launch says so otherwise. Before
+  each further cycle Buddy fast-forwards that branch (`git pull --ff-only`), so
+  the next cycle starts from the merged work, and a failed fast-forward stops
+  the run. Unlike the old repeat wrapper (which never worked from Electron) and
+  the review phase's own clean-up, Buddy never switches the checkout to another
+  branch. Templates run one cycle: they have no way to merge.
 - **Branch prefix** for Ralph Loop and templates. `ralph.ps1` adds a random
   suffix (`fix/issue-12` becomes `fix/issue-12-1a2b3c4d`), and the run page
   shows the branch the loop actually created once it prints it.

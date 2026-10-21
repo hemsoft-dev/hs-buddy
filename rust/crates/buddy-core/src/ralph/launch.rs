@@ -370,6 +370,52 @@ pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, St
     }
 }
 
+/// Git's trimmed output in `repository`, or `None` when it fails.
+fn git_output(repository: &Path, tools: &Tools, arguments: &[&str]) -> Option<String> {
+    let mut command = std::process::Command::new(&tools.git);
+    command
+        .args(arguments)
+        .current_dir(repository)
+        .env("PATH", &tools.path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    let output = command.output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|text| !text.is_empty())
+}
+
+/// Repeat cycles build on each cycle's pull request, which merges into the remote's
+/// default branch, and Buddy only fast-forwards the checked-out branch between cycles. So
+/// that branch must track the default branch; Buddy never switches it.
+pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<(), String> {
+    let git = |arguments: &[&str]| git_output(repository, tools, arguments);
+    let upstream = git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).ok_or(
+        "Repeat cycles need the checked-out branch to track the remote's default branch, where each cycle's pull request merges.",
+    )?;
+    let remote = upstream.split('/').next().unwrap_or("origin");
+    let default = git(&["rev-parse", "--abbrev-ref", &format!("{remote}/HEAD")]).ok_or_else(|| {
+        format!(
+            "Git does not know {remote}'s default branch. Run git remote set-head {remote} --auto, then launch again."
+        )
+    })?;
+    if upstream == default {
+        Ok(())
+    } else {
+        Err(format!(
+            "Repeat cycles build on pull requests merged into {default}, so check out a branch that tracks it (this one tracks {upstream})."
+        ))
+    }
+}
+
 /// A quick check before Git runs. Symlinks are resolved first, so a link to a folder
 /// inside a repository passes; [`verify_repository`] decides.
 fn inside_git_repository(directory: &Path) -> bool {
@@ -1018,6 +1064,74 @@ mod tests {
         let link = elsewhere.path().join("project");
         std::os::unix::fs::symlink(&inner, &link).unwrap();
         assert!(inside_git_repository(&link));
+    }
+
+    #[test]
+    fn repeat_cycles_need_a_checkout_that_tracks_the_default_branch() {
+        let tools = Tools {
+            pwsh: PathBuf::from("pwsh"),
+            git: PathBuf::from("git"),
+            path: std::env::var_os("PATH").unwrap_or_default(),
+        };
+        let git = |directory: &Path, arguments: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=Buddy Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                ])
+                .args(arguments)
+                .current_dir(directory)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        };
+        let root = tempfile::tempdir().unwrap();
+        let remote = root.path().join("remote.git");
+        git(
+            root.path(),
+            &[
+                "init",
+                "-q",
+                "--bare",
+                "-b",
+                "main",
+                remote.to_str().unwrap(),
+            ],
+        );
+        let seed = root.path().join("seed");
+        git(
+            root.path(),
+            &["init", "-q", "-b", "main", seed.to_str().unwrap()],
+        );
+        git(&seed, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        git(&seed, &["push", "-q", remote.to_str().unwrap(), "main"]);
+        let clone = root.path().join("clone");
+        git(
+            root.path(),
+            &[
+                "clone",
+                "-q",
+                remote.to_str().unwrap(),
+                clone.to_str().unwrap(),
+            ],
+        );
+        assert_eq!(verify_cycle_base(&clone, &tools), Ok(()));
+        git(&clone, &["checkout", "-q", "-b", "topic"]);
+        assert!(
+            verify_cycle_base(&clone, &tools)
+                .unwrap_err()
+                .starts_with("Repeat cycles need the checked-out branch to track")
+        );
+        git(&clone, &["push", "-q", "-u", "origin", "topic"]);
+        assert!(
+            verify_cycle_base(&clone, &tools)
+                .unwrap_err()
+                .starts_with("Repeat cycles build on pull requests merged into origin/main")
+        );
+        // The seed repository has no remote at all.
+        assert!(verify_cycle_base(&seed, &tools).is_err());
     }
 
     #[test]

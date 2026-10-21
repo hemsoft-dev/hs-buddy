@@ -478,3 +478,27 @@ fn a_github_handoff_waits_for_the_scripts_to_load(cx: &mut gpui_kit::TestAppCont
         })
     });
 }
+
+#[gpui_kit::test]
+fn a_failed_script_load_stays_visible_through_a_handoff(cx: &mut gpui_kit::TestAppContext) {
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.catalog_error =
+                Some("The bundled Ralph scripts could not be prepared: denied".into());
+            view.error = None;
+            view.open_handoff(Handoff::pull_request(7, None), window, cx);
+            assert!(view.pending_handoff.is_none());
+            assert_eq!(
+                view.error.as_deref(),
+                Some("The bundled Ralph scripts could not be prepared: denied")
+            );
+            view.new_form(Script::Ralph, None, window, cx);
+            assert_eq!(
+                view.error.as_deref(),
+                Some("The bundled Ralph scripts could not be prepared: denied")
+            );
+        })
+    });
+}

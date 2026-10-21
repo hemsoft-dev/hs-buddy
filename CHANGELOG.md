@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1518] - 2026-10-21
+
+### Fixed
+
+- Keep the user's checkout and bound Ralph host memory
+
 ## [0.1.1517] - 2026-10-21
 
 ### Fixed

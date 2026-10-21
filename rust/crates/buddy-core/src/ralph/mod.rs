@@ -29,6 +29,9 @@ pub fn start(
     let launch = launch.resolved(&catalog);
     let tools = launch::discover_installed()?;
     let repository_key = launch::verify_repository(&launch.repository, &tools)?;
+    if launch.script.uses_cycles() && launch.cycles > 1 {
+        launch::verify_cycle_base(&launch.repository, &tools)?;
+    }
     let cycles = if launch.script.uses_cycles() {
         launch.cycles
     } else {

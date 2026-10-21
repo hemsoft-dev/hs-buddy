@@ -37,6 +37,8 @@ const STATUS_INTERVAL: Duration = Duration::from_millis(500);
 const CLEANUP: Duration = Duration::from_secs(5);
 /// The longest a Git command between cycles may take.
 const GIT_LIMIT: Duration = Duration::from_secs(300);
+/// Lines read but not yet logged, per process: at most 1024 x 64 KB.
+const LINE_QUEUE: usize = 1024;
 
 /// Starts the host for the run in `folder` and returns without waiting for it.
 #[cfg(unix)]
@@ -576,7 +578,9 @@ impl Host {
             Ok(owned) => owned,
             Err(error) => return (Outcome::Error(error), captured),
         };
-        let (sender, receiver) = mpsc::channel();
+        // Bounded: a process that writes faster than the log keeps up waits on its pipe
+        // instead of growing this queue; Stop is still checked on the poll clock.
+        let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
         if let Some(stdout) = owned.child.stdout.take() {
             read_lines(Box::new(stdout), false, sender.clone());
         }
@@ -683,7 +687,7 @@ fn git_start(plan: &Plan, arguments: &[&str]) -> Start {
 fn read_lines(
     mut reader: Box<dyn Read + Send>,
     error: bool,
-    sender: mpsc::Sender<(bool, Vec<u8>)>,
+    sender: mpsc::SyncSender<(bool, Vec<u8>)>,
 ) {
     std::thread::spawn(move || {
         let mut buffer = [0; 8192];
@@ -875,7 +879,7 @@ mod tests {
 
     #[test]
     fn lines_split_at_either_line_ending_and_long_lines_in_pieces() {
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
         let mut input = b"one\r\ntwo\rthree\n".to_vec();
         input.extend(vec![b'x'; MAX_LINE + 3]);
         read_lines(Box::new(std::io::Cursor::new(input)), true, sender);

@@ -191,7 +191,11 @@ impl RalphView {
         cx: &mut Context<Self>,
     ) {
         let Some(catalog) = self.catalog.clone() else {
-            self.error = Some("The Ralph scripts are still loading.".into());
+            self.error = Some(
+                self.catalog_error
+                    .clone()
+                    .unwrap_or_else(|| "The Ralph scripts are still loading.".into()),
+            );
             cx.notify();
             return;
         };

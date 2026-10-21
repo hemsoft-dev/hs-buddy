@@ -1589,11 +1589,14 @@ if ($prClean) {
                 "[$logTag] Deleted local branch: $prBranch" | Out-File $logFile -Append -Encoding UTF8
             }
 
-            # Update main
-            Write-Host "Updating main..." -ForegroundColor DarkGray
-            git -C $originalDir checkout main 2>$null
-            git -C $originalDir pull --ff-only 2>$null
-            Write-Host "Done." -ForegroundColor Green
+            # Update main. A -RequireMerge caller (Buddy) refreshes the checkout itself and
+            # never wants its branch switched.
+            if (-not $RequireMerge) {
+                Write-Host "Updating main..." -ForegroundColor DarkGray
+                git -C $originalDir checkout main 2>$null
+                git -C $originalDir pull --ff-only 2>$null
+                Write-Host "Done." -ForegroundColor Green
+            }
         }
         else {
             Write-Host "Merge failed. Check output above." -ForegroundColor Red

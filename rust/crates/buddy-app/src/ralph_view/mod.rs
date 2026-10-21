@@ -105,6 +105,8 @@ pub struct RalphView {
     notice: Option<String>,
     /// A GitHub handoff that arrived before the scripts loaded; opened once they have.
     pending_handoff: Option<Handoff>,
+    /// Why the scripts could not be prepared; launching stays unavailable.
+    catalog_error: Option<String>,
 }
 
 impl RalphView {
@@ -135,6 +137,7 @@ impl RalphView {
             error: None,
             notice: None,
             pending_handoff: None,
+            catalog_error: None,
         }
     }
 
@@ -173,7 +176,10 @@ impl RalphView {
                         this.catalog = Some(catalog);
                         this.templates = templates;
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => {
+                        this.catalog_error = Some(error.clone());
+                        this.error = Some(error);
+                    }
                 }
                 cx.notify();
             });
@@ -279,7 +285,13 @@ impl RalphView {
 
     /// Opens the form filled from a GitHub handoff. Nothing starts until Launch.
     pub fn open_handoff(&mut self, handoff: Handoff, window: &mut Window, cx: &mut Context<Self>) {
-        if self.catalog.is_none() && self.error.is_none() {
+        if let (None, Some(failure)) = (&self.catalog, &self.catalog_error) {
+            // The scripts failed to load; keep that reason in view.
+            self.error = Some(failure.clone());
+            cx.notify();
+            return;
+        }
+        if self.catalog.is_none() {
             self.pending_handoff = Some(handoff);
             self.notice =
                 Some("Loading the Ralph scripts. The form opens when they are ready.".into());
