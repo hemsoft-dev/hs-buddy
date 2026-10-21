@@ -404,4 +404,32 @@ describe('scheduleScanner.markSnapshotsDue', () => {
     expect(job).not.toBeNull()
     expect(job?.workerType).toBe('exec')
   })
+
+  test('splits a large installation into runs of at most 100 accounts', async () => {
+    const t = convexTest(schema, modules)
+    // The native snapshot worker accepts at most 128 accounts per run.
+    await t.run(ctx =>
+      Promise.all(
+        Array.from({ length: 230 }, (_, index) =>
+          ctx.db.insert('githubAccounts', {
+            username: `user${index}`,
+            org: 'org',
+            createdAt: 1,
+            updatedAt: 1,
+          })
+        )
+      )
+    )
+
+    expect((await t.mutation(internal.scheduleScanner.markSnapshotsDue)).marked).toBe(3)
+
+    const runs = await t.query(api.runs.listByStatus, { status: 'pending' })
+    const sizes = runs.map(run => (run.input as { accounts: unknown[] }).accounts.length)
+    expect(sizes.sort((a, b) => a - b)).toEqual([30, 100, 100])
+    const users = runs.flatMap(run =>
+      (run.input as { accounts: Array<{ username: string }> }).accounts.map(a => a.username)
+    )
+    expect(new Set(users).size).toBe(230)
+    expect((await t.mutation(internal.scheduleScanner.markSnapshotsDue)).marked).toBe(0)
+  })
 })

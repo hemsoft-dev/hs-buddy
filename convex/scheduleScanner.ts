@@ -3,6 +3,7 @@ import { calculateNextRunAt, DEFAULT_TIMEZONE } from './lib/cronUtils'
 import {
   MAX_SETTIMEOUT_DELAY_MS,
   RUNNING_TIMEOUT_HEADROOM_MS,
+  SNAPSHOT_BATCH_ACCOUNTS,
   snapshotRunTimeoutMs,
   STALE_RUN_TIMEOUT_MS,
 } from './lib/constants'
@@ -325,17 +326,28 @@ export const markSnapshotsDue = internalMutation({
       return { marked: 0, reason: 'already pending today' }
     }
 
-    // Create one pending run (input carries the account list for the IPC layer)
-    await insertRun(ctx, {
-      jobId: snapshotJob._id,
-      status: 'pending',
-      triggeredBy: 'schedule',
-      input: { accounts: accounts.map(a => ({ username: a.username, org: a.org })) },
-      startedAt: now,
-    })
+    // One pending run per batch: each worker validates a bounded account list,
+    // and a batch's timeout scales with its own size.
+    const batches: Array<typeof accounts> = []
+    for (let start = 0; start < accounts.length; start += SNAPSHOT_BATCH_ACCOUNTS) {
+      batches.push(accounts.slice(start, start + SNAPSHOT_BATCH_ACCOUNTS))
+    }
+    // Sequential: each insert also updates the run-count aggregate.
+    await batches.reduce<Promise<unknown>>(
+      (previous, batch) =>
+        previous.then(() =>
+          insertRun(ctx, {
+            jobId: snapshotJob._id,
+            status: 'pending',
+            triggeredBy: 'schedule',
+            input: { accounts: batch.map(a => ({ username: a.username, org: a.org })) },
+            startedAt: now,
+          })
+        ),
+      Promise.resolve()
+    )
+    await incrementStat(ctx.db, 'runsTriggered', batches.length)
 
-    await incrementStat(ctx.db, 'runsTriggered')
-
-    return { marked: 1 }
+    return { marked: batches.length }
   },
 })

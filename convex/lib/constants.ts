@@ -48,3 +48,9 @@ export const MAX_SETTIMEOUT_DELAY_MS = 2_147_483_647 // 2^31 - 1
 export function snapshotRunTimeoutMs(accountCount: number): number {
   return 30_000 + 60_000 * accountCount
 }
+
+/**
+ * Accounts per Copilot usage snapshot run. The native worker accepts at most 128
+ * per run, so a larger installation is split across several runs.
+ */
+export const SNAPSHOT_BATCH_ACCOUNTS = 100
