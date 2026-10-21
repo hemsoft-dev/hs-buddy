@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1514] - 2026-10-21
+
+### Changed
+
+- Pin the bare remote's branch in the repeat-cycle test
+
 ## [0.1.1513] - 2026-10-21
 
 ### Fixed

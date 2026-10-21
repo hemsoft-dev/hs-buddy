@@ -323,7 +323,17 @@ fn repeat_cycles_fast_forward_the_checkout_between_cycles() {
     let mut fixture = fixture();
     let parent = fixture.repository.parent().unwrap().to_path_buf();
     let remote = parent.join("remote.git");
-    git(&parent, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    git(
+        &parent,
+        &[
+            "init",
+            "-q",
+            "--bare",
+            "-b",
+            "main",
+            remote.to_str().unwrap(),
+        ],
+    );
     let repository = fixture.repository.clone();
     git(&repository, &["init", "-q", "-b", "main"]);
     git(&repository, &["add", "stub.ps1"]);
@@ -347,7 +357,7 @@ fn repeat_cycles_fast_forward_the_checkout_between_cycles() {
     std::fs::write(other.join("merged.txt"), "merged").unwrap();
     git(&other, &["add", "merged.txt"]);
     git(&other, &["commit", "-q", "-m", "merged"]);
-    git(&other, &["push", "-q", "origin", "main"]);
+    git(&other, &["push", "-q", "origin", "HEAD:main"]);
     fixture.cycles = 2;
     let id = fixture.start(&[]);
     assert_eq!(
