@@ -20,6 +20,11 @@ issue. The repository is the account's repository root followed by the
 repository name when Settings has a root for that organization, otherwise the
 most recent run's repository. Nothing starts until Launch.
 
+Ralph PR works on the pull request's current head and pushes its fixes to that
+branch on `origin`. A pull request from a fork fails at once with a message
+saying so, and a local branch that has diverged from the pull request stops
+the run rather than being used.
+
 ## Requirements
 
 A loop needs these programs on `PATH`. Buddy also looks in the usual install
@@ -111,7 +116,7 @@ log is in the run's folder, whose path is shown under it.
 | Running     | The loop is running                                                        |
 | Stopping    | Stop was requested; the loop's processes are being ended                   |
 | Completed   | The script exited with code 0 (after every cycle)                           |
-| Failed      | The script exited with another code, which is shown, or could not start    |
+| Failed      | The script exited with another code, which is shown, or could not start; also when the agent CLI failed every time it ran |
 | Stopped     | Stopped from Buddy                                                         |
 | Interrupted | Its host process ended without recording a result, for example at a reboot |
 

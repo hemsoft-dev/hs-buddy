@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1521] - 2026-10-21
+
+### Fixed
+
+- Guard the user's checkout in ralph-pr and fail loops whose agent never ran
+
 ## [0.1.1520] - 2026-10-21
 
 ### Fixed

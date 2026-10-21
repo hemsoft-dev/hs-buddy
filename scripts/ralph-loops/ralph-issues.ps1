@@ -347,6 +347,7 @@ function Get-OpenIssueCount {
 # --- Main loop ---
 $completedIterations = 0
 $copilotInvocations = 0
+$agentFailures = 0
 $totalPremiumRequests = 0
 $totalTokensIn = 0.0
 $totalTokensOut = 0.0
@@ -452,6 +453,10 @@ Prioritize findings by severity (critical > high > medium > low).${labelClause}$
     $cmdArgs = Build-RalphCommand @buildArgs
     $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
     & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $tempOut
+    if ($LASTEXITCODE -ne 0) {
+        $agentFailures++
+        Write-Host "The agent CLI exited with code $LASTEXITCODE." -ForegroundColor Red
+    }
 
     $iterEnd = Get-Date
     $iterDuration = $iterEnd - $iterStart
@@ -589,3 +594,8 @@ if ($script:SavedByokEnv) {
 }
 
 Play-Audio "ralph-complete.mp3"
+
+if ($copilotInvocations -gt 0 -and $agentFailures -eq $copilotInvocations) {
+    Write-Host "The agent CLI failed on every scan; no issues were looked for." -ForegroundColor Red
+    exit 4
+}

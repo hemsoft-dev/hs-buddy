@@ -303,7 +303,7 @@ if (-not $PRNumber) {
 }
 
 # --- Get PR branch and set up worktree ---
-$prInfo = (gh pr view $PRNumber --repo $repoSlug --json headRefName,state 2>&1)
+$prInfo = (gh pr view $PRNumber --repo $repoSlug --json headRefName,state,isCrossRepository 2>&1)
 if ($LASTEXITCODE -ne 0 -or -not $prInfo) {
     Write-Host "Failed to get PR info for PR #$PRNumber." -ForegroundColor Red
     exit 1
@@ -319,6 +319,12 @@ if (-not $prBranch) {
 
 if ($prState -ne 'OPEN') {
     Write-Host "PR #$PRNumber is $($prState.ToLower()) — cannot run ralph-pr on a non-open PR." -ForegroundColor Red
+    exit 1
+}
+
+# Fixes are pushed to the PR's branch on origin, which a fork's branch is not.
+if ($prData.isCrossRepository) {
+    Write-Host "PR #$PRNumber comes from a fork. ralph-pr can only work on branches in $repoSlug." -ForegroundColor Red
     exit 1
 }
 
@@ -419,6 +425,15 @@ else {
     $branchExistsLocally = git rev-parse --verify "refs/heads/$prBranch" 2>$null
     if ($LASTEXITCODE -eq 0) {
         git worktree add $worktreeDir $prBranch 2>&1
+        # A local branch can be behind the PR; work from the PR's current head.
+        if ($LASTEXITCODE -eq 0) {
+            git -C $worktreeDir merge --ff-only "origin/$prBranch" 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Local branch '$prBranch' has diverged from origin/$prBranch. Reconcile it, then run again." -ForegroundColor Red
+                git worktree remove $worktreeDir --force 2>$null
+                exit 1
+            }
+        }
     }
     else {
         git worktree add -b $prBranch $worktreeDir "origin/$prBranch" 2>&1
@@ -1574,12 +1589,19 @@ if ($prClean) {
             Write-Host "PR #$PRNumber merged successfully." -ForegroundColor Green
             "[$logTag] PR #$PRNumber merged successfully." | Out-File $logFile -Append -Encoding UTF8
 
-            # Deterministic cleanup of this PR's worktree only
-            if (Test-Path $worktreeDir) {
+            # Deterministic cleanup of this PR's worktree only. A reused checkout (for example
+            # the repository itself, when the PR branch was checked out there) is never removed.
+            $separator = [IO.Path]::DirectorySeparatorChar
+            $ownedBase = [IO.Path]::GetFullPath($worktreeBase).TrimEnd($separator) + $separator
+            $ownedWorktree = [IO.Path]::GetFullPath($worktreeDir).StartsWith($ownedBase, [StringComparison]::OrdinalIgnoreCase)
+            if ((Test-Path $worktreeDir) -and $ownedWorktree) {
                 Write-Host "Removing worktree: $worktreeDir" -ForegroundColor DarkGray
                 git -C $originalDir worktree remove $worktreeDir --force 2>$null
                 if ($LASTEXITCODE -ne 0) { Remove-Item -Recurse -Force $worktreeDir -ErrorAction SilentlyContinue }
                 "[$logTag] Removed worktree: $worktreeDir" | Out-File $logFile -Append -Encoding UTF8
+            }
+            elseif (-not $ownedWorktree) {
+                Write-Host "Kept $worktreeDir`: it is not a Ralph worktree." -ForegroundColor DarkGray
             }
 
             # Clean up local branch if it still exists

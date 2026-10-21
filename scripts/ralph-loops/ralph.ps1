@@ -587,6 +587,7 @@ Push-Location $targetDir
 try {
     $completedIterations = 0
     $copilotInvocations = 0
+    $agentFailures = 0
     $totalPremiumRequests = 0
     $totalTokensIn = 0.0
     $totalTokensOut = 0.0
@@ -679,6 +680,10 @@ Original goal: $promptBrief
         $cmdArgs = Build-RalphCommand @buildArgs
         $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
         & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $tempOut
+        if ($LASTEXITCODE -ne 0) {
+            $agentFailures++
+            Write-Host "The agent CLI exited with code $LASTEXITCODE." -ForegroundColor Red
+        }
 
         $iterEnd = Get-Date
         $iterDuration = $iterEnd - $iterStart
@@ -999,6 +1004,10 @@ if ($script:SavedByokEnv -and $script:SavedByokEnv.Count -gt 0) {
 # --- Exit with PR phase exit code if applicable, otherwise success ---
 if ($handedOff -and $prExitCode) {
     exit $prExitCode
+}
+if ($copilotInvocations -gt 0 -and $agentFailures -eq $copilotInvocations) {
+    Write-Host "The agent CLI failed on every iteration; no work was done." -ForegroundColor Red
+    exit 4
 }
 # A requested merge is confirmed only by ralph-pr.ps1 -RequireMerge succeeding. Without a
 # handoff (no commits, a failed push or PR creation) nothing was merged.
