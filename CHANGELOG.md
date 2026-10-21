@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1505] - 2026-10-21
+
+### Changed
+
+- Wait for a settled run before opening its output
+
 ## [0.1.1504] - 2026-10-21
 
 ### Fixed

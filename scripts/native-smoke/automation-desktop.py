@@ -151,8 +151,10 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
     runs = driver.drive("runs-dark", [
         ("input", "Filter", "Echo job"), ("sleep", 1), ("capture", "jobs-dark"),
         ("click", "Run now"), ("capture", "run-input-dark"), ("click", "Queue run"), ("sleep", 1),
-        ("click", "History"), ("sleep", 1), ("click", "Show output"),
-        ("wait_text", "Completed"), ("wait_text", "NATIVEAUTOMATIONREADY"), ("capture", "output-dark"),
+        # The queued notice clears when the run settles and the list moves up a
+        # line, so locate Show output only after the run has completed.
+        ("click", "History"), ("wait_text", "Completed"), ("sleep", 1), ("click", "Show output"),
+        ("wait_text", "NATIVEAUTOMATIONREADY"), ("capture", "output-dark"),
         ("input", "Filter", "Long job"), ("click", "Jobs"), ("sleep", 1),
         ("click", "Run now"), ("click", "Queue run"), ("sleep", 1),
         ("click", "History"), ("sleep", 1), ("click", "Show output"),
