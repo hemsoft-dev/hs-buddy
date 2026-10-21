@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1519] - 2026-10-21
+
+### Changed
+
+- Find the stub Copilot CLI without running it in Ralph qualification
+
 ## [0.1.1518] - 2026-10-21
 
 ### Fixed

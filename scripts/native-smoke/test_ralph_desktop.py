@@ -51,7 +51,7 @@ class RalphDesktopTests(unittest.TestCase):
             output = result.stdout.decode("utf-8", "replace")
             self.assertEqual(result.returncode, 3, result.stderr.decode("utf-8", "replace"))
             self.assertIn("== Iteration 1/3", output)
-            self.assertIn("RALPH STUB TOOL stub-copilot 1.0", output)
+            self.assertIn("RALPH STUB TOOL FOUND IN tools", output)
             self.assertIn("RALPH STUB FAILING", output)
             desktop.verify_receipts(proofs, repository, dict(fail=1))
             with self.assertRaisesRegex(RuntimeError, "Expected loop starts"):

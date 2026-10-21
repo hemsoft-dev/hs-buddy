@@ -31,9 +31,9 @@ function Save-Receipt { $receipt | ConvertTo-Json | Set-Content -LiteralPath $pa
 Save-Receipt
 Write-Host "== Iteration 1/$Max"
 Write-Host "RALPH STUB $mode 資料界é"
-# Found on the PATH Buddy passes, then called by its path: resolving a bare unknown name
-# makes PowerShell scan every installed module first, which took over 20 s on a fresh
-# macOS runner.
+# Proves the PATH Buddy passes reaches the loop by finding the stub there. It is not run:
+# on a fresh macOS runner the first start of a newly written executable stalled for over
+# 20 seconds (most likely the system's first-run assessment), which the loop never needs.
 $names = if ($IsWindows) { @('copilot.cmd', 'copilot.exe') } else { @('copilot') }
 $tool = $env:PATH -split [IO.Path]::PathSeparator |
     Where-Object { $_ } |
@@ -41,7 +41,7 @@ $tool = $env:PATH -split [IO.Path]::PathSeparator |
     Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
     Select-Object -First 1
 if (-not $tool) { throw 'copilot is not on the PATH Buddy passed to the loop' }
-Write-Host ("RALPH STUB TOOL " + (& $tool --version))
+Write-Host ("RALPH STUB TOOL FOUND IN " + (Split-Path -Leaf (Split-Path -Parent $tool)))
 switch ($mode) {
     'quick' {
         Start-Sleep -Seconds 6

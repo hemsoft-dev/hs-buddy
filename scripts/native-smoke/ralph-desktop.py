@@ -156,7 +156,7 @@ def qualify(executable, output, session, version):
             ("wait_text", "Start a loop"), ("capture", "dashboard-dark"),
             ("click", "New loop"), ("sleep", 1),
             ("input", "Repository", repo), ("input", "Prompt", "quick"), ("capture", "form-dark"),
-            ("click", "Launch"), ("wait_text", "RALPH STUB TOOL stub-copilot 1.0"), ("capture", "running-dark"),
+            ("click", "Launch"), ("wait_text", "RALPH STUB TOOL FOUND IN stub-tools"), ("capture", "running-dark"),
             ("sleep", 8), ("wait_text", "Completed"), ("capture", "completed-dark"),
             ("click", "All loops"), ("sleep", 2), ("capture", "recent-dark"),
         ], record=True)
