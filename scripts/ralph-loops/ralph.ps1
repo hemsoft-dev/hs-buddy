@@ -30,7 +30,7 @@ param(
 if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Config: load shared model/agent configuration ---
-. "$PSScriptRoot\lib\config.ps1"
+. (Join-Path $PSScriptRoot 'lib' 'config.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -201,7 +201,7 @@ if ($Install) {
         Write-Host "ERROR: Not inside a git repository." -ForegroundColor Red
         exit 1
     }
-    $installRepoRoot = $installRepoRoot -replace '/', '\'
+    $installRepoRoot = $installRepoRoot -replace '/', [IO.Path]::DirectorySeparatorChar
     $installRepoName = Split-Path $installRepoRoot -Leaf
     $targetScriptsDir = Join-Path $installRepoRoot "scripts"
 
@@ -316,7 +316,7 @@ if ($Install) {
 }
 
 # --- Git repo validation ---
-$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', '\'
+$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', [IO.Path]::DirectorySeparatorChar
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not inside a git repository. Run this from within a repo." -ForegroundColor Red
     exit 1
@@ -465,8 +465,8 @@ foreach ($line in $wtLines) {
     if ($line -match "^branch refs/heads/(.+)$") {
         $currentWtBranch = $Matches[1].Trim()
         if ($currentWtBranch -eq $Branch) {
-            $normalizedWtPath = ($currentWtPath -replace '/', '\').TrimEnd('\')
-            $normalizedTarget = ($worktreeDir -replace '/', '\').TrimEnd('\')
+            $normalizedWtPath = ($currentWtPath -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            $normalizedTarget = ($worktreeDir -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
             if ($normalizedWtPath -eq $normalizedTarget) {
                 $worktreeExists = $true
             }
@@ -540,7 +540,7 @@ Write-Host "== Ralph - Iterative Autopilot" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "  Started:         $runStartStr"
 Write-Host "  PID:             $PID"
-Write-Host "  Host:            $env:COMPUTERNAME"
+Write-Host "  Host:            $([Environment]::MachineName)"
 Write-Host "  Invoked from:    $originalDir"
 Write-Host "  Branch:          $Branch"
 Write-Host "  Worktree:        $worktreeDir"
@@ -559,7 +559,7 @@ Write-Host "====================================" -ForegroundColor Cyan
 $startLogBlock = @"
 [$logTag] Ralph run started at $runStartStr ($maxLabel iterations, branch: $Branch, worktree: $worktreeDir$deadlineStr)
   PID:              $PID
-  Host:             $env:COMPUTERNAME
+  Host:             $([Environment]::MachineName)
   Script:           $PSCommandPath
   Invoked from:     $originalDir
   Branch:           $Branch
@@ -818,13 +818,16 @@ if (-not $NoPR) {
                 Start-Sleep -Seconds 30
 
                 $prScriptPath = Join-Path $PSScriptRoot "ralph-pr.ps1"
-                $prStatsPath = Join-Path $env:TEMP "ralph-pr-stats-$([guid]::NewGuid().ToString('N').Substring(0,8)).json"
+                $prStatsPath = Join-Path ([IO.Path]::GetTempPath()) "ralph-pr-stats-$([guid]::NewGuid().ToString('N').Substring(0,8)).json"
                 $prArgs = @{ PRNumber = $newPRNumber; Model = $script:ModelId; OriginalPrompt = $promptBrief; DevAgent = $script:DevAgentRole; Provider = $Provider; StatsPath = $prStatsPath }
                 if ($WorkUntil) { $prArgs['WorkUntil'] = $WorkUntil }
                 if ($NoAudio) { $prArgs['NoAudio'] = $true }
                 if ($Autopilot) { $prArgs['Autopilot'] = $true }
                 if ($SkipReview) { $prArgs['SkipReview'] = $true }
-                if ($MergeWhenClean) { $prArgs['AutoApprove'] = $true }
+                if ($MergeWhenClean) {
+                    $prArgs['AutoApprove'] = $true
+                    $prArgs['RequireMerge'] = $true
+                }
                 if ($reviewAgents.Count -gt 0) { $prArgs['Agents'] = $reviewAgents }
 
                 Write-Host ""

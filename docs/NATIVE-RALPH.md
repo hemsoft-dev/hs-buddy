@@ -32,7 +32,7 @@ and passes the folders it found to the loop.
 | Program                       | Install                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------- |
 | PowerShell 7 (`pwsh`)         | [aka.ms/powershell](https://aka.ms/powershell)                                              |
-| Git                           | [git-scm.com/downloads](https://git-scm.com/downloads)                                      |
+| Git 2.15 or later             | [git-scm.com/downloads](https://git-scm.com/downloads)                                      |
 | GitHub CLI (`gh`)             | [cli.github.com](https://cli.github.com/), then `gh auth login`                             |
 | GitHub Copilot CLI (`copilot`) | `npm install -g @github/copilot`                                                            |
 
@@ -58,25 +58,32 @@ The form has the same inputs as Electron Buddy:
   **Repeat cycles**, 1 to 50, for Ralph Loop. A cycle runs the whole script
   again after the previous one succeeded, and builds on it only once its pull
   request is merged, so more than one cycle requires the merge option below.
-  Before each further cycle Buddy fast-forwards the checked-out branch from its
-  upstream (`git pull --ff-only`), so the next cycle starts from the merged
-  work; a branch without an upstream is left as it is, and a failed
-  fast-forward stops the run. Unlike the old repeat wrapper (which never worked
+  If a cycle's pull request is not merged (it never became clean, or the merge
+  failed), the run fails instead of starting the next cycle. Before each
+  further cycle Buddy fast-forwards the checked-out branch from its upstream
+  (`git pull --ff-only`), so the next cycle starts from the merged work; a
+  branch without an upstream is left as it is, and a failed fast-forward stops
+  the run. Unlike the old repeat wrapper (which never worked
   from Electron), Buddy never switches the checkout to another branch.
   Templates run one cycle: they have no way to merge.
-- **Branch** for Ralph Loop and templates, **Pull request number** for Ralph
-  PR, **Issue labels** and **Dry run** for Ralph Issues.
+- **Branch prefix** for Ralph Loop and templates. `ralph.ps1` adds a random
+  suffix (`fix/issue-12` becomes `fix/issue-12-1a2b3c4d`), and the run page
+  shows the branch the loop actually created once it prints it.
+  **Pull request number** for Ralph PR, **Issue labels** and **Dry run** for
+  Ralph Issues.
 - **Prompt**. A template fills in its own prompt.
 - **Merge the PR when it is clean (gh pr merge --admin)**, off by default,
   for Ralph PR and Ralph Loop. When on, `ralph-pr.ps1` merges a clean pull
   request with `gh pr merge --squash --delete-branch --admin`, which bypasses
-  branch protection. Ralph PR receives it as `-AutoApprove`; a Ralph Loop as
-  `-MergeWhenClean`, which `ralph.ps1` passes on to its review phase.
+  branch protection. Ralph PR receives it as `-AutoApprove -RequireMerge`; a
+  Ralph Loop as `-MergeWhenClean`, which `ralph.ps1` passes on to its review
+  phase the same way. With it, a pull request that is not merged fails the run.
   Electron's "Auto-approve" option is on by default but never reached a Ralph
   Loop's review phase; Buddy Native asks for this choice explicitly.
-- **Announce with audio**, off by default. The scripts' audio needs
-  `edge-tts` and saves an mp3 into the repository, so Buddy passes `-NoAudio`
-  unless this is on.
+
+Loops always run with `-NoAudio`. The scripts' status clips are not part of
+the repository, and their repository announcement needs `edge-tts` and saves
+an mp3 into the repository, so Buddy offers no audio option.
 
 Launch checks every input before anything starts: the repository exists and
 is inside a Git repository, the provider and model exist and the provider can
@@ -161,7 +168,9 @@ The scripts are built into the app and written to
 the scripts it was built with. The launcher passes every value as a quoted
 PowerShell literal, never through a shell, so paths with spaces and quotes
 work. Only parameters a script declares are passed. The prompt always travels
-as a file, and branch and label values may not start with `-`.
+as a file, and branch and label values may not start with `-`. The scripts use
+the platform's path separator and temporary folder, so the same files run on
+Windows, macOS and Linux.
 
 Electron Buddy keeps its own in-memory Ralph runs; the two apps do not share
 runs. The Convex `ralphRuns` table is unchanged.

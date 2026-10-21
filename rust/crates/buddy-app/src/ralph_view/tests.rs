@@ -1,5 +1,5 @@
 use super::form::{model_choices, review_model_choices, whole};
-use super::render::{duration, progress, stats, title};
+use super::render::{branch, duration, progress, stats, title};
 use super::*;
 use buddy_core::ralph::launch::{Plan, Script};
 use buddy_core::ralph::progress::{Phase, Progress};
@@ -72,6 +72,7 @@ fn status(state: HostState, error: Option<&str>) -> Status {
                 total_premium: Some(10),
                 ..Default::default()
             },
+            branch: Some("feature/x-1a2b3c4d".into()),
         },
         exit_code: (state == HostState::Failed).then_some(3),
         error: error.map(str::to_owned),
@@ -270,7 +271,7 @@ fn the_launch_form_keeps_launch_visible_and_reports_input_errors(
             let launch = form.launch(cx).unwrap();
             assert_eq!(launch.pr_number, Some(12));
             assert_eq!(launch.script, Script::Pr);
-            assert!(!launch.audio && !launch.merge);
+            assert!(!launch.merge);
         })
     });
     // Validation runs in the core: a missing repository is refused there.
@@ -427,4 +428,26 @@ fn a_late_log_for_another_run_never_replaces_the_open_runs_log(cx: &mut gpui_kit
             assert_eq!(view.output.0, ["log of b"]);
         })
     });
+}
+
+#[test]
+fn the_branch_shown_is_the_one_the_loop_created() {
+    let root = tempfile::tempdir().unwrap();
+    write_run(
+        root.path(),
+        "printed",
+        1,
+        Some(status(HostState::Running, None)),
+        "",
+    );
+    write_run(root.path(), "pending", 2, None, "");
+    let mut store = Store::at(root.path().to_path_buf()).unwrap();
+    assert_eq!(branch(&store.run("printed").unwrap()), "feature/x-1a2b3c4d");
+    let mut pending = store.run("pending").unwrap();
+    assert_eq!(branch(&pending), "created by the loop");
+    pending.request.launch.branch = "fix/issue-12".into();
+    assert_eq!(
+        branch(&pending),
+        "fix/issue-12-… (suffix added by the loop)"
+    );
 }

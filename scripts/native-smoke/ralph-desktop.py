@@ -162,7 +162,7 @@ def qualify(executable, output, session, version):
         ], record=True)
         github.check(launched / "dashboard-dark.png", "Ralph Loops", "Start a loop", "Ralph Loop", "Ralph PR", "Ralph Issues")
         github.check(launched / "form-dark.png", "Ralph Loop", "Launch", "Repository", "Provider", "Model",
-            "Work agent", "Review agents", "Work iterations", "Repeat cycles", "Announce with audio")
+            "Work agent", "Review agents", "Work iterations", "Repeat cycles", "Merge the PR when it is clean")
         github.check(launched / "running-dark.png", "Running", "Iterating", "RALPH STUB TOOL", "Stop loop")
         github.check(launched / "completed-dark.png", "Completed", "RALPH STUB COMPLETE", "Retry", "Exit code 0")
         github.check(launched / "recent-dark.png", "Recent (1)", "Completed", "Ralph Loop")

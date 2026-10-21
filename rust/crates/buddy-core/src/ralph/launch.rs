@@ -90,8 +90,6 @@ pub struct Launch {
     /// script then runs `gh pr merge --squash --delete-branch --admin`, which bypasses
     /// branch protection, so it is off unless chosen.
     pub merge: bool,
-    /// Off passes `-NoAudio`: the scripts otherwise need edge-tts and write an mp3 into the repository.
-    pub audio: bool,
 }
 
 impl Default for Launch {
@@ -111,7 +109,6 @@ impl Default for Launch {
             labels: String::new(),
             dry_run: false,
             merge: false,
-            audio: false,
         }
     }
 }
@@ -345,12 +342,7 @@ impl Plan {
 pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, String> {
     let mut command = std::process::Command::new(&tools.git);
     command
-        .args([
-            "rev-parse",
-            "--show-toplevel",
-            "--path-format=absolute",
-            "--git-common-dir",
-        ])
+        .args(["rev-parse", "--show-toplevel", "--git-common-dir"])
         .current_dir(repository)
         .env("PATH", &tools.path)
         .stdin(std::process::Stdio::null())
@@ -367,7 +359,8 @@ pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, St
     let text = String::from_utf8_lossy(&output.stdout);
     match (output.status.success(), text.lines().nth(1)) {
         (true, Some(common)) if !common.trim().is_empty() => {
-            let common = PathBuf::from(common.trim());
+            // Older Git prints it relative to the folder it ran in.
+            let common = repository.join(common.trim());
             Ok(common.canonicalize().unwrap_or(common))
         }
         _ => Err(format!(
@@ -612,13 +605,17 @@ impl Launch {
                 add("DryRun", None);
             }
         }
-        if !self.audio {
-            add("NoAudio", None);
-        }
+        // The scripts' audio clips are not shipped, and `edge-tts` would write an mp3 into
+        // the repository, so loops always run silent.
+        add("NoAudio", None);
         // ralph-pr.ps1 merges with -AutoApprove; ralph.ps1 passes -MergeWhenClean on as that.
         if self.merge {
             match self.script {
-                Script::Pr => add("AutoApprove", None),
+                Script::Pr => {
+                    add("AutoApprove", None);
+                    // A merge Buddy was asked for that did not happen is a failed run.
+                    add("RequireMerge", None);
+                }
                 Script::Ralph => add("MergeWhenClean", None),
                 _ => {}
             }
@@ -815,7 +812,6 @@ mod tests {
         );
         launch.script = Script::Pr;
         launch.pr_number = Some(42);
-        launch.audio = true;
         launch.merge = true;
         let (_, declared) = launch.validate(&catalog, &scripts).unwrap();
         assert_eq!(
@@ -830,7 +826,9 @@ mod tests {
                 "pr-review-general,pr-review-security@copilot:gpt-5.5",
                 "-PRNumber",
                 "42",
+                "-NoAudio",
                 "-AutoApprove",
+                "-RequireMerge",
             ]
         );
         launch.script = Script::Issues;
@@ -848,7 +846,8 @@ mod tests {
                 "3",
                 "-Labels",
                 "tech-debt,automated",
-                "-DryRun"
+                "-DryRun",
+                "-NoAudio"
             ]
         );
     }

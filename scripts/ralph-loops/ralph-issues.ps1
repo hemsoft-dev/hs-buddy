@@ -18,7 +18,7 @@ param(
 if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Config: load shared model/agent configuration ---
-. "$PSScriptRoot\lib\config.ps1"
+. (Join-Path $PSScriptRoot 'lib' 'config.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -139,7 +139,7 @@ if ($Help) {
 }
 
 # --- Git repo validation ---
-$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', '\'
+$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', [IO.Path]::DirectorySeparatorChar
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not inside a git repository. Run this from within a repo." -ForegroundColor Red
     exit 1
@@ -300,7 +300,7 @@ Write-Host "== Ralph Issues - Codebase Scanner" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "  Started:         $runStartStr"
 Write-Host "  PID:             $PID"
-Write-Host "  Host:            $env:COMPUTERNAME"
+Write-Host "  Host:            $([Environment]::MachineName)"
 Write-Host "  Repo:            $repoSlug"
 Write-Host "  Directory:       $originalDir"
 Write-Host "  Max iterations:  $maxLabel"
@@ -316,7 +316,7 @@ Write-Host "====================================" -ForegroundColor Cyan
 $startLogBlock = @"
 [issues] Ralph Issues scan started at $runStartStr ($maxLabel iterations$deadlineStr)
   PID:              $PID
-  Host:             $env:COMPUTERNAME
+  Host:             $([Environment]::MachineName)
   Repo:             $repoSlug
   Directory:        $originalDir
   Max iterations:   $maxLabel

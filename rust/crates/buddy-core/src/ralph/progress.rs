@@ -37,6 +37,10 @@ pub struct Progress {
     /// The iteration the loop reported last, 1-based.
     pub iteration: Option<u32>,
     pub stats: Stats,
+    /// The branch the loop works on, as it prints it. ralph.ps1 adds a random suffix to
+    /// a requested branch, so this is the name to look for on GitHub.
+    #[serde(default)]
+    pub branch: Option<String>,
 }
 
 /// Removes terminal escape sequences (CSI and OSC) and other control characters except tabs.
@@ -128,7 +132,15 @@ impl Progress {
     pub fn observe(&mut self, line: &str) -> bool {
         let before = self.clone();
         let trimmed = line.trim();
-        if let Some(scan) = banner(trimmed, "Scan Iteration") {
+        if let Some(branch) = trimmed
+            .trim_start_matches('=')
+            .trim_start()
+            .strip_prefix("Branch:")
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty() && !branch.contains(char::is_whitespace))
+        {
+            self.branch = Some(branch.to_owned());
+        } else if let Some(scan) = banner(trimmed, "Scan Iteration") {
             self.phase = Phase::Scanning;
             self.stats.scan_iterations = self.stats.scan_iterations.max(scan);
         } else if let Some(iteration) = banner(trimmed, "Iteration") {
@@ -257,6 +269,23 @@ mod tests {
         );
         assert_eq!(strip_ansi("tab\there\u{0}→ é"), "tab\there→ é");
         assert_eq!(strip_ansi("cut\u{1b}"), "cut");
+    }
+
+    #[test]
+    fn the_branch_the_loop_prints_is_recorded() {
+        assert_eq!(
+            read(&["  Branch:          fix/issue-12-1a2b3c4d"])
+                .branch
+                .as_deref(),
+            Some("fix/issue-12-1a2b3c4d")
+        );
+        assert_eq!(
+            read(&["== Branch: feature/ralph-0f0f0f0f"])
+                .branch
+                .as_deref(),
+            Some("feature/ralph-0f0f0f0f")
+        );
+        assert_eq!(read(&["Branch: not a name"]).branch, None);
     }
 
     #[test]

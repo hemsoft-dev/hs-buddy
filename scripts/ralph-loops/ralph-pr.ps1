@@ -15,6 +15,8 @@ param(
     [switch]$NoAudio,
     [switch]$SkipReview,
     [switch]$AutoApprove,
+    # Exit 3 unless the PR was merged (for callers that build on the merged work).
+    [switch]$RequireMerge,
     [switch]$Help
 )
 
@@ -22,7 +24,7 @@ param(
 if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Config: load shared model/agent configuration ---
-. "$PSScriptRoot\lib\config.ps1"
+. (Join-Path $PSScriptRoot 'lib' 'config.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -122,6 +124,7 @@ if ($Help) {
     Write-Host "                         Note: -SkipReview does NOT suppress explicit -Agents reviews."
     Write-Host "  -StatsPath <path>      Write PR phase stats JSON to this path (for parent rollup)"
     Write-Host "  -NoAudio               Suppress audio feedback"
+    Write-Host "  -RequireMerge          Exit 3 unless the PR was merged (with -Autopilot -AutoApprove)"
     Write-Host "  -Help                  Show this help message"
     Write-Host ""
     Write-Host "MODELS" -ForegroundColor Yellow
@@ -164,7 +167,7 @@ if ($Help) {
 }
 
 # --- Git repo validation ---
-$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', '\'
+$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', [IO.Path]::DirectorySeparatorChar
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not inside a git repository. Run this from within a repo." -ForegroundColor Red
     exit 1
@@ -346,8 +349,8 @@ foreach ($line in $wtLines) {
     if ($line -match "^branch refs/heads/(.+)$") {
         $currentWtBranch = $Matches[1].Trim()
         if ($currentWtBranch -eq $prBranch) {
-            $normalizedWtPath = ($currentWtPath -replace '/', '\').TrimEnd('\')
-            $normalizedTarget = ($worktreeDir -replace '/', '\').TrimEnd('\')
+            $normalizedWtPath = ($currentWtPath -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            $normalizedTarget = ($worktreeDir -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
             if ($normalizedWtPath -eq $normalizedTarget) {
                 $worktreeExists = $true
             }
@@ -360,8 +363,8 @@ foreach ($line in $wtLines) {
 }
 
 if ($branchAttachedElsewhere) {
-    $normalizedAttached = ($attachedPath -replace '/', '\').TrimEnd('\')
-    $normalizedRepoRoot = ($repoRoot -replace '/', '\').TrimEnd('\')
+    $normalizedAttached = ($attachedPath -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $normalizedRepoRoot = ($repoRoot -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
     if ($normalizedAttached -eq $normalizedRepoRoot) {
         if ($Autopilot) {
             # In autopilot mode (launched from UI), always use a separate worktree.
@@ -476,7 +479,7 @@ Write-Host "== Ralph PR - Comment Resolver" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "  Started:         $runStartStr"
 Write-Host "  PID:             $PID"
-Write-Host "  Host:            $env:COMPUTERNAME"
+Write-Host "  Host:            $([Environment]::MachineName)"
 Write-Host "  Invoked from:    $originalDir"
 Write-Host "  PR:              #$PRNumber ($repoSlug) - https://github.com/$repoSlug/pull/$PRNumber"
 Write-Host "  Branch:          $prBranch"
@@ -500,7 +503,7 @@ Write-Host "====================================" -ForegroundColor Cyan
 $startLogBlock = @"
 [$logTag] Ralph PR started at $runStartStr for PR #$PRNumber ($repoSlug, branch: $prBranch, worktree: $worktreeDir$deadlineStr)
   PID:              $PID
-  Host:             $env:COMPUTERNAME
+  Host:             $([Environment]::MachineName)
   Script:           $PSCommandPath
   Invoked from:     $originalDir
   PR:               #$PRNumber (https://github.com/$repoSlug/pull/$PRNumber)
@@ -1019,7 +1022,7 @@ IMPORTANT: Make all fixes first, run the build and tests locally to verify, then
                     $reviewMarker = "<!-- ralph-review: role=$($spec.Role) model=$($spec.ModelId) sha=$headSha nonce=$reviewNonce -->"
 
                     # Agent writes structured findings to a temp file; Ralph posts the review
-                    $findingsPath = Join-Path $env:TEMP "ralph-review-findings-$reviewNonce.json"
+                    $findingsPath = Join-Path ([IO.Path]::GetTempPath()) "ralph-review-findings-$reviewNonce.json"
 
                     $reviewPrompt = @"
 You are reviewing PR #$PRNumber in $repoSlug (branch: $prBranch, head SHA: $headSha).
@@ -1153,7 +1156,7 @@ Your only output is the JSON findings file at the path above.
                         if ($validComments.Count -gt 0) { $reviewPayload["comments"] = $validComments }
 
                         # Post the review via GitHub API
-                        $payloadPath = Join-Path $env:TEMP "ralph-review-payload-$reviewNonce.json"
+                        $payloadPath = Join-Path ([IO.Path]::GetTempPath()) "ralph-review-payload-$reviewNonce.json"
                         $reviewPayload | ConvertTo-Json -Depth 4 -Compress | Set-Content $payloadPath -Encoding UTF8
                         $apiResponse = gh api "repos/$owner/$repo/pulls/$PRNumber/reviews" --input $payloadPath 2>&1
                         Remove-Item $payloadPath -Force -ErrorAction SilentlyContinue
@@ -1567,6 +1570,7 @@ if ($prClean) {
         $mergeOutput | Out-File $logFile -Append -Encoding UTF8
 
         if ($LASTEXITCODE -eq 0) {
+            $script:Merged = $true
             Write-Host "PR #$PRNumber merged successfully." -ForegroundColor Green
             "[$logTag] PR #$PRNumber merged successfully." | Out-File $logFile -Append -Encoding UTF8
 
@@ -1602,6 +1606,13 @@ if ($prClean) {
 # --- Restore BYOK environment variables ---
 if ($script:SavedByokEnv -and $script:SavedByokEnv.Count -gt 0) {
     Restore-RalphProviderEnv -Saved $script:SavedByokEnv
+}
+
+# A caller that builds on the merged work (repeat cycles) must not continue without it.
+if ($RequireMerge -and -not $script:Merged) {
+    Write-Host "A merge was required, but PR #$PRNumber was not merged." -ForegroundColor Red
+    "[$logTag] Required merge did not happen." | Out-File $logFile -Append -Encoding UTF8
+    exit 3
 }
 
 exit 0

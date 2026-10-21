@@ -358,7 +358,7 @@ impl RalphView {
                     } else {
                         &launch.model
                     },
-                    branch(launch),
+                    branch(run),
                     progress(run)
                 ),
                 cx,
@@ -551,7 +551,7 @@ impl RalphView {
             numbers = numbers.child(
                 div()
                     .w(zpx(320.))
-                    .child(labeled("Branch (optional)", input("branch"))),
+                    .child(labeled("Branch prefix (optional)", input("branch"))),
             );
         }
         if script == Script::Issues {
@@ -588,16 +588,8 @@ impl RalphView {
                 |form| form.merge = !form.merge,
             ));
         }
-        options = options.child(Self::toggle(
-            "ralph-audio",
-            "Announce with audio",
-            form.audio,
-            busy,
-            cx,
-            |form| form.audio = !form.audio,
-        ));
         body = body.child(options).child(muted(
-            "Audio needs edge-tts and saves an mp3 into the repository. The loop runs in its own process and keeps running if Buddy closes; Stop ends only that loop's processes.",
+            "The loop runs in its own process and keeps running if Buddy closes; Stop ends only that loop's processes.",
             cx,
         ));
         body.into_any_element()
@@ -731,7 +723,7 @@ impl RalphView {
                     or_default(&launch.model),
                     or_default(&launch.provider),
                     or_default(&launch.dev_agent),
-                    branch(launch)
+                    branch(run)
                 ),
                 cx,
             ))
@@ -825,11 +817,19 @@ impl RalphView {
     }
 }
 
-fn branch(launch: &buddy_core::ralph::launch::Launch) -> &str {
-    if launch.branch.is_empty() {
-        "created by the loop"
-    } else {
-        &launch.branch
+/// The branch the loop printed; until then, what was asked for. ralph.ps1 adds a random
+/// suffix to a requested name.
+pub(super) fn branch(run: &Run) -> String {
+    if let Some(branch) = run
+        .status
+        .as_ref()
+        .and_then(|status| status.progress.branch.clone())
+    {
+        return branch;
+    }
+    match run.request.launch.branch.as_str() {
+        "" => "created by the loop".into(),
+        prefix => format!("{prefix}-… (suffix added by the loop)"),
     }
 }
 

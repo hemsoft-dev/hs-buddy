@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1516] - 2026-10-21
+
+### Fixed
+
+- Run the Ralph scripts on Unix and fail cycles without a merge
+
 ## [0.1.1515] - 2026-10-21
 
 ### Fixed

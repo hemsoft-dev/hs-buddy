@@ -152,7 +152,6 @@ pub(super) struct Form {
     review_models: Vec<Choice>,
     pub dry_run: bool,
     pub merge: bool,
-    pub audio: bool,
 }
 
 fn picker(
@@ -305,7 +304,6 @@ impl Form {
             review_models,
             dry_run: base.dry_run,
             merge: base.merge,
-            audio: base.audio,
         };
         for review in &base.review_agents {
             form.toggle_review(&review.role, review.model.as_deref(), window, cx);
@@ -388,7 +386,6 @@ impl Form {
             },
             dry_run: issues && self.dry_run,
             merge: self.script.can_merge() && self.merge,
-            audio: self.audio,
         })
     }
 }
