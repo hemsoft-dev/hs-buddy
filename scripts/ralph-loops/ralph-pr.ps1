@@ -1349,6 +1349,7 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                             $copilotReviewWaitCycles = 0
                         } else {
                             Write-Status "Copilot review request failed — treating PR as clean (no review available)."
+                            $script:ReviewUnavailable = $true
                             $prClean = $true
                             break
                         }
@@ -1356,6 +1357,7 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                         $copilotReviewWaitCycles++
                         if ($copilotReviewWaitCycles -ge 5) {
                             Write-Status "Copilot review not received after $copilotReviewWaitCycles cycles (~15 min). Skipping review — treating PR as clean."
+                            $script:ReviewUnavailable = $true
                             $copilotReviewPending = $false
                             $prClean = $true
                             break
@@ -1375,6 +1377,7 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                         $copilotReviewWaitCycles = 0
                     } else {
                         Write-Status "Copilot review request failed — treating PR as clean."
+                        $script:ReviewUnavailable = $true
                         $prClean = $true
                         break
                     }
@@ -1526,6 +1529,14 @@ $tokCachedStr = ConvertTo-TokenString $totalTokensCached
 
 # --- Completion audio ---
 Invoke-Audio "ralph-pr-loop-completed.mp3"
+
+# A merge a caller requires (-RequireMerge, Buddy's merge option) needs a completed review:
+# without one the PR is neither approved nor merged, and the run fails below.
+if ($RequireMerge -and $script:ReviewUnavailable -and $prClean) {
+    Write-Host "No review completed, so PR #$PRNumber is neither approved nor merged." -ForegroundColor Yellow
+    "[$logTag] No completed review; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
+    $prClean = $false
+}
 
 # --- Auto-approve PR if requested and clean ---
 if ($prClean -and $AutoApprove) {

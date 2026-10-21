@@ -347,6 +347,8 @@ function Get-OpenIssueCount {
 # --- Main loop ---
 $completedIterations = 0
 $copilotInvocations = 0
+# Detect console availability once — false when launched from hs-buddy with piped stdio
+$script:HasConsole = try { [Console]::KeyAvailable; $true } catch { $false }
 $agentFailures = 0
 $totalPremiumRequests = 0
 $totalTokensIn = 0.0
@@ -366,7 +368,7 @@ for ($i = 1; $i -le $Max; $i++) {
     }
 
     # --- Early exit: hotkey check ---
-    while ([Console]::KeyAvailable) {
+    while ($script:HasConsole -and [Console]::KeyAvailable) {
         $key = [Console]::ReadKey($true)
         if ($key.Key -eq 'Q' -or $key.Key -eq 'Escape') {
             $earlyExitReason = "User pressed $($key.Key)"
