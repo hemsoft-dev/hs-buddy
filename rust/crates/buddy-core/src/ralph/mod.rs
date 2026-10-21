@@ -26,6 +26,7 @@ pub fn start(
     let catalog = scripts.catalog()?;
     let (script, declared) = launch.validate(&catalog, &scripts)?;
     let tools = launch::discover_installed()?;
+    launch::verify_repository(&launch.repository, &tools)?;
     let cycles = if launch.script.uses_cycles() {
         launch.cycles
     } else {

@@ -195,7 +195,11 @@ impl RalphView {
         let task = cx.background_executor().spawn(async move {
             let mut store = store.lock().unwrap_or_else(|error| error.into_inner());
             let runs = store.runs();
-            let output = detail.as_deref().map(|id| store.output(id));
+            // Tagged with its run: the page may show another run by the time this lands.
+            let output = detail.map(|id| {
+                let lines = store.output(&id);
+                (id, lines)
+            });
             (runs, output)
         });
         cx.spawn(async move |this, cx| {
@@ -208,12 +212,15 @@ impl RalphView {
     fn apply(
         &mut self,
         runs: Vec<Run>,
-        output: Option<(Vec<String>, bool)>,
+        output: Option<(String, (Vec<String>, bool))>,
         cx: &mut Context<Self>,
     ) {
         let mut changed = !self.loaded || runs != self.runs;
         self.loaded = true;
         self.runs = runs;
+        let output = output
+            .filter(|(id, _)| self.detail_id().as_ref() == Some(id))
+            .map(|(_, output)| output);
         if let Some(output) = output
             && output != self.output
         {

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1510] - 2026-10-21
+
+### Fixed
+
+- Address Codex review of Ralph loops
+
 ## [0.1.1509] - 2026-10-21
 
 ### Fixed

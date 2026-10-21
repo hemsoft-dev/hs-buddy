@@ -49,12 +49,19 @@ The form has the same inputs as Electron Buddy:
   chooser. The form starts with the repository of the most recent run.
 - **Provider, Model, Work agent**: from `config/providers.json`,
   `config/models.json` and `config/agents.json`. Model lists only what the
-  chosen provider can run.
+  chosen provider can run. Default means the provider's own `defaultModel`
+  when it has one (the OpenCode and OpenRouter providers do), else the
+  catalog default, exactly as the scripts resolve it.
 - **Review agents**: the review roles to run on the pull request, each with an
   optional model.
 - **Work iterations** (Scan iterations for Ralph Issues), 1 to 100, and
   **Repeat cycles**, 1 to 50, for Ralph Loop and templates. A cycle runs the
-  whole script again after the previous one succeeded.
+  whole script again after the previous one succeeded. Before each further
+  cycle Buddy fast-forwards the checked-out branch from its upstream
+  (`git pull --ff-only`), so the next cycle starts from merged work; a branch
+  without an upstream is left as it is, and a failed fast-forward stops the
+  run. Unlike the old repeat wrapper, Buddy never switches the checkout to
+  another branch.
 - **Branch** for Ralph Loop and templates, **Pull request number** for Ralph
   PR, **Issue labels** and **Dry run** for Ralph Issues.
 - **Prompt**. A template fills in its own prompt.
@@ -67,8 +74,10 @@ The form has the same inputs as Electron Buddy:
 
 Launch checks every input before anything starts: the repository exists and
 is inside a Git repository, the provider and model exist and the provider can
-run the model, the agents exist, and the numbers, branch and labels are valid.
-Then it checks the programs above. Only one loop can be active per repository;
+run the model, the agents exist, and the numbers, branch and labels are valid
+(branches follow Git's own naming rules). Then it checks the programs above and
+asks Git to confirm the repository, as the scripts do. Only one loop can be
+active per repository;
 a second launch there names the active run instead.
 
 ## Following a run
@@ -132,7 +141,8 @@ control pipe closes, so no loop runs without a host.
 Buddy reads the run folders every second. A run whose status is not final but
 whose lock is free is shown as interrupted. Buddy keeps the newest 100 runs and
 deletes older finished ones. Output beyond 64 MB is not saved; the loop keeps
-running.
+running. On macOS and Linux the run folders are readable only by you (`0700`
+folders, `0600` files), since prompts and loop output can be sensitive.
 
 The scripts are built into the app and written to
 `native-ralph/scripts/<content hash>` before a launch, so every package runs

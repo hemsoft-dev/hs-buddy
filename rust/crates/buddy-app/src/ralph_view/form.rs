@@ -38,7 +38,10 @@ fn choice(value: &str, title: String) -> Choice {
 
 /// Models the provider can run, with their aliases and tiers, after a default entry.
 pub(super) fn model_choices(catalog: &Catalog, provider: &str) -> Vec<Choice> {
-    let mut choices = vec![choice("", format!("Default ({})", catalog.default_model))];
+    let mut choices = vec![choice(
+        "",
+        format!("Default ({})", catalog.effective_model(provider, "")),
+    )];
     choices.extend(
         catalog
             .models

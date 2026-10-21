@@ -160,9 +160,46 @@ pub(super) fn locked(path: &Path) -> bool {
     }
 }
 
+/// Options for a run file: owner-only on Unix from its first byte, since prompts and
+/// loop output can be sensitive. Windows profile folders are already per-user.
+pub(super) fn private_file() -> OpenOptions {
+    let options = OpenOptions::new();
+    #[cfg(unix)]
+    let options = {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let mut options = options;
+        options.mode(0o600);
+        options
+    };
+    options
+}
+
+pub(super) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    private_file()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?
+        .write_all(bytes)
+}
+
+/// A folder only its owner can enter on Unix.
+fn create_private_folder(path: &Path) -> std::io::Result<()> {
+    let builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    let builder = {
+        use std::os::unix::fs::DirBuilderExt as _;
+        let mut builder = builder;
+        builder.mode(0o700);
+        builder
+    };
+    builder.create(path)
+}
+
 pub(super) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
-    std::fs::write(&temporary, bytes)?;
+    write_private(&temporary, bytes)?;
     let mut attempt = 0;
     loop {
         match std::fs::rename(&temporary, path) {
@@ -210,6 +247,12 @@ impl Store {
     pub fn at(root: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(root.join("runs"))
             .map_err(|error| format!("The Ralph run folder could not be created: {error}"))?;
+        #[cfg(unix)]
+        for folder in [root.join("runs"), root.clone()] {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700))
+                .map_err(|error| format!("The Ralph run folder could not be secured: {error}"))?;
+        }
         Ok(Self {
             root,
             requests: HashMap::new(),
@@ -352,11 +395,11 @@ impl Store {
         }
         let id = uuid::Uuid::new_v4().to_string();
         let folder = self.folder(&id);
-        std::fs::create_dir(&folder)
+        create_private_folder(&folder)
             .map_err(|error| format!("The run folder could not be created: {error}"))?;
         let written = (|| {
             if !launch.prompt.trim().is_empty() {
-                std::fs::write(folder.join(PROMPT), &launch.prompt)?;
+                write_private(&folder.join(PROMPT), launch.prompt.as_bytes())?;
             }
             let request = Request {
                 id: id.clone(),
@@ -557,6 +600,34 @@ mod tests {
         store.discard_unstarted(&id);
         assert!(store.runs().is_empty());
         assert!(store.request_stop(&id).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_files_are_owner_only_from_creation() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let repository = tempfile::tempdir().unwrap();
+        let mut store = Store::at(root.path().join("native-ralph")).unwrap();
+        let launch = Launch {
+            repository: repository.path().to_path_buf(),
+            prompt: "secret".into(),
+            ..Launch::default()
+        };
+        let id = store.create(launch, None, plan).unwrap();
+        let folder = store.folder(&id);
+        write_atomically(
+            &folder.join(STATUS),
+            &serde_json::to_vec(&status(HostState::Running)).unwrap(),
+        )
+        .unwrap();
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&root.path().join("native-ralph")), 0o700);
+        assert_eq!(mode(&root.path().join("native-ralph/runs")), 0o700);
+        assert_eq!(mode(&folder), 0o700);
+        for file in [PROMPT, REQUEST, STATUS] {
+            assert_eq!(mode(&folder.join(file)), 0o600, "{file}");
+        }
     }
 
     #[test]

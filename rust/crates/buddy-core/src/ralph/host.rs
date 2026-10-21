@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use super::launch::Plan;
 use super::progress::{Progress, strip_ansi};
 use super::store::{
-    HostState, LOCK, OUTPUT, REQUEST, Request, STARTED, STATUS, STOP, Status, now_ms,
-    write_atomically,
+    HostState, LOCK, OUTPUT, REQUEST, Request, STARTED, STATUS, STOP, Status, now_ms, private_file,
+    write_atomically, write_private,
 };
 
 const MAX_START: usize = 1024 * 1024;
@@ -291,7 +291,7 @@ struct Log {
 
 impl Log {
     fn open(path: &Path) -> Self {
-        let file = OpenOptions::new().create(true).append(true).open(path).ok();
+        let file = private_file().create(true).append(true).open(path).ok();
         let written = file
             .as_ref()
             .and_then(|file| file.metadata().ok())
@@ -415,6 +415,11 @@ impl Host {
             if self.stop_requested() {
                 return self.finish(HostState::Stopped, None, None);
             }
+            if cycle > 1
+                && let Err(error) = self.refresh(plan)
+            {
+                return self.finish(HostState::Failed, None, Some(error));
+            }
             self.status.cycle = cycle;
             if cycles > 1 {
                 self.log
@@ -435,6 +440,74 @@ impl Host {
             }
         }
         self.finish(HostState::Completed, Some(0), None)
+    }
+
+    /// Before another cycle, fast-forward the repository's checked-out branch from its
+    /// upstream, as `ralph-repeat.ps1` did, so the next cycle starts from merged work.
+    /// Unlike that wrapper, the checkout is never switched to another branch.
+    fn refresh(&mut self, plan: &Plan) -> Result<(), String> {
+        let upstream = self.git(plan, &["rev-parse", "--abbrev-ref", "@{upstream}"])?;
+        if !upstream.status.success() {
+            self.log.line(
+                "[Buddy] The checked-out branch has no upstream; the next cycle starts from the local checkout.",
+            );
+            return Ok(());
+        }
+        let name = String::from_utf8_lossy(&upstream.stdout).trim().to_owned();
+        self.log.line(&format!(
+            "[Buddy] Fast-forwarding from {name} before the next cycle."
+        ));
+        let pull = self.git(plan, &["pull", "--ff-only"])?;
+        for bytes in [&pull.stdout, &pull.stderr] {
+            for line in String::from_utf8_lossy(bytes).lines() {
+                if !line.trim().is_empty() {
+                    self.log.line(&format!("[git] {}", strip_ansi(line)));
+                }
+            }
+        }
+        if pull.status.success() {
+            Ok(())
+        } else {
+            Err("The repository could not be fast-forwarded before the next cycle, so the loop stopped. Update the checkout, then retry.".into())
+        }
+    }
+
+    /// Runs Git in the repository with the loop's PATH, giving up after five minutes.
+    fn git(&self, plan: &Plan, arguments: &[&str]) -> Result<std::process::Output, String> {
+        let mut command = Command::new("git");
+        command
+            .args(arguments)
+            .current_dir(&plan.directory)
+            .env("PATH", &plan.path)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        }
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("Git could not run before the next cycle: {error}"))?;
+        let deadline = Instant::now() + Duration::from_secs(300);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL),
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(
+                        "Git did not finish updating the repository before the next cycle.".into(),
+                    );
+                }
+            }
+        }
+        child
+            .wait_with_output()
+            .map_err(|error| format!("Git's output could not be read: {error}"))
     }
 
     fn output(&mut self, error: bool, bytes: &[u8]) {
@@ -458,7 +531,7 @@ impl Host {
             Err(error) => return Outcome::Error(error),
         };
         let launcher = self.folder.join(LAUNCHER);
-        if let Err(error) = std::fs::write(&launcher, plan.launcher()) {
+        if let Err(error) = write_private(&launcher, plan.launcher().as_bytes()) {
             let _ = owned.cleanup();
             return Outcome::Error(format!("The loop launcher could not be written: {error}"));
         }

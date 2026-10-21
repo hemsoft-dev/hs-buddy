@@ -327,6 +327,33 @@ impl Plan {
     }
 }
 
+/// Asks Git, as the scripts do (`git rev-parse --show-toplevel`), whether `repository` is
+/// in a working tree. An empty `.git` folder or a stale worktree link passes the cheap
+/// ancestor check but fails here, before anything is recorded.
+pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<(), String> {
+    let mut command = std::process::Command::new("git");
+    command
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(repository)
+        .env("PATH", &tools.path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err(format!(
+            "{} is not inside a Git repository.",
+            repository.display()
+        )),
+        Err(error) => Err(format!("Git could not check the repository: {error}")),
+    }
+}
+
 fn inside_git_repository(directory: &Path) -> bool {
     directory
         .ancestors()
@@ -338,15 +365,21 @@ fn plain_value(value: &str) -> bool {
     !value.starts_with('-') && value.trim() == value && !value.chars().any(char::is_control)
 }
 
+/// A branch name `git check-ref-format --branch` accepts, and that PowerShell binds as data.
 fn valid_branch(branch: &str) -> bool {
     plain_value(branch)
+        && branch != "@"
         && !branch.contains("..")
-        && !branch.ends_with('/')
-        && !branch.ends_with(".lock")
-        && !branch.starts_with('/')
+        && !branch.contains("@{")
+        && !branch.ends_with('.')
         && !branch
             .chars()
-            .any(|c| c.is_whitespace() || "~^:?*[\\".contains(c))
+            .any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
+        // Every slash-separated part: not empty (no leading, trailing or double slash),
+        // not dot-prefixed, and not ending in .lock.
+        && branch
+            .split('/')
+            .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 
 impl Launch {
@@ -395,16 +428,8 @@ impl Launch {
         if !catalog.supports(&self.provider, &self.model) {
             return Err(format!(
                 "The {} provider cannot run {}. Choose another model or provider.",
-                if self.provider.is_empty() {
-                    &catalog.default_provider
-                } else {
-                    &self.provider
-                },
-                if self.model.is_empty() {
-                    &catalog.default_model
-                } else {
-                    &self.model
-                }
+                catalog.effective_provider(&self.provider),
+                catalog.effective_model(&self.provider, &self.model)
             ));
         }
         if !self.dev_agent.is_empty()
@@ -454,7 +479,7 @@ impl Launch {
         }
         if !self.branch.is_empty() && !valid_branch(&self.branch) {
             return Err(
-                "Branch names cannot start with '-' or contain spaces, '..' or ~ ^ : ? * [ \\."
+                "Branch names must be valid Git branches: no spaces, '..', '@{' or ~ ^ : ? * [ \\, no part that is empty, starts with '.' or ends with '.lock', and no leading '-'."
                     .into(),
             );
         }
@@ -657,9 +682,36 @@ mod tests {
             })
             .starts_with("Repeat cycles must be")
         );
-        for branch in ["-x", "a b", "a..b", "feature/", "x.lock", "a:b"] {
+        // git-check-ref-format's branch rules.
+        for branch in [
+            "-x",
+            "a b",
+            "a..b",
+            "feature/",
+            "x.lock",
+            "a:b",
+            ".topic",
+            "topic//next",
+            "topic.",
+            "topic@{next",
+            "@",
+            "a/.b",
+            "a/b.lock/c",
+            "/a",
+        ] {
             assert!(
                 check(&|l| l.branch = branch.into()).starts_with("Branch names"),
+                "{branch}"
+            );
+        }
+        for branch in ["feature/x", "fix/issue-12", "a.b", "release@2"] {
+            let mut launch = base.clone();
+            launch.branch = branch.into();
+            let scripts = scripts();
+            assert!(
+                launch
+                    .validate(&scripts.catalog().unwrap(), &scripts)
+                    .is_ok(),
                 "{branch}"
             );
         }
@@ -808,6 +860,35 @@ mod tests {
                 .arguments(&declared, None)
                 .contains(&"-AutoApprove".into())
         );
+    }
+
+    #[test]
+    fn git_confirms_the_repository_before_a_run_is_recorded() {
+        let tools = Tools {
+            pwsh: PathBuf::from("pwsh"),
+            path: std::env::var_os("PATH").unwrap_or_default(),
+        };
+        // An empty .git folder passes the quick check but is no repository.
+        let fake = repository();
+        assert!(inside_git_repository(fake.path()));
+        let error = verify_repository(fake.path(), &tools).unwrap_err();
+        assert!(
+            error.ends_with("is not inside a Git repository."),
+            "{error}"
+        );
+        let real = tempfile::Builder::new()
+            .prefix("real repo ")
+            .tempdir()
+            .unwrap();
+        let init = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(real.path())
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let nested = real.path().join("sub folder");
+        std::fs::create_dir(&nested).unwrap();
+        assert_eq!(verify_repository(&nested, &tools), Ok(()));
     }
 
     #[test]

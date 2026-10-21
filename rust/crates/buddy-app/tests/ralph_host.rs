@@ -42,6 +42,7 @@ struct Fixture {
     _root: tempfile::TempDir,
     repository: PathBuf,
     store: Store,
+    cycles: u32,
 }
 
 fn fixture() -> Fixture {
@@ -56,6 +57,7 @@ fn fixture() -> Fixture {
     Fixture {
         repository,
         store,
+        cycles: 1,
         _root: root,
     }
 }
@@ -86,6 +88,7 @@ impl Fixture {
     fn start(&mut self, arguments: &[&str]) -> String {
         let script = self.repository.join("stub.ps1");
         let directory = self.repository.clone();
+        let cycles = self.cycles;
         let mut extra = arguments.iter().map(|a| a.to_string()).collect::<Vec<_>>();
         let launch = Launch {
             repository: self.repository.clone(),
@@ -108,7 +111,7 @@ impl Fixture {
                     arguments,
                     directory,
                     path: std::env::var_os("PATH").unwrap(),
-                    cycles: 1,
+                    cycles,
                 }
             })
             .unwrap();
@@ -289,4 +292,77 @@ fn a_dead_host_leaves_an_interrupted_run_and_takes_its_loop_along() {
         .status()
         .unwrap();
     assert_eq!(again.code(), Some(4));
+}
+
+fn git(directory: &Path, arguments: &[&str]) -> String {
+    let output = Command::new("git")
+        .args([
+            "-c",
+            "user.name=Buddy Test",
+            "-c",
+            "user.email=test@example.invalid",
+        ])
+        .args(arguments)
+        .current_dir(directory)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {arguments:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+#[test]
+fn repeat_cycles_fast_forward_the_checkout_between_cycles() {
+    let mut fixture = fixture();
+    let parent = fixture.repository.parent().unwrap().to_path_buf();
+    let remote = parent.join("remote.git");
+    git(&parent, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    let repository = fixture.repository.clone();
+    git(&repository, &["init", "-q", "-b", "main"]);
+    git(&repository, &["add", "stub.ps1"]);
+    git(&repository, &["commit", "-q", "-m", "stub"]);
+    git(
+        &repository,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&repository, &["push", "-q", "-u", "origin", "main"]);
+    // Work merged upstream while the first cycle ran.
+    let other = parent.join("other clone");
+    git(
+        &parent,
+        &[
+            "clone",
+            "-q",
+            remote.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    std::fs::write(other.join("merged.txt"), "merged").unwrap();
+    git(&other, &["add", "merged.txt"]);
+    git(&other, &["commit", "-q", "-m", "merged"]);
+    git(&other, &["push", "-q", "origin", "main"]);
+    fixture.cycles = 2;
+    let id = fixture.start(&[]);
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Completed
+    );
+    assert_eq!(
+        git(&repository, &["rev-parse", "HEAD"]),
+        git(&other, &["rev-parse", "HEAD"])
+    );
+    let (output, _) = fixture.store.output(&id);
+    assert!(
+        output.contains(
+            &"[Buddy] Fast-forwarding from origin/main before the next cycle.".to_string()
+        ),
+        "{output:?}"
+    );
+    assert!(
+        output.contains(&"[Buddy] Cycle 2 of 2 started.".to_string()),
+        "{output:?}"
+    );
 }

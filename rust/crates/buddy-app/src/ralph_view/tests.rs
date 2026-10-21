@@ -390,3 +390,39 @@ fn a_handoff_opens_a_filled_form_without_starting_anything(cx: &mut gpui_kit::Te
             .is_none()
     );
 }
+
+#[gpui_kit::test]
+fn a_late_log_for_another_run_never_replaces_the_open_runs_log(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    write_run(
+        root.path(),
+        "a",
+        1,
+        Some(status(HostState::Completed, None)),
+        "log of a\n",
+    );
+    write_run(
+        root.path(),
+        "b",
+        2,
+        Some(status(HostState::Completed, None)),
+        "log of b\n",
+    );
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|_, cx| view.update(cx, |view, cx| view.open_detail("b".into(), cx)));
+    visual.run_until_parked();
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            let runs = view.runs.clone();
+            // A refresh started while run a was open completes after b was opened.
+            view.apply(
+                runs,
+                Some(("a".into(), (vec!["log of a".into()], false))),
+                cx,
+            );
+            assert_eq!(view.output.0, ["log of b"]);
+        })
+    });
+}

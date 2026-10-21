@@ -278,6 +278,8 @@ pub struct ProviderChoice {
     pub key: String,
     pub description: String,
     pub vendors: Vec<String>,
+    /// The model this provider runs when none is chosen (`defaultModel`).
+    pub default_model: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -380,6 +382,8 @@ impl Catalog {
                                 .collect()
                         })
                         .unwrap_or_default(),
+                    default_model: Some(text(value, "defaultModel"))
+                        .filter(|model| !model.is_empty()),
                 })
                 .collect(),
             default_provider: text(providers, "default"),
@@ -406,18 +410,30 @@ impl Catalog {
         self.providers.iter().find(|provider| provider.key == name)
     }
 
-    /// Whether `provider` (empty for the default) can run `model` (empty for the default).
-    pub fn supports(&self, provider: &str, model: &str) -> bool {
-        let provider = if provider.is_empty() {
-            self.default_provider.as_str()
+    /// The provider a launch uses: `provider`, or the catalog default when empty.
+    pub fn effective_provider<'a>(&'a self, provider: &'a str) -> &'a str {
+        if provider.is_empty() {
+            &self.default_provider
         } else {
             provider
-        };
-        let model = if model.is_empty() {
-            self.default_model.as_str()
-        } else {
-            model
-        };
+        }
+    }
+
+    /// The model a launch runs, as `Resolve-RalphEffectiveModel` decides it: the chosen
+    /// model, else the provider's `defaultModel`, else the catalog default.
+    pub fn effective_model<'a>(&'a self, provider: &'a str, model: &'a str) -> &'a str {
+        if !model.is_empty() {
+            return model;
+        }
+        self.provider(self.effective_provider(provider))
+            .and_then(|provider| provider.default_model.as_deref())
+            .unwrap_or(&self.default_model)
+    }
+
+    /// Whether `provider` (empty for the default) can run `model` (empty for its default).
+    pub fn supports(&self, provider: &str, model: &str) -> bool {
+        let model = self.effective_model(provider, model);
+        let provider = self.effective_provider(provider);
         match (self.provider(provider), self.model(model)) {
             (Some(provider), Some(model)) => {
                 provider.vendors.is_empty() || provider.vendors.contains(&model.vendor)
@@ -503,6 +519,11 @@ mod tests {
         assert!(!catalog.review_agents.is_empty());
         assert!(catalog.supports("", ""));
         assert!(catalog.model("sonnet").is_some());
+        // As Resolve-RalphEffectiveModel: a provider's defaultModel beats the catalog default.
+        assert_eq!(catalog.effective_model("", ""), catalog.default_model);
+        assert_eq!(catalog.effective_model("openrouter", ""), "kimi-k2.6");
+        assert_eq!(catalog.effective_model("openrouter", "sonnet"), "sonnet");
+        assert!(catalog.supports("openrouter", ""));
     }
 
     #[test]
