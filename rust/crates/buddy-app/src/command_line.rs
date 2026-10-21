@@ -10,6 +10,8 @@ pub enum Command {
     Version,
     TerminalHost,
     AutomationHost,
+    RalphHost(PathBuf),
+    RalphExec,
     PrepareCopilotRuntime(PathBuf),
     QualifyCopilot(PathBuf),
 }
@@ -33,6 +35,16 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
             Command::PrepareCopilotRuntime(root)
         });
     }
+    if argument == "--ralph-host" {
+        let run = arguments
+            .next()
+            .map(PathBuf::from)
+            .ok_or("A run folder is required.")?;
+        if !run.is_absolute() || arguments.next().is_some() {
+            return Err("A single absolute run folder is required.");
+        }
+        return Ok(Command::RalphHost(run));
+    }
     if arguments.next().is_some() {
         return Err("Unexpected arguments. Use --help for usage.");
     }
@@ -41,6 +53,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
         Some("--version" | "-V") => Ok(Command::Version),
         Some("--terminal-host") => Ok(Command::TerminalHost),
         Some("--automation-host") => Ok(Command::AutomationHost),
+        Some("--ralph-exec") => Ok(Command::RalphExec),
         _ => Err("Unknown argument. Use --help for usage."),
     }
 }
@@ -85,6 +98,20 @@ mod tests {
             Ok(Command::AutomationHost)
         );
         assert!(parse(["--automation-host".into(), "unexpected".into()]).is_err());
+    }
+
+    #[test]
+    fn private_ralph_processes_are_separate_non_gui_commands() {
+        let run = std::env::temp_dir().join("ralph run 界");
+        assert_eq!(
+            parse(["--ralph-host".into(), run.clone().into_os_string()]),
+            Ok(Command::RalphHost(run.clone()))
+        );
+        assert!(parse(["--ralph-host".into()]).is_err());
+        assert!(parse(["--ralph-host".into(), "relative".into()]).is_err());
+        assert!(parse(["--ralph-host".into(), run.into_os_string(), "extra".into()]).is_err());
+        assert_eq!(parse(["--ralph-exec".into()]), Ok(Command::RalphExec));
+        assert!(parse(["--ralph-exec".into(), "unexpected".into()]).is_err());
     }
 
     #[test]

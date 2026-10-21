@@ -30,8 +30,19 @@ use data::{PageData, PullTab, RepoTab, Route, UserTab};
 
 pub enum GitHubEvent {
     PrepareAssistantReview(github::GitHubClient, github::PullRef),
+    /// Open the Ralph form for a pull request or issue, as Electron's handoffs do.
+    StartRalph(crate::ralph_view::Handoff),
 }
 impl gpui_kit::EventEmitter<GitHubEvent> for GitHubView {}
+impl GitHubView {
+    fn local_repository(owner: &str, name: &str, cx: &App) -> Option<std::path::PathBuf> {
+        crate::ralph_view::local_repository(
+            &Settings::global(cx).config.github.accounts,
+            owner,
+            name,
+        )
+    }
+}
 pub struct GitHubView {
     clients: GitHubClients,
     account: Option<AccountScope>,

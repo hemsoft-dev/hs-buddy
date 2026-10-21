@@ -28,6 +28,7 @@ pub mod github;
 pub mod http;
 pub mod pollen;
 pub mod pollen_credentials;
+pub mod ralph;
 pub mod secrets;
 pub mod settings_backend;
 pub mod stats;

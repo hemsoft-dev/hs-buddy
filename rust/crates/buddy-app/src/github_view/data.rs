@@ -103,6 +103,8 @@ pub struct PageData {
     pub pull: Option<PullSummary>,
     pub coderabbit: Option<bool>,
     pub contribution_days: Vec<ContributionDay>,
+    /// An issue's title and body, for starting a Ralph loop on it.
+    pub issue: Option<(String, String)>,
 }
 impl PageData {
     fn paged<T>(&mut self, page: Page<T>, map: impl Fn(T) -> Row) {
@@ -481,6 +483,7 @@ pub async fn load(
         Route::Issue(repo, number) => {
             let detail = client.issue(&repo, number, force).await?;
             data.title = format!("#{} {}", number, detail.issue.title);
+            data.issue = Some((detail.issue.title.clone(), detail.body.clone()));
             data.description = Some(format!(
                 "{} · {} · {}\n\n{}",
                 detail.issue.state,

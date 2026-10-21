@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1506] - 2026-10-21
+
+### Added
+
+- Port Ralph loop launch and monitoring to Rust and GPUI
+
 ## [0.1.1505] - 2026-10-21
 
 ### Changed

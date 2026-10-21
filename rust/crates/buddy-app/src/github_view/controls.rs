@@ -129,6 +129,18 @@ impl GitHubView {
             );
             let disabled =
                 self.write_busy || self.must_reload || self.loading || self.pending.is_some();
+            let ralph = crate::ralph_view::Handoff::pull_request(
+                target.number,
+                Self::local_repository(target.repository.owner(), target.repository.name(), cx),
+            );
+            actions = actions.child(
+                Button::new("github-start-ralph-pr")
+                    .label("Start Ralph PR review…")
+                    .disabled(pull.state != "OPEN")
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(super::GitHubEvent::StartRalph(ralph.clone()))
+                    })),
+            );
             if let Some(account) = self.account.clone() {
                 let client = self.clients.for_account(account);
                 let target = target.clone();
@@ -342,11 +354,28 @@ impl GitHubView {
             }
             Route::Issue(repo, number) => {
                 let url = format!("{}/issues/{number}", repo.web_url());
-                actions = actions.child(
+                let mut row = h_flex().flex_wrap().gap_2().child(
                     Button::new("github-open-issue")
                         .label("Open issue on GitHub")
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 );
+                if let Some((title, body)) = self.data.as_ref().and_then(|data| data.issue.clone())
+                {
+                    let ralph = crate::ralph_view::Handoff::issue(
+                        *number,
+                        &title,
+                        &body,
+                        Self::local_repository(repo.owner(), repo.name(), cx),
+                    );
+                    row = row.child(
+                        Button::new("github-start-ralph-issue")
+                            .label("Start Ralph loop…")
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.emit(super::GitHubEvent::StartRalph(ralph.clone()))
+                            })),
+                    );
+                }
+                actions = actions.child(row);
             }
             Route::Commit(repo, sha) => {
                 let url = format!("{}/commit/{sha}", repo.web_url());

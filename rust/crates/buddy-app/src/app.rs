@@ -14,6 +14,7 @@ use crate::copilot_view::CopilotView;
 use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::github_view::GitHubView;
 use crate::platform_placement;
+use crate::ralph_view::RalphView;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::settings_view::{SettingsEvent, SettingsView};
@@ -119,6 +120,7 @@ pub struct BuddyApp {
     todoist_view: Entity<TodoistView>,
     tempo_view: Entity<TempoView>,
     automation_view: Entity<AutomationView>,
+    ralph_view: Entity<RalphView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -333,20 +335,30 @@ impl BuddyApp {
         // The dispatcher claims queued runs whichever section is visible.
         let automation_view = cx.new(|cx| AutomationView::new(window, cx));
         automation_view.update(cx, |view, cx| view.start(cx));
+        let ralph_view = cx.new(|cx| RalphView::new(window, cx));
+        ralph_view.update(cx, |view, cx| view.start(cx));
         if section == Some(Section::Tempo) {
             tempo_view.update(cx, |view, cx| view.activate(cx));
         }
         if section == Some(Section::Tasks) {
             todoist_view.update(cx, |view, cx| view.activate(cx));
         }
-        cx.subscribe(
+        cx.subscribe_in(
             &github_view,
-            |this, _, event: &crate::github_view::GitHubEvent, cx| {
-                let crate::github_view::GitHubEvent::PrepareAssistantReview(client, pull) = event;
-                this.set_section(Some(Section::Copilot), cx);
-                this.copilot_view.update(cx, |view, cx| {
-                    view.prepare_review(client.clone(), pull.clone(), cx)
-                });
+            window,
+            |this, _, event: &crate::github_view::GitHubEvent, window, cx| match event {
+                crate::github_view::GitHubEvent::PrepareAssistantReview(client, pull) => {
+                    this.set_section(Some(Section::Copilot), cx);
+                    this.copilot_view.update(cx, |view, cx| {
+                        view.prepare_review(client.clone(), pull.clone(), cx)
+                    });
+                }
+                crate::github_view::GitHubEvent::StartRalph(handoff) => {
+                    this.set_section(Some(Section::Ralph), cx);
+                    this.ralph_view.update(cx, |view, cx| {
+                        view.open_handoff(handoff.clone(), window, cx)
+                    });
+                }
             },
         )
         .detach();
@@ -378,6 +390,7 @@ impl BuddyApp {
             todoist_view,
             tempo_view,
             automation_view,
+            ralph_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -397,6 +410,7 @@ impl BuddyApp {
             Some(Section::Tasks) => container.child(self.todoist_view.clone()),
             Some(Section::Tempo) => container.child(self.tempo_view.clone()),
             Some(Section::Automation) => container.child(self.automation_view.clone()),
+            Some(Section::Ralph) => container.child(self.ralph_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -481,6 +495,7 @@ mod tests {
                         todoist_view: cx.new(|cx| TodoistView::new(window, cx)),
                         tempo_view: cx.new(|cx| TempoView::new(window, cx)),
                         automation_view: cx.new(|cx| AutomationView::new(window, cx)),
+                        ralph_view: cx.new(|cx| RalphView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }
