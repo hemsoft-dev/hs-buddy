@@ -31,7 +31,17 @@ function Save-Receipt { $receipt | ConvertTo-Json | Set-Content -LiteralPath $pa
 Save-Receipt
 Write-Host "== Iteration 1/$Max"
 Write-Host "RALPH STUB $mode 資料界é"
-Write-Host ("RALPH STUB TOOL " + (& copilot --version))
+# Found on the PATH Buddy passes, then called by its path: resolving a bare unknown name
+# makes PowerShell scan every installed module first, which took over 20 s on a fresh
+# macOS runner.
+$names = if ($IsWindows) { @('copilot.cmd', 'copilot.exe') } else { @('copilot') }
+$tool = $env:PATH -split [IO.Path]::PathSeparator |
+    Where-Object { $_ } |
+    ForEach-Object { $folder = $_; $names | ForEach-Object { Join-Path $folder $_ } } |
+    Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+    Select-Object -First 1
+if (-not $tool) { throw 'copilot is not on the PATH Buddy passed to the loop' }
+Write-Host ("RALPH STUB TOOL " + (& $tool --version))
 switch ($mode) {
     'quick' {
         Start-Sleep -Seconds 6
