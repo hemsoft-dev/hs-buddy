@@ -35,6 +35,8 @@ const MAX_LOG: u64 = 64 * 1024 * 1024;
 const POLL: Duration = Duration::from_millis(100);
 const STATUS_INTERVAL: Duration = Duration::from_millis(500);
 const CLEANUP: Duration = Duration::from_secs(5);
+/// The longest a Git command between cycles may take.
+const GIT_LIMIT: Duration = Duration::from_secs(300);
 
 /// Starts the host for the run in `folder` and returns without waiting for it.
 #[cfg(unix)]
@@ -156,6 +158,9 @@ struct Start {
     arguments: Vec<OsString>,
     directory: PathBuf,
     path: OsString,
+    /// Variables added to the inherited environment.
+    #[serde(default)]
+    environment: Vec<(String, String)>,
 }
 
 fn send_start(writer: &mut impl Write, start: &Start) -> io::Result<()> {
@@ -203,6 +208,7 @@ pub fn run_ralph_exec() -> i32 {
         .args(&start.arguments)
         .current_dir(&start.directory)
         .env("PATH", &start.path)
+        .envs(start.environment.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -415,10 +421,14 @@ impl Host {
             if self.stop_requested() {
                 return self.finish(HostState::Stopped, None, None);
             }
-            if cycle > 1
-                && let Err(error) = self.refresh(plan)
-            {
-                return self.finish(HostState::Failed, None, Some(error));
+            if cycle > 1 {
+                match self.refresh(plan) {
+                    Outcome::Exited(_) => {}
+                    Outcome::Stopped => return self.finish(HostState::Stopped, None, None),
+                    Outcome::Error(error) => {
+                        return self.finish(HostState::Failed, None, Some(error));
+                    }
+                }
             }
             self.status.cycle = cycle;
             if cycles > 1 {
@@ -444,95 +454,65 @@ impl Host {
 
     /// Before another cycle, fast-forward the repository's checked-out branch from its
     /// upstream, as `ralph-repeat.ps1` did, so the next cycle starts from merged work.
-    /// Unlike that wrapper, the checkout is never switched to another branch.
-    fn refresh(&mut self, plan: &Plan) -> Result<(), String> {
-        let upstream = self.git(plan, &["rev-parse", "--abbrev-ref", "@{upstream}"])?;
-        if !upstream.status.success() {
-            self.log.line(
-                "[Buddy] The checked-out branch has no upstream; the next cycle starts from the local checkout.",
-            );
-            return Ok(());
+    /// Unlike that wrapper, the checkout is never switched to another branch. Git runs as
+    /// an owned process like the loop: Stop ends it, and it dies with the host.
+    fn refresh(&mut self, plan: &Plan) -> Outcome {
+        let (upstream, lines) = self.supervise(
+            &git_start(plan, &["rev-parse", "--abbrev-ref", "@{upstream}"]),
+            Sink::Capture,
+            Some(GIT_LIMIT),
+        );
+        match upstream {
+            Outcome::Exited(0) => {}
+            Outcome::Exited(_) => {
+                self.log.line(
+                    "[Buddy] The checked-out branch has no upstream; the next cycle starts from the local checkout.",
+                );
+                return Outcome::Exited(0);
+            }
+            other => return other,
         }
-        let name = String::from_utf8_lossy(&upstream.stdout).trim().to_owned();
+        let name = lines
+            .first()
+            .map_or("its upstream", String::as_str)
+            .to_owned();
         self.log.line(&format!(
             "[Buddy] Fast-forwarding from {name} before the next cycle."
         ));
-        let pull = self.git(plan, &["pull", "--ff-only"])?;
-        for bytes in [&pull.stdout, &pull.stderr] {
-            for line in String::from_utf8_lossy(bytes).lines() {
-                if !line.trim().is_empty() {
-                    self.log.line(&format!("[git] {}", strip_ansi(line)));
-                }
-            }
-        }
-        if pull.status.success() {
-            Ok(())
-        } else {
-            Err("The repository could not be fast-forwarded before the next cycle, so the loop stopped. Update the checkout, then retry.".into())
+        match self.supervise(&git_start(plan, &["pull", "--ff-only"]), Sink::Git, Some(GIT_LIMIT)).0 {
+            Outcome::Exited(0) => Outcome::Exited(0),
+            Outcome::Exited(_) => Outcome::Error(
+                "The repository could not be fast-forwarded before the next cycle, so the loop stopped. Update the checkout, then retry.".into(),
+            ),
+            other => other,
         }
     }
 
-    /// Runs Git in the repository with the loop's PATH, giving up after five minutes.
-    fn git(&self, plan: &Plan, arguments: &[&str]) -> Result<std::process::Output, String> {
-        let mut command = Command::new("git");
-        command
-            .args(arguments)
-            .current_dir(&plan.directory)
-            .env("PATH", &plan.path)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
-        }
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("Git could not run before the next cycle: {error}"))?;
-        let deadline = Instant::now() + Duration::from_secs(300);
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL),
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(
-                        "Git did not finish updating the repository before the next cycle.".into(),
-                    );
-                }
-            }
-        }
-        child
-            .wait_with_output()
-            .map_err(|error| format!("Git's output could not be read: {error}"))
-    }
-
-    fn output(&mut self, error: bool, bytes: &[u8]) {
+    fn output(&mut self, sink: Sink, error: bool, bytes: &[u8], captured: &mut Vec<String>) {
         let line = strip_ansi(&String::from_utf8_lossy(bytes));
         if line.trim().is_empty() {
             return;
         }
-        if !error && self.status.progress.observe(&line) {
-            self.dirty = true;
-        }
-        if error {
-            self.log.line(&format!("[stderr] {line}"));
-        } else {
-            self.log.line(&line);
+        match sink {
+            Sink::Loop => {
+                if !error && self.status.progress.observe(&line) {
+                    self.dirty = true;
+                }
+                if error {
+                    self.log.line(&format!("[stderr] {line}"));
+                } else {
+                    self.log.line(&line);
+                }
+            }
+            Sink::Git => self.log.line(&format!("[git] {line}")),
+            Sink::Capture if !error => captured.push(line.trim().to_owned()),
+            Sink::Capture => {}
         }
     }
 
     fn cycle(&mut self, plan: &Plan) -> Outcome {
-        let mut owned = match Owned::spawn() {
-            Ok(owned) => owned,
-            Err(error) => return Outcome::Error(error),
-        };
         let launcher = self.folder.join(LAUNCHER);
         if let Err(error) = write_private(&launcher, plan.launcher().as_bytes()) {
-            let _ = owned.cleanup();
             return Outcome::Error(format!("The loop launcher could not be written: {error}"));
         }
         let start = Start {
@@ -540,6 +520,25 @@ impl Host {
             arguments: plan.command_line(&launcher),
             directory: plan.directory.clone(),
             path: plan.path.clone(),
+            environment: vec![],
+        };
+        self.supervise(&start, Sink::Loop, None).0
+    }
+
+    /// Runs `start` as an owned process tree until it exits, Stop is requested or `limit`
+    /// passes, reading both streams the whole time. Whatever is left of the tree is then
+    /// terminated; a termination that cannot be confirmed fails the run, since its
+    /// processes could still be changing the repository.
+    fn supervise(
+        &mut self,
+        start: &Start,
+        sink: Sink,
+        limit: Option<Duration>,
+    ) -> (Outcome, Vec<String>) {
+        let mut captured = vec![];
+        let mut owned = match Owned::spawn() {
+            Ok(owned) => owned,
+            Err(error) => return (Outcome::Error(error), captured),
         };
         let (sender, receiver) = mpsc::channel();
         if let Some(stdout) = owned.child.stdout.take() {
@@ -551,16 +550,21 @@ impl Host {
         if owned
             .input
             .as_mut()
-            .is_none_or(|input| send_start(input, &start).is_err())
+            .is_none_or(|input| send_start(input, start).is_err())
         {
             let _ = owned.cleanup();
-            return Outcome::Error("The loop could not be started.".into());
+            return (
+                Outcome::Error("The process could not be started.".into()),
+                captured,
+            );
         }
+        let began = Instant::now();
         let mut stopped = false;
+        let mut timed_out = false;
         let mut checked = Instant::now();
         let exited = loop {
             match receiver.recv_timeout(POLL) {
-                Ok((error, line)) => self.output(error, &line),
+                Ok((error, line)) => self.output(sink, error, &line, &mut captured),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 // Both streams closed; the process may still be running.
                 Err(mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(POLL),
@@ -578,6 +582,10 @@ impl Host {
                 stopped = true;
                 break Ok(None);
             }
+            if limit.is_some_and(|limit| began.elapsed() >= limit) {
+                timed_out = true;
+                break Ok(None);
+            }
             match owned.exited() {
                 Ok(Some(code)) => break Ok(code),
                 Ok(None) => {}
@@ -589,22 +597,49 @@ impl Host {
         let deadline = Instant::now() + CLEANUP;
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
             match receiver.recv_timeout(left) {
-                Ok((error, line)) => self.output(error, &line),
+                Ok((error, line)) => self.output(sink, error, &line, &mut captured),
                 Err(_) => break,
             }
         }
         if self.dirty {
             self.write_status();
         }
-        match (stopped, exited, cleaned) {
-            (true, _, _) => Outcome::Stopped,
-            (_, Err(_), _) => {
+        let outcome = match (stopped, timed_out, exited, cleaned) {
+            (_, _, _, Err(error)) => Outcome::Error(format!(
+                "The loop's processes could not be confirmed stopped ({error}). Check for leftover processes before retrying."
+            )),
+            (true, _, _, _) => Outcome::Stopped,
+            (_, true, _, _) => Outcome::Error("Git did not finish within five minutes.".into()),
+            (_, _, Err(_), _) => {
                 Outcome::Error("The loop's process status could not be confirmed.".into())
             }
-            (_, Ok(Some(code)), _) => Outcome::Exited(code),
-            (_, Ok(None), Ok(Some(code))) => Outcome::Exited(code),
-            (_, Ok(None), _) => Outcome::Error("The loop ended without an exit code.".into()),
-        }
+            (_, _, Ok(Some(code)), _) => Outcome::Exited(code),
+            (_, _, Ok(None), Ok(Some(code))) => Outcome::Exited(code),
+            (_, _, Ok(None), _) => Outcome::Error("The loop ended without an exit code.".into()),
+        };
+        (outcome, captured)
+    }
+}
+
+/// Where an owned process's output goes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sink {
+    /// The loop: progress is parsed and every line is logged.
+    Loop,
+    /// Git while refreshing: logged with a `[git]` prefix.
+    Git,
+    /// Stdout is returned to the caller and not logged.
+    Capture,
+}
+
+/// Git in the repository, never prompting for credentials.
+fn git_start(plan: &Plan, arguments: &[&str]) -> Start {
+    Start {
+        program: plan.git.clone(),
+        arguments: arguments.iter().map(OsString::from).collect(),
+        directory: plan.directory.clone(),
+        path: plan.path.clone(),
+        environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
     }
 }
 
@@ -772,6 +807,7 @@ mod tests {
             arguments: vec!["-File".into(), "a b.ps1".into()],
             directory,
             path: "x".into(),
+            environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
         };
         let mut bytes = vec![];
         send_start(&mut bytes, &start).unwrap();

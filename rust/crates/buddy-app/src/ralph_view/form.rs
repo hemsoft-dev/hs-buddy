@@ -151,7 +151,7 @@ pub(super) struct Form {
     pub selected: BTreeMap<String, Picker>,
     review_models: Vec<Choice>,
     pub dry_run: bool,
-    pub auto_approve: bool,
+    pub merge: bool,
     pub audio: bool,
 }
 
@@ -304,7 +304,7 @@ impl Form {
             selected: BTreeMap::new(),
             review_models,
             dry_run: base.dry_run,
-            auto_approve: base.auto_approve,
+            merge: base.merge,
             audio: base.audio,
         };
         for review in &base.review_agents {
@@ -387,7 +387,7 @@ impl Form {
                 String::new()
             },
             dry_run: issues && self.dry_run,
-            auto_approve: self.auto_approve,
+            merge: self.merge,
             audio: self.audio,
         })
     }

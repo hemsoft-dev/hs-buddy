@@ -13,14 +13,17 @@ use buddy_core::ralph::{
 };
 
 fn pwsh() -> PathBuf {
-    let name = if cfg!(windows) { "pwsh.exe" } else { "pwsh" };
+    tool(if cfg!(windows) { "pwsh.exe" } else { "pwsh" })
+}
+
+fn tool(name: &str) -> PathBuf {
     std::env::var_os("PATH")
         .and_then(|path| {
             std::env::split_paths(&path)
                 .map(|directory| directory.join(name))
                 .find(|path| path.is_file())
         })
-        .expect("PowerShell 7 (pwsh) is required for the Ralph host tests")
+        .unwrap_or_else(|| panic!("{name} is required on PATH for the Ralph host tests"))
 }
 
 const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat)
@@ -97,7 +100,7 @@ impl Fixture {
         };
         let id = self
             .store
-            .create(launch, None, |folder| {
+            .create(launch, None, None, |folder| {
                 let mut arguments = vec![
                     "-Max".into(),
                     "2".into(),
@@ -107,6 +110,7 @@ impl Fixture {
                 arguments.append(&mut extra);
                 Plan {
                     program: pwsh(),
+                    git: tool(if cfg!(windows) { "git.exe" } else { "git" }),
                     script,
                     arguments,
                     directory,

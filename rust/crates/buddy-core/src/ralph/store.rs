@@ -52,6 +52,9 @@ pub struct Request {
     pub plan: Plan,
     /// The run this one repeats, when started with Retry.
     pub retry_of: Option<String>,
+    /// The repository's shared Git folder, which identifies it for the one-loop guard.
+    #[serde(default)]
+    pub repository_key: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -368,11 +371,14 @@ impl Store {
     }
 
     /// Creates a run folder for `launch` unless a loop is already active in the same
-    /// repository. `plan` receives the folder (for the prompt file) and builds the command.
+    /// repository. `repository_key` is the repository's shared Git folder, which every
+    /// subfolder and linked worktree of it shares; without one, the folders are compared.
+    /// `plan` receives the run folder (for the prompt file) and builds the command.
     pub fn create(
         &mut self,
         launch: Launch,
         retry_of: Option<String>,
+        repository_key: Option<PathBuf>,
         plan: impl FnOnce(&Path) -> Plan,
     ) -> Result<String, String> {
         let guard = OpenOptions::new()
@@ -385,7 +391,11 @@ impl Store {
             .lock()
             .map_err(|error| format!("The Ralph launch lock is unavailable: {error}"))?;
         if let Some(active) = self.runs().into_iter().find(|run| {
-            run.state.is_active() && same_folder(&run.request.launch.repository, &launch.repository)
+            run.state.is_active()
+                && match (&run.request.repository_key, &repository_key) {
+                    (Some(theirs), Some(ours)) => theirs == ours,
+                    _ => same_folder(&run.request.launch.repository, &launch.repository),
+                }
         }) {
             return Err(format!(
                 "A Ralph loop is already active in {} (started {}). Stop it or wait for it to finish first.",
@@ -407,6 +417,7 @@ impl Store {
                 plan: plan(&folder),
                 launch,
                 retry_of,
+                repository_key,
             };
             write_atomically(
                 &folder.join(REQUEST),
@@ -464,6 +475,7 @@ mod tests {
     fn plan(folder: &Path) -> Plan {
         Plan {
             program: "pwsh".into(),
+            git: "git".into(),
             script: folder.join("ralph.ps1"),
             arguments: vec![],
             directory: folder.to_path_buf(),
@@ -548,13 +560,13 @@ mod tests {
             prompt: "Fix it".into(),
             ..Launch::default()
         };
-        let first = store.create(launch.clone(), None, plan).unwrap();
+        let first = store.create(launch.clone(), None, None, plan).unwrap();
         assert_eq!(
             std::fs::read_to_string(store.folder(&first).join(PROMPT)).unwrap(),
             "Fix it"
         );
         assert_eq!(store.run(&first).unwrap().state, RunState::Starting);
-        let error = store.create(launch.clone(), None, plan).unwrap_err();
+        let error = store.create(launch.clone(), None, None, plan).unwrap_err();
         assert!(
             error.starts_with("A Ralph loop is already active in"),
             "{error}"
@@ -567,12 +579,40 @@ mod tests {
         )
         .unwrap();
         std::thread::sleep(Duration::from_millis(5));
-        let second = store.create(launch, Some(first.clone()), plan).unwrap();
+        let second = store
+            .create(launch, Some(first.clone()), None, plan)
+            .unwrap();
         let runs = store.runs();
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[1].request.id, first);
         assert_eq!(runs[0].request.id, second);
         assert_eq!(runs[0].request.retry_of.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn the_one_loop_guard_compares_repositories_not_folders() {
+        let root = tempfile::tempdir().unwrap();
+        let repository = tempfile::tempdir().unwrap();
+        let subfolder = repository.path().join("sub");
+        std::fs::create_dir(&subfolder).unwrap();
+        let mut store = Store::at(root.path().to_path_buf()).unwrap();
+        let key = Some(repository.path().join(".git"));
+        let launch = |folder: &Path| Launch {
+            repository: folder.to_path_buf(),
+            ..Launch::default()
+        };
+        store
+            .create(launch(repository.path()), None, key.clone(), plan)
+            .unwrap();
+        let error = store
+            .create(launch(&subfolder), None, key, plan)
+            .unwrap_err();
+        assert!(
+            error.starts_with("A Ralph loop is already active in"),
+            "{error}"
+        );
+        let other = Some(root.path().join("other.git"));
+        assert!(store.create(launch(&subfolder), None, other, plan).is_ok());
     }
 
     #[test]
@@ -584,7 +624,7 @@ mod tests {
             repository: repository.path().to_path_buf(),
             ..Launch::default()
         };
-        let id = store.create(launch, None, plan).unwrap();
+        let id = store.create(launch, None, None, plan).unwrap();
         store.request_stop(&id).unwrap();
         assert!(store.folder(&id).join(STOP).exists());
         write_atomically(
@@ -614,7 +654,7 @@ mod tests {
             prompt: "secret".into(),
             ..Launch::default()
         };
-        let id = store.create(launch, None, plan).unwrap();
+        let id = store.create(launch, None, None, plan).unwrap();
         let folder = store.folder(&id);
         write_atomically(
             &folder.join(STATUS),
@@ -677,6 +717,7 @@ mod tests {
                 launch: Launch::default(),
                 plan: plan(&folder),
                 retry_of: None,
+                repository_key: None,
             };
             std::fs::write(folder.join(REQUEST), serde_json::to_vec(&request).unwrap()).unwrap();
             std::fs::write(folder.join(STARTED), b"").unwrap();

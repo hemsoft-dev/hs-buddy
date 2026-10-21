@@ -80,7 +80,10 @@ pub struct Launch {
     pub pr_number: Option<u32>,
     pub labels: String,
     pub dry_run: bool,
-    pub auto_approve: bool,
+    /// Ralph PR only: merge the pull request when it is clean. With `-Autopilot` the
+    /// script then runs `gh pr merge --squash --delete-branch --admin`, which bypasses
+    /// branch protection, so it is off unless chosen.
+    pub merge: bool,
     /// Off passes `-NoAudio`: the scripts otherwise need edge-tts and write an mp3 into the repository.
     pub audio: bool,
 }
@@ -101,7 +104,7 @@ impl Default for Launch {
             pr_number: None,
             labels: String::new(),
             dry_run: false,
-            auto_approve: true,
+            merge: false,
             audio: false,
         }
     }
@@ -111,6 +114,7 @@ impl Default for Launch {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tools {
     pub pwsh: PathBuf,
+    pub git: PathBuf,
     /// `PATH` for the loop: the app's own plus common install folders that exist.
     pub path: OsString,
 }
@@ -251,16 +255,13 @@ pub fn discover(path: Option<OsString>, extra: &[PathBuf]) -> Result<Tools, Stri
                 .find(|path| runnable(path))
         })
     };
-    let mut pwsh = None;
+    let mut found = vec![];
     for tool in TOOLS {
-        match find(tool.name) {
-            Some(found) if tool.name == "pwsh" => pwsh = Some(found),
-            Some(_) => {}
-            None => return Err(tool.missing.into()),
-        }
+        found.push(find(tool.name).ok_or(tool.missing)?);
     }
     Ok(Tools {
-        pwsh: pwsh.ok_or(TOOLS[0].missing)?,
+        pwsh: found[0].clone(),
+        git: found[1].clone(),
         path: std::env::join_paths(&directories).map_err(|_| "PATH contains an invalid folder.")?,
     })
 }
@@ -269,6 +270,9 @@ pub fn discover(path: Option<OsString>, extra: &[PathBuf]) -> Result<Tools, Stri
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub program: PathBuf,
+    /// Git, for fast-forwarding between repeat cycles.
+    #[serde(default)]
+    pub git: PathBuf,
     pub script: PathBuf,
     /// Everything after `-File <script>`.
     pub arguments: Vec<String>,
@@ -328,29 +332,42 @@ impl Plan {
 }
 
 /// Asks Git, as the scripts do (`git rev-parse --show-toplevel`), whether `repository` is
-/// in a working tree. An empty `.git` folder or a stale worktree link passes the cheap
-/// ancestor check but fails here, before anything is recorded.
-pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<(), String> {
-    let mut command = std::process::Command::new("git");
+/// in a working tree, and returns the repository's shared Git folder. An empty `.git`
+/// folder or a stale worktree link passes the cheap ancestor check but fails here, before
+/// anything is recorded. Every subfolder and linked worktree of one repository shares
+/// that folder, so it identifies the repository for the one-loop guard.
+pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, String> {
+    let mut command = std::process::Command::new(&tools.git);
     command
-        .args(["rev-parse", "--show-toplevel"])
+        .args([
+            "rev-parse",
+            "--show-toplevel",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ])
         .current_dir(repository)
         .env("PATH", &tools.path)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
     }
-    match command.status() {
-        Ok(status) if status.success() => Ok(()),
-        Ok(_) => Err(format!(
+    let output = command
+        .output()
+        .map_err(|error| format!("Git could not check the repository: {error}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    match (output.status.success(), text.lines().nth(1)) {
+        (true, Some(common)) if !common.trim().is_empty() => {
+            let common = PathBuf::from(common.trim());
+            Ok(common.canonicalize().unwrap_or(common))
+        }
+        _ => Err(format!(
             "{} is not inside a Git repository.",
             repository.display()
         )),
-        Err(error) => Err(format!("Git could not check the repository: {error}")),
     }
 }
 
@@ -567,9 +584,9 @@ impl Launch {
         if !self.audio {
             add("NoAudio", None);
         }
-        // ralph.ps1 hands its pull request to ralph-pr.ps1 without approval, so only a
-        // Ralph PR run can approve.
-        if self.auto_approve && self.script == Script::Pr {
+        // ralph.ps1 hands its pull request to ralph-pr.ps1 without AutoApprove, so only a
+        // Ralph PR run can merge.
+        if self.merge && self.script == Script::Pr {
             add("AutoApprove", None);
         }
         arguments
@@ -765,6 +782,7 @@ mod tests {
         launch.script = Script::Pr;
         launch.pr_number = Some(42);
         launch.audio = true;
+        launch.merge = true;
         let (_, declared) = launch.validate(&catalog, &scripts).unwrap();
         assert_eq!(
             launch.arguments(&declared, None),
@@ -805,6 +823,7 @@ mod tests {
     fn the_launcher_sets_utf8_and_passes_every_value_as_a_literal() {
         let plan = Plan {
             program: "pwsh".into(),
+            git: "git".into(),
             script: PathBuf::from("D:/scripts/it's/ralph.ps1"),
             arguments: [
                 "-Autopilot",
@@ -834,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_ralph_pr_run_can_auto_approve() {
+    fn only_a_chosen_ralph_pr_merge_passes_auto_approve() {
         let declared: BTreeSet<String> = ["AutoApprove".to_string()].into();
         for script in [
             Script::Ralph,
@@ -855,6 +874,17 @@ mod tests {
             script: Script::Pr,
             ..Launch::default()
         };
+        // Merging is never the default.
+        assert!(
+            !launch
+                .arguments(&declared, None)
+                .contains(&"-AutoApprove".into())
+        );
+        let launch = Launch {
+            script: Script::Pr,
+            merge: true,
+            ..Launch::default()
+        };
         assert!(
             launch
                 .arguments(&declared, None)
@@ -866,6 +896,7 @@ mod tests {
     fn git_confirms_the_repository_before_a_run_is_recorded() {
         let tools = Tools {
             pwsh: PathBuf::from("pwsh"),
+            git: PathBuf::from("git"),
             path: std::env::var_os("PATH").unwrap_or_default(),
         };
         // An empty .git folder passes the quick check but is no repository.
@@ -880,15 +911,49 @@ mod tests {
             .prefix("real repo ")
             .tempdir()
             .unwrap();
-        let init = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(real.path())
-            .status()
-            .unwrap();
-        assert!(init.success());
+        let git = |directory: &Path, arguments: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=Buddy Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                ])
+                .args(arguments)
+                .current_dir(directory)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        };
+        git(real.path(), &["init", "-q"]);
+        git(
+            real.path(),
+            &["commit", "-q", "--allow-empty", "-m", "first"],
+        );
+        let key = verify_repository(real.path(), &tools).unwrap();
+        // A subfolder and a linked worktree are the same repository for the one-loop guard.
         let nested = real.path().join("sub folder");
         std::fs::create_dir(&nested).unwrap();
-        assert_eq!(verify_repository(&nested, &tools), Ok(()));
+        assert_eq!(verify_repository(&nested, &tools), Ok(key.clone()));
+        let linked = real.path().with_extension("worktree");
+        git(
+            real.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                linked.to_str().unwrap(),
+            ],
+        );
+        assert_eq!(verify_repository(&linked, &tools), Ok(key.clone()));
+        git(
+            real.path(),
+            &["worktree", "remove", "--force", linked.to_str().unwrap()],
+        );
+        let other = tempfile::tempdir().unwrap();
+        git(other.path(), &["init", "-q"]);
+        assert_ne!(verify_repository(other.path(), &tools), Ok(key));
     }
 
     #[test]

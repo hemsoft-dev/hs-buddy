@@ -26,23 +26,26 @@ pub fn start(
     let catalog = scripts.catalog()?;
     let (script, declared) = launch.validate(&catalog, &scripts)?;
     let tools = launch::discover_installed()?;
-    launch::verify_repository(&launch.repository, &tools)?;
+    let repository_key = launch::verify_repository(&launch.repository, &tools)?;
     let cycles = if launch.script.uses_cycles() {
         launch.cycles
     } else {
         1
     };
     let prompt = !launch.prompt.trim().is_empty();
-    let id = store.create(launch.clone(), retry_of, |folder| Plan {
-        program: tools.pwsh.clone(),
-        script,
-        arguments: launch.arguments(
-            &declared,
-            prompt.then(|| folder.join(store::PROMPT)).as_deref(),
-        ),
-        directory: launch.repository.clone(),
-        path: tools.path.clone(),
-        cycles,
+    let id = store.create(launch.clone(), retry_of, Some(repository_key), |folder| {
+        Plan {
+            program: tools.pwsh.clone(),
+            git: tools.git.clone(),
+            script,
+            arguments: launch.arguments(
+                &declared,
+                prompt.then(|| folder.join(store::PROMPT)).as_deref(),
+            ),
+            directory: launch.repository.clone(),
+            path: tools.path.clone(),
+            cycles,
+        }
     })?;
     if let Err(error) = host::spawn_host(executable, &store.folder(&id)) {
         store.discard_unstarted(&id);

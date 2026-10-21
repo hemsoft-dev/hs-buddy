@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1513] - 2026-10-21
+
+### Fixed
+
+- Make Ralph PR merges opt-in and own the refresh Git process
+
 ## [0.1.1512] - 2026-10-21
 
 ### Changed

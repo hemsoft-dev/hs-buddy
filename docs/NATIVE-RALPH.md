@@ -65,9 +65,12 @@ The form has the same inputs as Electron Buddy:
 - **Branch** for Ralph Loop and templates, **Pull request number** for Ralph
   PR, **Issue labels** and **Dry run** for Ralph Issues.
 - **Prompt**. A template fills in its own prompt.
-- **Auto-approve the PR when reviews pass**, on by default, for Ralph PR. A
-  Ralph Loop hands its pull request to the review phase without approval, as
-  `ralph.ps1` does from Electron too.
+- **Merge the PR when it is clean (gh pr merge --admin)**, off by default,
+  for Ralph PR. When on, `ralph-pr.ps1` merges a clean pull request with
+  `gh pr merge --squash --delete-branch --admin`, which bypasses branch
+  protection. Electron's equivalent "Auto-approve" option is on by default;
+  Buddy Native asks for this choice explicitly. A Ralph Loop hands its pull
+  request to the review phase without merging, as `ralph.ps1` does.
 - **Announce with audio**, off by default. The scripts' audio needs
   `edge-tts` and saves an mp3 into the repository, so Buddy passes `-NoAudio`
   unless this is on.
@@ -77,8 +80,8 @@ is inside a Git repository, the provider and model exist and the provider can
 run the model, the agents exist, and the numbers, branch and labels are valid
 (branches follow Git's own naming rules). Then it checks the programs above and
 asks Git to confirm the repository, as the scripts do. Only one loop can be
-active per repository;
-a second launch there names the active run instead.
+active per repository, counting every subfolder and linked worktree of it as
+the same repository; a second launch there names the active run instead.
 
 ## Following a run
 
@@ -99,8 +102,11 @@ log is in the run's folder, whose path is shown under it.
 | Interrupted | Its host process ended without recording a result, for example at a reboot |
 
 Stop loop asks once more, then ends the loop: the script and every process it
-started. Processes the loop did not start are left alone. Commits and
-branches the loop already made stay. Retry starts a finished, failed, stopped
+started, including Git while it fast-forwards between cycles. Processes the
+loop did not start are left alone. If Buddy cannot confirm that the loop's
+processes ended, the run is recorded as Failed with that message rather than
+Stopped or Completed, so check for leftover processes before retrying. Commits
+and branches the loop already made stay. Retry starts a finished, failed, stopped
 or interrupted run again as a new run with the same settings; Edit and launch
 opens the form with them.
 

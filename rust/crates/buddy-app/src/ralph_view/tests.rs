@@ -31,6 +31,7 @@ fn write_run(root: &Path, id: &str, created: i64, status: Option<Status>, lines:
         },
         plan: Plan {
             program: "pwsh".into(),
+            git: "git".into(),
             script: folder.join("ralph-pr.ps1"),
             arguments: vec![],
             directory: root.to_path_buf(),
@@ -38,6 +39,7 @@ fn write_run(root: &Path, id: &str, created: i64, status: Option<Status>, lines:
             cycles: 1,
         },
         retry_of: None,
+        repository_key: None,
     };
     std::fs::write(
         folder.join("request.json"),
@@ -268,7 +270,7 @@ fn the_launch_form_keeps_launch_visible_and_reports_input_errors(
             let launch = form.launch(cx).unwrap();
             assert_eq!(launch.pr_number, Some(12));
             assert_eq!(launch.script, Script::Pr);
-            assert!(!launch.audio && launch.auto_approve);
+            assert!(!launch.audio && !launch.merge);
         })
     });
     // Validation runs in the core: a missing repository is refused there.

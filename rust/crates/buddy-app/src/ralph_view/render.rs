@@ -581,12 +581,12 @@ impl RalphView {
         } else if script == Script::Pr {
             // Only ralph-pr.ps1 approves; ralph.ps1 hands its PR over without approval.
             options = options.child(Self::toggle(
-                "ralph-auto-approve",
-                "Auto-approve the PR when reviews pass",
-                form.auto_approve,
+                "ralph-merge",
+                "Merge the PR when it is clean (gh pr merge --admin)",
+                form.merge,
                 busy,
                 cx,
-                |form| form.auto_approve = !form.auto_approve,
+                |form| form.merge = !form.merge,
             ));
         }
         options = options.child(Self::toggle(
