@@ -24,7 +24,9 @@ most recent run's repository. Nothing starts until Launch.
 
 A loop needs these programs on `PATH`. Buddy also looks in the usual install
 folders a desktop session can leave out (`/opt/homebrew/bin`,
-`/usr/local/bin`, `~/.local/bin`, `~/.dotnet/tools`, the npm global folder),
+`/usr/local/bin`, `~/.local/bin`, `~/.dotnet/tools`, the npm global folder;
+on Windows the PowerShell 7, Git and GitHub CLI folders under Program Files,
+`%LOCALAPPDATA%\Microsoft\WindowsApps` and `%APPDATA%\npm`),
 and passes the folders it found to the loop.
 
 | Program                       | Install                                                                                     |
@@ -56,7 +58,9 @@ The form has the same inputs as Electron Buddy:
 - **Branch** for Ralph Loop and templates, **Pull request number** for Ralph
   PR, **Issue labels** and **Dry run** for Ralph Issues.
 - **Prompt**. A template fills in its own prompt.
-- **Auto-approve the PR when reviews pass**, on by default.
+- **Auto-approve the PR when reviews pass**, on by default, for Ralph PR. A
+  Ralph Loop hands its pull request to the review phase without approval, as
+  `ralph.ps1` does from Electron too.
 - **Announce with audio**, off by default. The scripts' audio needs
   `edge-tts` and saves an mp3 into the repository, so Buddy passes `-NoAudio`
   unless this is on.

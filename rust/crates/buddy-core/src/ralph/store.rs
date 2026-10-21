@@ -550,6 +550,19 @@ mod tests {
     }
 
     #[test]
+    fn status_writes_replace_an_existing_file() {
+        // std's rename replaces the target on Windows too (MOVEFILE_REPLACE_EXISTING).
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join(STATUS);
+        for state in [HostState::Running, HostState::Running, HostState::Completed] {
+            write_atomically(&path, &serde_json::to_vec(&status(state)).unwrap()).unwrap();
+        }
+        let written: Status = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(written.state, HostState::Completed);
+        assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), 1);
+    }
+
+    #[test]
     fn output_shows_the_last_whole_lines() {
         let root = tempfile::tempdir().unwrap();
         let store = Store::at(root.path().to_path_buf()).unwrap();

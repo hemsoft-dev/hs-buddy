@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1507] - 2026-10-21
+
+### Fixed
+
+- Prune Ralph runs and limit auto-approve to Ralph PR
+
 ## [0.1.1506] - 2026-10-21
 
 ### Added

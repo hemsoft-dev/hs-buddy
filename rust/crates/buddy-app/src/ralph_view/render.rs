@@ -577,7 +577,8 @@ impl RalphView {
                 cx,
                 |form| form.dry_run = !form.dry_run,
             ));
-        } else {
+        } else if script == Script::Pr {
+            // Only ralph-pr.ps1 approves; ralph.ps1 hands its PR over without approval.
             options = options.child(Self::toggle(
                 "ralph-auto-approve",
                 "Auto-approve the PR when reviews pass",

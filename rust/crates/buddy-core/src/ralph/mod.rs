@@ -47,6 +47,8 @@ pub fn start(
         store.discard_unstarted(&id);
         return Err(error);
     }
+    // Keep the newest runs; each launch is the point where the list grows.
+    store.prune();
     Ok(id)
 }
 

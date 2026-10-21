@@ -165,8 +165,20 @@ fn extra_directories() -> Vec<PathBuf> {
                 .map(|folder| home.join(folder)),
             );
         }
-    } else if let Some(roaming) = std::env::var_os("APPDATA").map(PathBuf::from) {
-        directories.push(roaming.join("npm"));
+    } else {
+        // The default install folders of each tool, and the Store's PowerShell alias.
+        let folder = |name: &str| std::env::var_os(name).map(PathBuf::from);
+        if let Some(programs) = folder("ProgramFiles") {
+            directories
+                .extend(["PowerShell/7", "Git/cmd", "GitHub CLI"].map(|tool| programs.join(tool)));
+        }
+        if let Some(local) = folder("LOCALAPPDATA") {
+            directories.push(local.join("Microsoft/WindowsApps"));
+            directories.push(local.join("Programs/Git/cmd"));
+        }
+        if let Some(roaming) = folder("APPDATA") {
+            directories.push(roaming.join("npm"));
+        }
     }
     directories
 }
@@ -493,7 +505,9 @@ impl Launch {
         if !self.audio {
             add("NoAudio", None);
         }
-        if self.auto_approve {
+        // ralph.ps1 hands its pull request to ralph-pr.ps1 without approval, so only a
+        // Ralph PR run can approve.
+        if self.auto_approve && self.script == Script::Pr {
             add("AutoApprove", None);
         }
         arguments
@@ -695,6 +709,35 @@ mod tests {
                 "tech-debt,automated",
                 "-DryRun"
             ]
+        );
+    }
+
+    #[test]
+    fn only_a_ralph_pr_run_can_auto_approve() {
+        let declared: BTreeSet<String> = ["AutoApprove".to_string()].into();
+        for script in [
+            Script::Ralph,
+            Script::Issues,
+            Script::Template("x.ps1".into()),
+        ] {
+            let launch = Launch {
+                script,
+                ..Launch::default()
+            };
+            assert!(
+                !launch
+                    .arguments(&declared, None)
+                    .contains(&"-AutoApprove".into())
+            );
+        }
+        let launch = Launch {
+            script: Script::Pr,
+            ..Launch::default()
+        };
+        assert!(
+            launch
+                .arguments(&declared, None)
+                .contains(&"-AutoApprove".into())
         );
     }
 
