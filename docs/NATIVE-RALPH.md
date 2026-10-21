@@ -51,7 +51,9 @@ The form has the same inputs as Electron Buddy:
   `config/models.json` and `config/agents.json`. Model lists only what the
   chosen provider can run. Default means the provider's own `defaultModel`
   when it has one (the OpenCode and OpenRouter providers do), else the
-  catalog default, exactly as the scripts resolve it.
+  catalog default, exactly as the scripts resolve it. The Default entry names
+  the model, for example `Default (medium → claude-opus-4.6)` when the default
+  is a tier.
 - **Review agents**: the review roles to run on the pull request, each with an
   optional model. Ralph Issues opens no pull request, so it has none.
 - **Work iterations** (Scan iterations for Ralph Issues), 1 to 100, and

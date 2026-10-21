@@ -4,6 +4,7 @@ use buddy_core::ralph::progress::{Phase, Stats};
 use buddy_core::ralph::store::{Run, RunState};
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::select::Select;
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
@@ -407,24 +408,29 @@ impl RalphView {
         body.into_any_element()
     }
 
-    fn toggle(
+    /// An on/off option, shown and announced as a checkbox.
+    fn option(
         id: &'static str,
         label: &'static str,
         on: bool,
         disabled: bool,
         cx: &mut Context<Self>,
-        set: impl Fn(&mut Form) + 'static,
-    ) -> Button {
-        Button::new(id)
+        set: impl Fn(&mut Form, bool) + 'static,
+    ) -> Checkbox {
+        let view = cx.entity().downgrade();
+        Checkbox::new(id)
             .label(label)
-            .selected(on)
+            .checked(on)
             .disabled(disabled)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                if let Some(form) = &mut this.form {
-                    set(form);
-                }
-                cx.notify();
-            }))
+            .on_click(move |checked, _, cx| {
+                let checked = *checked;
+                let _ = view.update(cx, |this, cx| {
+                    if let Some(form) = &mut this.form {
+                        set(form, checked);
+                    }
+                    cx.notify();
+                });
+            })
     }
 
     fn render_form(&self, form: &Form, cx: &mut Context<Self>) -> AnyElement {
@@ -504,6 +510,7 @@ impl RalphView {
                     .label(role.clone())
                     .tooltip(description.clone())
                     .selected(form.selected.contains_key(role))
+                    .toggled(form.selected.contains_key(role))
                     .disabled(busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(mut form) = this.form.take() {
@@ -578,22 +585,22 @@ impl RalphView {
         }
         let mut options = h_flex().flex_wrap().gap_2();
         if script == Script::Issues {
-            options = options.child(Self::toggle(
+            options = options.child(Self::option(
                 "ralph-dry-run",
                 "Dry run: scan without creating issues",
                 form.dry_run,
                 busy,
                 cx,
-                |form| form.dry_run = !form.dry_run,
+                |form, on| form.dry_run = on,
             ));
         } else if script.can_merge() {
-            options = options.child(Self::toggle(
+            options = options.child(Self::option(
                 "ralph-merge",
                 "Merge the PR when it is clean (gh pr merge --admin)",
                 form.merge,
                 busy,
                 cx,
-                |form| form.merge = !form.merge,
+                |form, on| form.merge = on,
             ));
         }
         body = body.child(options).child(muted(

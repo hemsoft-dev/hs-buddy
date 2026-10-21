@@ -38,10 +38,13 @@ fn choice(value: &str, title: String) -> Choice {
 
 /// Models the provider can run, with their aliases and tiers, after a default entry.
 pub(super) fn model_choices(catalog: &Catalog, provider: &str) -> Vec<Choice> {
-    let mut choices = vec![choice(
-        "",
-        format!("Default ({})", catalog.effective_model(provider, "")),
-    )];
+    // A tier or alias names the model it stands for, as the alias entries below do.
+    let default = catalog.effective_model(provider, "");
+    let label = match catalog.model(default) {
+        Some(model) if model.key != default => format!("Default ({default} → {})", model.key),
+        _ => format!("Default ({default})"),
+    };
+    let mut choices = vec![choice("", label)];
     choices.extend(
         catalog
             .models

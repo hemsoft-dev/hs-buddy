@@ -220,7 +220,7 @@ def qualify(executable, output, session, version):
         ])
         github.check(errors / "not-repository-light.png", "is not inside a Git repository.", "Launch")
         github.check(errors / "failed-light.png", "Failed", "The loop exited with code 3.", "RALPH STUB FAILING", "Retry")
-        github.check(errors / "retried-light.png", "Failed", "Started again as a new run.")
+        github.check(errors / "retried-light.png", "Failed", "The loop exited with code 3.", "Retry")
         github.check(errors / "compact-form-light.png", "Ralph Loop", "Launch", "Close", "Repository")
         verify_receipts(proofs, repository_path, dict(quick=1, long=2, fail=2))
 
@@ -228,9 +228,13 @@ def qualify(executable, output, session, version):
         os.environ["PATH"] = original_path
         missing = driver.drive("missing-light", [
             ("click", "New loop"), ("sleep", 1), ("input", "Prompt", "quick"),
+            # The form's on states: merging checked, one review agent with its model picker.
+            ("click", "Merge the PR when it is clean"), ("click", "pr-review-general"), ("sleep", 1),
+            ("capture", "form-options-light"),
             ("click", "Launch"), ("wait_text", "GitHub Copilot CLI (copilot) was not found."),
             ("capture", "missing-tool-light"),
         ])
+        github.check(missing / "form-options-light.png", "Merge the PR when it is clean", "pr-review-general model")
         github.check(missing / "missing-tool-light.png", "GitHub Copilot CLI (copilot) was not found.", "npm install")
         verify_receipts(proofs, repository_path, dict(quick=1, long=2, fail=2))
 

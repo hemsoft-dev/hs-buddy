@@ -103,6 +103,8 @@ pub struct RalphView {
     busy: bool,
     error: Option<String>,
     notice: Option<String>,
+    /// The run a notice is about; the notice goes once that run is no longer active.
+    notice_run: Option<String>,
     /// A GitHub handoff that arrived before the scripts loaded; opened once they have.
     pending_handoff: Option<Handoff>,
     /// Why the scripts could not be prepared; launching stays unavailable.
@@ -136,6 +138,7 @@ impl RalphView {
             busy: false,
             error: None,
             notice: None,
+            notice_run: None,
             pending_handoff: None,
             catalog_error: None,
         }
@@ -248,6 +251,14 @@ impl RalphView {
             self.stop_confirm = None;
             changed = true;
         }
+        // "Loop started" and "Stop requested" describe a moment; the state label takes over.
+        if let Some(id) = &self.notice_run
+            && !self.run(id).is_some_and(|run| run.state.is_active())
+        {
+            self.notice = None;
+            self.notice_run = None;
+            changed = true;
+        }
         // Durations of active runs advance between status writes.
         if changed || self.runs.iter().any(|run| run.state.is_active()) {
             cx.notify();
@@ -263,6 +274,8 @@ impl RalphView {
         self.output = (vec![], false);
         self.stop_confirm = None;
         self.error = None;
+        self.notice = None;
+        self.notice_run = None;
         self.refresh(cx);
         cx.notify();
     }
@@ -272,6 +285,8 @@ impl RalphView {
         self.form = None;
         self.stop_confirm = None;
         self.error = None;
+        self.notice = None;
+        self.notice_run = None;
         cx.notify();
     }
 
@@ -320,12 +335,14 @@ impl RalphView {
     }
 
     /// Runs `work` against the store off the UI thread; `Ok(Some(id))` opens that run.
+    /// The notice describes `subject`, or the opened run.
     fn operate(
         &mut self,
         work: impl FnOnce(&mut Store, &std::path::Path) -> Result<Option<String>, String>
         + Send
         + 'static,
         notice: &'static str,
+        subject: Option<String>,
         cx: &mut Context<Self>,
     ) {
         if self.busy {
@@ -351,10 +368,14 @@ impl RalphView {
                 match result {
                     Ok(Some(id)) => {
                         this.form = None;
+                        this.open_detail(id.clone(), cx);
                         this.notice = Some(notice.into());
-                        this.open_detail(id, cx);
+                        this.notice_run = Some(id);
                     }
-                    Ok(None) => this.notice = Some(notice.into()),
+                    Ok(None) => {
+                        this.notice = Some(notice.into());
+                        this.notice_run = subject;
+                    }
                     Err(error) => this.error = Some(error),
                 }
                 this.refresh(cx);
@@ -383,6 +404,7 @@ impl RalphView {
                 buddy_core::ralph::start(store, executable, launch, None).map(Some)
             },
             "Loop started. It keeps running if Buddy closes.",
+            None,
             cx,
         );
     }
@@ -391,15 +413,18 @@ impl RalphView {
         self.operate(
             move |store, executable| buddy_core::ralph::retry(store, executable, &id).map(Some),
             "Started again as a new run.",
+            None,
             cx,
         );
     }
 
     fn stop(&mut self, id: String, cx: &mut Context<Self>) {
         self.stop_confirm = None;
+        let subject = id.clone();
         self.operate(
             move |store, _| store.request_stop(&id).map(|_| None),
             "Stop requested. The loop's own processes are being ended.",
+            Some(subject),
             cx,
         );
     }

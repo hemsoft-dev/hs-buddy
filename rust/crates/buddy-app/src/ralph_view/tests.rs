@@ -125,6 +125,16 @@ fn model_choices_follow_the_provider() {
     let catalog = catalog();
     let copilot = model_choices(&catalog, "copilot");
     assert!(copilot[0].value.is_empty() && copilot[0].title.starts_with("Default ("));
+    // The catalog default is a tier; Default names the model it stands for.
+    let tier = catalog.model(&catalog.default_model).unwrap();
+    assert_eq!(
+        copilot[0].title.to_string(),
+        format!("Default ({} → {})", catalog.default_model, tier.key)
+    );
+    assert_eq!(
+        model_choices(&catalog, "openrouter")[0].title.to_string(),
+        "Default (kimi-k2.6)"
+    );
     assert!(
         !copilot
             .iter()
@@ -501,4 +511,40 @@ fn a_failed_script_load_stays_visible_through_a_handoff(cx: &mut gpui_kit::TestA
             );
         })
     });
+}
+
+#[gpui_kit::test]
+fn a_start_or_stop_notice_goes_once_its_run_settles(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let live = write_run(
+        root.path(),
+        "live",
+        1,
+        Some(status(HostState::Running, None)),
+        "",
+    );
+    let lock = std::fs::File::create(live.join("host.lock")).unwrap();
+    lock.lock().unwrap();
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|_, cx| {
+        view.update(cx, |view, _| {
+            view.notice = Some("Stop requested. The loop's own processes are being ended.".into());
+            view.notice_run = Some("live".into());
+        })
+    });
+    visual.update(|_, cx| view.update(cx, |view, cx| view.refresh(cx)));
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |view, _| view.notice.is_some()));
+    std::fs::write(
+        live.join("status.json"),
+        serde_json::to_vec(&status(HostState::Stopped, None)).unwrap(),
+    )
+    .unwrap();
+    drop(lock);
+    visual.update(|_, cx| view.update(cx, |view, cx| view.refresh(cx)));
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |view, _| view.notice.is_none()
+        && view.notice_run.is_none()));
 }
