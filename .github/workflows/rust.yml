@@ -46,8 +46,10 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # Measured cold Intel setup/build takes 103 minutes before installed UI checks.
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 150 || 90 }}
+    # Healthy runs on main fd961edf (#852): Intel 134-146 minutes, Apple silicon
+    # 84, Windows 74, Ubuntu 69, before automation qualification was added.
+    # These limits keep at least 30 minutes of headroom and still stop a hang.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 210 || 120 }}
     strategy:
       fail-fast: false
       matrix:

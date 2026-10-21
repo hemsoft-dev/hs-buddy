@@ -86,7 +86,7 @@ impl Drop for HostJob {
 }
 
 #[cfg(unix)]
-pub(super) fn shell_exited(pid: i32) -> std::io::Result<bool> {
+pub(crate) fn shell_exited(pid: i32) -> std::io::Result<bool> {
     if pid <= 1 {
         return Err(std::io::Error::other("Invalid owned shell identity."));
     }
@@ -128,12 +128,34 @@ fn group_has_live_member(
 
 #[cfg(unix)]
 pub(crate) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result<()> {
-    use std::collections::BTreeMap;
     if session <= 1 || session == unsafe { libc::getsid(0) } {
         return Err(std::io::Error::other(
             "Refusing to signal an unowned terminal session.",
         ));
     }
+    signal_session_groups(session, signal, None)
+}
+
+/// Parent EOF in a trusted noninteractive host. Kill other groups first, then
+/// the host's own group, which also prevents inherited-pipe holders surviving it.
+#[cfg(unix)]
+pub(crate) fn terminate_own_host_session() -> std::io::Result<()> {
+    let host = unsafe { libc::getpid() };
+    if host <= 1 || unsafe { libc::getsid(0) } != host || unsafe { libc::getpgrp() } != host {
+        return Err(std::io::Error::other(
+            "The worker host does not own this session.",
+        ));
+    }
+    signal_session_groups(host, libc::SIGKILL, Some(host))?;
+    if unsafe { libc::kill(-host, libc::SIGKILL) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn signal_session_groups(session: i32, signal: i32, excluded: Option<i32>) -> std::io::Result<()> {
+    use std::collections::BTreeMap;
     // The supervisor keeps its actual shell Child unreaped throughout cleanup. Its new SID
     // therefore retains the launch identity while process groups are discovered and signalled.
     let mut groups = BTreeMap::new();
@@ -146,6 +168,9 @@ pub(crate) fn signal_shell_session(session: i32, signal: i32) -> std::io::Result
         }
     }
     for (group, members) in groups {
+        if excluded == Some(group) {
+            continue;
+        }
         if !group_has_live_member(session, group, &members, |member| {
             (unsafe { libc::getsid(member) }, unsafe {
                 libc::getpgid(member)

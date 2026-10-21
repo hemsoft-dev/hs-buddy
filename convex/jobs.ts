@@ -1,6 +1,7 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { notFoundError, shellValidator } from './lib/domain'
+import { notFoundError } from './lib/domain'
+import { jobConfigValidator } from './lib/jobConfig'
 import { buildUpdateData } from '../shared/utils/convexPatchUtils'
 
 /**
@@ -55,24 +56,7 @@ export const create = mutation({
     name: v.string(),
     description: v.optional(v.string()),
     workerType: workerTypeValidator,
-    config: v.object({
-      // exec-worker
-      command: v.optional(v.string()),
-      cwd: v.optional(v.string()),
-      timeout: v.optional(v.number()),
-      shell: v.optional(shellValidator),
-      // ai-worker
-      prompt: v.optional(v.string()),
-      model: v.optional(v.string()),
-      maxTokens: v.optional(v.number()),
-      temperature: v.optional(v.number()),
-      repoOwner: v.optional(v.string()),
-      repoName: v.optional(v.string()),
-      // skill-worker
-      skillName: v.optional(v.string()),
-      action: v.optional(v.string()),
-      params: v.optional(v.any()),
-    }),
+    config: jobConfigValidator,
     inputParams: v.optional(
       v.array(
         v.object({
@@ -118,23 +102,7 @@ export const update = mutation({
     name: v.optional(v.string()),
     description: v.optional(v.string()),
     workerType: v.optional(workerTypeValidator),
-    config: v.optional(
-      v.object({
-        command: v.optional(v.string()),
-        cwd: v.optional(v.string()),
-        timeout: v.optional(v.number()),
-        shell: v.optional(shellValidator),
-        prompt: v.optional(v.string()),
-        model: v.optional(v.string()),
-        maxTokens: v.optional(v.number()),
-        temperature: v.optional(v.number()),
-        repoOwner: v.optional(v.string()),
-        repoName: v.optional(v.string()),
-        skillName: v.optional(v.string()),
-        action: v.optional(v.string()),
-        params: v.optional(v.any()),
-      })
-    ),
+    config: v.optional(jobConfigValidator),
     inputParams: v.optional(
       v.array(
         v.object({
@@ -167,7 +135,13 @@ export const update = mutation({
       }
     }
 
-    await ctx.db.patch('jobs', id, buildUpdateData(updates, Date.now()))
+    // Older Electron editors do not expose environment. Preserve it on those
+    // config replacements; an explicit empty env object clears overrides.
+    const preserved =
+      updates.config && updates.config.env === undefined && existing.config.env
+        ? { ...updates, config: { ...updates.config, env: existing.config.env } }
+        : updates
+    await ctx.db.patch('jobs', id, buildUpdateData(preserved, Date.now()))
     return id
   },
 })

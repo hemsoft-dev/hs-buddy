@@ -3,6 +3,8 @@ import { calculateNextRunAt, DEFAULT_TIMEZONE } from './lib/cronUtils'
 import {
   MAX_SETTIMEOUT_DELAY_MS,
   RUNNING_TIMEOUT_HEADROOM_MS,
+  SNAPSHOT_BATCH_ACCOUNTS,
+  snapshotRunTimeoutMs,
   STALE_RUN_TIMEOUT_MS,
 } from './lib/constants'
 import { isPendingOrRunning } from './lib/domain'
@@ -106,6 +108,7 @@ interface StaleRunRecord {
   jobId: Id<'jobs'>
   scheduleId?: Id<'schedules'>
   startedAt: number
+  input?: unknown
 }
 
 /**
@@ -149,6 +152,16 @@ async function reapRun(
  * `pending` runs have not started executing yet, so they always use the
  * flat default.
  */
+/** Snapshot batches get their account-scaled budget, never less than the job's own. */
+function effectiveTimeoutMs(
+  config: { command?: string; timeout?: number } | undefined,
+  input: unknown
+): number | undefined {
+  const accounts = (input as { accounts?: unknown } | null | undefined)?.accounts
+  if (config?.command !== '__copilot_snapshot__' || !Array.isArray(accounts)) return config?.timeout
+  return Math.max(config.timeout ?? 0, snapshotRunTimeoutMs(accounts.length))
+}
+
 async function staleRunThresholdMs(
   ctx: { db: GenericDatabaseWriter<DataModel> },
   run: StaleRunRecord,
@@ -157,7 +170,7 @@ async function staleRunThresholdMs(
   if (status !== 'running') return STALE_RUN_TIMEOUT_MS
 
   const job = await ctx.db.get('jobs', run.jobId)
-  const configuredTimeout = job?.config.timeout
+  const configuredTimeout = effectiveTimeoutMs(job?.config, run.input)
   if (
     configuredTimeout != null &&
     configuredTimeout > 0 &&
@@ -313,17 +326,28 @@ export const markSnapshotsDue = internalMutation({
       return { marked: 0, reason: 'already pending today' }
     }
 
-    // Create one pending run (input carries the account list for the IPC layer)
-    await insertRun(ctx, {
-      jobId: snapshotJob._id,
-      status: 'pending',
-      triggeredBy: 'schedule',
-      input: { accounts: accounts.map(a => ({ username: a.username, org: a.org })) },
-      startedAt: now,
-    })
+    // One pending run per batch: each worker validates a bounded account list,
+    // and a batch's timeout scales with its own size.
+    const batches: Array<typeof accounts> = []
+    for (let start = 0; start < accounts.length; start += SNAPSHOT_BATCH_ACCOUNTS) {
+      batches.push(accounts.slice(start, start + SNAPSHOT_BATCH_ACCOUNTS))
+    }
+    // Sequential: each insert also updates the run-count aggregate.
+    await batches.reduce<Promise<unknown>>(
+      (previous, batch) =>
+        previous.then(() =>
+          insertRun(ctx, {
+            jobId: snapshotJob._id,
+            status: 'pending',
+            triggeredBy: 'schedule',
+            input: { accounts: batch.map(a => ({ username: a.username, org: a.org })) },
+            startedAt: now,
+          })
+        ),
+      Promise.resolve()
+    )
+    await incrementStat(ctx.db, 'runsTriggered', batches.length)
 
-    await incrementStat(ctx.db, 'runsTriggered')
-
-    return { marked: 1 }
+    return { marked: batches.length }
   },
 })

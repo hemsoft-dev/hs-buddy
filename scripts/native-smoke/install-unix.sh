@@ -62,6 +62,7 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     BUDDY_SETTINGS_FIXTURE=1 python3 "$1/copilot-desktop.py" --executable "$(command -v buddy-native)" --output "$2/copilot" --session x11 --version "$3"
     BUDDY_SETTINGS_FIXTURE=1 bash "$1/todoist-secret-session.sh" python3 "$1/todoist-desktop.py" --executable "$(command -v buddy-native)" --output "$2/todoist" --session x11 --version "$3"
     BUDDY_SETTINGS_FIXTURE=1 bash "$1/todoist-secret-session.sh" python3 "$1/tempo-desktop.py" --executable "$(command -v buddy-native)" --output "$2/tempo" --session x11 --version "$3" --source-sha "$4"
+    BUDDY_SETTINGS_FIXTURE=1 python3 "$1/automation-desktop.py" --executable "$(command -v buddy-native)" --output "$2/automation" --session x11 --version "$3"
   ' bash "$script_directory" "$output" "$version" "$source_sha"
   exit
 fi
@@ -109,6 +110,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/copilot-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/copilot" --session macos --version "$version"
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/todoist-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/todoist" --session macos --version "$version"
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/tempo-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/tempo" --session macos --version "$version" --source-sha "$source_sha"
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/automation-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/automation" --session macos --version "$version"
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]

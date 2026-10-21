@@ -5,10 +5,11 @@ application shell, [account and application settings](NATIVE-SETTINGS.md),
 [GitHub workflows](NATIVE-GITHUB.md),
 [terminal workspaces and prompts](NATIVE-TERMINAL.md),
 [Copilot workspace](NATIVE-COPILOT.md),
-[Todoist task planner](NATIVE-TODOIST.md), and
-[Tempo timesheets and worklogs](NATIVE-TEMPO.md).
+[Todoist task planner](NATIVE-TODOIST.md),
+[Tempo timesheets and worklogs](NATIVE-TEMPO.md), and
+[automation jobs, schedules and run history](NATIVE-AUTOMATION.md).
 The Electron app remains the full application while
-issues #819 through #823 track the remaining feature migration and parity qualification.
+issues #820 through #823 track the remaining feature migration and parity qualification.
 
 Buddy Native has its own installer identity, `com.hemsoft.buddy.native`, so it
 can coexist with Electron Buddy. Both apps retain the existing configuration,

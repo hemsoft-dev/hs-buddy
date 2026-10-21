@@ -9,6 +9,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1505] - 2026-10-21
+
+### Changed
+
+- Wait for a settled run before opening its output
+
+## [0.1.1504] - 2026-10-21
+
+### Fixed
+
+- Split Copilot snapshot runs into bounded batches
+
+## [0.1.1503] - 2026-10-21
+
+### Fixed
+
+- Publish automation snapshots only when they change
+
+## [0.1.1502] - 2026-10-21
+
+### Fixed
+
+- Clear emSign distrust advisories in the native workspace
+
+## [0.1.1501] - 2026-10-20
+
+### Fixed
+
+- Patch vite and markdown-it advisories
+
+## [0.1.1500] - 2026-10-20
+
+### Fixed
+
+- Finish-review polish and fourth-round automation findings
+
+## [0.1.1499] - 2026-10-20
+
+### Changed
+
+- Wait for the offline message in automation qualification
+
+## [0.1.1498] - 2026-10-20
+
+### Fixed
+
+- Keep automation editor actions visible
+
+## [0.1.1497] - 2026-10-20
+
+### Fixed
+
+- List new Convex modules in the generated API
+
+## [0.1.1496] - 2026-10-20
+
+### Fixed
+
+- Settle cancellation, stuck runs and schedule validation
+
+## [0.1.1495] - 2026-10-20
+
+### Fixed
+
+- Resolve the active GitHub account and second-round review findings
+
+## [0.1.1494] - 2026-10-20
+
+### Fixed
+
+- Address automation review findings
+
+## [0.1.1493] - 2026-10-20
+
+### Added
+
+- Port automation scheduling and run history to Rust and GPUI
+
 ## [0.1.1492] - 2026-10-19
 
 ### Fixed

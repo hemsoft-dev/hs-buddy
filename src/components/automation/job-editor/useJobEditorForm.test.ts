@@ -39,6 +39,38 @@ describe('useJobEditorForm', () => {
     mockUseCopilotSettings.mockReturnValue({ ghAccount: 'defaultUser', model: 'gpt-4' })
   })
 
+  it('keeps explicit environment when duplicating a job through the older editor', async () => {
+    const env = { BUDDY_FIXTURE_VALUE: '雪 exact' }
+    const source = {
+      name: 'Captured',
+      workerType: 'exec' as const,
+      config: { command: 'fixture', env },
+    }
+    const { result } = renderDefault(undefined, source)
+    await waitFor(() => expect(result.current.name).toBe('Captured (Copy)'))
+    await act(() => result.current.handleSave())
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ config: expect.objectContaining({ env }) })
+    )
+  })
+
+  it.each([null, false, 0])(
+    'retains the explicit skill parameter %s when editing',
+    async params => {
+      mockUseJob.mockReturnValue({
+        name: 'Skill',
+        workerType: 'skill',
+        config: { skillName: 'fixture', params },
+      })
+      const { result } = renderDefault('job-one')
+      await waitFor(() => expect(result.current.name).toBe('Skill'))
+      await act(() => result.current.handleSave())
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ config: expect.objectContaining({ params }) })
+      )
+    }
+  )
+
   // ── 1. Default state ─────────────────────────────────────────────
   describe('default state', () => {
     it('returns empty/default values for a new job', async () => {

@@ -17,7 +17,9 @@ thiserror = "2"
 log = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-convex = { version = "0.10", default-features = false, features = ["rustls-tls-webpki-roots"] }
+# OS trust store: webpki-roots 0.26 (the only path tokio-tungstenite 0.28 offers
+# for bundled roots) still ships the distrusted emSign root (RUSTSEC-2026-0381).
+convex = { version = "0.10", default-features = false, features = ["rustls-tls-native-roots"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 futures = "0.3"
 chrono = "0.4"

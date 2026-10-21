@@ -42,7 +42,7 @@ export const execWorker: Worker = {
 
       const child = spawn(shellCmd, [...shellArgs, finalCommand], {
         cwd: config.cwd || undefined,
-        env: { ...process.env },
+        env: { ...process.env, ...config.env },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       })

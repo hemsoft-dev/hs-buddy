@@ -108,14 +108,14 @@ are enforced by `scripts/check-readme-metadata.ts`.
 │           │ Convex SDK                                           │
 │           ▼                                                      │
 │  ┌────────────────────┐                                          │
-│  │  Convex Cloud       │  19 schema tables · scheduled jobs      │
+│  │  Convex Cloud       │  20 schema tables · scheduled jobs      │
 │  │  Real-time sync     │  File storage for run outputs           │
 │  │  Offline resilience │                                          │
 │  └────────────────────┘                                          │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Model (19 Convex Schema Tables + System Storage)
+### Data Model (20 Convex Schema Tables + System Storage)
 
 | Table                   | Purpose                                                         |
 | ----------------------- | --------------------------------------------------------------- |
@@ -126,6 +126,7 @@ are enforced by `scripts/check-readme-metadata.ts`.
 | `jobs`                  | Task definitions (exec/ai/skill worker type + config)           |
 | `schedules`             | Cron expressions, timezone, missed policy, linked job           |
 | `runs`                  | Execution history (status, duration, output, file storage)      |
+| `automationReceipts`    | Native trigger/claim identities retained after history cleanup  |
 | `bookmarks`             | URL collection with categories, tags, sort order                |
 | `repoBookmarks`         | Folder-organized repo collection                                |
 | `buddyStats`            | 16 lifetime counters (launches, tabs, PRs viewed, etc.)         |

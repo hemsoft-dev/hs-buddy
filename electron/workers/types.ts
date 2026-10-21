@@ -11,6 +11,7 @@ export interface JobConfig {
   // exec-worker
   command?: string
   cwd?: string
+  env?: Record<string, string>
   timeout?: number
   shell?: 'powershell' | 'bash' | 'cmd'
   // ai-worker

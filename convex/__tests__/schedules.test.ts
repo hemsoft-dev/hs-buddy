@@ -300,3 +300,38 @@ describe('schedules', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('schedule validation while paused', () => {
+  const paused = {
+    name: 'Paused',
+    cron: '0 9 * * 1-5',
+    enabled: false,
+    missedPolicy: 'skip' as const,
+  }
+
+  test('create rejects an invalid cron or timezone even when paused', async () => {
+    const t = convexTest(schema, modules)
+    const jobId = await t.mutation(api.jobs.create, baseJob)
+    await expect(
+      t.mutation(api.schedules.create, { ...paused, jobId, cron: 'not a cron' })
+    ).rejects.toThrow()
+    await expect(
+      t.mutation(api.schedules.create, { ...paused, jobId, timezone: 'Nowhere/Invalid' })
+    ).rejects.toThrow()
+    expect(await t.query(api.schedules.list)).toEqual([])
+  })
+
+  test('update rejects an invalid cron or timezone even when paused', async () => {
+    const t = convexTest(schema, modules)
+    const jobId = await t.mutation(api.jobs.create, baseJob)
+    const id = await t.mutation(api.schedules.create, { ...paused, jobId })
+    await expect(t.mutation(api.schedules.update, { id, cron: '99 99 * * *' })).rejects.toThrow()
+    await expect(
+      t.mutation(api.schedules.update, { id, timezone: 'Nowhere/Invalid' })
+    ).rejects.toThrow()
+    await t.mutation(api.schedules.update, { id, name: 'Renamed' })
+    const stored = await t.query(api.schedules.get, { id })
+    expect(stored?.cron).toBe('0 9 * * 1-5')
+    expect(stored?.name).toBe('Renamed')
+  })
+})

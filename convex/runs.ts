@@ -1,11 +1,21 @@
 import { v } from 'convex/values'
-import { mutation, query, type MutationCtx } from './_generated/server'
-import type { Id } from './_generated/dataModel'
+import { mutation, query } from './_generated/server'
 import { MS_PER_DAY } from './lib/constants'
 import { isPendingOrRunning, notFoundError, runStatusValidator } from './lib/domain'
 import { projectJob } from './lib/projections'
-import { incrementStat } from './lib/stats'
-import { deleteRun, getRunCountsByJob, insertRun, patchRun } from './lib/runStore'
+import { deleteRun, getRunCountsByJob, patchRun } from './lib/runStore'
+import {
+  createRun,
+  getNativeTrigger as lookupNativeTrigger,
+  triggerNativeRun,
+} from './lib/runCreate'
+import {
+  claimNativeRun,
+  finalizeRun,
+  getNativeClaim as lookupNativeClaim,
+  publicRun,
+  retireClaimPayload,
+} from './lib/runClaims'
 
 // List recent runs (last N runs)
 export const listRecent = query({
@@ -24,7 +34,7 @@ export const listRecent = query({
         const schedule = run.scheduleId ? await ctx.db.get('schedules', run.scheduleId) : null
 
         return {
-          ...run,
+          ...publicRun(run),
           job: projectJob(job),
           schedule: schedule
             ? {
@@ -49,11 +59,13 @@ export const listByJob = query({
   handler: async (ctx, args) => {
     const limit = args.limit ?? 20
 
-    return await ctx.db
-      .query('runs')
-      .withIndex('by_job', q => q.eq('jobId', args.jobId))
-      .order('desc')
-      .take(limit)
+    return (
+      await ctx.db
+        .query('runs')
+        .withIndex('by_job', q => q.eq('jobId', args.jobId))
+        .order('desc')
+        .take(limit)
+    ).map(publicRun)
   },
 })
 
@@ -66,11 +78,13 @@ export const listBySchedule = query({
   handler: async (ctx, args) => {
     const limit = args.limit ?? 20
 
-    return await ctx.db
-      .query('runs')
-      .withIndex('by_schedule', q => q.eq('scheduleId', args.scheduleId))
-      .order('desc')
-      .take(limit)
+    return (
+      await ctx.db
+        .query('runs')
+        .withIndex('by_schedule', q => q.eq('scheduleId', args.scheduleId))
+        .order('desc')
+        .take(limit)
+    ).map(publicRun)
   },
 })
 
@@ -85,7 +99,7 @@ export const get = query({
     const schedule = run.scheduleId ? await ctx.db.get('schedules', run.scheduleId) : null
 
     return {
-      ...run,
+      ...publicRun(run),
       job,
       schedule,
     }
@@ -100,37 +114,17 @@ export const create = mutation({
     triggeredBy: v.union(v.literal('manual'), v.literal('schedule'), v.literal('api')),
     input: v.optional(v.any()),
   },
-  handler: async (ctx, args) => {
-    // Verify job exists
-    const job = await ctx.db.get('jobs', args.jobId)
-    if (!job) {
-      throw notFoundError('Job', args.jobId)
-    }
+  handler: createRun,
+})
 
-    if (args.scheduleId) {
-      const schedule = await ctx.db.get('schedules', args.scheduleId)
-      if (!schedule) {
-        throw notFoundError('Schedule', args.scheduleId)
-      }
-      if (schedule.jobId !== args.jobId) {
-        throw new Error(`Schedule ${args.scheduleId} does not belong to job ${args.jobId}`)
-      }
-    }
+export const triggerNative = mutation({
+  args: { requestId: v.string(), jobId: v.id('jobs'), input: v.optional(v.any()) },
+  handler: triggerNativeRun,
+})
 
-    const id = await insertRun(ctx, {
-      jobId: args.jobId,
-      scheduleId: args.scheduleId,
-      status: 'pending',
-      triggeredBy: args.triggeredBy,
-      input: args.input,
-      startedAt: Date.now(),
-    })
-
-    // Track the stat
-    await incrementStat(ctx.db, 'runsTriggered')
-
-    return id
-  },
+export const getNativeTrigger = query({
+  args: { requestId: v.string() },
+  handler: (ctx, args) => lookupNativeTrigger(ctx, args.requestId),
 })
 
 // Update run status to running
@@ -155,55 +149,26 @@ export const markRunning = mutation({
   },
 })
 
-async function finalizeRun(
-  ctx: MutationCtx,
-  runId: Id<'runs'>,
-  status: 'completed' | 'failed',
-  statKey: 'runsCompleted' | 'runsFailed',
-  extraPatch: Record<string, unknown>
-) {
-  const run = await ctx.db.get(runId)
-  if (!run) {
-    throw notFoundError('Run', runId)
-  }
-  // A run already in a terminal state was finalized elsewhere first (e.g.
-  // the stuck-run reaper in `scheduleScanner.ts` failed it after the
-  // Electron app went unresponsive). Silently no-op instead of overwriting
-  // that result and double-incrementing stats for the same run.
-  if (!isPendingOrRunning(run.status)) {
-    return
-  }
-  const completedAt = Date.now()
-  await patchRun(ctx, runId, {
-    status,
-    ...extraPatch,
-    completedAt,
-    duration: completedAt - run.startedAt,
-  })
-  await incrementStat(ctx.db, statKey)
-  if (run.scheduleId) {
-    const schedule = await ctx.db.get('schedules', run.scheduleId)
-    if (schedule) {
-      await ctx.db.patch('schedules', schedule._id, {
-        lastRunAt: completedAt,
-        lastRunStatus: status,
-      })
-    }
-  }
-}
-
 // Complete a run successfully
 export const complete = mutation({
   args: {
     id: v.id('runs'),
     output: v.optional(v.any()),
     outputFileId: v.optional(v.id('_storage')),
+    claimRequestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await finalizeRun(ctx, args.id, 'completed', 'runsCompleted', {
-      output: args.output,
-      outputFileId: args.outputFileId,
-    })
+    await finalizeRun(
+      ctx,
+      args.id,
+      'completed',
+      'runsCompleted',
+      {
+        output: args.output,
+        outputFileId: args.outputFileId,
+      },
+      args.claimRequestId
+    )
   },
 })
 
@@ -212,11 +177,21 @@ export const fail = mutation({
   args: {
     id: v.id('runs'),
     error: v.string(),
+    output: v.optional(v.any()),
+    claimRequestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await finalizeRun(ctx, args.id, 'failed', 'runsFailed', {
-      error: args.error,
-    })
+    await finalizeRun(
+      ctx,
+      args.id,
+      'failed',
+      'runsFailed',
+      {
+        error: args.error,
+        output: args.output,
+      },
+      args.claimRequestId
+    )
   },
 })
 
@@ -247,16 +222,30 @@ export const listByStatus = query({
   args: {
     status: runStatusValidator,
     limit: v.optional(v.number()),
+    // Native dispatchers claim FIFO, like claimPending.
+    oldestFirst: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50
 
-    return await ctx.db
-      .query('runs')
-      .withIndex('by_status', q => q.eq('status', args.status))
-      .order('desc')
-      .take(limit)
+    return (
+      await ctx.db
+        .query('runs')
+        .withIndex('by_status', q => q.eq('status', args.status))
+        .order(args.oldestFirst ? 'asc' : 'desc')
+        .take(limit)
+    ).map(publicRun)
   },
+})
+
+export const claimNative = mutation({
+  args: { requestId: v.string(), runId: v.id('runs') },
+  handler: (ctx, args) => claimNativeRun(ctx, args.requestId, args.runId),
+})
+
+export const getNativeClaim = query({
+  args: { requestId: v.string() },
+  handler: (ctx, args) => lookupNativeClaim(ctx, args.requestId),
 })
 
 // Claim the oldest pending run atomically (returns run + job, or null if none pending)
@@ -282,7 +271,7 @@ export const claimPending = mutation({
     // Fetch the associated job
     const job = await ctx.db.get('jobs', pendingRun.jobId)
     if (!job) {
-      // Job was deleted — fail the run
+      // Job was deleted â€” fail the run
       const completedAt = Date.now()
       await patchRun(ctx, pendingRun._id, {
         status: 'failed',
@@ -317,6 +306,8 @@ export const cleanup = mutation({
       // Only delete runs older than cutoff and not active
       if (run.startedAt >= cutoff) break
       if (!isPendingOrRunning(run.status)) {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Retire captured job data in the same transaction as its run history.
+        await retireClaimPayload(ctx, run)
         // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Cleanup walks sorted rows and stops at the cutoff boundary.
         await deleteRun(ctx, run)
         deleted++

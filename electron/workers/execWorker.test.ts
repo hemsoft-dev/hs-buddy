@@ -83,6 +83,23 @@ describe('execWorker', () => {
     vi.useRealTimers()
   })
 
+  it('applies only explicit overrides while retaining inherited environment without changing the parent', async () => {
+    const proc = createMockProcess()
+    vi.mocked(spawn).mockReturnValue(proc as never)
+    const original = process.env.BUDDY_FIXTURE_VALUE
+    const promise = execWorker.execute({
+      command: 'fixture',
+      env: { BUDDY_FIXTURE_VALUE: '雪 exact' },
+    })
+    const options = vi.mocked(spawn).mock.calls[0][2]
+    expect(options?.env?.BUDDY_FIXTURE_VALUE).toBe('雪 exact')
+    expect(options?.env?.PATH).toBe(process.env.PATH)
+    expect(options?.env).not.toBe(process.env)
+    expect(process.env.BUDDY_FIXTURE_VALUE).toBe(original)
+    proc.emit('close', 0)
+    await promise
+  })
+
   it('returns error when no command is specified', async () => {
     const result = await execWorker.execute({})
     expect(result.success).toBe(false)

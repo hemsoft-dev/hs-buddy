@@ -12,6 +12,7 @@ export interface JobConfig {
   // exec-worker
   command?: string
   cwd?: string
+  env?: Record<string, string>
   timeout?: number
   shell?: 'powershell' | 'bash' | 'cmd'
   // ai-worker
@@ -65,7 +66,7 @@ function loadAiConfig(config: JobConfig, setters: ConfigSetters): void {
 function loadSkillConfig(config: JobConfig, setters: ConfigSetters): void {
   if (config.skillName) setters.setSkillName(config.skillName)
   if (config.action) setters.setSkillAction(config.action)
-  if (config.params) setters.setSkillParams(JSON.stringify(config.params, null, 2))
+  if (config.params !== undefined) setters.setSkillParams(JSON.stringify(config.params, null, 2))
 }
 
 function loadSourceConfig(config: JobConfig, setters: ConfigSetters): void {
@@ -270,7 +271,8 @@ export function useJobEditorForm(
     setError(null)
     setSaving(true)
     try {
-      const config = buildConfig()
+      const source = existingJob || duplicateFrom
+      const config = { ...source?.config, ...buildConfig() }
       await persistJobChanges({
         isEditing,
         jobId,

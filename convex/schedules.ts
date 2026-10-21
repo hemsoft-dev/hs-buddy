@@ -1,6 +1,6 @@
 import { v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import { calculateNextRunAt, DEFAULT_TIMEZONE } from './lib/cronUtils'
+import { calculateNextRunAt, DEFAULT_TIMEZONE, validateCronExpression } from './lib/cronUtils'
 import { notFoundError } from './lib/domain'
 import { projectJob } from './lib/projections'
 import { buildScheduleUpdateFields } from '../shared/utils/scheduleUtils'
@@ -78,6 +78,8 @@ export const create = mutation({
 
     const now = Date.now()
     const timezone = args.timezone ?? DEFAULT_TIMEZONE
+    // A paused schedule must still be enableable later.
+    validateCronExpression(args.cron, timezone)
 
     // Calculate nextRunAt if schedule is enabled
     const nextRunAt = args.enabled ? calculateNextRunAt(args.cron, timezone) : undefined
@@ -118,6 +120,13 @@ export const update = mutation({
     const existing = await ctx.db.get('schedules', id)
     if (!existing) {
       throw notFoundError('Schedule', id)
+    }
+    if (updates.cron !== undefined || updates.timezone !== undefined) {
+      // Validate even while paused, so enabling it later cannot fail.
+      validateCronExpression(
+        updates.cron ?? existing.cron,
+        updates.timezone ?? existing.timezone ?? DEFAULT_TIMEZONE
+      )
     }
 
     const now = Date.now()

@@ -83,6 +83,17 @@ it('keeps Spotlight off the native DMG while it is detached', () => {
   expect(step).toContain("if: runner.os == 'macOS'")
 })
 
+it('gives native jobs measured headroom with a bounded hang limit', () => {
+  // A healthy Intel run on main hit the old 150-minute limit (#852).
+  const native = readFileSync('.github/workflows/rust.yml', 'utf8')
+  const limit = native.match(
+    /timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| (\d+) \}\}/
+  )
+  expect(Number(limit?.[1])).toBeGreaterThanOrEqual(210)
+  expect(Number(limit?.[2])).toBeGreaterThanOrEqual(120)
+  expect(Number(limit?.[1])).toBeLessThanOrEqual(240)
+})
+
 describe('desktop package qualification workflow', () => {
   it.each(qualifiedTargets)('builds and starts $name packages on a native runner', target => {
     const matrixEntry = workflow.split(`- name: ${target.name}`)[1]?.split(/\n\s+- name: /, 1)[0]

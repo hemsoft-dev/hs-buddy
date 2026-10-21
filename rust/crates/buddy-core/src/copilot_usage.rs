@@ -373,10 +373,45 @@ pub async fn fetch_billing(
     now: DateTime<Utc>,
     enterprise: Option<&str>,
 ) -> Result<BillingSnapshot, String> {
+    fetch_billing_inner(account, now, enterprise, false).await
+}
+
+/// Automated snapshots must not fall back to a different ambient login.
+pub async fn fetch_billing_selected(
+    account: &GitHubAccount,
+    now: DateTime<Utc>,
+    enterprise: Option<&str>,
+) -> Result<BillingSnapshot, String> {
+    fetch_billing_inner(account, now, enterprise, true).await
+}
+
+async fn fetch_billing_inner(
+    account: &GitHubAccount,
+    now: DateTime<Utc>,
+    enterprise: Option<&str>,
+    require_selected: bool,
+) -> Result<BillingSnapshot, String> {
     gh::assert_valid_slug(&account.username).map_err(|_| "Invalid GitHub account.".to_string())?;
     gh::assert_valid_slug(&account.org)
         .map_err(|_| "Configure an organization to read billing usage.".to_string())?;
     let reader = transport::Reader::new(account).await?;
+    if require_selected {
+        if !reader.selected() {
+            return Err("Sign in to the captured billing account.".into());
+        }
+        let identity = reader
+            .api("/user", &[])
+            .await
+            .map_err(|_| "The captured billing account could not be verified.")?;
+        let identity: serde_json::Value = serde_json::from_str(&identity)
+            .map_err(|_| "The captured billing account could not be verified.")?;
+        if !identity["login"]
+            .as_str()
+            .is_some_and(|login| login.eq_ignore_ascii_case(&account.username))
+        {
+            return Err("The billing credential does not match the captured account.".into());
+        }
+    }
     let body = fetch_billing_usage_body(&account.org, now.year(), now.month(), &reader)
         .await
         .map_err(|_| {

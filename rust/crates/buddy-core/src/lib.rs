@@ -4,6 +4,7 @@
 //! and shared by any front end.
 
 pub mod application_settings;
+pub mod automation;
 pub mod codex_usage;
 pub mod config;
 pub mod config_lock;

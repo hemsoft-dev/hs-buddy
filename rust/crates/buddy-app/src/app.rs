@@ -9,6 +9,7 @@ use gpui_kit::{
     ParentElement, Render, Styled, Window, div,
 };
 
+use crate::automation_view::AutomationView;
 use crate::copilot_view::CopilotView;
 use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::github_view::GitHubView;
@@ -117,6 +118,7 @@ pub struct BuddyApp {
     copilot_view: Entity<CopilotView>,
     todoist_view: Entity<TodoistView>,
     tempo_view: Entity<TempoView>,
+    automation_view: Entity<AutomationView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -328,6 +330,9 @@ impl BuddyApp {
         let copilot_view = cx.new(|cx| CopilotView::new(window, cx));
         let todoist_view = cx.new(|cx| TodoistView::new(window, cx));
         let tempo_view = cx.new(|cx| TempoView::new(window, cx));
+        // The dispatcher claims queued runs whichever section is visible.
+        let automation_view = cx.new(|cx| AutomationView::new(window, cx));
+        automation_view.update(cx, |view, cx| view.start(cx));
         if section == Some(Section::Tempo) {
             tempo_view.update(cx, |view, cx| view.activate(cx));
         }
@@ -372,6 +377,7 @@ impl BuddyApp {
             copilot_view,
             todoist_view,
             tempo_view,
+            automation_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -390,6 +396,7 @@ impl BuddyApp {
             Some(Section::Copilot) => container.child(self.copilot_view.clone()),
             Some(Section::Tasks) => container.child(self.todoist_view.clone()),
             Some(Section::Tempo) => container.child(self.tempo_view.clone()),
+            Some(Section::Automation) => container.child(self.automation_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -473,6 +480,7 @@ mod tests {
                         copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
                         todoist_view: cx.new(|cx| TodoistView::new(window, cx)),
                         tempo_view: cx.new(|cx| TempoView::new(window, cx)),
+                        automation_view: cx.new(|cx| AutomationView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

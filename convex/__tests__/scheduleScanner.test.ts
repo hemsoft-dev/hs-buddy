@@ -331,6 +331,34 @@ describe('scheduleScanner.scanAndDispatch — stuck-run reaper (job timeout over
     const run = await t.query(api.runs.get, { id: runId })
     expect(run?.status).toBe('failed')
   })
+
+  test('keeps a large snapshot batch past its legacy one-minute timeout until its account budget', async () => {
+    const t = convexTest(schema, modules)
+    const jobId = await t.mutation(api.jobs.create, {
+      ...baseJob,
+      config: { command: '__copilot_snapshot__', timeout: 60_000 },
+    })
+    const accounts = Array.from({ length: 70 }, (_, index) => ({ username: `u${index}`, org: 'o' }))
+    const budgetMs = 30_000 + 60_000 * accounts.length
+    const runId = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+    await t.mutation(api.runs.markRunning, { id: runId })
+    await t.run(async ctx => {
+      await ctx.db.patch(runId, {
+        input: { accounts },
+        startedAt: Date.now() - (STALE_RUN_TIMEOUT_MS + 60_000),
+      })
+    })
+
+    expect((await t.mutation(internal.scheduleScanner.scanAndDispatch)).runsReaped).toBe(0)
+    expect((await t.query(api.runs.get, { id: runId }))?.status).toBe('running')
+
+    await t.run(async ctx => {
+      await ctx.db.patch(runId, {
+        startedAt: Date.now() - (budgetMs + RUNNING_TIMEOUT_HEADROOM_MS + 60_000),
+      })
+    })
+    expect((await t.mutation(internal.scheduleScanner.scanAndDispatch)).runsReaped).toBe(1)
+  })
 })
 
 describe('scheduleScanner.markSnapshotsDue', () => {
@@ -375,5 +403,33 @@ describe('scheduleScanner.markSnapshotsDue', () => {
     const job = await t.query(api.jobs.getByName, { name: 'copilot-usage-snapshot' })
     expect(job).not.toBeNull()
     expect(job?.workerType).toBe('exec')
+  })
+
+  test('splits a large installation into runs of at most 100 accounts', async () => {
+    const t = convexTest(schema, modules)
+    // The native snapshot worker accepts at most 128 accounts per run.
+    await t.run(ctx =>
+      Promise.all(
+        Array.from({ length: 230 }, (_, index) =>
+          ctx.db.insert('githubAccounts', {
+            username: `user${index}`,
+            org: 'org',
+            createdAt: 1,
+            updatedAt: 1,
+          })
+        )
+      )
+    )
+
+    expect((await t.mutation(internal.scheduleScanner.markSnapshotsDue)).marked).toBe(3)
+
+    const runs = await t.query(api.runs.listByStatus, { status: 'pending' })
+    const sizes = runs.map(run => (run.input as { accounts: unknown[] }).accounts.length)
+    expect(sizes.sort((a, b) => a - b)).toEqual([30, 100, 100])
+    const users = runs.flatMap(run =>
+      (run.input as { accounts: Array<{ username: string }> }).accounts.map(a => a.username)
+    )
+    expect(new Set(users).size).toBe(230)
+    expect((await t.mutation(internal.scheduleScanner.markSnapshotsDue)).marked).toBe(0)
   })
 })
