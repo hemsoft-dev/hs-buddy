@@ -103,6 +103,8 @@ pub struct RalphView {
     busy: bool,
     error: Option<String>,
     notice: Option<String>,
+    /// A GitHub handoff that arrived before the scripts loaded; opened once they have.
+    pending_handoff: Option<Handoff>,
 }
 
 impl RalphView {
@@ -132,6 +134,7 @@ impl RalphView {
             busy: false,
             error: None,
             notice: None,
+            pending_handoff: None,
         }
     }
 
@@ -276,6 +279,13 @@ impl RalphView {
 
     /// Opens the form filled from a GitHub handoff. Nothing starts until Launch.
     pub fn open_handoff(&mut self, handoff: Handoff, window: &mut Window, cx: &mut Context<Self>) {
+        if self.catalog.is_none() && self.error.is_none() {
+            self.pending_handoff = Some(handoff);
+            self.notice =
+                Some("Loading the Ralph scripts. The form opens when they are ready.".into());
+            cx.notify();
+            return;
+        }
         let launch = Launch {
             repository: handoff
                 .repository

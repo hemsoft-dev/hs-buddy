@@ -142,6 +142,7 @@ impl Progress {
             self.branch = Some(branch.to_owned());
         } else if let Some(scan) = banner(trimmed, "Scan Iteration") {
             self.phase = Phase::Scanning;
+            self.iteration = Some(scan);
             self.stats.scan_iterations = self.stats.scan_iterations.max(scan);
         } else if let Some(iteration) = banner(trimmed, "Iteration") {
             self.phase = Phase::Iterating;
@@ -227,6 +228,7 @@ mod tests {
         ]);
         assert_eq!(progress.phase, Phase::Scanning);
         assert_eq!(progress.stats.scan_iterations, 2);
+        assert_eq!(progress.iteration, Some(2));
         assert_eq!(progress.stats.issues_created, 5);
         let progress = read(&[
             "Handing off to ralph-pr.ps1 for PR #7...",

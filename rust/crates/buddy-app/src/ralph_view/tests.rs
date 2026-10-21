@@ -451,3 +451,30 @@ fn the_branch_shown_is_the_one_the_loop_created() {
         "fix/issue-12-… (suffix added by the loop)"
     );
 }
+
+#[gpui_kit::test]
+fn a_github_handoff_waits_for_the_scripts_to_load(cx: &mut gpui_kit::TestAppContext) {
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            assert!(view.catalog.is_none());
+            view.open_handoff(Handoff::pull_request(7, None), window, cx);
+            assert_eq!(view.page, Page::Dashboard);
+            assert!(view.pending_handoff.is_some());
+            view.catalog = Some(catalog());
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            assert_eq!(view.page, Page::Launch);
+            assert!(view.pending_handoff.is_none());
+            assert_eq!(
+                view.form.as_ref().unwrap().launch(cx).unwrap().pr_number,
+                Some(7)
+            );
+        })
+    });
+}

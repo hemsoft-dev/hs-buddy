@@ -364,16 +364,20 @@ impl Form {
             model: selected(&self.model, cx),
             provider: selected(&self.provider, cx),
             dev_agent: selected(&self.agent, cx),
-            review_agents: self
-                .reviews
-                .iter()
-                .filter_map(|(role, _)| {
-                    self.selected.get(role).map(|picker| ReviewAgent {
-                        role: role.clone(),
-                        model: Some(selected(picker, cx)).filter(|model| !model.is_empty()),
+            // ralph-issues.ps1 ignores review roles: it opens no pull request.
+            review_agents: if issues {
+                vec![]
+            } else {
+                self.reviews
+                    .iter()
+                    .filter_map(|(role, _)| {
+                        self.selected.get(role).map(|picker| ReviewAgent {
+                            role: role.clone(),
+                            model: Some(selected(picker, cx)).filter(|model| !model.is_empty()),
+                        })
                     })
-                })
-                .collect(),
+                    .collect()
+            },
             iterations,
             cycles,
             branch: self.value("branch", cx).trim().to_owned(),

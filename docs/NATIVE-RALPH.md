@@ -53,13 +53,14 @@ The form has the same inputs as Electron Buddy:
   when it has one (the OpenCode and OpenRouter providers do), else the
   catalog default, exactly as the scripts resolve it.
 - **Review agents**: the review roles to run on the pull request, each with an
-  optional model.
+  optional model. Ralph Issues opens no pull request, so it has none.
 - **Work iterations** (Scan iterations for Ralph Issues), 1 to 100, and
   **Repeat cycles**, 1 to 50, for Ralph Loop. A cycle runs the whole script
   again after the previous one succeeded, and builds on it only once its pull
   request is merged, so more than one cycle requires the merge option below.
-  If a cycle's pull request is not merged (it never became clean, or the merge
-  failed), the run fails instead of starting the next cycle. Before each
+  If a cycle's pull request is not merged (it was never opened, never became
+  clean, or the merge failed), the run fails instead of starting the next
+  cycle. Before each
   further cycle Buddy fast-forwards the checked-out branch from its upstream
   (`git pull --ff-only`), so the next cycle starts from the merged work; a
   branch without an upstream is left as it is, and a failed fast-forward stops
@@ -158,7 +159,9 @@ the Job and the exec process on macOS and Linux ends its own session when its
 control pipe closes, so no loop runs without a host.
 
 Buddy reads the run folders every second. A run whose status is not final but
-whose lock is free is shown as interrupted. Buddy keeps the newest 100 runs and
+whose lock is free is shown as interrupted. A host that cannot save the run's
+first status never starts the loop; a later failed save is noted in the log,
+and the final result is retried for a few seconds. Buddy keeps the newest 100 runs and
 deletes older finished ones. Output beyond 64 MB is not saved; the loop keeps
 running. On macOS and Linux the run folders are readable only by you (`0700`
 folders, `0600` files), since prompts and loop output can be sensitive.

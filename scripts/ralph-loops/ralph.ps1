@@ -1000,4 +1000,10 @@ if ($script:SavedByokEnv -and $script:SavedByokEnv.Count -gt 0) {
 if ($handedOff -and $prExitCode) {
     exit $prExitCode
 }
+# A requested merge is confirmed only by ralph-pr.ps1 -RequireMerge succeeding. Without a
+# handoff (no commits, a failed push or PR creation) nothing was merged.
+if ($MergeWhenClean -and -not $handedOff) {
+    Write-Host "A merge was requested, but no pull request was handed off for merging." -ForegroundColor Red
+    exit 3
+}
 exit 0

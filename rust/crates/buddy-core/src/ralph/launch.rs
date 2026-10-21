@@ -561,7 +561,12 @@ impl Launch {
         if !self.provider.is_empty() {
             add("Provider", Some(self.provider.clone()));
         }
-        let reviews = self.review_agents.iter().map(ReviewAgent::spec);
+        // ralph-issues.ps1 opens no pull request and ignores review roles.
+        let reviews = self
+            .review_agents
+            .iter()
+            .filter(|_| self.script != Script::Issues)
+            .map(ReviewAgent::spec);
         let agents = if self.script == Script::Pr {
             if !self.dev_agent.is_empty() {
                 add("DevAgent", Some(self.dev_agent.clone()));
@@ -933,6 +938,21 @@ mod tests {
         let arguments = launch.arguments(&declared, None);
         assert!(arguments.contains(&"-MergeWhenClean".into()));
         assert!(!arguments.contains(&"-AutoApprove".into()));
+    }
+
+    #[test]
+    fn ralph_issues_never_receives_review_roles() {
+        let declared: BTreeSet<String> = ["Agents".to_string()].into();
+        let launch = Launch {
+            script: Script::Issues,
+            dev_agent: "anvil".into(),
+            review_agents: vec![ReviewAgent {
+                role: "pr-review-general".into(),
+                model: None,
+            }],
+            ..Launch::default()
+        };
+        assert_eq!(launch.arguments(&declared, None), ["-Agents", "anvil"]);
     }
 
     #[test]

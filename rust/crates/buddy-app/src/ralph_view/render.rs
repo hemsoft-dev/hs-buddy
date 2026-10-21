@@ -510,8 +510,12 @@ impl RalphView {
                     })),
             );
         }
-        body = body.child(labeled("Review agents", reviews));
-        if !form.selected.is_empty() {
+        // ralph-issues.ps1 opens no pull request, so it runs no review agents.
+        let reviewed = script != Script::Issues;
+        if reviewed {
+            body = body.child(labeled("Review agents", reviews));
+        }
+        if reviewed && !form.selected.is_empty() {
             let mut models = h_flex().flex_wrap().gap_3();
             for (role, picker) in &form.selected {
                 models = models.child(
@@ -793,9 +797,15 @@ impl RalphView {
 
     pub(super) fn render_view(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.catalog.is_some()
+            && let Some(handoff) = self.pending_handoff.take()
+        {
+            self.notice = None;
+            self.open_handoff(handoff, window, cx);
+        }
         let content = match self.page.clone() {
             Page::Dashboard => self.render_dashboard(cx),
             Page::Launch => match &self.form {

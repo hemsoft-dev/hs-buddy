@@ -267,6 +267,10 @@ pub fn run_ralph_host(folder: &Path) -> i32 {
         return 4;
     }
     let mut host = Host::new(folder);
+    if !host.recorded() {
+        // Nothing was started; the run shows as not started and can be retried.
+        return 6;
+    }
     let request = std::fs::read(folder.join(REQUEST))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Request>(&bytes).ok())
@@ -362,6 +366,8 @@ struct Host {
     log: Log,
     written: Instant,
     dirty: bool,
+    /// The last status write failed.
+    unsaved: bool,
 }
 
 impl Host {
@@ -383,22 +389,45 @@ impl Host {
             log: Log::open(&folder.join(OUTPUT)),
             written: Instant::now(),
             dirty: false,
+            unsaved: false,
         };
         host.write_status();
         host
+    }
+
+    /// Whether the first status write succeeded. Without it the run cannot be followed,
+    /// so the loop must not start.
+    fn recorded(&self) -> bool {
+        !self.unsaved
     }
 
     fn stop_requested(&self) -> bool {
         self.folder.join(STOP).exists()
     }
 
-    fn write_status(&mut self) {
+    /// Saves the status. A failure is logged once; a later success clears it.
+    fn write_status(&mut self) -> bool {
         self.status.updated_at = now_ms();
-        if let Ok(bytes) = serde_json::to_vec_pretty(&self.status) {
-            let _ = write_atomically(&self.folder.join(STATUS), &bytes);
-        }
+        let saved = serde_json::to_vec_pretty(&self.status)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| write_atomically(&self.folder.join(STATUS), &bytes));
         self.written = Instant::now();
         self.dirty = false;
+        match saved {
+            Ok(()) => {
+                self.unsaved = false;
+                true
+            }
+            Err(error) => {
+                if !self.unsaved {
+                    self.log.line(&format!(
+                        "[Buddy] The run's status could not be saved: {error}"
+                    ));
+                }
+                self.unsaved = true;
+                false
+            }
+        }
     }
 
     fn finish(&mut self, state: HostState, exit_code: Option<i32>, error: Option<String>) {
@@ -412,7 +441,14 @@ impl Host {
         self.status.exit_code = exit_code;
         self.status.error = error;
         self.status.finished_at = Some(now_ms());
-        self.write_status();
+        for attempt in 0..5 {
+            if self.write_status() {
+                break;
+            }
+            if attempt < 4 {
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
     }
 
     fn run(&mut self, plan: &Plan) {
@@ -886,6 +922,20 @@ mod tests {
         holder.lock().unwrap();
         assert_eq!(run_ralph_host(other.path()), 3);
         assert!(!other.path().join(STARTED).exists());
+    }
+
+    #[test]
+    fn a_run_whose_status_cannot_be_saved_never_starts() {
+        let folder = tempfile::tempdir().unwrap();
+        // A folder where the status file belongs makes every status write fail.
+        std::fs::create_dir(folder.path().join(STATUS)).unwrap();
+        assert_eq!(run_ralph_host(folder.path()), 6);
+        assert!(folder.path().join(STATUS).is_dir());
+        let log = std::fs::read_to_string(folder.path().join(OUTPUT)).unwrap();
+        assert!(
+            log.contains("[Buddy] The run's status could not be saved"),
+            "{log}"
+        );
     }
 
     #[test]
