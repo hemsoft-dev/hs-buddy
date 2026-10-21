@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1511] - 2026-10-21
+
+### Changed
+
+- Wait for the idle dispatcher before opening automation output
+
 ## [0.1.1510] - 2026-10-21
 
 ### Fixed
