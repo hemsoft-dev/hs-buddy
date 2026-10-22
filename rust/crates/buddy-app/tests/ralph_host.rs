@@ -454,10 +454,15 @@ fn a_dead_host_takes_a_process_that_left_the_session_along() {
         fixture.wait(&id, |state, _| !state.is_active()),
         RunState::Interrupted
     );
-    assert!(
-        !beating(&daemon),
-        "the daemon outside the session survived its host"
-    );
+    // The run shows Interrupted as soon as the host is gone; the exec process ends what
+    // it started just after, so give that cleanup time before calling the daemon a survivor.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while beating(&daemon) {
+        assert!(
+            Instant::now() < deadline,
+            "the daemon outside the session survived its host"
+        );
+    }
 }
 
 #[test]

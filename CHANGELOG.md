@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1536] - 2026-10-22
+
+### Changed
+
+- Give host-death cleanup time before checking the daemon
+
 ## [0.1.1535] - 2026-10-22
 
 ### Fixed
