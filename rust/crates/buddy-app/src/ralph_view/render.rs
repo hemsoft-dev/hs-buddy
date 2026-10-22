@@ -400,7 +400,9 @@ impl RalphView {
                 .gap_3()
                 .debug_selector(move || format!("ralph-{}", heading.to_lowercase()))
                 .child(div().text_lg().child(format!("{heading} ({})", runs.len())));
-            for (index, run) in runs.into_iter().take(50).enumerate() {
+            // Every retained run (the store keeps the newest 100 finished ones), so each
+            // can be opened, retried or stopped.
+            for (index, run) in runs.into_iter().enumerate() {
                 section = section.child(self.render_run_row(offset + index, run, cx));
             }
             body = body.child(section);

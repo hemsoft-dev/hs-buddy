@@ -420,6 +420,14 @@ pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<(), String>
     let branch = git(&["symbolic-ref", "-q", "HEAD"]).ok_or(untracked)?;
     let remote =
         git(&["for-each-ref", "--format=%(upstream:remotename)", &branch]).ok_or(untracked)?;
+    // ralph.ps1 pushes each cycle's branch to origin and opens its pull request there, and
+    // the host's fast-forward between cycles pulls the branch's upstream: both must be
+    // origin, or the next cycle starts without the merged work.
+    if remote != "origin" {
+        return Err(format!(
+            "Repeat cycles push each pull request to origin, so check out a branch that tracks origin's default branch (this one tracks {upstream})."
+        ));
+    }
     let default = git(&["rev-parse", "--abbrev-ref", &format!("{remote}/HEAD")]).ok_or_else(|| {
         format!(
             "Git does not know {remote}'s default branch. Run git remote set-head {remote} --auto, then launch again."
@@ -1239,7 +1247,8 @@ mod tests {
         );
         // The seed repository has no remote at all.
         assert!(verify_cycle_base(&seed, &tools).is_err());
-        // A remote whose name contains a slash.
+        // Another remote's default branch: the scripts push to origin, so it is refused,
+        // and a remote name with a slash is read whole from the branch's settings.
         git(&clone, &["checkout", "-q", "main"]);
         git(
             &clone,
@@ -1250,6 +1259,14 @@ mod tests {
         git(
             &clone,
             &["branch", "-q", "--set-upstream-to", "team/upstream/main"],
+        );
+        assert_eq!(
+            verify_cycle_base(&clone, &tools),
+            Err("Repeat cycles push each pull request to origin, so check out a branch that tracks origin's default branch (this one tracks team/upstream/main).".into())
+        );
+        git(
+            &clone,
+            &["branch", "-q", "--set-upstream-to", "origin/main"],
         );
         assert_eq!(verify_cycle_base(&clone, &tools), Ok(()));
     }

@@ -220,6 +220,26 @@ fn a_hidden_section_stops_polling_and_refreshes_when_shown(cx: &mut gpui_kit::Te
 }
 
 #[gpui_kit::test]
+fn every_retained_run_is_listed(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    for index in 0..60 {
+        write_run(
+            root.path(),
+            &format!("run-{index:02}"),
+            index,
+            Some(status(HostState::Completed, None)),
+            "",
+        );
+    }
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    // Recent rows are numbered from 1000; the 60th is there, not cut off at 50.
+    assert!(visual.debug_bounds("ralph-run-1059").is_some());
+}
+
+#[gpui_kit::test]
 fn the_dashboard_lists_active_and_recent_runs(cx: &mut gpui_kit::TestAppContext) {
     let root = tempfile::tempdir().unwrap();
     // Finished, and running but with no host holding its lock: interrupted.

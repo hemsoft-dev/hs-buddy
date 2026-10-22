@@ -10,7 +10,7 @@ follow it. A loop runs one of the PowerShell scripts in `scripts/ralph-loops`:
 | Ralph Issues  | Scans the repository and files GitHub issues for what it finds                |
 | Templates     | The scripts in `scripts/ralph-loops/scripts`, each a preset Ralph Loop        |
 
-The dashboard lists the scripts, then Active and Recent runs. New loop opens
+The dashboard lists the scripts, then every Active and Recent run Buddy keeps. New loop opens
 the form for Ralph Loop; choosing a script opens it for that script.
 
 From GitHub, Start Ralph PR review… on an open pull request opens the Ralph PR
@@ -85,14 +85,14 @@ The form has the same inputs as Electron Buddy:
   request is merged, so more than one cycle requires the merge option below.
   If a cycle's pull request is not merged (it was never opened, never became
   clean, or the merge failed), the run fails instead of starting the next
-  cycle. Each pull request merges into the remote's default branch, so more
-  than one cycle needs the repository checked out on a branch that tracks it
-  (for example `main` tracking `origin/main`); Launch says so otherwise. Before
-  each further cycle Buddy fast-forwards that branch (`git pull --ff-only`), so
-  the next cycle starts from the merged work. A failed fast-forward, or a
-  branch that no longer tracks an upstream, stops the run. The upstream's
-  remote is read from the branch's own settings, so remote names with a `/`
-  work. Unlike the old repeat wrapper (which never worked from Electron) and
+  cycle. `ralph.ps1` pushes each cycle's branch to `origin` and its pull
+  request merges into `origin`'s default branch, so more than one cycle needs
+  the repository checked out on a branch that tracks that branch (for example
+  `main` tracking `origin/main`); Launch says so otherwise, including for a
+  branch that tracks another remote. Before each further cycle Buddy
+  fast-forwards that branch (`git pull --ff-only`), so the next cycle starts
+  from the merged work. A failed fast-forward, or a branch that no longer
+  tracks an upstream, stops the run. Unlike the old repeat wrapper (which never worked from Electron) and
   the review phase's own clean-up, Buddy never switches the checkout to another
   branch. Templates run one cycle: they have no way to merge.
 - **Branch prefix** for Ralph Loop and templates. `ralph.ps1` adds a random
@@ -169,6 +169,13 @@ Each loop runs under its own host process, not inside the window. Closing
 Buddy leaves running loops running; reopening shows them with their progress
 and log, and Stop still works. Buddy never starts a loop by itself: an
 interrupted run stays interrupted until you choose Retry.
+
+On Windows the host leaves Buddy's Job when it starts. A program that started
+Buddy inside a Job that forbids leaving it (some terminals and IDEs do) keeps
+the host in that Job. Closing Buddy still leaves the loop running, but if the
+Job ends its processes when it closes, closing that program ends the loop and
+the run shows as interrupted. The run's log says so at its start. Start Buddy
+from the Start menu or File Explorer to avoid it.
 
 ## How it works
 

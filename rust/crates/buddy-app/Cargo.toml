@@ -44,4 +44,4 @@ gpui-kit = { workspace = true, features = ["test-support"] }
 
 # Reads the built binary's resources (`tests/windows_icon.rs`).
 [target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Threading"] }

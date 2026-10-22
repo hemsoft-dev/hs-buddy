@@ -147,11 +147,53 @@ pub fn spawn_host(executable: &Path, folder: &Path) -> Result<(), String> {
         if last != 5 {
             break;
         }
+        // Breakaway was refused: the host starts inside the Job Buddy belongs to. Buddy is
+        // only a member, so closing Buddy leaves it running; the host says in the run's
+        // log if the Job's owner closing would end it.
     }
     Err(format!(
         "The loop host could not start: {}",
         io::Error::from_raw_os_error(last)
     ))
+}
+
+/// Logged by a host that runs inside a Job that ends its processes when it closes: the
+/// program that started Buddy forbids leaving its Job, so closing that program ends the
+/// loop. Closing Buddy alone does not.
+#[cfg(windows)]
+pub const JOB_WARNING: &str = "[Buddy] Buddy was started inside a Windows Job that ends its processes when it closes, so this loop stops if the program that started Buddy (for example a terminal or an IDE) closes. Closing Buddy alone does not stop it.";
+
+/// Whether the Job this process belongs to ends its processes when its last handle
+/// closes. Outside any Job it does not; a Job whose limits cannot be read counts as one
+/// that does.
+#[cfg(windows)]
+fn job_kills_on_close() -> bool {
+    use windows_sys::Win32::Foundation::FALSE;
+    use windows_sys::Win32::System::JobObjects::{
+        IsProcessInJob, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let mut in_job = FALSE;
+    // SAFETY: the pseudo-handle of this process and a valid out pointer.
+    if unsafe { IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job) } == 0 {
+        return true;
+    }
+    if in_job == FALSE {
+        return false;
+    }
+    let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    // SAFETY: a null Job handle reads this process's own Job into `info`, sized to match.
+    let read = unsafe {
+        QueryInformationJobObject(
+            std::ptr::null_mut(),
+            JobObjectExtendedLimitInformation,
+            &mut info as *mut _ as *mut _,
+            std::mem::size_of_val(&info) as u32,
+            std::ptr::null_mut(),
+        )
+    };
+    read == 0 || info.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0
 }
 
 /// Where `gh` and the Copilot CLI read a token, ahead of their own sign-in.
@@ -338,6 +380,12 @@ pub fn run_ralph_host(folder: &Path) -> i32 {
     if !host.recorded() {
         // Nothing was started; the run shows as not started and can be retried.
         return 6;
+    }
+    #[cfg(windows)]
+    {
+        if job_kills_on_close() {
+            host.log.line(JOB_WARNING);
+        }
     }
     match request {
         Some(request) => host.run(&request.plan),
