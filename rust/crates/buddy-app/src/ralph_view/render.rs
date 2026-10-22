@@ -492,8 +492,9 @@ impl RalphView {
                             .child(labeled("Provider", Select::new(&form.provider))),
                     )
                     .child(
+                        // Wide enough for "Default (medium → claude-opus-4.6)" with Ubuntu's font.
                         div()
-                            .w(zpx(280.))
+                            .w(zpx(360.))
                             .child(labeled("Model", Select::new(&form.model))),
                     )
                     .child(
