@@ -178,6 +178,16 @@ fn picker(
     picker
 }
 
+/// The repository field as typed or chosen. Leading and trailing spaces can belong to a
+/// folder's name on macOS and Linux, so only a blank field counts as empty.
+pub(super) fn repository_path(value: &str) -> PathBuf {
+    if value.trim().is_empty() {
+        PathBuf::new()
+    } else {
+        PathBuf::from(value)
+    }
+}
+
 fn selected(picker: &Picker, cx: &gpui_kit::App) -> String {
     picker
         .read(cx)
@@ -365,7 +375,7 @@ impl Form {
         };
         let issues = self.script == Script::Issues;
         Ok(Launch {
-            repository: PathBuf::from(self.value("repository", cx).trim()),
+            repository: repository_path(&self.value("repository", cx)),
             script: self.script.clone(),
             model: selected(&self.model, cx),
             provider: selected(&self.provider, cx),

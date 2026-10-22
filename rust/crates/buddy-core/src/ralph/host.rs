@@ -158,8 +158,11 @@ pub fn spawn_host(executable: &Path, folder: &Path) -> Result<(), String> {
 const TOKEN_VARIABLES: [&str; 2] = ["GH_TOKEN", "GITHUB_TOKEN"];
 /// Names the account a run is bound to; the scripts then keep its token.
 const ACCOUNT_VARIABLE: &str = "RALPH_GH_ACCOUNT";
+/// Every process a run starts carries the run's ID here. On macOS and Linux, cleanup also
+/// ends processes that carry it after leaving the run's session.
+pub(super) const RUN_VARIABLE: &str = "BUDDY_RALPH_RUN";
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Start {
     program: PathBuf,
     arguments: Vec<OsString>,
@@ -212,7 +215,12 @@ pub fn run_ralph_exec() -> i32 {
             return 125;
         }
     };
-    parent_death(input);
+    let run = start
+        .environment
+        .iter()
+        .find(|(name, _)| name == RUN_VARIABLE)
+        .map(|(_, run)| run.clone());
+    parent_death(input, run);
     let mut command = Command::new(&start.program);
     for name in &start.clear {
         command.env_remove(name);
@@ -242,15 +250,20 @@ pub fn run_ralph_exec() -> i32 {
     }
 }
 
-fn parent_death(mut input: io::Stdin) {
+fn parent_death(mut input: io::Stdin, run: Option<String>) {
     std::thread::spawn(move || {
         let mut byte = [0; 1];
         // EOF means the host is gone.
         let _ = input.read(&mut byte);
         #[cfg(unix)]
         {
+            if let Some(run) = &run {
+                let _ = super::marked::end_marked(run);
+            }
             let _ = crate::terminal::ownership::terminate_own_host_session();
         }
+        #[cfg(windows)]
+        let _ = run;
         // On Windows the host's Job closes with it and takes this process tree along.
         std::process::exit(125);
     });
@@ -391,6 +404,8 @@ struct Host {
     unsaved: bool,
     /// `GH_TOKEN` for the launch's account, given to the loop and to Git. Never saved.
     credentials: Vec<(String, String)>,
+    /// The run's ID, which marks every process it starts.
+    run: String,
 }
 
 impl Host {
@@ -414,6 +429,10 @@ impl Host {
             dirty: false,
             unsaved: false,
             credentials: vec![],
+            run: folder
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
         };
         host.write_status();
         host
@@ -658,7 +677,12 @@ impl Host {
         limit: Option<Duration>,
     ) -> (Outcome, Vec<String>) {
         let mut captured = vec![];
-        let mut owned = match Owned::spawn() {
+        let mut start = start.clone();
+        start
+            .environment
+            .push((RUN_VARIABLE.into(), self.run.clone()));
+        let start = &start;
+        let mut owned = match Owned::spawn(self.run.clone()) {
             Ok(owned) => owned,
             Err(error) => return (Outcome::Error(error), captured),
         };
@@ -815,10 +839,16 @@ struct Owned {
     #[cfg(windows)]
     job: Option<crate::terminal::ownership::HostJob>,
     reaped: Option<Option<i32>>,
+    /// The run ID its processes carry in [`RUN_VARIABLE`]. Windows needs none: the Job
+    /// holds every descendant.
+    #[cfg(unix)]
+    run: String,
 }
 
 impl Owned {
-    fn spawn() -> Result<Self, String> {
+    fn spawn(run: String) -> Result<Self, String> {
+        #[cfg(windows)]
+        let _ = run;
         let executable = std::env::current_exe()
             .map_err(|_| "The loop host executable is unavailable.".to_string())?;
         let mut command = Command::new(executable);
@@ -865,6 +895,8 @@ impl Owned {
             #[cfg(windows)]
             job,
             reaped: None,
+            #[cfg(unix)]
+            run,
         })
     }
 
@@ -899,7 +931,10 @@ impl Owned {
             crate::terminal::ownership::signal_shell_session(self.child.id() as i32, libc::SIGKILL)
         } else {
             Ok(())
-        };
+        }
+        // Then whatever left the session: a daemon's `setsid` takes it out of reach of
+        // the session signal, but not of the run's marker.
+        .and_then(|()| super::marked::end_marked(&self.run));
         self.input.take();
         let code = match self.reaped {
             Some(code) => code,

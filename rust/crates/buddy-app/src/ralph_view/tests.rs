@@ -1,4 +1,4 @@
-use super::form::{model_choices, review_model_choices, whole};
+use super::form::{model_choices, repository_path, review_model_choices, whole};
 use super::render::{branch, duration, progress, stats, title};
 use super::*;
 use buddy_core::ralph::launch::{Plan, Script};
@@ -107,6 +107,15 @@ fn open(
         )
         .unwrap()
     })
+}
+
+#[test]
+fn the_repository_path_is_kept_as_entered() {
+    // A folder named with a trailing space is a different folder from the trimmed name.
+    assert_eq!(repository_path("/code/repo "), PathBuf::from("/code/repo "));
+    assert_eq!(repository_path(" /code/repo"), PathBuf::from(" /code/repo"));
+    assert_eq!(repository_path("   "), PathBuf::new());
+    assert_eq!(repository_path(""), PathBuf::new());
 }
 
 #[test]

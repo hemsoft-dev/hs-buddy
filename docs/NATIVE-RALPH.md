@@ -191,9 +191,15 @@ non-Latin text) and calls the script. A script that ends normally counts as
 exit code 0 even when a native command it handled failed last; only the
 script's own `exit` sets another code. That process tree belongs to a Job object on
 Windows and to its own session on macOS and Linux. Stop and the end of a run
-terminate exactly that Job or session. If the host itself dies, Windows closes
-the Job and the exec process on macOS and Linux ends its own session when its
-control pipe closes, so no loop runs without a host.
+terminate exactly that Job or session. On macOS and Linux a process can leave
+its session (a daemon calls `setsid`), so every process a run starts also
+carries `BUDDY_RALPH_RUN=<run ID>` in its environment, which its descendants
+inherit. Stop and the end of a run also end every process of yours that still
+carries the run's ID, and a run whose marked process cannot be ended within
+five seconds is recorded as Failed. A process that clears its own environment
+is beyond this check. If the host itself dies, Windows closes the Job and the
+exec process on macOS and Linux ends the marked processes and its own session
+when its control pipe closes, so no loop runs without a host.
 
 While Ralph Loops is shown, Buddy reads the run folders every second; in
 another section it stops, and it reads them again on return. A run whose status

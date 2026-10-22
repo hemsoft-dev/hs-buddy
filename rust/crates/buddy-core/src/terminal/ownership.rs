@@ -256,7 +256,7 @@ mod group_revalidation_tests {
 }
 
 #[cfg(target_os = "linux")]
-fn process_ids() -> std::io::Result<Vec<i32>> {
+pub(crate) fn process_ids() -> std::io::Result<Vec<i32>> {
     let mut pids = Vec::new();
     for entry in std::fs::read_dir("/proc")? {
         let entry = entry?;
@@ -416,7 +416,7 @@ mod tests {
 }
 
 #[cfg(target_os = "macos")]
-fn process_ids() -> std::io::Result<Vec<i32>> {
+pub(crate) fn process_ids() -> std::io::Result<Vec<i32>> {
     #[link(name = "proc")]
     unsafe extern "C" {
         fn proc_listallpids(buffer: *mut libc::c_void, buffersize: libc::c_int) -> libc::c_int;

@@ -3,6 +3,8 @@
 //! See `docs/NATIVE-RALPH.md`.
 pub mod host;
 pub mod launch;
+#[cfg(unix)]
+mod marked;
 pub mod progress;
 pub mod scripts;
 pub mod store;

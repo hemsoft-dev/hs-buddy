@@ -26,7 +26,7 @@ fn tool(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("{name} is required on PATH for the Ralph host tests"))
 }
 
-const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account, [switch]$Unset, [switch]$Stale)
+const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account, [switch]$Unset, [switch]$Stale, [string]$Daemon)
 Write-Host "== Iteration 1/$Max"
 if ($Unset) { git branch --unset-upstream }
 if ($Account) {
@@ -37,6 +37,12 @@ if ($Account) {
 Write-Host "prompt: $(Get-Content -Raw $Prompt)"
 [Console]::Error.WriteLine('warned')
 Write-Host "`e[32mgreen`e[0m ünïcödé 資料界"
+if ($Daemon) {
+    # Detaches like a daemon: double fork, a new session, no inherited pipes.
+    perl -e 'use POSIX qw(setsid); exit if fork; setsid(); exit if fork; open(STDIN, "<", "/dev/null"); open(STDOUT, ">", "/dev/null"); open(STDERR, ">", "/dev/null"); my $n = 0; while (1) { open(my $f, ">", $ARGV[0]) or die; print $f $n++; close $f; select(undef, undef, undef, 0.1); }' $Daemon
+    Write-Host "daemon started"
+    while ($true) { Start-Sleep -Milliseconds 200 }
+}
 if ($Beat) {
     $child = Start-Process -FilePath (Get-Process -Id $PID).Path -PassThru -NoNewWindow -ArgumentList @(
         '-NoProfile', '-Command', "while (`$true) { Set-Content -LiteralPath '$Beat' ([DateTime]::UtcNow.Ticks); Start-Sleep -Milliseconds 100 }")
@@ -374,6 +380,32 @@ fn unrelated(beat: &Path) -> Bystander {
         .stdout(Stdio::null())
         .spawn()
         .unwrap())
+}
+
+/// A process that daemonized (double fork and `setsid`) has left the run's session, so
+/// signalling the session misses it; the run's marker in its environment does not.
+#[cfg(unix)]
+#[test]
+fn stop_ends_a_process_that_left_the_loops_session() {
+    let mut fixture = fixture();
+    let daemon = fixture.repository.join("daemon beat");
+    let other = fixture.repository.join("other beat");
+    let _bystander = unrelated(&other);
+    let id = fixture.start(&["-Daemon", daemon.to_str().unwrap()]);
+    fixture.wait(&id, |state, output| {
+        state == RunState::Running && output.iter().any(|line| line == "daemon started")
+    });
+    assert!(beating(&daemon), "the daemon should be running");
+    fixture.store.request_stop(&id).unwrap();
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Stopped
+    );
+    assert!(
+        !beating(&daemon),
+        "the daemon outside the session survived Stop"
+    );
+    assert!(beating(&other), "an unrelated process was stopped");
 }
 
 #[test]

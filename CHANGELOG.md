@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1531] - 2026-10-22
+
+### Fixed
+
+- End Ralph loop processes that left the run's session
+
 ## [0.1.1530] - 2026-10-22
 
 ### Fixed
