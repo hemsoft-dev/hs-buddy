@@ -607,7 +607,14 @@ impl RalphView {
                 |form, on| form.merge = on,
             ));
         }
-        body = body.child(options).child(muted(
+        body = body.child(options);
+        if let Some(account) = &form.account {
+            body = body.child(muted(
+                format!("Runs on GitHub as {account}, the account the GitHub view showed."),
+                cx,
+            ));
+        }
+        body = body.child(muted(
             "The loop runs in its own process and keeps running if Buddy closes; Stop ends only that loop's processes.",
             cx,
         ));
@@ -734,8 +741,12 @@ impl RalphView {
             .status
             .as_ref()
             .map_or(run.request.created_at, |status| status.started_at);
+        let place = match &launch.account {
+            Some(account) => format!("{} · GitHub: {account}", launch.repository.display()),
+            None => launch.repository.display().to_string(),
+        };
         body = body
-            .child(muted(launch.repository.display().to_string(), cx))
+            .child(muted(place, cx))
             .child(muted(
                 format!(
                     "Model: {} · Provider: {} · Agent: {} · Branch: {}",

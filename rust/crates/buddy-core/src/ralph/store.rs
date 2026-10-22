@@ -476,6 +476,8 @@ mod tests {
         Plan {
             program: "pwsh".into(),
             git: "git".into(),
+            gh: "gh".into(),
+            account: None,
             script: folder.join("ralph.ps1"),
             arguments: vec![],
             directory: folder.to_path_buf(),

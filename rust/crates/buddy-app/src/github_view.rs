@@ -35,6 +35,13 @@ pub enum GitHubEvent {
 }
 impl gpui_kit::EventEmitter<GitHubEvent> for GitHubView {}
 impl GitHubView {
+    /// The account this view shows, so a Ralph loop started from it works as that account.
+    fn ralph_account(&self) -> Option<String> {
+        self.account
+            .as_ref()
+            .map(|account| account.username().to_owned())
+    }
+
     fn local_repository(owner: &str, name: &str, cx: &App) -> Option<std::path::PathBuf> {
         crate::ralph_view::local_repository(
             &Settings::global(cx).config.github.accounts,

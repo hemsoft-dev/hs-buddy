@@ -32,6 +32,8 @@ fn write_run(root: &Path, id: &str, created: i64, status: Option<Status>, lines:
         plan: Plan {
             program: "pwsh".into(),
             git: "git".into(),
+            gh: "gh".into(),
+            account: None,
             script: folder.join("ralph-pr.ps1"),
             arguments: vec![],
             directory: root.to_path_buf(),
@@ -368,14 +370,21 @@ fn the_detail_page_shows_logs_errors_and_confirms_stop(cx: &mut gpui_kit::TestAp
 
 #[test]
 fn github_handoffs_match_electrons_prefill() {
-    let issue = Handoff::issue(12, "Crash on save", "", Some(PathBuf::from("repo")));
+    let issue = Handoff::issue(
+        12,
+        "Crash on save",
+        "",
+        Some(PathBuf::from("repo")),
+        Some("HemSoft".into()),
+    );
+    assert_eq!(issue.account.as_deref(), Some("HemSoft"));
     assert_eq!(issue.script, Script::Ralph);
     assert_eq!(issue.branch, "fix/issue-12");
     assert_eq!(
         issue.prompt,
         "Fix GitHub Issue #12: Crash on save\n\n(no description provided)\n\nImplement the fix, run tests, commit, and push."
     );
-    let pull = Handoff::pull_request(7, None);
+    let pull = Handoff::pull_request(7, None, None);
     assert_eq!((pull.script, pull.pr_number), (Script::Pr, Some(7)));
     let account = |org: &str, root: Option<&str>| buddy_core::config::GitHubAccount {
         username: "me".into(),
@@ -409,7 +418,7 @@ fn a_handoff_opens_a_filled_form_without_starting_anything(cx: &mut gpui_kit::Te
     visual.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.open_handoff(
-                Handoff::pull_request(7, Some(repository.clone())),
+                Handoff::pull_request(7, Some(repository.clone()), Some("HemSoft".into())),
                 window,
                 cx,
             );
@@ -418,6 +427,8 @@ fn a_handoff_opens_a_filled_form_without_starting_anything(cx: &mut gpui_kit::Te
             assert_eq!(launch.script, Script::Pr);
             assert_eq!(launch.pr_number, Some(7));
             assert_eq!(launch.repository, repository);
+            // The loop works as the account the GitHub view showed.
+            assert_eq!(launch.account.as_deref(), Some("HemSoft"));
         })
     });
     assert!(
@@ -493,7 +504,7 @@ fn a_github_handoff_waits_for_the_scripts_to_load(cx: &mut gpui_kit::TestAppCont
     visual.update(|window, cx| {
         view.update(cx, |view, cx| {
             assert!(view.catalog.is_none());
-            view.open_handoff(Handoff::pull_request(7, None), window, cx);
+            view.open_handoff(Handoff::pull_request(7, None, None), window, cx);
             assert_eq!(view.page, Page::Dashboard);
             assert!(view.pending_handoff.is_some());
             view.catalog = Some(catalog());
@@ -522,7 +533,7 @@ fn a_failed_script_load_stays_visible_through_a_handoff(cx: &mut gpui_kit::TestA
             view.catalog_error =
                 Some("The bundled Ralph scripts could not be prepared: denied".into());
             view.error = None;
-            view.open_handoff(Handoff::pull_request(7, None), window, cx);
+            view.open_handoff(Handoff::pull_request(7, None, None), window, cx);
             assert!(view.pending_handoff.is_none());
             assert_eq!(
                 view.error.as_deref(),

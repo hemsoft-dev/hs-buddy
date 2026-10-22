@@ -20,6 +20,18 @@ issue. The repository is the account's repository root followed by the
 repository name when Settings has a root for that organization, otherwise the
 most recent run's repository. Nothing starts until Launch.
 
+A loop started from GitHub works as the account the GitHub view showed, not as
+whichever account `gh` has active. When the run starts, its host reads that
+account's token with `gh auth token --user <account>` and gives it to the loop
+as `GH_TOKEN` and `GITHUB_TOKEN`. The loop's `gh` commands, the Copilot CLI
+and Git over HTTPS with `gh` as its credential helper then use that account; a
+`COPILOT_GITHUB_TOKEN` you set yourself still wins for Copilot. The token is
+never written to the run's folder. If `gh` has no login for the account, the
+run fails before the loop starts. The form says which account the loop will
+use, and the run page shows it after the repository. A loop started from New
+loop uses `gh`'s active account, as in Electron Buddy. Git remotes reached
+over SSH use your SSH key, whatever the account.
+
 Ralph PR works on the pull request's current head and pushes its fixes to that
 branch on `origin`. A pull request from a fork fails at once with a message
 saying so, and a local branch that has diverged from the pull request stops

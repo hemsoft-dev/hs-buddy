@@ -31,21 +31,30 @@ pub struct Handoff {
     pub pr_number: Option<u32>,
     pub branch: String,
     pub prompt: String,
+    /// The account the GitHub view was showing; the loop's GitHub work runs as it.
+    pub account: Option<String>,
 }
 
 impl Handoff {
-    pub fn pull_request(number: u64, repository: Option<PathBuf>) -> Self {
+    pub fn pull_request(number: u64, repository: Option<PathBuf>, account: Option<String>) -> Self {
         Self {
             script: Script::Pr,
             repository,
             pr_number: u32::try_from(number).ok(),
             branch: String::new(),
             prompt: String::new(),
+            account,
         }
     }
 
     /// Electron's issue handoff: a `fix/issue-N` branch and a prompt quoting the issue.
-    pub fn issue(number: u64, title: &str, body: &str, repository: Option<PathBuf>) -> Self {
+    pub fn issue(
+        number: u64,
+        title: &str,
+        body: &str,
+        repository: Option<PathBuf>,
+        account: Option<String>,
+    ) -> Self {
         let body = if body.trim().is_empty() {
             "(no description provided)"
         } else {
@@ -59,6 +68,7 @@ impl Handoff {
             prompt: format!(
                 "Fix GitHub Issue #{number}: {title}\n\n{body}\n\nImplement the fix, run tests, commit, and push."
             ),
+            account,
         }
     }
 }
@@ -321,6 +331,7 @@ impl RalphView {
             pr_number: handoff.pr_number,
             branch: handoff.branch,
             prompt: handoff.prompt,
+            account: handoff.account,
             ..Launch::default()
         };
         self.new_form(handoff.script, Some(&launch), window, cx);

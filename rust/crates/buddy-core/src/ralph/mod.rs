@@ -42,6 +42,8 @@ pub fn start(
         Plan {
             program: tools.pwsh.clone(),
             git: tools.git.clone(),
+            gh: tools.gh.clone(),
+            account: launch.account.clone(),
             script,
             arguments: launch.arguments(
                 &declared,

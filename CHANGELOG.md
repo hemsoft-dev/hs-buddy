@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1526] - 2026-10-22
+
+### Fixed
+
+- Run Ralph loops from GitHub as the account the view showed
+
 ## [0.1.1525] - 2026-10-22
 
 ### Fixed

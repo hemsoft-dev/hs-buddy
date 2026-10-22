@@ -132,6 +132,7 @@ impl GitHubView {
             let ralph = crate::ralph_view::Handoff::pull_request(
                 target.number,
                 Self::local_repository(target.repository.owner(), target.repository.name(), cx),
+                self.ralph_account(),
             );
             actions = actions.child(
                 Button::new("github-start-ralph-pr")
@@ -366,6 +367,7 @@ impl GitHubView {
                         &title,
                         &body,
                         Self::local_repository(repo.owner(), repo.name(), cx),
+                        self.ralph_account(),
                     );
                     row = row.child(
                         Button::new("github-start-ralph-issue")

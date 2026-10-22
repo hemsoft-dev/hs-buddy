@@ -155,6 +155,8 @@ pub(super) struct Form {
     review_models: Vec<Choice>,
     pub dry_run: bool,
     pub merge: bool,
+    /// The GitHub account a handoff came from; the loop works as it.
+    pub account: Option<String>,
 }
 
 fn picker(
@@ -307,6 +309,7 @@ impl Form {
             review_models,
             dry_run: base.dry_run,
             merge: base.merge,
+            account: base.account.clone(),
         };
         for review in &base.review_agents {
             form.toggle_review(&review.role, review.model.as_deref(), window, cx);
@@ -393,6 +396,7 @@ impl Form {
             },
             dry_run: issues && self.dry_run,
             merge: self.script.can_merge() && self.merge,
+            account: self.account.clone(),
         })
     }
 }

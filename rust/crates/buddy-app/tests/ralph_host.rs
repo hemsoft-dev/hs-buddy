@@ -26,8 +26,12 @@ fn tool(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("{name} is required on PATH for the Ralph host tests"))
 }
 
-const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat)
+const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account)
 Write-Host "== Iteration 1/$Max"
+if ($Account) {
+    $expected = "stub-token-$Account"
+    Write-Host "token $($env:GH_TOKEN -eq $expected) $($env:GITHUB_TOKEN -eq $expected)"
+}
 Write-Host "prompt: $(Get-Content -Raw $Prompt)"
 [Console]::Error.WriteLine('warned')
 Write-Host "`e[32mgreen`e[0m ünïcödé 資料界"
@@ -46,6 +50,31 @@ struct Fixture {
     repository: PathBuf,
     store: Store,
     cycles: u32,
+    account: Option<String>,
+    /// A stand-in `gh` that prints `stub-token-<user>` for `auth token`, and fails for `missing`.
+    gh: PathBuf,
+}
+
+const GH_STUB_CMD: &str =
+    "@echo off\r\nif \"%6\"==\"missing\" exit /b 1\r\nif \"%1\"==\"auth\" echo stub-token-%6\r\n";
+const GH_STUB_SH: &str =
+    "#!/bin/sh\n[ \"$6\" = missing ] && exit 1\n[ \"$1\" = auth ] && echo \"stub-token-$6\"\n";
+
+fn gh_stub(folder: &Path) -> PathBuf {
+    if cfg!(windows) {
+        let stub = folder.join("gh.cmd");
+        std::fs::write(&stub, GH_STUB_CMD).unwrap();
+        stub
+    } else {
+        let stub = folder.join("gh");
+        std::fs::write(&stub, GH_STUB_SH).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        stub
+    }
 }
 
 fn fixture() -> Fixture {
@@ -61,6 +90,8 @@ fn fixture() -> Fixture {
         repository,
         store,
         cycles: 1,
+        account: None,
+        gh: gh_stub(root.path()),
         _root: root,
     }
 }
@@ -93,9 +124,12 @@ impl Fixture {
         let directory = self.repository.clone();
         let cycles = self.cycles;
         let mut extra = arguments.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        let account = self.account.clone();
+        let gh = self.gh.clone();
         let launch = Launch {
             repository: self.repository.clone(),
             prompt: "Fix the bug".into(),
+            account: account.clone(),
             ..Launch::default()
         };
         let id = self
@@ -111,6 +145,8 @@ impl Fixture {
                 Plan {
                     program: pwsh(),
                     git: tool(if cfg!(windows) { "git.exe" } else { "git" }),
+                    gh,
+                    account,
                     script,
                     arguments,
                     directory,
@@ -193,6 +229,60 @@ fn a_failing_loop_records_its_exit_code() {
     assert_eq!(
         status.error.as_deref(),
         Some("The loop exited with code 3.")
+    );
+}
+
+#[test]
+fn a_named_account_signs_the_loop_in_without_saving_its_token() {
+    let mut fixture = fixture();
+    fixture.account = Some("octo".into());
+    let id = fixture.start(&["-Account", "octo"]);
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Completed
+    );
+    let (output, _) = fixture.store.output(&id);
+    assert!(
+        output.contains(&"[Buddy] GitHub operations run as octo.".to_string()),
+        "{output:?}"
+    );
+    assert!(
+        output.contains(&"token True True".to_string()),
+        "{output:?}"
+    );
+    // The token lives only in the host and the loop's environment.
+    for entry in std::fs::read_dir(fixture.store.folder(&id)).unwrap() {
+        let file = entry.unwrap().path();
+        if let Ok(bytes) = std::fs::read(&file) {
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("stub-token-octo"),
+                "{} holds the token",
+                file.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn an_account_without_a_gh_login_fails_before_the_loop_starts() {
+    let mut fixture = fixture();
+    fixture.account = Some("missing".into());
+    let id = fixture.start(&[]);
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Failed
+    );
+    let status = fixture.store.run(&id).unwrap().status.unwrap();
+    assert_eq!(
+        status.error.as_deref(),
+        Some(
+            "gh has no login for missing, so the loop did not start. Add it with gh auth login, then retry."
+        )
+    );
+    let (output, _) = fixture.store.output(&id);
+    assert!(
+        !output.iter().any(|line| line.starts_with("== Iteration")),
+        "{output:?}"
     );
 }
 

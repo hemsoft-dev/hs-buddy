@@ -90,6 +90,10 @@ pub struct Launch {
     /// script then runs `gh pr merge --squash --delete-branch --admin`, which bypasses
     /// branch protection, so it is off unless chosen.
     pub merge: bool,
+    /// The GitHub account the loop works as: the host gives the loop that account's
+    /// `gh auth token` as `GH_TOKEN`. `None` leaves gh's active account in charge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 impl Default for Launch {
@@ -109,6 +113,7 @@ impl Default for Launch {
             labels: String::new(),
             dry_run: false,
             merge: false,
+            account: None,
         }
     }
 }
@@ -118,6 +123,7 @@ impl Default for Launch {
 pub struct Tools {
     pub pwsh: PathBuf,
     pub git: PathBuf,
+    pub gh: PathBuf,
     /// `PATH` for the loop: the app's own plus common install folders that exist.
     pub path: OsString,
 }
@@ -265,6 +271,7 @@ pub fn discover(path: Option<OsString>, extra: &[PathBuf]) -> Result<Tools, Stri
     Ok(Tools {
         pwsh: found[0].clone(),
         git: found[1].clone(),
+        gh: found[2].clone(),
         path: std::env::join_paths(&directories).map_err(|_| "PATH contains an invalid folder.")?,
     })
 }
@@ -276,6 +283,11 @@ pub struct Plan {
     /// Git, for fast-forwarding between repeat cycles.
     #[serde(default)]
     pub git: PathBuf,
+    /// GitHub CLI, for the account's token when the launch names one.
+    #[serde(default)]
+    pub gh: PathBuf,
+    #[serde(default)]
+    pub account: Option<String>,
     pub script: PathBuf,
     /// Everything after `-File <script>`.
     pub arguments: Vec<String>,
@@ -491,6 +503,11 @@ impl Launch {
                 "{} is not inside a Git repository.",
                 repository.display()
             ));
+        }
+        if let Some(account) = &self.account
+            && !crate::gh::is_valid_slug(account)
+        {
+            return Err(format!("{account} is not a valid GitHub account name."));
         }
         if let Script::Template(file) = &self.script
             && !scripts
@@ -754,6 +771,10 @@ mod tests {
             "Unknown work agent: nope"
         );
         assert_eq!(
+            check(&|l| l.account = Some("--user".into())),
+            "--user is not a valid GitHub account name."
+        );
+        assert_eq!(
             check(&|l| l.review_agents = vec![ReviewAgent {
                 role: "anvil".into(),
                 model: None
@@ -908,6 +929,8 @@ mod tests {
         let plan = Plan {
             program: "pwsh".into(),
             git: "git".into(),
+            gh: "gh".into(),
+            account: None,
             script: PathBuf::from("D:/scripts/it's/ralph.ps1"),
             arguments: [
                 "-Autopilot",
@@ -1071,6 +1094,7 @@ mod tests {
         let tools = Tools {
             pwsh: PathBuf::from("pwsh"),
             git: PathBuf::from("git"),
+            gh: PathBuf::from("gh"),
             path: std::env::var_os("PATH").unwrap_or_default(),
         };
         let git = |directory: &Path, arguments: &[&str]| {
@@ -1139,6 +1163,7 @@ mod tests {
         let tools = Tools {
             pwsh: PathBuf::from("pwsh"),
             git: PathBuf::from("git"),
+            gh: PathBuf::from("gh"),
             path: std::env::var_os("PATH").unwrap_or_default(),
         };
         // An empty .git folder passes the quick check but is no repository.

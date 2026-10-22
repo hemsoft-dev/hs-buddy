@@ -154,6 +154,9 @@ pub fn spawn_host(executable: &Path, folder: &Path) -> Result<(), String> {
     ))
 }
 
+/// Where `gh` and the Copilot CLI read a token, ahead of their own sign-in.
+const TOKEN_VARIABLES: [&str; 2] = ["GH_TOKEN", "GITHUB_TOKEN"];
+
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Start {
     program: PathBuf,
@@ -163,6 +166,9 @@ struct Start {
     /// Variables added to the inherited environment.
     #[serde(default)]
     environment: Vec<(String, String)>,
+    /// Variables removed from the inherited environment before those are added.
+    #[serde(default)]
+    clear: Vec<String>,
 }
 
 fn send_start(writer: &mut impl Write, start: &Start) -> io::Result<()> {
@@ -206,6 +212,9 @@ pub fn run_ralph_exec() -> i32 {
     };
     parent_death(input);
     let mut command = Command::new(&start.program);
+    for name in &start.clear {
+        command.env_remove(name);
+    }
     command
         .args(&start.arguments)
         .current_dir(&start.directory)
@@ -370,6 +379,8 @@ struct Host {
     dirty: bool,
     /// The last status write failed.
     unsaved: bool,
+    /// `GH_TOKEN` for the launch's account, given to the loop and to Git. Never saved.
+    credentials: Vec<(String, String)>,
 }
 
 impl Host {
@@ -392,6 +403,7 @@ impl Host {
             written: Instant::now(),
             dirty: false,
             unsaved: false,
+            credentials: vec![],
         };
         host.write_status();
         host
@@ -454,6 +466,11 @@ impl Host {
     }
 
     fn run(&mut self, plan: &Plan) {
+        match self.sign_in(plan) {
+            Outcome::Exited(_) => {}
+            Outcome::Stopped => return self.finish(HostState::Stopped, None, None),
+            Outcome::Error(error) => return self.finish(HostState::Failed, None, Some(error)),
+        }
         let cycles = plan.cycles.max(1);
         for cycle in 1..=cycles {
             if self.stop_requested() {
@@ -490,13 +507,59 @@ impl Host {
         self.finish(HostState::Completed, Some(0), None)
     }
 
+    /// For a launch that names a GitHub account, reads that account's token from `gh` so
+    /// the loop's `gh`, Git and Copilot CLI work as it rather than as gh's active account.
+    /// The token stays in memory: it reaches the loop only through its start packet.
+    fn sign_in(&mut self, plan: &Plan) -> Outcome {
+        let Some(account) = &plan.account else {
+            return Outcome::Exited(0);
+        };
+        let start = Start {
+            program: plan.gh.clone(),
+            arguments: [
+                "auth",
+                "token",
+                "--hostname",
+                "github.com",
+                "--user",
+                account,
+            ]
+            .map(OsString::from)
+            .to_vec(),
+            directory: plan.directory.clone(),
+            path: plan.path.clone(),
+            environment: vec![("GH_PROMPT_DISABLED".into(), "1".into())],
+            // An inherited token would be printed instead of the account's own.
+            clear: TOKEN_VARIABLES.map(String::from).to_vec(),
+        };
+        let (outcome, lines) = self.supervise(&start, Sink::Capture, Some(GIT_LIMIT));
+        match (outcome, lines.first()) {
+            (Outcome::Exited(0), Some(token)) if !token.is_empty() => {
+                self.credentials = TOKEN_VARIABLES
+                    .map(|name| (name.to_owned(), token.clone()))
+                    .to_vec();
+                self.log
+                    .line(&format!("[Buddy] GitHub operations run as {account}."));
+                Outcome::Exited(0)
+            }
+            (Outcome::Exited(_), _) => Outcome::Error(format!(
+                "gh has no login for {account}, so the loop did not start. Add it with gh auth login, then retry."
+            )),
+            (other, _) => other,
+        }
+    }
+
     /// Before another cycle, fast-forward the repository's checked-out branch from its
     /// upstream, as `ralph-repeat.ps1` did, so the next cycle starts from merged work.
     /// Unlike that wrapper, the checkout is never switched to another branch. Git runs as
     /// an owned process like the loop: Stop ends it, and it dies with the host.
     fn refresh(&mut self, plan: &Plan) -> Outcome {
         let (upstream, lines) = self.supervise(
-            &git_start(plan, &["rev-parse", "--abbrev-ref", "@{upstream}"]),
+            &git_start(
+                plan,
+                &["rev-parse", "--abbrev-ref", "@{upstream}"],
+                &self.credentials,
+            ),
             Sink::Capture,
             Some(GIT_LIMIT),
         );
@@ -517,7 +580,8 @@ impl Host {
         self.log.line(&format!(
             "[Buddy] Fast-forwarding from {name} before the next cycle."
         ));
-        match self.supervise(&git_start(plan, &["pull", "--ff-only"]), Sink::Git, Some(GIT_LIMIT)).0 {
+        let pull = git_start(plan, &["pull", "--ff-only"], &self.credentials);
+        match self.supervise(&pull, Sink::Git, Some(GIT_LIMIT)).0 {
             Outcome::Exited(0) => Outcome::Exited(0),
             Outcome::Exited(_) => Outcome::Error(
                 "The repository could not be fast-forwarded before the next cycle, so the loop stopped. Update the checkout, then retry.".into(),
@@ -558,7 +622,8 @@ impl Host {
             arguments: plan.command_line(&launcher),
             directory: plan.directory.clone(),
             path: plan.path.clone(),
-            environment: vec![],
+            environment: self.credentials.clone(),
+            clear: vec![],
         };
         self.supervise(&start, Sink::Loop, None).0
     }
@@ -672,14 +737,18 @@ enum Sink {
     Capture,
 }
 
-/// Git in the repository, never prompting for credentials.
-fn git_start(plan: &Plan, arguments: &[&str]) -> Start {
+/// Git in the repository, never prompting for credentials. With the launch's account,
+/// gh's credential helper answers for that account.
+fn git_start(plan: &Plan, arguments: &[&str], credentials: &[(String, String)]) -> Start {
+    let mut environment = vec![("GIT_TERMINAL_PROMPT".into(), "0".into())];
+    environment.extend_from_slice(credentials);
     Start {
         program: plan.git.clone(),
         arguments: arguments.iter().map(OsString::from).collect(),
         directory: plan.directory.clone(),
         path: plan.path.clone(),
-        environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
+        environment,
+        clear: vec![],
     }
 }
 
@@ -848,6 +917,7 @@ mod tests {
             directory,
             path: "x".into(),
             environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
+            clear: vec!["GH_TOKEN".into()],
         };
         let mut bytes = vec![];
         send_start(&mut bytes, &start).unwrap();
