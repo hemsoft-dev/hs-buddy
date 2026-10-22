@@ -760,17 +760,10 @@ impl Host {
     }
 
     fn output(&mut self, sink: Sink, error: bool, bytes: &[u8], captured: &mut Vec<String>) {
-        let mut line = strip_ansi(&String::from_utf8_lossy(bytes));
+        // The token was already redacted where the stream was split into lines.
+        let line = strip_ansi(&String::from_utf8_lossy(bytes));
         if line.trim().is_empty() {
             return;
-        }
-        // The account's token is in the loop's environment; a loop that prints it must not
-        // put it in the log, which is kept on disk and shown in the app.
-        if let Some((_, token)) = self.credentials.iter().find(|(name, _)| name == "GH_TOKEN")
-            && !token.is_empty()
-            && line.contains(token.as_str())
-        {
-            line = line.replace(token.as_str(), "[token redacted]");
         }
         match sink {
             Sink::Loop => {
@@ -831,11 +824,18 @@ impl Host {
         // Bounded: a process that writes faster than the log keeps up waits on its pipe
         // instead of growing this queue; Stop is still checked on the poll clock.
         let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
+        // The account's token is in the loop's environment; a loop that prints it must not
+        // put it in the log, which is kept on disk and shown in the app.
+        let secret = self
+            .credentials
+            .iter()
+            .find(|(name, _)| name == "GH_TOKEN")
+            .map(|(_, token)| token.clone().into_bytes());
         if let Some(stdout) = owned.child.stdout.take() {
-            read_lines(Box::new(stdout), false, sender.clone());
+            read_lines(Box::new(stdout), false, sender.clone(), secret.clone());
         }
         if let Some(stderr) = owned.child.stderr.take() {
-            read_lines(Box::new(stderr), true, sender);
+            read_lines(Box::new(stderr), true, sender, secret);
         }
         if owned
             .input
@@ -939,12 +939,44 @@ fn git_start(plan: &Plan, arguments: &[&str], credentials: &[(String, String)]) 
 }
 
 /// Splits a stream at `\n` or a bare `\r`, in pieces of at most [`MAX_LINE`] bytes.
+/// Replaces every `secret` in `line` with [`REDACTED`].
+fn redact(line: &mut Vec<u8>, secret: &[u8]) {
+    if secret.is_empty() || line.len() < secret.len() {
+        return;
+    }
+    let mut out = Vec::with_capacity(line.len());
+    let mut at = 0;
+    while at < line.len() {
+        if line[at..].starts_with(secret) {
+            out.extend_from_slice(REDACTED);
+            at += secret.len();
+        } else {
+            out.push(line[at]);
+            at += 1;
+        }
+    }
+    *line = out;
+}
+
+const REDACTED: &[u8] = b"[token redacted]";
+
+/// Splits a stream into lines and sends them. `secret` (the account's token) is replaced
+/// before anything is sent. A line longer than [`MAX_LINE`] goes in pieces, and each piece
+/// keeps back its last `secret.len() - 1` bytes for the next one, so the token is never cut
+/// in two where a piece ends.
 fn read_lines(
     mut reader: Box<dyn Read + Send>,
     error: bool,
     sender: mpsc::SyncSender<(bool, Vec<u8>)>,
+    secret: Option<Vec<u8>>,
 ) {
     std::thread::spawn(move || {
+        let secret = secret.unwrap_or_default();
+        let keep = secret.len().saturating_sub(1);
+        let send = |mut line: Vec<u8>| {
+            redact(&mut line, &secret);
+            sender.send((error, line)).is_ok()
+        };
         let mut buffer = [0; 8192];
         let mut line = Vec::new();
         loop {
@@ -956,21 +988,27 @@ fn read_lines(
             };
             for &byte in &buffer[..count] {
                 if byte == b'\n' || byte == b'\r' {
-                    if sender.send((error, std::mem::take(&mut line))).is_err() {
+                    if !send(std::mem::take(&mut line)) {
                         return;
                     }
                 } else {
                     line.push(byte);
-                    if line.len() >= MAX_LINE
-                        && sender.send((error, std::mem::take(&mut line))).is_err()
-                    {
-                        return;
+                    if line.len() >= MAX_LINE + keep {
+                        // Whole tokens in the piece are replaced first; the kept tail
+                        // holds any token that starts in it and finishes later.
+                        redact(&mut line, &secret);
+                        if line.len() >= MAX_LINE + keep {
+                            let tail = line.split_off(line.len() - keep);
+                            if !send(std::mem::replace(&mut line, tail)) {
+                                return;
+                            }
+                        }
                     }
                 }
             }
         }
         if !line.is_empty() {
-            let _ = sender.send((error, line));
+            let _ = send(line);
         }
     });
 }
@@ -1150,7 +1188,7 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
         let mut input = b"one\r\ntwo\rthree\n".to_vec();
         input.extend(vec![b'x'; MAX_LINE + 3]);
-        read_lines(Box::new(std::io::Cursor::new(input)), true, sender);
+        read_lines(Box::new(std::io::Cursor::new(input)), true, sender, None);
         let lines = receiver
             .iter()
             .map(|(error, line)| {
@@ -1163,6 +1201,41 @@ mod tests {
             [3, 0, 3, 5, MAX_LINE, 3]
         );
         assert_eq!(lines[0], b"one");
+    }
+
+    #[test]
+    fn a_token_across_a_long_lines_split_is_still_redacted() {
+        let token = b"gho_SECRETSECRETSECRETSECRETSECRET123456".to_vec();
+        let has =
+            |haystack: &[u8], needle: &[u8]| haystack.windows(needle.len()).any(|w| w == needle);
+        for offset in [
+            MAX_LINE - 20,
+            MAX_LINE - 1,
+            MAX_LINE,
+            MAX_LINE + 7,
+            2 * MAX_LINE - 3,
+        ] {
+            let mut input = vec![b'x'; offset];
+            input.extend_from_slice(&token);
+            input.extend(vec![b'y'; MAX_LINE]);
+            input.push(b'\n');
+            let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
+            read_lines(
+                Box::new(std::io::Cursor::new(input)),
+                false,
+                sender,
+                Some(token.clone()),
+            );
+            let pieces = receiver.iter().map(|(_, line)| line).collect::<Vec<_>>();
+            assert!(pieces.len() > 1, "a long line goes in pieces");
+            // No piece holds any part of the token, and nothing else was lost.
+            for piece in &pieces {
+                assert!(!has(piece, b"SECRET"), "token fragment at offset {offset}");
+            }
+            let joined = pieces.concat();
+            assert!(has(&joined, REDACTED), "offset {offset}");
+            assert_eq!(joined.len(), offset + REDACTED.len() + MAX_LINE);
+        }
     }
 
     #[test]

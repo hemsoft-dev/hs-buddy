@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1543] - 2026-10-22
+
+### Fixed
+
+- Ask origin for its default branch and redact tokens across splits
+
 ## [0.1.1542] - 2026-10-22
 
 ### Fixed

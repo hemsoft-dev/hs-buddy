@@ -396,6 +396,8 @@ fn git_output(repository: &Path, tools: &Tools, arguments: &[&str]) -> Option<St
         .args(arguments)
         .current_dir(repository)
         .env("PATH", &tools.path)
+        // ls-remote may reach the network; it must never wait on a credential prompt.
+        .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
@@ -441,11 +443,19 @@ pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<CycleBase, 
             "Repeat cycles push each pull request to origin, so check out a branch that tracks origin's default branch (this one tracks {upstream})."
         ));
     }
-    let default = git(&["rev-parse", "--abbrev-ref", &format!("{remote}/HEAD")]).ok_or_else(|| {
-        format!(
-            "Git does not know {remote}'s default branch. Run git remote set-head {remote} --auto, then launch again."
-        )
-    })?;
+    // The default branch as origin reports it now: ralph.ps1's `gh pr create` targets the
+    // repository's current default branch, and the cached origin/HEAD can be stale after
+    // a rename.
+    let default = git(&["ls-remote", "--symref", "origin", "HEAD"])
+        .and_then(|output| {
+            output.lines().find_map(|line| {
+                line.strip_prefix("ref: refs/heads/")?
+                    .split('\t')
+                    .next()
+                    .map(|name| format!("origin/{name}"))
+            })
+        })
+        .ok_or("Could not ask origin for its default branch. Check the network and your Git sign-in, then launch again.")?;
     if upstream == default {
         Ok(CycleBase { branch, upstream })
     } else {
@@ -1289,6 +1299,15 @@ mod tests {
             &["branch", "-q", "--set-upstream-to", "origin/main"],
         );
         assert!(verify_cycle_base(&clone, &tools).is_ok());
+        // A stale local origin/HEAD does not decide: origin itself still reports main.
+        git(&clone, &["remote", "set-head", "origin", "topic"]);
+        assert!(verify_cycle_base(&clone, &tools).is_ok());
+        git(&clone, &["checkout", "-q", "topic"]);
+        assert!(
+            verify_cycle_base(&clone, &tools)
+                .unwrap_err()
+                .starts_with("Repeat cycles build on pull requests merged into origin/main")
+        );
     }
 
     #[test]

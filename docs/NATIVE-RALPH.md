@@ -90,7 +90,8 @@ The form has the same inputs as Electron Buddy:
   request merges into `origin`'s default branch, so more than one cycle needs
   the repository checked out on a branch that tracks that branch (for example
   `main` tracking `origin/main`); Launch says so otherwise, including for a
-  branch that tracks another remote. Before each further cycle Buddy
+  branch that tracks another remote. Launch asks origin which branch is its
+  default, rather than trusting a cached `origin/HEAD`. Before each further cycle Buddy
   fast-forwards that branch (`git pull --ff-only`), so the next cycle starts
   from the merged work. A failed fast-forward, a branch that no longer tracks
   an upstream, or a checkout that moved to another branch or upstream since
