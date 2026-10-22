@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1529] - 2026-10-22
+
+### Fixed
+
+- Sample a run's started marker and age before its lock check
+
 ## [0.1.1528] - 2026-10-22
 
 ### Fixed

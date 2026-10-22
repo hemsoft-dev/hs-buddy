@@ -230,10 +230,14 @@ impl Progress {
         {
             self.apply_cost(rest);
         } else if let Some(rest) = trimmed.strip_prefix("Est. cost:") {
-            // ralph.ps1's work iterations: `$1.20  (30 x $0.04)`.
-            if let Some((micros, premium)) = estimate(rest) {
-                self.apply(Some(micros), Some(premium));
+            // ralph.ps1's work iterations, `$1.20  (30 x $0.04)`, or ralph-issues.ps1's
+            // scan summary, `$1.20` after its `Premium reqs:` line.
+            match estimate(rest) {
+                Some((micros, premium)) => self.apply(Some(micros), Some(premium)),
+                None => self.apply(rest.trim_start().strip_prefix('$').and_then(amount), None),
             }
+        } else if let Some(rest) = trimmed.strip_prefix("Premium reqs:") {
+            self.apply(None, leading_number(rest.trim_start()));
         } else if let Some(rest) = trimmed.strip_prefix("Grand total premium:") {
             // ralph.ps1's work and PR phases together.
             self.apply(None, leading_number(rest.trim_start()));
@@ -388,6 +392,21 @@ mod tests {
         let progress = read(&["  Est. cost:           $0.12  (3 x $0.04)"]);
         assert_eq!(progress.stats.total_cost.as_deref(), Some("$0.12"));
         assert_eq!(progress.stats.total_premium, Some(3));
+    }
+
+    #[test]
+    fn a_ralph_issues_scan_summary_sets_cost_and_premium_requests() {
+        // ralph-issues.ps1's stdout summary, as printed.
+        let progress = read(&[
+            "== RALPH ISSUES SCAN SUMMARY",
+            "  Duration:        4m 2s",
+            "  Iterations:      3 / 3",
+            "  Issues created:  2",
+            "  Premium reqs:    30",
+            "  Est. cost:       $1.2",
+        ]);
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$1.20"));
+        assert_eq!(progress.stats.total_premium, Some(30));
     }
 
     #[test]

@@ -158,12 +158,31 @@ pub(super) fn derive(
     }
 }
 
-/// A run's status and whether its host holds the lock, read so that neither a host
-/// finishing nor one starting during the reads looks interrupted.
+/// One consistent reading of a run folder.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Observed {
+    pub status: Option<Status>,
+    /// A host held the lock at the deciding check.
+    pub live: bool,
+    /// The `started` marker existed just before that check.
+    pub started: bool,
+    /// The time just before that check, in milliseconds.
+    pub at: i64,
+}
+
+/// Reads a run so that neither a host finishing nor one starting during the reads looks
+/// interrupted. A host takes the lock first, then checks its age against
+/// [`START_GRACE`], then creates `started` and writes its first status, and it holds the
+/// lock until it ends. So `started` and the clock are sampled just before the lock check
+/// that decides: if that check finds the lock free, a host starting later sees an age at
+/// least as large as this reading's and gives up whenever this reading calls the run
+/// interrupted.
 pub(super) fn observe(
     mut read_status: impl FnMut() -> Option<Status>,
     mut is_locked: impl FnMut() -> bool,
-) -> (Option<Status>, bool) {
+    mut has_started: impl FnMut() -> bool,
+    mut now: impl FnMut() -> i64,
+) -> Observed {
     let settled = |status: &Option<Status>| {
         status
             .as_ref()
@@ -171,21 +190,43 @@ pub(super) fn observe(
     };
     let mut status = read_status();
     if settled(&status) {
-        return (status, false);
+        return Observed {
+            status,
+            live: false,
+            started: true,
+            at: now(),
+        };
     }
+    let (started, at) = (has_started(), now());
     if is_locked() {
-        return (status, true);
+        return Observed {
+            status,
+            live: true,
+            started,
+            at,
+        };
     }
     // A host records its result before it releases the lock, so a free lock after an
     // unsettled read can mean it just finished: read again.
     status = read_status();
     if settled(&status) {
-        return (status, false);
+        return Observed {
+            status,
+            live: false,
+            started: true,
+            at: now(),
+        };
     }
-    // Still unsettled: a host may have taken the lock and written its first status
-    // since the lock was checked. It holds the lock while it runs.
+    // Still unsettled: a host may have taken the lock, created `started` and written its
+    // first status since the lock was checked. Check again, after a fresh sample.
+    let (started, at) = (has_started(), now());
     let live = is_locked();
-    (status, live)
+    Observed {
+        status,
+        live,
+        started,
+        at,
+    }
 }
 
 /// Whether a host holds `path` locked. A missing file means no host ever started.
@@ -316,17 +357,24 @@ impl Store {
                 request
             }
         };
-        let (status, live) = observe(
+        let Observed {
+            status,
+            live,
+            started,
+            at,
+        } = observe(
             || read_json(&folder.join(STATUS)),
             || locked(&folder.join(LOCK)),
+            || folder.join(STARTED).exists(),
+            now_ms,
         );
-        let age = Duration::from_millis((now_ms() - request.created_at).max(0) as u64);
+        let age = Duration::from_millis((at - request.created_at).max(0) as u64);
         let state = derive(
             status.as_ref(),
             live,
             folder.join(STOP).exists(),
             age,
-            folder.join(STARTED).exists(),
+            started,
         );
         Some(Run {
             request,
@@ -510,33 +558,77 @@ mod tests {
             state: HostState::Completed,
             ..running.clone()
         };
-        let sequence = |statuses: Vec<Option<Status>>, locks: Vec<bool>| {
-            let mut statuses = statuses.into_iter();
-            let mut locks = locks.into_iter();
-            observe(|| statuses.next().unwrap(), || locks.next().unwrap())
+        // Scripted reads: statuses, lock checks, `started` checks and clock readings
+        // (milliseconds since the run was created), each consumed in order.
+        let read = |statuses: Vec<Option<Status>>,
+                    locks: Vec<bool>,
+                    started: Vec<bool>,
+                    clock: Vec<i64>| {
+            let (mut statuses, mut locks) = (statuses.into_iter(), locks.into_iter());
+            let (mut started, mut clock) = (started.into_iter(), clock.into_iter());
+            let seen = observe(
+                || statuses.next().unwrap(),
+                || locks.next().unwrap(),
+                || started.next().unwrap(),
+                || clock.next().unwrap(),
+            );
+            let state = derive(
+                seen.status.as_ref(),
+                seen.live,
+                false,
+                Duration::from_millis(seen.at as u64),
+                seen.started,
+            );
+            (seen, state)
         };
-        // The host took the lock and wrote Running between the first lock check and
-        // the second read: it is live, so the repository stays reserved.
-        let (status, live) = sequence(vec![None, Some(running.clone())], vec![false, true]);
-        assert!(live);
-        assert_eq!(
-            derive(status.as_ref(), live, false, Duration::from_secs(1), true),
-            RunState::Running
+        // The host took the lock and wrote Running between the first lock check and the
+        // second read: it is live, so the repository stays reserved.
+        let (_, state) = read(
+            vec![None, Some(running.clone())],
+            vec![false, true],
+            vec![false, true],
+            vec![1_000, 1_000],
         );
+        assert_eq!(state, RunState::Running);
+        // The host created `started` after the final lock check: that check's own
+        // sample says not started, so the young run is still Starting, not Interrupted.
+        let (_, state) = read(
+            vec![None, None],
+            vec![false, false],
+            vec![false, false],
+            vec![1_000, 1_000],
+        );
+        assert_eq!(state, RunState::Starting);
+        // Just past the grace period at the deciding check: Interrupted, and any host
+        // starting later is older still, so it gives up.
+        let grace = START_GRACE.as_millis() as i64;
+        let (_, state) = read(
+            vec![None, None],
+            vec![false, false],
+            vec![false, false],
+            vec![grace - 1, grace],
+        );
+        assert_eq!(state, RunState::Interrupted);
         // It finished between the reads: its result is used.
-        let (status, live) = sequence(vec![Some(running.clone()), Some(done.clone())], vec![false]);
-        assert_eq!((status, live), (Some(done), false));
+        let (seen, state) = read(
+            vec![Some(running.clone()), Some(done)],
+            vec![false],
+            vec![true],
+            vec![1_000, 1_000],
+        );
+        assert!(!seen.live);
+        assert_eq!(state, RunState::Completed);
         // Running with the lock free on both checks: the host died.
-        let (status, live) = sequence(
+        let (_, state) = read(
             vec![Some(running.clone()), Some(running.clone())],
             vec![false, false],
+            vec![true, true],
+            vec![1_000, 1_000],
         );
-        assert_eq!(
-            derive(status.as_ref(), live, false, Duration::from_secs(1), true),
-            RunState::Interrupted
-        );
+        assert_eq!(state, RunState::Interrupted);
         // Live from the first check.
-        assert!(sequence(vec![Some(running)], vec![true]).1);
+        let (seen, _) = read(vec![Some(running)], vec![true], vec![true], vec![1_000]);
+        assert!(seen.live);
     }
     use crate::ralph::launch::Plan;
 
