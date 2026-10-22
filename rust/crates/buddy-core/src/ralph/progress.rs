@@ -119,6 +119,27 @@ fn leading_number(text: &str) -> Option<u32> {
     text[..digits].parse().ok()
 }
 
+/// The amount at the start of `$`-less text such as `1.24  (31 premium`.
+fn amount(text: &str) -> Option<u64> {
+    let end = text.len()
+        - text
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+            .len();
+    dollars(&text[..end])
+}
+
+/// `$1.20  (30 x $0.04)` after ralph.ps1's `Est. cost:` label.
+fn estimate(rest: &str) -> Option<(u64, u32)> {
+    let rest = rest.trim_start().strip_prefix('$')?;
+    let micros = amount(rest)?;
+    let count = rest.split_once('(')?.1.trim_start();
+    let premium = leading_number(count)?;
+    count[premium.to_string().len()..]
+        .trim_start()
+        .starts_with('x')
+        .then_some((micros, premium))
+}
+
 /// `$1.24  (31 premium` after a cost label, as millionths of a dollar and a count.
 fn cost(rest: &str) -> Option<(u64, u32)> {
     let rest = rest.trim_start().strip_prefix('$')?;
@@ -201,22 +222,45 @@ impl Progress {
         } else if trimmed.contains("PR quality review") || review_round(trimmed) {
             self.stats.reviews += 1;
         } else if let Some(rest) = trimmed.strip_prefix("GRAND TOTAL:") {
+            // ralph-pr.ps1's total; inside a Ralph Loop, the PR phase only.
             self.apply_cost(rest);
         } else if let Some(rest) = trimmed.strip_prefix("Cost")
             // The running total; per-round lines read `(n premium x $rate)`.
             && trimmed.contains("premium requests)")
         {
             self.apply_cost(rest);
+        } else if let Some(rest) = trimmed.strip_prefix("Est. cost:") {
+            // ralph.ps1's work iterations: `$1.20  (30 x $0.04)`.
+            if let Some((micros, premium)) = estimate(rest) {
+                self.apply(Some(micros), Some(premium));
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("Grand total premium:") {
+            // ralph.ps1's work and PR phases together.
+            self.apply(None, leading_number(rest.trim_start()));
+        } else if let Some(rest) = trimmed.strip_prefix("Grand total cost:") {
+            self.apply(rest.trim_start().strip_prefix('$').and_then(amount), None);
         }
         *self != before
     }
 
     fn apply_cost(&mut self, rest: &str) {
         if let Some((micros, premium)) = cost(rest) {
-            self.cycle_cost = micros;
-            self.cycle_premium = premium;
-            self.stats.total_cost = Some(money(self.earlier_cost.saturating_add(micros)));
-            self.stats.total_premium = Some(self.earlier_premium.saturating_add(premium));
+            self.apply(Some(micros), Some(premium));
+        }
+    }
+
+    /// A total the current cycle's scripts printed. A Ralph Loop prints its PR phase's
+    /// total, then its work iterations', then both together; every one covers part of
+    /// the cycle's usage and the last covers all of it, so the cycle keeps the largest.
+    fn apply(&mut self, micros: Option<u64>, premium: Option<u32>) {
+        if let Some(micros) = micros {
+            self.cycle_cost = self.cycle_cost.max(micros);
+            self.stats.total_cost = Some(money(self.earlier_cost.saturating_add(self.cycle_cost)));
+        }
+        if let Some(premium) = premium {
+            self.cycle_premium = self.cycle_premium.max(premium);
+            self.stats.total_premium =
+                Some(self.earlier_premium.saturating_add(self.cycle_premium));
         }
     }
 
@@ -309,6 +353,41 @@ mod tests {
                 .as_deref(),
             Some("$1.20")
         );
+    }
+
+    #[test]
+    fn a_ralph_loop_cycle_counts_its_work_and_pr_phases() {
+        // The order ralph.ps1 prints them: the PR phase (ralph-pr.ps1), then its own
+        // work iterations, then both together.
+        let cycle = [
+            "  Cost           $0.24  (6 premium requests)",
+            "  GRAND TOTAL:         $0.24  (6 premium)",
+            "  Premium requests:    30",
+            "  Est. cost:           $1.20  (30 x $0.04)",
+            "  PR phase premium:    6",
+            "  PR phase cost:       $0.24",
+            "  Grand total premium: 36",
+            "  Grand total cost:    $1.44",
+        ];
+        let mut progress = Progress::default();
+        let mut shown = vec![];
+        for line in cycle {
+            progress.observe(line);
+            shown.push(progress.stats.total_premium.unwrap_or(0));
+        }
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$1.44"));
+        assert_eq!(progress.stats.total_premium, Some(36));
+        assert!(shown.windows(2).all(|pair| pair[0] <= pair[1]), "{shown:?}");
+        progress.next_cycle();
+        for line in cycle {
+            progress.observe(line);
+        }
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$2.88"));
+        assert_eq!(progress.stats.total_premium, Some(72));
+        // A work-only cycle (no pull request) ends with its own estimate.
+        let progress = read(&["  Est. cost:           $0.12  (3 x $0.04)"]);
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$0.12"));
+        assert_eq!(progress.stats.total_premium, Some(3));
     }
 
     #[test]

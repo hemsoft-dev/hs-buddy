@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1528] - 2026-10-22
+
+### Fixed
+
+- Keep a starting host live and count a loop cycle's work phase
+
 ## [0.1.1527] - 2026-10-22
 
 ### Fixed

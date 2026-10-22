@@ -158,6 +158,36 @@ pub(super) fn derive(
     }
 }
 
+/// A run's status and whether its host holds the lock, read so that neither a host
+/// finishing nor one starting during the reads looks interrupted.
+pub(super) fn observe(
+    mut read_status: impl FnMut() -> Option<Status>,
+    mut is_locked: impl FnMut() -> bool,
+) -> (Option<Status>, bool) {
+    let settled = |status: &Option<Status>| {
+        status
+            .as_ref()
+            .is_some_and(|status| status.state != HostState::Running)
+    };
+    let mut status = read_status();
+    if settled(&status) {
+        return (status, false);
+    }
+    if is_locked() {
+        return (status, true);
+    }
+    // A host records its result before it releases the lock, so a free lock after an
+    // unsettled read can mean it just finished: read again.
+    status = read_status();
+    if settled(&status) {
+        return (status, false);
+    }
+    // Still unsettled: a host may have taken the lock and written its first status
+    // since the lock was checked. It holds the lock while it runs.
+    let live = is_locked();
+    (status, live)
+}
+
 /// Whether a host holds `path` locked. A missing file means no host ever started.
 pub(super) fn locked(path: &Path) -> bool {
     match File::open(path) {
@@ -286,21 +316,10 @@ impl Store {
                 request
             }
         };
-        let mut status: Option<Status> = read_json(&folder.join(STATUS));
-        let settled = |status: &Option<Status>| {
-            status
-                .as_ref()
-                .is_some_and(|status| status.state != HostState::Running)
-        };
-        let mut live = false;
-        if !settled(&status) {
-            live = locked(&folder.join(LOCK));
-            if !live {
-                // A host records its result before it releases the lock, so a free lock
-                // after an unsettled read can mean it just finished: read again.
-                status = read_json(&folder.join(STATUS));
-            }
-        }
+        let (status, live) = observe(
+            || read_json(&folder.join(STATUS)),
+            || locked(&folder.join(LOCK)),
+        );
         let age = Duration::from_millis((now_ms() - request.created_at).max(0) as u64);
         let state = derive(
             status.as_ref(),
@@ -473,6 +492,52 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_host_starting_or_finishing_during_the_reads_is_never_interrupted() {
+        let running = Status {
+            state: HostState::Running,
+            host_pid: 1,
+            cycle: 1,
+            progress: Default::default(),
+            exit_code: None,
+            error: None,
+            started_at: 0,
+            updated_at: 0,
+            finished_at: None,
+        };
+        let done = Status {
+            state: HostState::Completed,
+            ..running.clone()
+        };
+        let sequence = |statuses: Vec<Option<Status>>, locks: Vec<bool>| {
+            let mut statuses = statuses.into_iter();
+            let mut locks = locks.into_iter();
+            observe(|| statuses.next().unwrap(), || locks.next().unwrap())
+        };
+        // The host took the lock and wrote Running between the first lock check and
+        // the second read: it is live, so the repository stays reserved.
+        let (status, live) = sequence(vec![None, Some(running.clone())], vec![false, true]);
+        assert!(live);
+        assert_eq!(
+            derive(status.as_ref(), live, false, Duration::from_secs(1), true),
+            RunState::Running
+        );
+        // It finished between the reads: its result is used.
+        let (status, live) = sequence(vec![Some(running.clone()), Some(done.clone())], vec![false]);
+        assert_eq!((status, live), (Some(done), false));
+        // Running with the lock free on both checks: the host died.
+        let (status, live) = sequence(
+            vec![Some(running.clone()), Some(running.clone())],
+            vec![false, false],
+        );
+        assert_eq!(
+            derive(status.as_ref(), live, false, Duration::from_secs(1), true),
+            RunState::Interrupted
+        );
+        // Live from the first check.
+        assert!(sequence(vec![Some(running)], vec![true]).1);
+    }
     use crate::ralph::launch::Plan;
 
     fn plan(folder: &Path) -> Plan {

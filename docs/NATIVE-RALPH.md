@@ -128,8 +128,10 @@ the same repository; a second launch there names the active run instead.
 A run's page shows its state, model, provider, agent and branch, when it
 started, how long it has run, the current phase and iteration, and counters
 the scripts report (checks, agent reviews, review rounds, issues created and
-cost). Each cycle's script reports its cost from zero, so the cost and premium
-request totals add up every cycle of the run. The log below shows the last 400 lines and follows new output. The full
+cost). A Ralph Loop cycle's totals cover its work iterations and its pull
+request phase, as `ralph.ps1`'s closing grand totals do. Each cycle's script
+reports from zero, so the cost and premium request totals add up every cycle
+of the run. The log below shows the last 400 lines and follows new output. The full
 log is in the run's folder, whose path is shown under it.
 
 | State       | Meaning                                                                    |
