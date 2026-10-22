@@ -292,6 +292,30 @@ fn the_launch_form_keeps_launch_visible_and_reports_input_errors(
 }
 
 #[gpui_kit::test]
+fn provider_model_and_agent_share_one_row_at_the_windows_runner_width(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // The installed Windows run is 1044 px wide, which leaves the Ralph view about 980 px
+    // next to the sidebar. A wrapped row pushed the merge option below the fold there.
+    let root = tempfile::tempdir().unwrap();
+    let (window, view) = open(cx, 980., 650.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.new_form(Script::Ralph, None, window, cx)
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let provider = visual.debug_bounds("ralph-provider").unwrap();
+    let agent = visual.debug_bounds("ralph-agent").unwrap();
+    assert!(
+        agent.top() == provider.top(),
+        "work agent wrapped: provider {provider:?}, agent {agent:?}"
+    );
+}
+
+#[gpui_kit::test]
 fn the_detail_page_shows_logs_errors_and_confirms_stop(cx: &mut gpui_kit::TestAppContext) {
     let root = tempfile::tempdir().unwrap();
     write_run(

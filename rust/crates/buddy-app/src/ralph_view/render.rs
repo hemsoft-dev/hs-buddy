@@ -486,9 +486,11 @@ impl RalphView {
                 h_flex()
                     .flex_wrap()
                     .gap_3()
+                    // One row on the 1024 px Windows runner: 240 + 360 + 240 plus gaps.
                     .child(
                         div()
-                            .w(zpx(280.))
+                            .debug_selector(|| "ralph-provider".into())
+                            .w(zpx(240.))
                             .child(labeled("Provider", Select::new(&form.provider))),
                     )
                     .child(
@@ -499,7 +501,8 @@ impl RalphView {
                     )
                     .child(
                         div()
-                            .w(zpx(280.))
+                            .debug_selector(|| "ralph-agent".into())
+                            .w(zpx(240.))
                             .child(labeled("Work agent", Select::new(&form.agent))),
                     ),
             );

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1525] - 2026-10-22
+
+### Fixed
+
+- Keep the Ralph provider, model and agent pickers on one row
+
 ## [0.1.1524] - 2026-10-22
 
 ### Fixed
