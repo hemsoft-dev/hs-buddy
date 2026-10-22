@@ -504,6 +504,12 @@ mod tests {
         // statuses is read.
         assert!(body.contains("if ($passed.Count -eq 0) {"));
         assert!(body.contains("/status?per_page=100\" --paginate"));
+        // A merge counts once GitHub reports it MERGED, not when a merge queue accepts it.
+        assert!(pr.contains("function Wait-PRMerged"));
+        assert!(
+            pr.contains("$mergedState = if ($mergeExit -eq 0) { Wait-PRMerged } else { $null }")
+        );
+        assert!(pr.contains("elseif ($mergeExit -eq 0) {\n            $script:Merged = $true"));
         // A dry run that turns up issues stops.
         let dry = BUNDLED
             .iter()

@@ -757,6 +757,21 @@ function Get-VerifiedMergeHead {
     return "$sha"
 }
 
+# After a successful gh pr merge: waits up to an hour for the PR to be MERGED (a merge queue
+# may hold it) and returns the last state read: MERGED, CLOSED, OPEN, or UNKNOWN when it
+# could not be read.
+function Wait-PRMerged {
+    $deadline = (Get-Date).AddMinutes(60)
+    $state = 'UNKNOWN'
+    while ($true) {
+        $read = gh pr view $PRNumber --repo $repoSlug --json state -q '.state' 2>$null
+        $state = if ($LASTEXITCODE -eq 0 -and "$read") { "$read".Trim() } else { 'UNKNOWN' }
+        if ($state -in @('MERGED', 'CLOSED') -or (Get-Date) -ge $deadline) { return $state }
+        if ($state -eq 'OPEN') { Write-Status "PR #$PRNumber is queued for merging; waiting." }
+        Start-Sleep -Seconds 30
+    }
+}
+
 function Get-PRMergeableState {
     $state = (gh pr view $PRNumber --repo $repoSlug --json mergeable -q '.mergeable' 2>&1).Trim()
     return $state
@@ -1739,8 +1754,16 @@ if ($prClean) {
         $admin = if ($RequireMerge) { @() } else { @('--admin') }
         $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch @admin @pin 2>&1
         $mergeOutput | Out-File $logFile -Append -Encoding UTF8
+        $mergeExit = $LASTEXITCODE
+        # With a merge queue, a successful gh pr merge may only have queued the PR, so the
+        # merge counts once GitHub reports it MERGED.
+        $mergedState = if ($mergeExit -eq 0) { Wait-PRMerged } else { $null }
 
-        if ($LASTEXITCODE -eq 0) {
+        if ($mergeExit -eq 0 -and $mergedState -ne 'MERGED') {
+            Write-Host "PR #$PRNumber was accepted for merging but is $mergedState, not merged." -ForegroundColor Red
+            "[$logTag] Merge accepted but PR is $mergedState, not merged." | Out-File $logFile -Append -Encoding UTF8
+        }
+        elseif ($mergeExit -eq 0) {
             $script:Merged = $true
             Write-Host "PR #$PRNumber merged successfully." -ForegroundColor Green
             "[$logTag] PR #$PRNumber merged successfully." | Out-File $logFile -Append -Encoding UTF8

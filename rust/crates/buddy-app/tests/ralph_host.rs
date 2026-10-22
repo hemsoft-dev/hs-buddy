@@ -34,6 +34,9 @@ if ($Account) {
     $expected = "stub-token-$Account"
     Write-Host "token $($env:GH_TOKEN -eq $expected) $($env:GITHUB_TOKEN -eq $expected)"
     Write-Host "account $env:RALPH_GH_ACCOUNT"
+    # A loop that prints its token, on stdout and on stderr.
+    Write-Host "leak $env:GH_TOKEN"
+    [Console]::Error.WriteLine("leak $env:GITHUB_TOKEN")
 }
 Write-Host "prompt: $(Get-Content -Raw $Prompt)"
 [Console]::Error.WriteLine('warned')
@@ -279,6 +282,45 @@ fn a_host_that_starts_after_the_grace_period_never_starts_the_loop() {
 }
 
 #[test]
+fn a_loop_whose_exec_lock_is_taken_does_not_start() {
+    let mut fixture = fixture();
+    let id = fixture.create(&[]);
+    // Something else holds the run's exec lock (in practice, an exec process still
+    // cleaning up): the new one must not run the loop alongside it.
+    let held = std::fs::File::create(fixture.store.folder(&id).join("exec.lock")).unwrap();
+    held.lock().unwrap();
+    spawn_host(
+        Path::new(env!("CARGO_BIN_EXE_buddy")),
+        &fixture.store.folder(&id),
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let status = loop {
+        if let Some(status) = fixture.store.run(&id).unwrap().status
+            && status.finished_at.is_some()
+        {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "the run did not finish");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(status.exit_code, Some(125));
+    let (output, _) = fixture.store.output(&id);
+    assert!(
+        output.contains(
+            &"[stderr] [Buddy] The run's exec lock could not be taken, so the loop did not start."
+                .to_string()
+        ),
+        "{output:?}"
+    );
+    assert!(
+        !output.iter().any(|line| line.starts_with("== Iteration")),
+        "{output:?}"
+    );
+    drop(held);
+}
+
+#[test]
 fn a_failing_loop_records_its_exit_code() {
     let mut fixture = fixture();
     let id = fixture.start(&["-Code", "3"]);
@@ -314,6 +356,15 @@ fn a_named_account_signs_the_loop_in_without_saving_its_token() {
     );
     // The scripts keep this account instead of switching to the repository owner's.
     assert!(output.contains(&"account octo".to_string()), "{output:?}");
+    // A printed token is redacted before it reaches the log.
+    assert!(
+        output.contains(&"leak [token redacted]".to_string()),
+        "{output:?}"
+    );
+    assert!(
+        output.contains(&"[stderr] leak [token redacted]".to_string()),
+        "{output:?}"
+    );
     // The token lives only in the host and the loop's environment.
     for entry in std::fs::read_dir(fixture.store.folder(&id)).unwrap() {
         let file = entry.unwrap().path();

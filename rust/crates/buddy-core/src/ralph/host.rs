@@ -265,7 +265,7 @@ pub fn run_ralph_exec() -> i32 {
     };
     // Held until this process ends, after any cleanup for a dead host: the store reads the
     // run as live while it is held, so its repository stays reserved.
-    let _held = start.lock.as_ref().and_then(|path| {
+    let held = start.lock.as_ref().map(|path| {
         let file = private_file()
             .create(true)
             .truncate(false)
@@ -275,6 +275,16 @@ pub fn run_ralph_exec() -> i32 {
         file.try_lock().ok()?;
         Some(file)
     });
+    // Without that lock a dead host would free the repository while this process still
+    // runs or cleans up, so the loop does not start.
+    if let Some(None) = held {
+        let _ = writeln!(
+            io::stderr(),
+            "[Buddy] The run's exec lock could not be taken, so the loop did not start."
+        );
+        return 125;
+    }
+    let _held = held.flatten();
     let run = start
         .environment
         .iter()
@@ -750,9 +760,17 @@ impl Host {
     }
 
     fn output(&mut self, sink: Sink, error: bool, bytes: &[u8], captured: &mut Vec<String>) {
-        let line = strip_ansi(&String::from_utf8_lossy(bytes));
+        let mut line = strip_ansi(&String::from_utf8_lossy(bytes));
         if line.trim().is_empty() {
             return;
+        }
+        // The account's token is in the loop's environment; a loop that prints it must not
+        // put it in the log, which is kept on disk and shown in the app.
+        if let Some((_, token)) = self.credentials.iter().find(|(name, _)| name == "GH_TOKEN")
+            && !token.is_empty()
+            && line.contains(token.as_str())
+        {
+            line = line.replace(token.as_str(), "[token redacted]");
         }
         match sink {
             Sink::Loop => {

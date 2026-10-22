@@ -29,7 +29,8 @@ and Git over HTTPS with `gh` as its credential helper then use that account; a
 `COPILOT_GITHUB_TOKEN` you set yourself still wins for Copilot. The host also
 sets `RALPH_GH_ACCOUNT`, and the scripts then keep that account instead of
 switching to the repository owner's `gh` login as they otherwise do. The token
-is never written to the run's folder. If `gh` has no login for the account, the
+is never written to the run's folder, and a loop that prints it has it
+replaced with `[token redacted]` in the log. If `gh` has no login for the account, the
 run fails before the loop starts. The form says which account the loop will
 use, and the run page shows it after the repository. A loop started from New
 loop uses `gh`'s active account, as in Electron Buddy. Git remotes reached
@@ -111,7 +112,9 @@ The form has the same inputs as Electron Buddy:
   pull request with `gh pr merge --squash --delete-branch`, without `--admin`,
   so GitHub still enforces the base branch's rules: required checks and the
   apps that must report them, approvals and conversation resolution. A pull
-  request those rules block is not merged, and the run fails. Ralph PR
+  request those rules block is not merged, and the run fails. With a merge
+  queue, the pull request counts as merged only once GitHub reports it merged;
+  the script waits up to an hour for that. Ralph PR
   receives the option as `-AutoApprove -RequireMerge`; a
   Ralph Loop as `-MergeWhenClean`, which `ralph.ps1` passes on to its review
   phase the same way. With it, a pull request that is not merged fails the run,
@@ -198,7 +201,7 @@ Runs are folders below `native-ralph/runs` next to the configuration file.
 | `request.json` | Buddy      | The launch and the exact command, written once before the start |
 | `prompt.md`   | Buddy      | The prompt; the scripts read a prompt given as a file path     |
 | `host.lock`   | Host       | Locked while the host lives                                    |
-| `exec.lock`   | Loop process | Locked while the loop's exec process lives, including its cleanup after a dead host; the run stays reserved until then |
+| `exec.lock`   | Loop process | Locked while the loop's exec process lives, including its cleanup after a dead host; the run stays reserved until then. If it cannot be locked, the loop does not start |
 | `started`     | Host       | Created once; a host finding it never starts the loop          |
 | `launch.ps1`  | Host       | Sets UTF-8 output, then calls the script with its arguments    |
 | `status.json` | Host       | State, phase, iteration, counters and the result               |

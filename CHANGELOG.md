@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1542] - 2026-10-22
+
+### Fixed
+
+- Confirm queued merges, require the exec lock, redact the token
+
 ## [0.1.1541] - 2026-10-22
 
 ### Fixed
