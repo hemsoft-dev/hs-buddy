@@ -1153,6 +1153,8 @@ Your only output is the JSON findings file at the path above.
 
                     if ($reviewFailed) {
                         Remove-Item $findingsPath -Force -ErrorAction SilentlyContinue
+                        # A review the user selected did not complete: a required merge is refused.
+                        $script:ReviewUnavailable = $true
                         Write-Status "Agent $($spec.Role) failed. Skipping to next agent."
                         $agentReviewIndex++
                         $actionTaken = $true
@@ -1319,6 +1321,10 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                             }
                         }
                     } else {
+                        # No findings file, or one that is not valid JSON: the review did not
+                        # complete (a clean review writes an empty findings list), so a
+                        # required merge is refused.
+                        $script:ReviewUnavailable = $true
                         Write-Status "Reviewer $($spec.Role) did not produce findings. Skipping fix cycle."
                     }
 

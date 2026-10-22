@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1532] - 2026-10-22
+
+### Fixed
+
+- Block a required merge when a selected review agent does not finish
+
 ## [0.1.1531] - 2026-10-22
 
 ### Fixed

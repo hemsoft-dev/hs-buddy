@@ -110,7 +110,9 @@ The form has the same inputs as Electron Buddy:
   Ralph Loop as `-MergeWhenClean`, which `ralph.ps1` passes on to its review
   phase the same way. With it, a pull request that is not merged fails the run,
   and a pull request whose review could not be requested or never arrived is
-  neither approved nor merged.
+  neither approved nor merged. The same goes for each selected review agent: one
+  that fails or leaves no findings file blocks the merge, while a review with
+  no findings counts as complete.
   Electron's "Auto-approve" option is on by default but never reached a Ralph
   Loop's review phase; Buddy Native asks for this choice explicitly.
 

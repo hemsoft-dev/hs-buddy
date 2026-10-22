@@ -476,6 +476,19 @@ mod tests {
             .count();
         let checked = pr.matches("Test-AgentExit $LASTEXITCODE").count();
         assert_eq!((invocations, checked), (4, 3));
+        // A selected review agent that fails or leaves no findings blocks a required merge,
+        // like a Copilot review that never arrives.
+        for skipped in [
+            "failed. Skipping to next agent.",
+            "did not produce findings. Skipping fix cycle.",
+        ] {
+            let at = pr.find(skipped).unwrap();
+            let before = &pr[pr[..at].rfind('{').unwrap()..at];
+            assert!(
+                before.contains("$script:ReviewUnavailable = $true"),
+                "{skipped:?} must mark the review unavailable"
+            );
+        }
     }
 
     #[test]
