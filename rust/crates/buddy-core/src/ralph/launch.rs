@@ -390,12 +390,18 @@ pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, St
 }
 
 /// Git's trimmed output in `repository`, or `None` when it fails.
-fn git_output(repository: &Path, tools: &Tools, arguments: &[&str]) -> Option<String> {
+fn git_output(
+    repository: &Path,
+    tools: &Tools,
+    arguments: &[&str],
+    environment: &[(&str, &str)],
+) -> Option<String> {
     let mut command = std::process::Command::new(&tools.git);
     command
         .args(arguments)
         .current_dir(repository)
         .env("PATH", &tools.path)
+        .envs(environment.iter().copied())
         // ls-remote may reach the network; it must never wait on a credential prompt.
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null())
@@ -414,6 +420,42 @@ fn git_output(repository: &Path, tools: &Tools, arguments: &[&str]) -> Option<St
         .filter(|text| !text.is_empty())
 }
 
+/// The token `gh` holds for `account`, read the way the host reads it at the start of a run
+/// (inherited tokens cleared). It stays in memory.
+pub fn account_token(tools: &Tools, account: &str) -> Result<String, String> {
+    let mut command = std::process::Command::new(&tools.gh);
+    command
+        .args([
+            "auth",
+            "token",
+            "--hostname",
+            "github.com",
+            "--user",
+            account,
+        ])
+        .env("PATH", &tools.path)
+        .env("GH_PROMPT_DISABLED", "1")
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    command
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| {
+            format!("gh has no login for {account}. Add it with gh auth login, then launch again.")
+        })
+}
+
 /// The checked-out branch and its upstream when a repeat-cycle run was launched.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CycleBase {
@@ -426,8 +468,18 @@ pub struct CycleBase {
 /// Repeat cycles build on each cycle's pull request, which merges into the remote's
 /// default branch, and Buddy only fast-forwards the checked-out branch between cycles. So
 /// that branch must track the default branch; Buddy never switches it.
-pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<CycleBase, String> {
-    let git = |arguments: &[&str]| git_output(repository, tools, arguments);
+///
+/// `token` is the launch's account token, when it names one: asking origin for its default
+/// branch then signs in as that account, as the loop's own Git does.
+pub fn verify_cycle_base(
+    repository: &Path,
+    tools: &Tools,
+    token: Option<&str>,
+) -> Result<CycleBase, String> {
+    let environment = token
+        .map(|token| vec![("GH_TOKEN", token), ("GITHUB_TOKEN", token)])
+        .unwrap_or_default();
+    let git = |arguments: &[&str]| git_output(repository, tools, arguments, &environment);
     let untracked = "Repeat cycles need the checked-out branch to track the remote's default branch, where each cycle's pull request merges.";
     let upstream = git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).ok_or(untracked)?;
     // The branch's own remote setting: a remote name may contain '/', so the
@@ -1257,7 +1309,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            verify_cycle_base(&clone, &tools),
+            verify_cycle_base(&clone, &tools, None),
             Ok(CycleBase {
                 branch: "refs/heads/main".into(),
                 upstream: "origin/main".into(),
@@ -1265,18 +1317,18 @@ mod tests {
         );
         git(&clone, &["checkout", "-q", "-b", "topic"]);
         assert!(
-            verify_cycle_base(&clone, &tools)
+            verify_cycle_base(&clone, &tools, None)
                 .unwrap_err()
                 .starts_with("Repeat cycles need the checked-out branch to track")
         );
         git(&clone, &["push", "-q", "-u", "origin", "topic"]);
         assert!(
-            verify_cycle_base(&clone, &tools)
+            verify_cycle_base(&clone, &tools, None)
                 .unwrap_err()
                 .starts_with("Repeat cycles build on pull requests merged into origin/main")
         );
         // The seed repository has no remote at all.
-        assert!(verify_cycle_base(&seed, &tools).is_err());
+        assert!(verify_cycle_base(&seed, &tools, None).is_err());
         // Another remote's default branch: the scripts push to origin, so it is refused,
         // and a remote name with a slash is read whole from the branch's settings.
         git(&clone, &["checkout", "-q", "main"]);
@@ -1291,22 +1343,63 @@ mod tests {
             &["branch", "-q", "--set-upstream-to", "team/upstream/main"],
         );
         assert_eq!(
-            verify_cycle_base(&clone, &tools),
+            verify_cycle_base(&clone, &tools, None),
             Err("Repeat cycles push each pull request to origin, so check out a branch that tracks origin's default branch (this one tracks team/upstream/main).".into())
         );
         git(
             &clone,
             &["branch", "-q", "--set-upstream-to", "origin/main"],
         );
-        assert!(verify_cycle_base(&clone, &tools).is_ok());
+        assert!(verify_cycle_base(&clone, &tools, None).is_ok());
         // A stale local origin/HEAD does not decide: origin itself still reports main.
         git(&clone, &["remote", "set-head", "origin", "topic"]);
-        assert!(verify_cycle_base(&clone, &tools).is_ok());
+        assert!(verify_cycle_base(&clone, &tools, None).is_ok());
         git(&clone, &["checkout", "-q", "topic"]);
         assert!(
-            verify_cycle_base(&clone, &tools)
+            verify_cycle_base(&clone, &tools, None)
                 .unwrap_err()
                 .starts_with("Repeat cycles build on pull requests merged into origin/main")
+        );
+    }
+
+    #[test]
+    fn the_launch_reads_the_selected_accounts_token_from_gh() {
+        // A stand-in gh: `auth token ... --user <name>` prints a token, except for `missing`.
+        let folder = tempfile::tempdir().unwrap();
+        let gh = if cfg!(windows) {
+            let stub = folder.path().join("gh.cmd");
+            std::fs::write(
+                &stub,
+                "@echo off\r\nif \"%6\"==\"missing\" exit /b 1\r\nif \"%1\"==\"auth\" echo stub-token-%6\r\n",
+            )
+            .unwrap();
+            stub
+        } else {
+            let stub = folder.path().join("gh");
+            std::fs::write(
+                &stub,
+                "#!/bin/sh\n[ \"$6\" = missing ] && exit 1\n[ \"$1\" = auth ] && echo \"stub-token-$6\"\n",
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            stub
+        };
+        let tools = Tools {
+            pwsh: PathBuf::from("pwsh"),
+            git: PathBuf::from("git"),
+            gh,
+            path: std::env::var_os("PATH").unwrap_or_default(),
+        };
+        assert!(account_token(&tools, "octo").as_deref() == Ok("stub-token-octo"));
+        assert_eq!(
+            account_token(&tools, "missing"),
+            Err(
+                "gh has no login for missing. Add it with gh auth login, then launch again.".into()
+            )
         );
     }
 

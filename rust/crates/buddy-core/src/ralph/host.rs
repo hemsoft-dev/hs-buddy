@@ -826,16 +826,12 @@ impl Host {
         let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
         // The account's token is in the loop's environment; a loop that prints it must not
         // put it in the log, which is kept on disk and shown in the app.
-        let secret = self
-            .credentials
-            .iter()
-            .find(|(name, _)| name == "GH_TOKEN")
-            .map(|(_, token)| token.clone().into_bytes());
+        let secrets = secrets(&self.credentials, |name| std::env::var(name).ok());
         if let Some(stdout) = owned.child.stdout.take() {
-            read_lines(Box::new(stdout), false, sender.clone(), secret.clone());
+            read_lines(Box::new(stdout), false, sender.clone(), secrets.clone());
         }
         if let Some(stderr) = owned.child.stderr.take() {
-            read_lines(Box::new(stderr), true, sender, secret);
+            read_lines(Box::new(stderr), true, sender, secrets);
         }
         if owned
             .input
@@ -939,6 +935,29 @@ fn git_start(plan: &Plan, arguments: &[&str], credentials: &[(String, String)]) 
 }
 
 /// Splits a stream at `\n` or a bare `\r`, in pieces of at most [`MAX_LINE`] bytes.
+/// Every token the loop's environment can hold: the launch account's, and any GitHub or
+/// Copilot token the host inherited (a loop started from New loop runs with those).
+/// Values shorter than 8 bytes are no tokens and would blank out ordinary output.
+fn secrets(
+    credentials: &[(String, String)],
+    inherited: impl Fn(&str) -> Option<String>,
+) -> Vec<Vec<u8>> {
+    let mut found = credentials
+        .iter()
+        .filter(|(name, _)| TOKEN_VARIABLES.contains(&name.as_str()))
+        .map(|(_, value)| value.clone().into_bytes())
+        .collect::<Vec<_>>();
+    for name in TOKEN_VARIABLES.into_iter().chain(["COPILOT_GITHUB_TOKEN"]) {
+        if let Some(value) = inherited(name) {
+            found.push(value.into_bytes());
+        }
+    }
+    found.retain(|secret| secret.len() >= 8);
+    found.sort();
+    found.dedup();
+    found
+}
+
 /// Replaces every `secret` in `line` with [`REDACTED`].
 fn redact(line: &mut Vec<u8>, secret: &[u8]) {
     if secret.is_empty() || line.len() < secret.len() {
@@ -960,21 +979,29 @@ fn redact(line: &mut Vec<u8>, secret: &[u8]) {
 
 const REDACTED: &[u8] = b"[token redacted]";
 
-/// Splits a stream into lines and sends them. `secret` (the account's token) is replaced
-/// before anything is sent. A line longer than [`MAX_LINE`] goes in pieces, and each piece
-/// keeps back its last `secret.len() - 1` bytes for the next one, so the token is never cut
-/// in two where a piece ends.
+/// Splits a stream into lines and sends them. Every one of `secrets` (see [`secrets`]) is
+/// replaced before anything is sent. A line longer than [`MAX_LINE`] goes in pieces, and
+/// each piece keeps back its last bytes (one fewer than the longest secret) for the next
+/// one, so a token is never cut in two where a piece ends.
 fn read_lines(
     mut reader: Box<dyn Read + Send>,
     error: bool,
     sender: mpsc::SyncSender<(bool, Vec<u8>)>,
-    secret: Option<Vec<u8>>,
+    secrets: Vec<Vec<u8>>,
 ) {
     std::thread::spawn(move || {
-        let secret = secret.unwrap_or_default();
-        let keep = secret.len().saturating_sub(1);
+        let keep = secrets
+            .iter()
+            .map(|secret| secret.len().saturating_sub(1))
+            .max()
+            .unwrap_or(0);
+        let redact_all = |line: &mut Vec<u8>| {
+            for secret in &secrets {
+                redact(line, secret);
+            }
+        };
         let send = |mut line: Vec<u8>| {
-            redact(&mut line, &secret);
+            redact_all(&mut line);
             sender.send((error, line)).is_ok()
         };
         let mut buffer = [0; 8192];
@@ -996,7 +1023,7 @@ fn read_lines(
                     if line.len() >= MAX_LINE + keep {
                         // Whole tokens in the piece are replaced first; the kept tail
                         // holds any token that starts in it and finishes later.
-                        redact(&mut line, &secret);
+                        redact_all(&mut line);
                         if line.len() >= MAX_LINE + keep {
                             let tail = line.split_off(line.len() - keep);
                             if !send(std::mem::replace(&mut line, tail)) {
@@ -1188,7 +1215,7 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(LINE_QUEUE);
         let mut input = b"one\r\ntwo\rthree\n".to_vec();
         input.extend(vec![b'x'; MAX_LINE + 3]);
-        read_lines(Box::new(std::io::Cursor::new(input)), true, sender, None);
+        read_lines(Box::new(std::io::Cursor::new(input)), true, sender, vec![]);
         let lines = receiver
             .iter()
             .map(|(error, line)| {
@@ -1201,6 +1228,33 @@ mod tests {
             [3, 0, 3, 5, MAX_LINE, 3]
         );
         assert_eq!(lines[0], b"one");
+    }
+
+    #[test]
+    fn inherited_tokens_are_redacted_too() {
+        let credentials = vec![
+            ("GH_TOKEN".to_owned(), "gho_account_token".to_owned()),
+            ("GITHUB_TOKEN".to_owned(), "gho_account_token".to_owned()),
+            (ACCOUNT_VARIABLE.to_owned(), "octo".to_owned()),
+        ];
+        let inherited = |name: &str| match name {
+            "GITHUB_TOKEN" => Some("ghp_inherited_token".to_owned()),
+            "COPILOT_GITHUB_TOKEN" => Some("short".to_owned()),
+            _ => None,
+        };
+        assert_eq!(
+            secrets(&credentials, inherited),
+            [
+                b"gho_account_token".to_vec(),
+                b"ghp_inherited_token".to_vec()
+            ]
+        );
+        // A loop from New loop: no account, but the inherited token is still covered.
+        assert_eq!(
+            secrets(&[], |name| (name == "GH_TOKEN")
+                .then(|| "gho_from_buddy_env".to_owned())),
+            [b"gho_from_buddy_env".to_vec()]
+        );
     }
 
     #[test]
@@ -1224,7 +1278,7 @@ mod tests {
                 Box::new(std::io::Cursor::new(input)),
                 false,
                 sender,
-                Some(token.clone()),
+                vec![token.clone()],
             );
             let pieces = receiver.iter().map(|(_, line)| line).collect::<Vec<_>>();
             assert!(pieces.len() > 1, "a long line goes in pieces");

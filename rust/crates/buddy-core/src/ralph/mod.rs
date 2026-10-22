@@ -32,7 +32,16 @@ pub fn start(
     let tools = launch::discover_installed()?;
     let repository_key = launch::verify_repository(&launch.repository, &tools)?;
     let base = if launch.script.uses_cycles() && launch.cycles > 1 {
-        Some(launch::verify_cycle_base(&launch.repository, &tools)?)
+        // Origin is asked as the account the run will work as.
+        let token = match &launch.account {
+            Some(account) => Some(launch::account_token(&tools, account)?),
+            None => None,
+        };
+        Some(launch::verify_cycle_base(
+            &launch.repository,
+            &tools,
+            token.as_deref(),
+        )?)
     } else {
         None
     };
