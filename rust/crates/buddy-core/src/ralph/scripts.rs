@@ -490,24 +490,27 @@ mod tests {
             .find("$script:MergeHead = Get-VerifiedMergeHead")
             .unwrap();
         assert!(gate < pr.find("--approve").unwrap());
-        assert!(pr.contains("--squash --delete-branch --admin @pin"));
+        // It never bypasses branch protection: no --admin when a merge is required, so
+        // GitHub enforces the base branch's rules (required checks and their apps,
+        // approvals) itself.
+        assert!(pr.contains("--squash --delete-branch @admin @pin"));
+        assert!(pr.contains("$admin = if ($RequireMerge) { @() } else { @('--admin') }"));
         assert!(pr.contains("@('--match-head-commit', $script:MergeHead)"));
         let verify = pr.find("function Get-VerifiedMergeHead").unwrap();
         let body = &pr[verify..verify + pr[verify..].find("\nfunction ").unwrap()];
         assert!(body.contains("@('success', 'neutral', 'skipped')"));
-        assert!(body.matches("return $null").count() >= 11);
-        // A head no check has reported for yet, or one missing a check the base branch
-        // requires, is not verified.
+        assert!(body.matches("return $null").count() >= 8);
+        // A head no check has reported for yet is not verified, and every page of
+        // statuses is read.
         assert!(body.contains("if ($passed.Count -eq 0) {"));
-        assert!(body.contains("rules/branches/$base"));
-        assert!(body.contains("if ($check -notin $passed) {"));
-        // Every page of statuses is read, and only the two no-requirement 404s pass.
         assert!(body.contains("/status?per_page=100\" --paginate"));
-        assert!(
-            body.contains(
-                "(Branch not protected|Required status checks not enabled) \\(HTTP 404\\)"
-            )
-        );
+        // A dry run that turns up issues stops.
+        let dry = BUNDLED
+            .iter()
+            .find(|(name, _)| *name == "ralph-issues.ps1")
+            .unwrap()
+            .1;
+        assert!(dry.contains("if ($DryRun -and $iterIssuesCreated -gt 0) {"));
         let issues = BUNDLED
             .iter()
             .find(|(name, _)| *name == "ralph-issues.ps1")

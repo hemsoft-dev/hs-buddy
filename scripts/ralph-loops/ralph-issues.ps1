@@ -499,6 +499,12 @@ Prioritize findings by severity (critical > high > medium > low).${labelClause}$
     $issueUrls = @($captured | Select-String -Pattern 'https://github\.com/.+/issues/\d+' | ForEach-Object { $_.Matches[0].Value } | Select-Object -Unique)
     if ($issueUrls.Count -gt $iterIssuesCreated) { $iterIssuesCreated = $issueUrls.Count }
     $totalIssuesCreated += $iterIssuesCreated
+    # A dry run only asks the agent not to file issues; it runs as an account that can. Issues
+    # appearing during one stop the run, so nothing more is filed.
+    if ($DryRun -and $iterIssuesCreated -gt 0) {
+        Write-Host "Dry run: $iterIssuesCreated issue(s) appeared during scan $i although the agent was told not to file any. Stopping." -ForegroundColor Red
+        exit 5
+    }
 
     Write-Host "------------------------------------"
     Write-Host "== Scan $i/$maxLabel completed in $iterDurStr  |  Total: $totalStr"

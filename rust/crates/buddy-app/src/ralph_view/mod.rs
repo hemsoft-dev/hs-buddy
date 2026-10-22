@@ -136,6 +136,10 @@ pub struct RalphView {
     catalog_error: Option<String>,
     /// Whether the Ralph section is shown. Runs and logs are read only then.
     active: bool,
+    /// A read of the run store is in flight.
+    refreshing: bool,
+    /// Another refresh was asked for while one was in flight.
+    refresh_again: bool,
 }
 
 impl RalphView {
@@ -174,6 +178,8 @@ impl RalphView {
             pending_handoff: None,
             catalog_error: None,
             active: true,
+            refreshing: false,
+            refresh_again: false,
         }
     }
 
@@ -246,6 +252,13 @@ impl RalphView {
         let Some(store) = self.store.clone() else {
             return;
         };
+        // One read at a time: a slow store would otherwise queue a read per tick. A refresh
+        // asked for meanwhile runs once the current one lands.
+        if self.refreshing {
+            self.refresh_again = true;
+            return;
+        }
+        self.refreshing = true;
         let detail = self.detail_id();
         let task = cx.background_executor().spawn(async move {
             let mut store = store.lock().unwrap_or_else(|error| error.into_inner());
@@ -259,7 +272,13 @@ impl RalphView {
         });
         cx.spawn(async move |this, cx| {
             let (runs, output) = task.await;
-            let _ = this.update(cx, |this, cx| this.apply(runs, output, cx));
+            let _ = this.update(cx, |this, cx| {
+                this.refreshing = false;
+                this.apply(runs, output, cx);
+                if std::mem::take(&mut this.refresh_again) {
+                    this.refresh(cx);
+                }
+            });
         })
         .detach();
     }

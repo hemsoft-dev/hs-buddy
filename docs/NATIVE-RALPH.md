@@ -102,12 +102,17 @@ The form has the same inputs as Electron Buddy:
   on the pull request's branch and Ralph Issues on the checkout as it is, so
   their runs say so instead of naming a new branch.
   **Pull request number** for Ralph PR, **Issue labels** and **Dry run** for
-  Ralph Issues.
+  Ralph Issues. A dry run tells the agent not to file issues, but the agent
+  runs as an account that can, so nothing stops it from doing so anyway; if
+  the open-issue count rises during a dry run, the run stops with exit code 5.
 - **Prompt**. A template fills in its own prompt.
-- **Merge the PR when it is clean (gh pr merge --admin)**, off by default,
-  for Ralph PR and Ralph Loop. When on, `ralph-pr.ps1` merges a clean pull
-  request with `gh pr merge --squash --delete-branch --admin`, which bypasses
-  branch protection. Ralph PR receives it as `-AutoApprove -RequireMerge`; a
+- **Merge the PR when it is clean and branch protection allows it**, off by
+  default, for Ralph PR and Ralph Loop. When on, `ralph-pr.ps1` merges a clean
+  pull request with `gh pr merge --squash --delete-branch`, without `--admin`,
+  so GitHub still enforces the base branch's rules: required checks and the
+  apps that must report them, approvals and conversation resolution. A pull
+  request those rules block is not merged, and the run fails. Ralph PR
+  receives the option as `-AutoApprove -RequireMerge`; a
   Ralph Loop as `-MergeWhenClean`, which `ralph.ps1` passes on to its review
   phase the same way. With it, a pull request that is not merged fails the run,
   and a pull request whose review could not be requested or never arrived is
@@ -118,10 +123,8 @@ The form has the same inputs as Electron Buddy:
   a fix. Right before approving, the script reads the pull request's head,
   every check run and status for it, and its review threads once more: if any
   read fails, any check has not finished with success, neutral or skipped
-  (Snyk checks aside, as the loop treats them), any thread is open, no check
-  has reported for the head yet, or a check the base branch requires (its
-  rulesets, and classic branch protection when readable) has not passed, it
-  neither approves nor merges. The merge is pinned to that head
+  (Snyk checks aside, as the loop treats them), any thread is open, or no check
+  has reported for the head yet, it neither approves nor merges. The merge is pinned to that head
   (`--match-head-commit`), so a commit pushed in the meantime is never merged
   unchecked.
   Electron's "Auto-approve" option is on by default but never reached a Ralph

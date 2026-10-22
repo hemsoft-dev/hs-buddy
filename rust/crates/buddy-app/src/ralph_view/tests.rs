@@ -199,6 +199,38 @@ fn attach(view: &Entity<RalphView>, root: &Path, cx: &mut VisualTestContext) {
 }
 
 #[gpui_kit::test]
+fn refreshes_asked_for_during_a_read_coalesce_into_one(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.refresh(cx);
+            assert!(view.refreshing);
+            // Ticks while that read is in flight start no read of their own.
+            for _ in 0..5 {
+                view.refresh(cx);
+            }
+            assert!(view.refresh_again);
+        })
+    });
+    write_run(
+        root.path(),
+        "late",
+        1,
+        Some(status(HostState::Completed, None)),
+        "",
+    );
+    visual.run_until_parked();
+    // The queued refresh ran once after the first landed, and nothing is left in flight.
+    view.read_with(&visual, |view, _| {
+        assert!(!view.refreshing && !view.refresh_again);
+        assert_eq!(view.runs.len(), 1);
+    });
+}
+
+#[gpui_kit::test]
 fn a_hidden_section_stops_polling_and_refreshes_when_shown(cx: &mut gpui_kit::TestAppContext) {
     let root = tempfile::tempdir().unwrap();
     let (window, view) = open(cx, 1200., 820.);

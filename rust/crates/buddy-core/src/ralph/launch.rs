@@ -86,9 +86,9 @@ pub struct Launch {
     pub pr_number: Option<u32>,
     pub labels: String,
     pub dry_run: bool,
-    /// Ralph PR only: merge the pull request when it is clean. With `-Autopilot` the
-    /// script then runs `gh pr merge --squash --delete-branch --admin`, which bypasses
-    /// branch protection, so it is off unless chosen.
+    /// Ralph PR and Ralph Loop: merge the pull request when it is clean. The script then runs
+    /// `gh pr merge --squash --delete-branch` without `--admin`, so GitHub still enforces the
+    /// base branch's protection. Merging changes the repository, so it is off unless chosen.
     pub merge: bool,
     /// The GitHub account the loop works as: the host gives the loop that account's
     /// `gh auth token` as `GH_TOKEN`. `None` leaves gh's active account in charge.

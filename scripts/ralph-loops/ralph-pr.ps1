@@ -684,11 +684,13 @@ function Test-CopilotReviewRequested {
     return ($reviewers -match '^Copilot$')
 }
 
-# For -RequireMerge (Buddy's merge option, which merges with --admin): reads the pull
-# request's head, every check run and commit status for it, and its review threads, and
-# returns the head SHA only when every read succeeded, every check finished with an accepted
-# result and no thread is open. Anything else returns $null, so the merge never rests on
-# state that could not be confirmed. Snyk checks are left out, as the loop above leaves them.
+# For -RequireMerge (Buddy's merge option): reads the pull request's head, every check run
+# and commit status for it, and its review threads, and returns the head SHA only when every
+# read succeeded, at least one check reported, every check finished with an accepted result
+# and no thread is open. Anything else returns $null, so the merge never rests on state that
+# could not be confirmed. Snyk checks are left out, as the loop above leaves them. The merge
+# itself runs without --admin, so GitHub still enforces the base branch's own rules on top:
+# required checks and the apps that must report them, approvals, conversation resolution.
 function Get-VerifiedMergeHead {
     $sha = gh pr view $PRNumber --repo $repoSlug --json headRefOid -q '.headRefOid' 2>$null
     if ($LASTEXITCODE -ne 0 -or "$sha" -notmatch '^[0-9a-f]{40}$') {
@@ -726,45 +728,10 @@ function Get-VerifiedMergeHead {
         }
         $passed += $context
     }
-    # Nothing reported yet is not a pass: CI may not have registered this head. Every check
-    # the base branch requires (rulesets, and classic protection when readable) must be
-    # among the passed ones, since --admin would merge past a missing one.
+    # Nothing reported yet is not a pass: CI may not have registered this head.
     if ($passed.Count -eq 0) {
         Write-Status "Merge gate: no check has reported for $sha yet."
         return $null
-    }
-    $base = gh pr view $PRNumber --repo $repoSlug --json baseRefName -q '.baseRefName' 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not "$base") {
-        Write-Status "Merge gate: the pull request's base branch could not be read."
-        return $null
-    }
-    $required = @()
-    $rules = gh api "repos/$owner/$repo/rules/branches/$base" --paginate `
-        --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Status "Merge gate: the rules of $base could not be read."
-        return $null
-    }
-    $required += @($rules | Where-Object { $_ })
-    # Classic branch protection: only GitHub's "Branch not protected" and "Required status
-    # checks not enabled" 404s mean no requirement. Anything else, including the plain "Not
-    # Found" 404 a caller without admin rights gets, refuses the merge; --admin needs those
-    # rights anyway.
-    $classic = gh api "repos/$owner/$repo/branches/$base/protection/required_status_checks" `
-        --jq '(.contexts // [])[], ((.checks // [])[] | .context)' 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        $required += @($classic | Where-Object { $_ } | ForEach-Object { "$_" })
-    }
-    elseif ("$classic" -notmatch '(Branch not protected|Required status checks not enabled) \(HTTP 404\)') {
-        Write-Status "Merge gate: the branch protection of $base could not be read."
-        return $null
-    }
-    foreach ($check in @($required | Select-Object -Unique)) {
-        if ($check -match '(?i)snyk') { continue }
-        if ($check -notin $passed) {
-            Write-Status "Merge gate: required check '$check' has not passed on $sha."
-            return $null
-        }
     }
     $cursor = $null
     do {
@@ -1767,7 +1734,10 @@ if ($prClean) {
         Set-Location $originalDir
 
         $pin = if ($script:MergeHead) { @('--match-head-commit', $script:MergeHead) } else { @() }
-        $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch --admin @pin 2>&1
+        # A required merge (Buddy) never bypasses branch protection; GitHub refuses it when the
+        # base branch's rules are not met, and the run fails.
+        $admin = if ($RequireMerge) { @() } else { @('--admin') }
+        $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch @admin @pin 2>&1
         $mergeOutput | Out-File $logFile -Append -Encoding UTF8
 
         if ($LASTEXITCODE -eq 0) {

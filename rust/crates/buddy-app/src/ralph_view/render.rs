@@ -593,7 +593,7 @@ impl RalphView {
         if script == Script::Issues {
             options = options.child(Self::option(
                 "ralph-dry-run",
-                "Dry run: scan without creating issues",
+                "Dry run: the agent is told not to file issues; the run stops if any appear",
                 form.dry_run,
                 busy,
                 cx,
@@ -602,7 +602,7 @@ impl RalphView {
         } else if script.can_merge() {
             options = options.child(Self::option(
                 "ralph-merge",
-                "Merge the PR when it is clean (gh pr merge --admin)",
+                "Merge the PR when it is clean and branch protection allows it",
                 form.merge,
                 busy,
                 cx,
