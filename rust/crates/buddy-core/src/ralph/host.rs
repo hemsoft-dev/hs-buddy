@@ -220,7 +220,7 @@ pub fn run_ralph_exec() -> i32 {
         .iter()
         .find(|(name, _)| name == RUN_VARIABLE)
         .map(|(_, run)| run.clone());
-    parent_death(input, run);
+    parent_death(input, run.clone());
     let mut command = Command::new(&start.program);
     for name in &start.clear {
         command.env_remove(name);
@@ -234,11 +234,30 @@ pub fn run_ralph_exec() -> i32 {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     match command.spawn() {
-        Ok(mut child) => child
-            .wait()
-            .ok()
-            .and_then(|status| status.code())
-            .unwrap_or(1),
+        Ok(mut child) => {
+            let code = child
+                .wait()
+                .ok()
+                .and_then(|status| status.code())
+                .unwrap_or(1);
+            // Killing the loop for a dead host ends this wait too: let that cleanup
+            // finish before this process exits and takes the cleanup thread with it.
+            drop(
+                PARENT_DEATH
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()),
+            );
+            // The loop also ends on its own just as a host dies, before the cleanup
+            // thread starts, so this process ends what left the session itself. With the
+            // host alive, its own cleanup repeats this.
+            #[cfg(unix)]
+            {
+                if let Some(run) = &run {
+                    let _ = super::marked::end_marked(run);
+                }
+            }
+            code
+        }
         Err(error) => {
             let _ = writeln!(
                 io::stderr(),
@@ -250,11 +269,18 @@ pub fn run_ralph_exec() -> i32 {
     }
 }
 
+/// Held while the exec process cleans up after its host died; never released, since that
+/// cleanup ends with the process.
+static PARENT_DEATH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn parent_death(mut input: io::Stdin, run: Option<String>) {
     std::thread::spawn(move || {
         let mut byte = [0; 1];
         // EOF means the host is gone.
         let _ = input.read(&mut byte);
+        let _cleanup = PARENT_DEATH
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         #[cfg(unix)]
         {
             if let Some(run) = &run {

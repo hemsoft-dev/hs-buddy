@@ -1269,6 +1269,7 @@ If there are issues to fix:
                         $fixCmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $fixPrompt -Yolo -Provider $script:ProviderName
                         $cmdExe = $fixCmdArgs[0]; $cmdTail = $fixCmdArgs[1..($fixCmdArgs.Count-1)]
                         & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $fixTempOut
+                        $fixFailed = $LASTEXITCODE -ne 0
                         Test-AgentExit $LASTEXITCODE
 
                         # Track fix cycle stats (even if exit code is nonzero)
@@ -1290,8 +1291,21 @@ If there are issues to fix:
 
                         Write-Host "    Fix cost: $fixPremium premium, `$$fixCost" -ForegroundColor DarkGray
 
-                        # Resolve agent review threads to prevent re-entering generic fix loop
-                        if ($postedReviewId) {
+                        # Resolve agent review threads to prevent re-entering generic fix loop,
+                        # but only after a fix agent that finished: unfixed findings stay open
+                        # so the fix loop retries them and the pull request is not clean.
+                        if ($fixFailed) {
+                            if ($postedReviewId) {
+                                Write-Status "The fix agent failed; the threads of review $postedReviewId stay open."
+                            }
+                            else {
+                                # The findings were never posted, so nothing on GitHub keeps
+                                # them open: a required merge is refused instead.
+                                $script:ReviewUnavailable = $true
+                                Write-Status "The fix agent failed and the findings were not posted; a required merge is refused."
+                            }
+                        }
+                        elseif ($postedReviewId) {
                             $cursor = $null
                             $threadsToResolve = @()
                             do {

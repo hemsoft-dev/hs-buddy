@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1533] - 2026-10-22
+
+### Fixed
+
+- Finish host-death cleanup and keep unfixed review findings open
+
 ## [0.1.1532] - 2026-10-22
 
 ### Fixed

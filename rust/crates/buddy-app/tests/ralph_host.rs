@@ -433,6 +433,33 @@ fn stop_ends_the_loops_own_process_tree_and_nothing_else() {
     assert_eq!(output.last().map(String::as_str), Some("[Buddy] Stopped."));
 }
 
+/// A daemon that left the session dies with the host too.
+#[cfg(unix)]
+#[test]
+fn a_dead_host_takes_a_process_that_left_the_session_along() {
+    let mut fixture = fixture();
+    let daemon = fixture.repository.join("daemon beat");
+    let id = fixture.start(&["-Daemon", daemon.to_str().unwrap()]);
+    fixture.wait(&id, |state, output| {
+        state == RunState::Running && output.iter().any(|line| line == "daemon started")
+    });
+    assert!(beating(&daemon), "the daemon should be running");
+    let host = fixture.store.run(&id).unwrap().status.unwrap().host_pid;
+    let killed = Command::new("kill")
+        .args(["-9", &host.to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Interrupted
+    );
+    assert!(
+        !beating(&daemon),
+        "the daemon outside the session survived its host"
+    );
+}
+
 #[test]
 fn a_dead_host_leaves_an_interrupted_run_and_takes_its_loop_along() {
     let mut fixture = fixture();

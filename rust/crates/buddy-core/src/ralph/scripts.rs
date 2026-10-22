@@ -476,6 +476,15 @@ mod tests {
             .count();
         let checked = pr.matches("Test-AgentExit $LASTEXITCODE").count();
         assert_eq!((invocations, checked), (4, 3));
+        // A review-fix agent that fails leaves its review's threads open.
+        let fix = pr.find("$fixFailed = $LASTEXITCODE -ne 0").unwrap();
+        let gate = pr[fix..].find("if ($fixFailed) {").unwrap();
+        let resolve = pr[fix..].find("resolveReviewThread").unwrap();
+        assert!(
+            gate < resolve,
+            "threads must not be resolved before the fix result is known"
+        );
+        assert!(pr[fix + gate..fix + resolve].contains("elseif ($postedReviewId) {"));
         // A selected review agent that fails or leaves no findings blocks a required merge,
         // like a Copilot review that never arrives.
         for skipped in [
