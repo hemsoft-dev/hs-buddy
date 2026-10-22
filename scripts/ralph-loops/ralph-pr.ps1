@@ -711,7 +711,7 @@ function Get-VerifiedMergeHead {
         }
         $passed += $name
     }
-    $statuses = gh api "repos/$owner/$repo/commits/$sha/status" `
+    $statuses = gh api "repos/$owner/$repo/commits/$sha/status?per_page=100" --paginate `
         --jq '.statuses[] | [.context, .state] | @tsv' 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Status "Merge gate: the commit statuses of $sha could not be read."
@@ -746,10 +746,19 @@ function Get-VerifiedMergeHead {
         return $null
     }
     $required += @($rules | Where-Object { $_ })
-    # Classic branch protection needs admin rights to read; a 404 means none is set.
+    # Classic branch protection: only GitHub's "Branch not protected" and "Required status
+    # checks not enabled" 404s mean no requirement. Anything else, including the plain "Not
+    # Found" 404 a caller without admin rights gets, refuses the merge; --admin needs those
+    # rights anyway.
     $classic = gh api "repos/$owner/$repo/branches/$base/protection/required_status_checks" `
-        --jq '(.contexts // [])[], ((.checks // [])[] | .context)' 2>$null
-    if ($LASTEXITCODE -eq 0) { $required += @($classic | Where-Object { $_ }) }
+        --jq '(.contexts // [])[], ((.checks // [])[] | .context)' 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $required += @($classic | Where-Object { $_ } | ForEach-Object { "$_" })
+    }
+    elseif ("$classic" -notmatch '(Branch not protected|Required status checks not enabled) \(HTTP 404\)') {
+        Write-Status "Merge gate: the branch protection of $base could not be read."
+        return $null
+    }
     foreach ($check in @($required | Select-Object -Unique)) {
         if ($check -match '(?i)snyk') { continue }
         if ($check -notin $passed) {

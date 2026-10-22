@@ -501,6 +501,13 @@ mod tests {
         assert!(body.contains("if ($passed.Count -eq 0) {"));
         assert!(body.contains("rules/branches/$base"));
         assert!(body.contains("if ($check -notin $passed) {"));
+        // Every page of statuses is read, and only the two no-requirement 404s pass.
+        assert!(body.contains("/status?per_page=100\" --paginate"));
+        assert!(
+            body.contains(
+                "(Branch not protected|Required status checks not enabled) \\(HTTP 404\\)"
+            )
+        );
         let issues = BUNDLED
             .iter()
             .find(|(name, _)| *name == "ralph-issues.ps1")

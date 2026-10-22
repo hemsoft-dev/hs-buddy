@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1540] - 2026-10-22
+
+### Fixed
+
+- Read every status page and fail closed on unreadable protection
+
 ## [0.1.1539] - 2026-10-22
 
 ### Fixed
