@@ -331,8 +331,11 @@ impl Plan {
                 call.push_str(&quoted(argument));
             }
         }
+        // `$?` is false only when the script itself ends with a non-zero `exit`. A script
+        // that ends normally succeeded, even if a native command it handled failed last
+        // and left its code in $LASTEXITCODE.
         format!(
-            "# Written by Buddy for this run.\n[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$global:LASTEXITCODE = 0\n{call}\nexit $LASTEXITCODE\n"
+            "# Written by Buddy for this run.\n[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$global:LASTEXITCODE = 0\n{call}\nif ($?) {{ exit 0 }}\nif ($LASTEXITCODE) {{ exit $LASTEXITCODE }}\nexit 1\n"
         )
     }
 
@@ -410,10 +413,13 @@ fn git_output(repository: &Path, tools: &Tools, arguments: &[&str]) -> Option<St
 /// that branch must track the default branch; Buddy never switches it.
 pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<(), String> {
     let git = |arguments: &[&str]| git_output(repository, tools, arguments);
-    let upstream = git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).ok_or(
-        "Repeat cycles need the checked-out branch to track the remote's default branch, where each cycle's pull request merges.",
-    )?;
-    let remote = upstream.split('/').next().unwrap_or("origin");
+    let untracked = "Repeat cycles need the checked-out branch to track the remote's default branch, where each cycle's pull request merges.";
+    let upstream = git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).ok_or(untracked)?;
+    // The branch's own remote setting: a remote name may contain '/', so the
+    // abbreviated upstream (`team/origin/main`) cannot be split to find it.
+    let branch = git(&["symbolic-ref", "-q", "HEAD"]).ok_or(untracked)?;
+    let remote =
+        git(&["for-each-ref", "--format=%(upstream:remotename)", &branch]).ok_or(untracked)?;
     let default = git(&["rev-parse", "--abbrev-ref", &format!("{remote}/HEAD")]).ok_or_else(|| {
         format!(
             "Git does not know {remote}'s default branch. Run git remote set-head {remote} --auto, then launch again."
@@ -463,9 +469,9 @@ fn valid_branch(branch: &str) -> bool {
 
 impl Launch {
     /// This launch with Default replaced by what it means now: the provider, the concrete
-    /// model (an alias or tier resolved) and the work agent. A run records these, so Retry
-    /// repeats them even after the bundled catalog changes. Review agents left on Default
-    /// keep their role's default model.
+    /// model (an alias or tier resolved), the work agent, and each review agent's
+    /// `provider:model`. A run records these, so Retry repeats them even after the bundled
+    /// catalog changes.
     pub fn resolved(&self, catalog: &Catalog) -> Self {
         let mut launch = self.clone();
         let model = catalog.effective_model(&self.provider, &self.model);
@@ -475,6 +481,28 @@ impl Launch {
         launch.provider = catalog.effective_provider(&self.provider).to_owned();
         if launch.dev_agent.is_empty() {
             launch.dev_agent = catalog.default_dev_agent.clone();
+        }
+        // As `Resolve-RalphAgent`: the provider's defaultModel, else the role's tier.
+        let provider = launch.provider.clone();
+        let default_model = catalog
+            .provider(&provider)
+            .and_then(|choice| choice.default_model.clone());
+        for agent in launch
+            .review_agents
+            .iter_mut()
+            .filter(|agent| agent.model.is_none())
+        {
+            let name = default_model.clone().or_else(|| {
+                catalog
+                    .review_agents
+                    .iter()
+                    .find(|role| role.key == agent.role)
+                    .map(|role| role.tier.clone())
+                    .filter(|tier| !tier.is_empty())
+            });
+            agent.model = name
+                .and_then(|name| catalog.model(&name))
+                .map(|model| format!("{provider}:{}", model.key));
         }
         launch
     }
@@ -952,7 +980,9 @@ mod tests {
         assert!(text.contains(
             "& 'D:/scripts/it''s/ralph.ps1' -Autopilot -Branch 'fix/a’’b' -Prompt 'C:/runs/x y/prompt.md' -Max '3'\n"
         ));
-        assert!(text.ends_with("exit $LASTEXITCODE\n"));
+        assert!(text.ends_with(
+            "\nif ($?) { exit 0 }\nif ($LASTEXITCODE) { exit $LASTEXITCODE }\nexit 1\n"
+        ));
         assert_eq!(
             plan.command_line(Path::new("launch.ps1")),
             ["-NoProfile", "-NonInteractive", "-File", "launch.ps1"].map(OsString::from)
@@ -1075,6 +1105,59 @@ mod tests {
             (chosen.model.as_str(), chosen.dev_agent.as_str()),
             ("claude-sonnet-4.6", "developer-senior")
         );
+        // Review agents on Default record what their role resolves to; a chosen model stays.
+        let reviews = |provider: &str| {
+            Launch {
+                provider: provider.into(),
+                review_agents: vec![
+                    ReviewAgent {
+                        role: "pr-review-general".into(),
+                        model: None,
+                    },
+                    ReviewAgent {
+                        role: "pr-review-quality".into(),
+                        model: Some("copilot:sonnet".into()),
+                    },
+                ],
+                ..Launch::default()
+            }
+            .resolved(&catalog)
+            .review_agents
+        };
+        let general = catalog
+            .review_agents
+            .iter()
+            .find(|role| role.key == "pr-review-general")
+            .unwrap();
+        let tier = catalog.model(&general.tier).unwrap();
+        let resolved = reviews("");
+        assert_eq!(
+            resolved[0].model,
+            Some(format!("{}:{}", catalog.default_provider, tier.key))
+        );
+        assert_eq!(resolved[1].model.as_deref(), Some("copilot:sonnet"));
+        // A provider's defaultModel wins over the role's tier, as in the scripts.
+        assert_eq!(
+            reviews("openrouter")[0].model.as_deref(),
+            Some("openrouter:kimi-k2.6")
+        );
+        let resolved_launch = Launch {
+            review_agents: vec![ReviewAgent {
+                role: "pr-review-general".into(),
+                model: None,
+            }],
+            ..Launch::default()
+        }
+        .resolved(&catalog);
+        let repository = repository();
+        let scripts = scripts();
+        let launch = Launch {
+            repository: repository.path().to_path_buf(),
+            script: Script::Pr,
+            pr_number: Some(1),
+            ..resolved_launch
+        };
+        assert!(launch.validate(&catalog, &scripts).is_ok());
     }
 
     #[cfg(unix)]
@@ -1156,6 +1239,19 @@ mod tests {
         );
         // The seed repository has no remote at all.
         assert!(verify_cycle_base(&seed, &tools).is_err());
+        // A remote whose name contains a slash.
+        git(&clone, &["checkout", "-q", "main"]);
+        git(
+            &clone,
+            &["remote", "add", "team/upstream", remote.to_str().unwrap()],
+        );
+        git(&clone, &["fetch", "-q", "team/upstream"]);
+        git(&clone, &["remote", "set-head", "team/upstream", "main"]);
+        git(
+            &clone,
+            &["branch", "-q", "--set-upstream-to", "team/upstream/main"],
+        );
+        assert_eq!(verify_cycle_base(&clone, &tools), Ok(()));
     }
 
     #[test]

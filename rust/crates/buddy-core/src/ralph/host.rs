@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use super::launch::Plan;
 use super::progress::{Progress, strip_ansi};
 use super::store::{
-    HostState, LOCK, OUTPUT, REQUEST, Request, STARTED, STATUS, STOP, Status, now_ms, private_file,
-    write_atomically, write_private,
+    HostState, LOCK, OUTPUT, REQUEST, Request, START_GRACE, STARTED, STATUS, STOP, Status, now_ms,
+    private_file, write_atomically, write_private,
 };
 
 const MAX_START: usize = 1024 * 1024;
@@ -268,6 +268,22 @@ pub fn run_ralph_host(folder: &Path) -> i32 {
         // Another host owns this run.
         return 3;
     }
+    let request = std::fs::read(folder.join(REQUEST))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Request>(&bytes).ok())
+        .filter(|request| {
+            folder
+                .file_name()
+                .is_some_and(|name| name == request.id.as_str())
+        });
+    // Checked while holding the lock, which the store reads as a live host: past the
+    // grace period the store already shows this run as Interrupted and may have let
+    // another loop start in the same repository, so this host must not start.
+    if request.as_ref().is_some_and(|request| {
+        now_ms().saturating_sub(request.created_at) >= START_GRACE.as_millis() as i64
+    }) {
+        return 5;
+    }
     if OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -282,14 +298,6 @@ pub fn run_ralph_host(folder: &Path) -> i32 {
         // Nothing was started; the run shows as not started and can be retried.
         return 6;
     }
-    let request = std::fs::read(folder.join(REQUEST))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Request>(&bytes).ok())
-        .filter(|request| {
-            folder
-                .file_name()
-                .is_some_and(|name| name == request.id.as_str())
-        });
     match request {
         Some(request) => host.run(&request.plan),
         None => host.finish(
@@ -485,6 +493,9 @@ impl Host {
                     }
                 }
             }
+            if cycle > 1 {
+                self.status.progress.next_cycle();
+            }
             self.status.cycle = cycle;
             if cycles > 1 {
                 self.log
@@ -565,11 +576,12 @@ impl Host {
         );
         match upstream {
             Outcome::Exited(0) => {}
+            // Launch required an upstream for repeat cycles; without it the next cycle
+            // would not build on the merged work.
             Outcome::Exited(_) => {
-                self.log.line(
-                    "[Buddy] The checked-out branch has no upstream; the next cycle starts from the local checkout.",
+                return Outcome::Error(
+                    "The checked-out branch no longer tracks an upstream, so the next cycle cannot start from the merged work. Set its upstream, then retry.".into(),
                 );
-                return Outcome::Exited(0);
             }
             other => return other,
         }

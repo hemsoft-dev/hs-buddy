@@ -41,6 +41,17 @@ pub struct Progress {
     /// a requested branch, so this is the name to look for on GitHub.
     #[serde(default)]
     pub branch: Option<String>,
+    /// Cost of the finished cycles, in millionths of a dollar, and their premium requests.
+    /// Every cycle is a fresh script that reports its own total from zero.
+    #[serde(default)]
+    pub earlier_cost: u64,
+    #[serde(default)]
+    pub earlier_premium: u32,
+    /// The current cycle's latest total.
+    #[serde(default)]
+    pub cycle_cost: u64,
+    #[serde(default)]
+    pub cycle_premium: u32,
 }
 
 /// Removes terminal escape sequences (CSI and OSC) and other control characters except tabs.
@@ -108,23 +119,47 @@ fn leading_number(text: &str) -> Option<u32> {
     text[..digits].parse().ok()
 }
 
-/// `$1.24  (31 premium` after a cost label.
-fn cost(rest: &str) -> Option<(String, u32)> {
+/// `$1.24  (31 premium` after a cost label, as millionths of a dollar and a count.
+fn cost(rest: &str) -> Option<(u64, u32)> {
     let rest = rest.trim_start().strip_prefix('$')?;
     let amount = rest.len()
         - rest
             .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
             .len();
-    if amount == 0 {
-        return None;
-    }
+    let micros = dollars(&rest[..amount])?;
     let premium = rest[amount..].trim_start().strip_prefix('(')?;
     let count = leading_number(premium)?;
     let digits = count.to_string().len();
     premium[digits..]
         .trim_start()
         .starts_with("premium")
-        .then(|| (format!("${}", &rest[..amount]), count))
+        .then_some((micros, count))
+}
+
+/// `1.24` as millionths of a dollar; digits past the sixth decimal are dropped.
+fn dollars(text: &str) -> Option<u64> {
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+    if whole.is_empty() && fraction.is_empty() || fraction.contains('.') {
+        return None;
+    }
+    let whole: u64 = if whole.is_empty() {
+        0
+    } else {
+        whole.parse().ok()?
+    };
+    let mut fraction = fraction.chars().take(6).collect::<String>();
+    while fraction.len() < 6 {
+        fraction.push('0');
+    }
+    whole
+        .checked_mul(1_000_000)?
+        .checked_add(fraction.parse().ok()?)
+}
+
+/// Millionths of a dollar as `$1.24`, rounded to the cent.
+fn money(micros: u64) -> String {
+    let cents = micros.saturating_add(5_000) / 10_000;
+    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 impl Progress {
@@ -177,10 +212,20 @@ impl Progress {
     }
 
     fn apply_cost(&mut self, rest: &str) {
-        if let Some((amount, premium)) = cost(rest) {
-            self.stats.total_cost = Some(amount);
-            self.stats.total_premium = Some(premium);
+        if let Some((micros, premium)) = cost(rest) {
+            self.cycle_cost = micros;
+            self.cycle_premium = premium;
+            self.stats.total_cost = Some(money(self.earlier_cost.saturating_add(micros)));
+            self.stats.total_premium = Some(self.earlier_premium.saturating_add(premium));
         }
+    }
+
+    /// Starts another cycle: its script reports from zero, so the totals so far carry over.
+    pub fn next_cycle(&mut self) {
+        self.earlier_cost = self.earlier_cost.saturating_add(self.cycle_cost);
+        self.earlier_premium = self.earlier_premium.saturating_add(self.cycle_premium);
+        self.cycle_cost = 0;
+        self.cycle_premium = 0;
     }
 }
 
@@ -257,6 +302,32 @@ mod tests {
         ]);
         assert_eq!(progress.stats.total_cost.as_deref(), Some("$1.36"));
         assert_eq!(progress.stats.total_premium, Some(34));
+        assert_eq!(
+            read(&["  Cost           $1.2  (30 premium requests)"])
+                .stats
+                .total_cost
+                .as_deref(),
+            Some("$1.20")
+        );
+    }
+
+    #[test]
+    fn repeat_cycles_add_up_cost_and_premium_requests() {
+        let mut progress = read(&["  GRAND TOTAL:         $1.36  (34 premium)"]);
+        progress.next_cycle();
+        // The next cycle's script starts from zero; the run's totals never go down.
+        progress.observe("  Cost           $0.04  (1 premium requests)");
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$1.40"));
+        assert_eq!(progress.stats.total_premium, Some(35));
+        progress.observe("  GRAND TOTAL:         $0.5  (12 premium)");
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$1.86"));
+        assert_eq!(progress.stats.total_premium, Some(46));
+        progress.next_cycle();
+        progress.next_cycle();
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$1.86"));
+        progress.observe("  GRAND TOTAL:         $.255  (2 premium)");
+        assert_eq!(progress.stats.total_cost.as_deref(), Some("$2.12"));
+        assert_eq!(progress.stats.total_premium, Some(48));
     }
 
     #[test]

@@ -286,6 +286,8 @@ pub struct ProviderChoice {
 pub struct AgentChoice {
     pub key: String,
     pub description: String,
+    /// The role's model tier, used when neither the launch nor the provider names a model.
+    pub tier: String,
 }
 
 /// `models.json`, `providers.json` and `agents.json`, reduced to what launching needs.
@@ -347,6 +349,7 @@ impl Catalog {
                 .map(|(key, value)| AgentChoice {
                     key: key.clone(),
                     description: text(value, "description"),
+                    tier: text(value, "tier"),
                 })
                 .collect::<Vec<_>>()
         };

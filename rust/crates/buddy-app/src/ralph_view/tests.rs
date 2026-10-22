@@ -75,6 +75,7 @@ fn status(state: HostState, error: Option<&str>) -> Status {
                 ..Default::default()
             },
             branch: Some("feature/x-1a2b3c4d".into()),
+            ..Default::default()
         },
         exit_code: (state == HostState::Failed).then_some(3),
         error: error.map(str::to_owned),
@@ -185,6 +186,28 @@ fn attach(view: &Entity<RalphView>, root: &Path, cx: &mut VisualTestContext) {
     let store = Store::at(root.to_path_buf()).unwrap();
     view.update(cx, |view, cx| view.attach(store, cx));
     cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn a_hidden_section_stops_polling_and_refreshes_when_shown(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|_, cx| view.update(cx, |view, cx| view.set_active(false, cx)));
+    write_run(
+        root.path(),
+        "later",
+        1,
+        Some(status(HostState::Completed, None)),
+        "",
+    );
+    visual.executor().advance_clock(POLL * 3);
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |view, _| view.runs.is_empty()));
+    visual.update(|_, cx| view.update(cx, |view, cx| view.set_active(true, cx)));
+    visual.run_until_parked();
+    assert_eq!(view.read_with(&visual, |view, _| view.runs.len()), 1);
 }
 
 #[gpui_kit::test]
@@ -489,12 +512,18 @@ fn the_branch_shown_is_the_one_the_loop_created() {
     let mut store = Store::at(root.path().to_path_buf()).unwrap();
     assert_eq!(branch(&store.run("printed").unwrap()), "feature/x-1a2b3c4d");
     let mut pending = store.run("pending").unwrap();
+    pending.request.launch.script = Script::Ralph;
     assert_eq!(branch(&pending), "created by the loop");
     pending.request.launch.branch = "fix/issue-12".into();
     assert_eq!(
         branch(&pending),
         "fix/issue-12-… (suffix added by the loop)"
     );
+    // Neither Ralph Issues nor Ralph PR creates a branch.
+    pending.request.launch.script = Script::Issues;
+    assert_eq!(branch(&pending), "current checkout");
+    pending.request.launch.script = Script::Pr;
+    assert_eq!(branch(&pending), "the pull request's branch");
 }
 
 #[gpui_kit::test]

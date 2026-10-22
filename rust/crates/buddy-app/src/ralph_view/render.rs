@@ -863,6 +863,12 @@ pub(super) fn branch(run: &Run) -> String {
     {
         return branch;
     }
+    // Ralph Issues scans the checkout as it is; Ralph PR works on the pull request's branch.
+    match run.request.launch.script {
+        Script::Issues => return "current checkout".into(),
+        Script::Pr => return "the pull request's branch".into(),
+        _ => {}
+    }
     match run.request.launch.branch.as_str() {
         "" => "created by the loop".into(),
         prefix => format!("{prefix}-… (suffix added by the loop)"),

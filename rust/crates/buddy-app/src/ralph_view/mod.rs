@@ -119,6 +119,8 @@ pub struct RalphView {
     pending_handoff: Option<Handoff>,
     /// Why the scripts could not be prepared; launching stays unavailable.
     catalog_error: Option<String>,
+    /// Whether the Ralph section is shown. Runs and logs are read only then.
+    active: bool,
 }
 
 impl RalphView {
@@ -126,7 +128,12 @@ impl RalphView {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(POLL).await;
-                if this.update(cx, |this, cx| this.refresh(cx)).is_err() {
+                let polled = this.update(cx, |this, cx| {
+                    if this.active {
+                        this.refresh(cx);
+                    }
+                });
+                if polled.is_err() {
                     break;
                 }
             }
@@ -151,6 +158,17 @@ impl RalphView {
             notice_run: None,
             pending_handoff: None,
             catalog_error: None,
+            active: true,
+        }
+    }
+
+    /// The app shows or hides the Ralph section. Hidden, the view stops reading run
+    /// folders and logs; shown again, it reads them at once.
+    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        let entering = active && !self.active;
+        self.active = active;
+        if entering {
+            self.refresh(cx);
         }
     }
 

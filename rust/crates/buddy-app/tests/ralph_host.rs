@@ -26,8 +26,9 @@ fn tool(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("{name} is required on PATH for the Ralph host tests"))
 }
 
-const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account)
+const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account, [switch]$Unset, [switch]$Stale)
 Write-Host "== Iteration 1/$Max"
+if ($Unset) { git branch --unset-upstream }
 if ($Account) {
     $expected = "stub-token-$Account"
     Write-Host "token $($env:GH_TOKEN -eq $expected) $($env:GITHUB_TOKEN -eq $expected)"
@@ -42,6 +43,12 @@ if ($Beat) {
     while ($true) { Start-Sleep -Milliseconds 200 }
 }
 Write-Host "== Iteration 2/$Max"
+if ($Stale) {
+    # A failed native command the script handled, then a normal end.
+    git rev-parse --verify --quiet no-such-ref
+    Write-Host "handled"
+    return
+}
 exit $Code
 "#;
 
@@ -120,6 +127,17 @@ impl Drop for Fixture {
 
 impl Fixture {
     fn start(&mut self, arguments: &[&str]) -> String {
+        let id = self.create(arguments);
+        spawn_host(
+            Path::new(env!("CARGO_BIN_EXE_buddy")),
+            &self.store.folder(&id),
+        )
+        .unwrap();
+        id
+    }
+
+    /// Records a run without starting its host.
+    fn create(&mut self, arguments: &[&str]) -> String {
         let script = self.repository.join("stub.ps1");
         let directory = self.repository.clone();
         let cycles = self.cycles;
@@ -132,8 +150,7 @@ impl Fixture {
             account: account.clone(),
             ..Launch::default()
         };
-        let id = self
-            .store
+        self.store
             .create(launch, None, None, |folder| {
                 let mut arguments = vec![
                     "-Max".into(),
@@ -154,13 +171,7 @@ impl Fixture {
                     cycles,
                 }
             })
-            .unwrap();
-        spawn_host(
-            Path::new(env!("CARGO_BIN_EXE_buddy")),
-            &self.store.folder(&id),
-        )
-        .unwrap();
-        id
+            .unwrap()
     }
 
     fn wait(&mut self, id: &str, done: impl Fn(RunState, &[String]) -> bool) -> RunState {
@@ -214,6 +225,44 @@ fn a_finished_loop_records_its_output_progress_and_result() {
         .unwrap();
     assert_eq!(again.code(), Some(4));
     assert_eq!(fixture.store.run(&id).unwrap().state, RunState::Completed);
+}
+
+#[test]
+fn a_script_that_ends_normally_completes_after_a_handled_native_failure() {
+    let mut fixture = fixture();
+    let id = fixture.start(&["-Stale"]);
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Completed
+    );
+    let status = fixture.store.run(&id).unwrap().status.unwrap();
+    assert_eq!(status.exit_code, Some(0));
+    let (output, _) = fixture.store.output(&id);
+    assert!(output.contains(&"handled".to_string()), "{output:?}");
+}
+
+#[test]
+fn a_host_that_starts_after_the_grace_period_never_starts_the_loop() {
+    let mut fixture = fixture();
+    let id = fixture.create(&[]);
+    let folder = fixture.store.folder(&id);
+    // As if the machine slept between the launch and the host's start.
+    let path = folder.join("request.json");
+    let mut request: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    request["createdAt"] = serde_json::json!(request["createdAt"].as_i64().unwrap() - 60_000);
+    std::fs::write(&path, serde_json::to_vec(&request).unwrap()).unwrap();
+    let mut store = Store::at(fixture.store.root().to_path_buf()).unwrap();
+    assert_eq!(store.run(&id).unwrap().state, RunState::Interrupted);
+    let late = Command::new(env!("CARGO_BIN_EXE_buddy"))
+        .arg("--ralph-host")
+        .arg(&folder)
+        .status()
+        .unwrap();
+    assert_eq!(late.code(), Some(5));
+    assert!(!folder.join("started").exists());
+    assert!(!folder.join("status.json").exists());
+    assert_eq!(store.run(&id).unwrap().state, RunState::Interrupted);
 }
 
 #[test]
@@ -467,6 +516,52 @@ fn repeat_cycles_fast_forward_the_checkout_between_cycles() {
     );
     assert!(
         output.contains(&"[Buddy] Cycle 2 of 2 started.".to_string()),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn an_upstream_lost_between_cycles_fails_the_run() {
+    let mut fixture = fixture();
+    let parent = fixture.repository.parent().unwrap().to_path_buf();
+    let remote = parent.join("remote.git");
+    git(
+        &parent,
+        &[
+            "init",
+            "-q",
+            "--bare",
+            "-b",
+            "main",
+            remote.to_str().unwrap(),
+        ],
+    );
+    let repository = fixture.repository.clone();
+    git(&repository, &["init", "-q", "-b", "main"]);
+    git(&repository, &["add", "stub.ps1"]);
+    git(&repository, &["commit", "-q", "-m", "stub"]);
+    git(
+        &repository,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&repository, &["push", "-q", "-u", "origin", "main"]);
+    fixture.cycles = 2;
+    // The first cycle removes the branch's upstream.
+    let id = fixture.start(&["-Unset"]);
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Failed
+    );
+    let status = fixture.store.run(&id).unwrap().status.unwrap();
+    assert_eq!(
+        status.error.as_deref(),
+        Some(
+            "The checked-out branch no longer tracks an upstream, so the next cycle cannot start from the merged work. Set its upstream, then retry."
+        )
+    );
+    let (output, _) = fixture.store.output(&id);
+    assert!(
+        !output.contains(&"[Buddy] Cycle 2 of 2 started.".to_string()),
         "{output:?}"
     );
 }

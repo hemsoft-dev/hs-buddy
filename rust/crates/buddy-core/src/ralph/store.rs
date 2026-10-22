@@ -25,7 +25,9 @@ use super::progress::Progress;
 
 const KEEP_RUNS: usize = 100;
 /// How long a new run may wait for its host before it counts as failed to start.
-const START_GRACE: Duration = Duration::from_secs(30);
+/// How long a new run waits for its host. After that the run is Interrupted, its
+/// repository is free again, and a host that starts late gives up instead.
+pub(super) const START_GRACE: Duration = Duration::from_secs(30);
 const TAIL_BYTES: u64 = 512 * 1024;
 const TAIL_LINES: usize = 2000;
 
@@ -124,7 +126,8 @@ impl Run {
             RunState::Interrupted => Some(if self.status.is_some() {
                 "The loop's host process ended without recording a result, for example after a restart. The loop was not started again.".into()
             } else {
-                "The loop's host process did not start.".into()
+                "The loop's host process did not start within 30 seconds, so the loop never ran."
+                    .into()
             }),
             _ => self.status.as_ref().and_then(|status| status.error.clone()),
         }

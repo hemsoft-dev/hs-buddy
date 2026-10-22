@@ -86,13 +86,17 @@ The form has the same inputs as Electron Buddy:
   than one cycle needs the repository checked out on a branch that tracks it
   (for example `main` tracking `origin/main`); Launch says so otherwise. Before
   each further cycle Buddy fast-forwards that branch (`git pull --ff-only`), so
-  the next cycle starts from the merged work, and a failed fast-forward stops
-  the run. Unlike the old repeat wrapper (which never worked from Electron) and
+  the next cycle starts from the merged work. A failed fast-forward, or a
+  branch that no longer tracks an upstream, stops the run. The upstream's
+  remote is read from the branch's own settings, so remote names with a `/`
+  work. Unlike the old repeat wrapper (which never worked from Electron) and
   the review phase's own clean-up, Buddy never switches the checkout to another
   branch. Templates run one cycle: they have no way to merge.
 - **Branch prefix** for Ralph Loop and templates. `ralph.ps1` adds a random
   suffix (`fix/issue-12` becomes `fix/issue-12-1a2b3c4d`), and the run page
-  shows the branch the loop actually created once it prints it.
+  shows the branch the loop actually created once it prints it. Ralph PR works
+  on the pull request's branch and Ralph Issues on the checkout as it is, so
+  their runs say so instead of naming a new branch.
   **Pull request number** for Ralph PR, **Issue labels** and **Dry run** for
   Ralph Issues.
 - **Prompt**. A template fills in its own prompt.
@@ -124,7 +128,8 @@ the same repository; a second launch there names the active run instead.
 A run's page shows its state, model, provider, agent and branch, when it
 started, how long it has run, the current phase and iteration, and counters
 the scripts report (checks, agent reviews, review rounds, issues created and
-cost). The log below shows the last 400 lines and follows new output. The full
+cost). Each cycle's script reports its cost from zero, so the cost and premium
+request totals add up every cycle of the run. The log below shows the last 400 lines and follows new output. The full
 log is in the run's folder, whose path is shown under it.
 
 | State       | Meaning                                                                    |
@@ -132,10 +137,10 @@ log is in the run's folder, whose path is shown under it.
 | Starting    | Recorded; its host process is starting                                     |
 | Running     | The loop is running                                                        |
 | Stopping    | Stop was requested; the loop's processes are being ended                   |
-| Completed   | The script exited with code 0 (after every cycle)                           |
+| Completed   | The script ended normally or exited with code 0 (after every cycle)          |
 | Failed      | The script exited with another code, which is shown, or could not start; also when the agent CLI failed every time it ran |
 | Stopped     | Stopped from Buddy                                                         |
-| Interrupted | Its host process ended without recording a result, for example at a reboot |
+| Interrupted | Its host process ended without recording a result, for example at a reboot, or did not start within 30 seconds |
 
 Stop loop asks once more, then ends the loop: the script and every process it
 started, including Git while it fast-forwards between cycles. Processes the
@@ -145,9 +150,8 @@ Stopped or Completed, so check for leftover processes before retrying. Commits
 and branches the loop already made stay. Retry starts a finished, failed, stopped
 or interrupted run again as a new run with the same settings; Edit and launch
 opens the form with them. A run records what Default meant when it started
-(the provider, the concrete model and the work agent), so a retry after an
-update repeats those choices; review agents left on Default use their role's
-default model from the scripts in use.
+(the provider, the concrete model, the work agent and each review agent's
+provider and model), so a retry after an update repeats those choices.
 
 ## Closing and reopening Buddy
 
@@ -177,14 +181,20 @@ outside Buddy's process group on Windows). The host starts
 `buddy --ralph-exec`, which runs `pwsh -NoProfile -NonInteractive -File
 launch.ps1` in the repository. The launcher switches PowerShell's output to
 UTF-8 (on Windows the console's legacy code page would otherwise drop most
-non-Latin text) and calls the script. That process tree belongs to a Job object on
+non-Latin text) and calls the script. A script that ends normally counts as
+exit code 0 even when a native command it handled failed last; only the
+script's own `exit` sets another code. That process tree belongs to a Job object on
 Windows and to its own session on macOS and Linux. Stop and the end of a run
 terminate exactly that Job or session. If the host itself dies, Windows closes
 the Job and the exec process on macOS and Linux ends its own session when its
 control pipe closes, so no loop runs without a host.
 
-Buddy reads the run folders every second. A run whose status is not final but
-whose lock is free is shown as interrupted. A host that cannot save the run's
+While Ralph Loops is shown, Buddy reads the run folders every second; in
+another section it stops, and it reads them again on return. A run whose status
+is not final but whose lock is free is shown as interrupted. A new run whose
+host has not started within 30 seconds is shown as interrupted too, and its
+repository is free again; a host that starts after that gives up without
+starting the loop, so two loops never share a repository. A host that cannot save the run's
 first status never starts the loop; a later failed save is noted in the log,
 and the final result is retried for a few seconds. Buddy keeps the newest 100 runs and
 deletes older finished ones. Output beyond 64 MB is not saved; the loop keeps

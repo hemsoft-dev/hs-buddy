@@ -164,6 +164,9 @@ impl BuddyApp {
         self.github_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::GitHub), cx)
         });
+        self.ralph_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Ralph), cx)
+        });
         if section == Some(Section::Settings) && self.active_section != section {
             self.settings_view
                 .update(cx, |settings, cx| settings.activate(cx));
@@ -370,6 +373,9 @@ impl BuddyApp {
         });
         github_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::GitHub), cx)
+        });
+        ralph_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Ralph), cx)
         });
         cx.subscribe(&settings_view, |this, _, event, cx| match event {
             SettingsEvent::ClearCache => {
