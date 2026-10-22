@@ -559,6 +559,9 @@ function Test-AgentExit {
         return
     }
     $script:AgentFailureStreak++
+    # The agent may have resolved threads before it failed, without pushing a fix, so a
+    # later clean check cannot vouch for this pull request: a required merge is refused.
+    $script:FixFailed = $true
     Write-Host "The agent CLI exited with code $Code." -ForegroundColor Red
     "[$logTag] Agent CLI FAILED (exit code $Code), $($script:AgentFailureStreak) in a row" | Out-File $logFile -Append -Encoding UTF8
     if ($script:AgentFailureStreak -ge 3) {
@@ -1582,6 +1585,11 @@ Invoke-Audio "ralph-pr-loop-completed.mp3"
 if ($RequireMerge -and $script:ReviewUnavailable -and $prClean) {
     Write-Host "No review completed, so PR #$PRNumber is neither approved nor merged." -ForegroundColor Yellow
     "[$logTag] No completed review; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
+    $prClean = $false
+}
+if ($RequireMerge -and $script:FixFailed -and $prClean) {
+    Write-Host "A fix agent failed during this run, so PR #$PRNumber is neither approved nor merged." -ForegroundColor Yellow
+    "[$logTag] A fix agent failed; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
     $prClean = $false
 }
 

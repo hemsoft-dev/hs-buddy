@@ -476,6 +476,15 @@ mod tests {
             .count();
         let checked = pr.matches("Test-AgentExit $LASTEXITCODE").count();
         assert_eq!((invocations, checked), (4, 3));
+        // Any failed fix agent blocks a required merge: it may have resolved threads first.
+        let exit = pr.find("function Test-AgentExit").unwrap();
+        let body = &pr[exit..exit + pr[exit..].find("\nfunction ").unwrap()];
+        assert!(body.contains("$script:FixFailed = $true"));
+        let guard = pr
+            .find("if ($RequireMerge -and $script:FixFailed -and $prClean) {")
+            .unwrap();
+        assert!(guard < pr.find("gh pr merge $PRNumber").unwrap());
+        assert!(guard < pr.find("--approve").unwrap());
         // A review-fix agent that fails leaves its review's threads open.
         let fix = pr.find("$fixFailed = $LASTEXITCODE -ne 0").unwrap();
         let gate = pr[fix..].find("if ($fixFailed) {").unwrap();

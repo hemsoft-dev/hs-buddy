@@ -112,7 +112,9 @@ The form has the same inputs as Electron Buddy:
   and a pull request whose review could not be requested or never arrived is
   neither approved nor merged. The same goes for each selected review agent: one
   that fails or leaves no findings file blocks the merge, while a review with
-  no findings counts as complete.
+  no findings counts as complete. A fix agent that fails at any point in the
+  run blocks it too, since it may have resolved review threads without pushing
+  a fix.
   Electron's "Auto-approve" option is on by default but never reached a Ralph
   Loop's review phase; Buddy Native asks for this choice explicitly.
 

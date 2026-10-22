@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1534] - 2026-10-22
+
+### Fixed
+
+- Refuse a required merge after any failed Ralph PR fix agent
+
 ## [0.1.1533] - 2026-10-22
 
 ### Fixed
