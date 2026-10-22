@@ -118,7 +118,9 @@ The form has the same inputs as Electron Buddy:
   a fix. Right before approving, the script reads the pull request's head,
   every check run and status for it, and its review threads once more: if any
   read fails, any check has not finished with success, neutral or skipped
-  (Snyk checks aside, as the loop treats them), or any thread is open, it
+  (Snyk checks aside, as the loop treats them), any thread is open, no check
+  has reported for the head yet, or a check the base branch requires (its
+  rulesets, and classic branch protection when readable) has not passed, it
   neither approves nor merges. The merge is pinned to that head
   (`--match-head-commit`), so a commit pushed in the meantime is never merged
   unchecked.

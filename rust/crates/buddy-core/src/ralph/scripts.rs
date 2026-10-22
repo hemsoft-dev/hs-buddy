@@ -495,7 +495,12 @@ mod tests {
         let verify = pr.find("function Get-VerifiedMergeHead").unwrap();
         let body = &pr[verify..verify + pr[verify..].find("\nfunction ").unwrap()];
         assert!(body.contains("@('success', 'neutral', 'skipped')"));
-        assert!(body.matches("return $null").count() >= 7);
+        assert!(body.matches("return $null").count() >= 11);
+        // A head no check has reported for yet, or one missing a check the base branch
+        // requires, is not verified.
+        assert!(body.contains("if ($passed.Count -eq 0) {"));
+        assert!(body.contains("rules/branches/$base"));
+        assert!(body.contains("if ($check -notin $passed) {"));
         let issues = BUNDLED
             .iter()
             .find(|(name, _)| *name == "ralph-issues.ps1")

@@ -701,6 +701,7 @@ function Get-VerifiedMergeHead {
         Write-Status "Merge gate: the check runs of $sha could not be read."
         return $null
     }
+    $passed = @()
     foreach ($line in @($runs | Where-Object { $_ })) {
         $name, $status, $conclusion = "$line" -split "`t", 3
         if ($name -match '(?i)snyk') { continue }
@@ -708,6 +709,7 @@ function Get-VerifiedMergeHead {
             Write-Status "Merge gate: check '$name' is $status $conclusion, not passed."
             return $null
         }
+        $passed += $name
     }
     $statuses = gh api "repos/$owner/$repo/commits/$sha/status" `
         --jq '.statuses[] | [.context, .state] | @tsv' 2>$null
@@ -720,6 +722,38 @@ function Get-VerifiedMergeHead {
         if ($context -match '(?i)snyk') { continue }
         if ($state -ne 'success') {
             Write-Status "Merge gate: status '$context' is $state, not success."
+            return $null
+        }
+        $passed += $context
+    }
+    # Nothing reported yet is not a pass: CI may not have registered this head. Every check
+    # the base branch requires (rulesets, and classic protection when readable) must be
+    # among the passed ones, since --admin would merge past a missing one.
+    if ($passed.Count -eq 0) {
+        Write-Status "Merge gate: no check has reported for $sha yet."
+        return $null
+    }
+    $base = gh pr view $PRNumber --repo $repoSlug --json baseRefName -q '.baseRefName' 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not "$base") {
+        Write-Status "Merge gate: the pull request's base branch could not be read."
+        return $null
+    }
+    $required = @()
+    $rules = gh api "repos/$owner/$repo/rules/branches/$base" --paginate `
+        --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Status "Merge gate: the rules of $base could not be read."
+        return $null
+    }
+    $required += @($rules | Where-Object { $_ })
+    # Classic branch protection needs admin rights to read; a 404 means none is set.
+    $classic = gh api "repos/$owner/$repo/branches/$base/protection/required_status_checks" `
+        --jq '(.contexts // [])[], ((.checks // [])[] | .context)' 2>$null
+    if ($LASTEXITCODE -eq 0) { $required += @($classic | Where-Object { $_ }) }
+    foreach ($check in @($required | Select-Object -Unique)) {
+        if ($check -match '(?i)snyk') { continue }
+        if ($check -notin $passed) {
+            Write-Status "Merge gate: required check '$check' has not passed on $sha."
             return $null
         }
     }
