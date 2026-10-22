@@ -42,11 +42,12 @@ impl GitHubView {
             .map(|account| account.username().to_owned())
     }
 
-    fn local_repository(owner: &str, name: &str, cx: &App) -> Option<std::path::PathBuf> {
+    fn local_repository(&self, owner: &str, name: &str, cx: &App) -> Option<std::path::PathBuf> {
         crate::ralph_view::local_repository(
             &Settings::global(cx).config.github.accounts,
             owner,
             name,
+            self.account.as_ref().map(|account| account.username()),
         )
     }
 }

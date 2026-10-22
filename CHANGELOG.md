@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1530] - 2026-10-22
+
+### Fixed
+
+- Keep the chosen account in the Ralph scripts and stop failing agents
+
 ## [0.1.1529] - 2026-10-22
 
 ### Fixed

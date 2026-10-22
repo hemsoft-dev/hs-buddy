@@ -455,6 +455,30 @@ mod tests {
     }
 
     #[test]
+    fn scripts_keep_buddys_account_and_ralph_pr_stops_a_failing_agent() {
+        for (name, text) in BUNDLED {
+            if text.contains("gh auth token --user") {
+                assert!(
+                    text.contains("RALPH_GH_ACCOUNT"),
+                    "{name} switches gh accounts without honoring RALPH_GH_ACCOUNT"
+                );
+            }
+        }
+        let pr = BUNDLED
+            .iter()
+            .find(|(name, _)| *name == "ralph-pr.ps1")
+            .unwrap()
+            .1;
+        // The work, merge-conflict and review-fix invocations of the dev agent.
+        let invocations = pr
+            .lines()
+            .filter(|line| line.trim_start().starts_with("& $cmdExe @cmdTail"))
+            .count();
+        let checked = pr.matches("Test-AgentExit $LASTEXITCODE").count();
+        assert_eq!((invocations, checked), (4, 3));
+    }
+
+    #[test]
     fn every_runnable_script_file_is_bundled() {
         fn walk(root: &Path, directory: &Path, found: &mut Vec<String>) {
             for entry in std::fs::read_dir(directory).unwrap() {

@@ -16,17 +16,20 @@ the form for Ralph Loop; choosing a script opens it for that script.
 From GitHub, Start Ralph PR review… on an open pull request opens the Ralph PR
 form with the pull request's number, and Start Ralph loop… on an issue opens
 the Ralph Loop form with branch `fix/issue-<number>` and a prompt quoting the
-issue. The repository is the account's repository root followed by the
-repository name when Settings has a root for that organization, otherwise the
-most recent run's repository. Nothing starts until Launch.
+issue. The repository is the shown account's repository root followed by the
+repository name when Settings has one for that account and organization. An
+account Settings doesn't list for that organization uses the organization's
+first root. Otherwise the form starts with the most recent run's repository. Nothing starts until Launch.
 
 A loop started from GitHub works as the account the GitHub view showed, not as
 whichever account `gh` has active. When the run starts, its host reads that
 account's token with `gh auth token --user <account>` and gives it to the loop
 as `GH_TOKEN` and `GITHUB_TOKEN`. The loop's `gh` commands, the Copilot CLI
 and Git over HTTPS with `gh` as its credential helper then use that account; a
-`COPILOT_GITHUB_TOKEN` you set yourself still wins for Copilot. The token is
-never written to the run's folder. If `gh` has no login for the account, the
+`COPILOT_GITHUB_TOKEN` you set yourself still wins for Copilot. The host also
+sets `RALPH_GH_ACCOUNT`, and the scripts then keep that account instead of
+switching to the repository owner's `gh` login as they otherwise do. The token
+is never written to the run's folder. If `gh` has no login for the account, the
 run fails before the loop starts. The form says which account the loop will
 use, and the run page shows it after the repository. A loop started from New
 loop uses `gh`'s active account, as in Electron Buddy. Git remotes reached
@@ -141,7 +144,7 @@ log is in the run's folder, whose path is shown under it.
 | Running     | The loop is running                                                        |
 | Stopping    | Stop was requested; the loop's processes are being ended                   |
 | Completed   | The script ended normally or exited with code 0 (after every cycle)          |
-| Failed      | The script exited with another code, which is shown, or could not start; also when the agent CLI failed every time it ran |
+| Failed      | The script exited with another code, which is shown, or could not start; also when the agent CLI failed every time it ran, or in Ralph PR three times in a row |
 | Stopped     | Stopped from Buddy                                                         |
 | Interrupted | Its host process ended without recording a result, for example at a reboot, or did not start within 30 seconds |
 

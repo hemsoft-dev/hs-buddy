@@ -156,6 +156,8 @@ pub fn spawn_host(executable: &Path, folder: &Path) -> Result<(), String> {
 
 /// Where `gh` and the Copilot CLI read a token, ahead of their own sign-in.
 const TOKEN_VARIABLES: [&str; 2] = ["GH_TOKEN", "GITHUB_TOKEN"];
+/// Names the account a run is bound to; the scripts then keep its token.
+const ACCOUNT_VARIABLE: &str = "RALPH_GH_ACCOUNT";
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Start {
@@ -549,6 +551,10 @@ impl Host {
                 self.credentials = TOKEN_VARIABLES
                     .map(|name| (name.to_owned(), token.clone()))
                     .to_vec();
+                // The scripts keep this account instead of switching to the repository
+                // owner's gh login.
+                self.credentials
+                    .push((ACCOUNT_VARIABLE.into(), account.clone()));
                 self.log
                     .line(&format!("[Buddy] GitHub operations run as {account}."));
                 Outcome::Exited(0)
@@ -635,7 +641,8 @@ impl Host {
             directory: plan.directory.clone(),
             path: plan.path.clone(),
             environment: self.credentials.clone(),
-            clear: vec![],
+            // Only the host binds a run to an account.
+            clear: vec![ACCOUNT_VARIABLE.into()],
         };
         self.supervise(&start, Sink::Loop, None).0
     }

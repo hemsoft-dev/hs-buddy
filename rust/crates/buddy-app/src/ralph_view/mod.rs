@@ -78,13 +78,28 @@ pub fn local_repository(
     accounts: &[buddy_core::config::GitHubAccount],
     owner: &str,
     name: &str,
+    username: Option<&str>,
 ) -> Option<PathBuf> {
-    accounts
-        .iter()
-        .find(|account| account.org.eq_ignore_ascii_case(owner))
-        .and_then(|account| account.repo_root.as_deref())
-        .filter(|root| !root.trim().is_empty())
-        .map(|root| PathBuf::from(root).join(name))
+    let root = |account: &buddy_core::config::GitHubAccount| {
+        account
+            .repo_root
+            .as_deref()
+            .filter(|root| !root.trim().is_empty())
+            .map(|root| PathBuf::from(root).join(name))
+    };
+    let organization =
+        |account: &&buddy_core::config::GitHubAccount| account.org.eq_ignore_ascii_case(owner);
+    // Two accounts can share an organization: the selected account's own root decides.
+    let selected = username.and_then(|username| {
+        accounts
+            .iter()
+            .filter(organization)
+            .find(|account| account.username.eq_ignore_ascii_case(username))
+    });
+    match selected {
+        Some(account) => root(account),
+        None => accounts.iter().filter(organization).find_map(root),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

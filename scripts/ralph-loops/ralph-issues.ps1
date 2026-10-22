@@ -168,8 +168,10 @@ if (-not $repoSlug) {
 
 # Match gh account to repo owner
 $rsOwner = ($repoSlug -split '/')[0]
+# Buddy Native runs a loop as the account its GitHub view showed: RALPH_GH_ACCOUNT names
+# it and GH_TOKEN holds its token. That account is kept, never traded for the owner's.
 $rsActiveUser = gh api user --jq '.login' 2>$null
-if ($rsActiveUser -and $rsActiveUser -ne $rsOwner) {
+if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwner) {
     $rsToken = gh auth token --user $rsOwner 2>$null
     if ($rsToken) {
         $env:GH_TOKEN = $rsToken

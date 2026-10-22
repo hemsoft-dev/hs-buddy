@@ -409,26 +409,49 @@ fn github_handoffs_match_electrons_prefill() {
     );
     let pull = Handoff::pull_request(7, None, None);
     assert_eq!((pull.script, pull.pr_number), (Script::Pr, Some(7)));
-    let account = |org: &str, root: Option<&str>| buddy_core::config::GitHubAccount {
-        username: "me".into(),
+    let user = |username: &str, org: &str, root: Option<&str>| buddy_core::config::GitHubAccount {
+        username: username.into(),
         org: org.into(),
         repo_root: root.map(str::to_owned),
         usage_provider: None,
         extra: Default::default(),
     };
+    let account = |org: &str, root: Option<&str>| user("me", org, root);
     let accounts = [
         account("other", Some("/x")),
         account("HemSoft", Some("/code/hemsoft")),
     ];
     assert_eq!(
-        local_repository(&accounts, "hemsoft", "hs-buddy"),
+        local_repository(&accounts, "hemsoft", "hs-buddy", None),
         Some(PathBuf::from("/code/hemsoft").join("hs-buddy"))
     );
     assert_eq!(
-        local_repository(&[account("HemSoft", None)], "HemSoft", "x"),
+        local_repository(&[account("HemSoft", None)], "HemSoft", "x", None),
         None
     );
-    assert_eq!(local_repository(&accounts, "unknown", "x"), None);
+    assert_eq!(local_repository(&accounts, "unknown", "x", None), None);
+    // Two accounts in one organization: the selected account's root wins.
+    let shared = [
+        user("first", "team", Some("/first")),
+        user("second", "team", Some("/second")),
+    ];
+    assert_eq!(
+        local_repository(&shared, "team", "app", Some("Second")),
+        Some(PathBuf::from("/second").join("app"))
+    );
+    assert_eq!(
+        local_repository(&shared, "team", "app", None),
+        Some(PathBuf::from("/first").join("app"))
+    );
+    // The selected account has no root: never another account's clone.
+    let partial = [
+        user("first", "team", Some("/first")),
+        user("second", "team", None),
+    ];
+    assert_eq!(
+        local_repository(&partial, "team", "app", Some("second")),
+        None
+    );
 }
 
 #[gpui_kit::test]

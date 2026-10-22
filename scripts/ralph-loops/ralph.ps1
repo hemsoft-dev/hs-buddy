@@ -785,8 +785,9 @@ if (-not $NoPR) {
         if ($repoSlug) {
             # Match gh account to repo owner (same fix as ralph-pr.ps1)
             $rsOwner = ($repoSlug -split '/')[0]
+            # Buddy Native's chosen account (RALPH_GH_ACCOUNT, token in GH_TOKEN) is kept.
             $rsActiveUser = gh api user --jq '.login' 2>$null
-            if ($rsActiveUser -and $rsActiveUser -ne $rsOwner) {
+            if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwner) {
                 $rsToken = gh auth token --user $rsOwner 2>$null
                 if ($rsToken) {
                     $env:GH_TOKEN = $rsToken

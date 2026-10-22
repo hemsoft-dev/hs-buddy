@@ -32,6 +32,7 @@ if ($Unset) { git branch --unset-upstream }
 if ($Account) {
     $expected = "stub-token-$Account"
     Write-Host "token $($env:GH_TOKEN -eq $expected) $($env:GITHUB_TOKEN -eq $expected)"
+    Write-Host "account $env:RALPH_GH_ACCOUNT"
 }
 Write-Host "prompt: $(Get-Content -Raw $Prompt)"
 [Console]::Error.WriteLine('warned')
@@ -299,6 +300,8 @@ fn a_named_account_signs_the_loop_in_without_saving_its_token() {
         output.contains(&"token True True".to_string()),
         "{output:?}"
     );
+    // The scripts keep this account instead of switching to the repository owner's.
+    assert!(output.contains(&"account octo".to_string()), "{output:?}");
     // The token lives only in the host and the loop's environment.
     for entry in std::fs::read_dir(fixture.store.folder(&id)).unwrap() {
         let file = entry.unwrap().path();

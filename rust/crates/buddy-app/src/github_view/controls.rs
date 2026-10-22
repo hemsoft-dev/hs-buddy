@@ -131,7 +131,7 @@ impl GitHubView {
                 self.write_busy || self.must_reload || self.loading || self.pending.is_some();
             let ralph = crate::ralph_view::Handoff::pull_request(
                 target.number,
-                Self::local_repository(target.repository.owner(), target.repository.name(), cx),
+                self.local_repository(target.repository.owner(), target.repository.name(), cx),
                 self.ralph_account(),
             );
             actions = actions.child(
@@ -366,7 +366,7 @@ impl GitHubView {
                         *number,
                         &title,
                         &body,
-                        Self::local_repository(repo.owner(), repo.name(), cx),
+                        self.local_repository(repo.owner(), repo.name(), cx),
                         self.ralph_account(),
                     );
                     row = row.child(

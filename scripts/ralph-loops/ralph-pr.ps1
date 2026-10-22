@@ -231,8 +231,13 @@ $owner, $repo = $repoSlug -split '/'
 # active but running against a personal repo), API calls return 404. Detect
 # this and set GH_TOKEN to the matching account's token for the script duration.
 # If the owner is an org and the active user is a member, the current token works.
+# Buddy Native runs a loop as the account its GitHub view showed: RALPH_GH_ACCOUNT names
+# it and GH_TOKEN holds its token. That account is kept, never traded for the owner's.
 $activeGhUser = gh api user --jq '.login' 2>$null
-if ($activeGhUser -and $activeGhUser -ne $owner) {
+if ($env:RALPH_GH_ACCOUNT) {
+    Write-Host "  gh account: $env:RALPH_GH_ACCOUNT (chosen in Buddy)" -ForegroundColor DarkGray
+}
+elseif ($activeGhUser -and $activeGhUser -ne $owner) {
     $ownerToken = gh auth token --user $owner 2>$null
     if ($ownerToken) {
         $env:GH_TOKEN = $ownerToken
@@ -544,6 +549,25 @@ $startLogBlock | Out-File $logFile -Append -Encoding UTF8
 $script:SummaryLogFile = Join-Path $PSScriptRoot "ralph-summary.log"
 "$(Get-Date -Format 'yyyy-MM-dd HH:mm') -- ${repoName}: Ralph PR #$PRNumber processing started. $promptDisplay." | Out-File $script:SummaryLogFile -Append -Encoding UTF8
 
+# A dev agent CLI that cannot run (sign-in, quota, startup) fails the same way every
+# time, and the loop would invoke it forever. Three failures in a row stop the run.
+$script:AgentFailureStreak = 0
+function Test-AgentExit {
+    param([int]$Code)
+    if ($Code -eq 0) {
+        $script:AgentFailureStreak = 0
+        return
+    }
+    $script:AgentFailureStreak++
+    Write-Host "The agent CLI exited with code $Code." -ForegroundColor Red
+    "[$logTag] Agent CLI FAILED (exit code $Code), $($script:AgentFailureStreak) in a row" | Out-File $logFile -Append -Encoding UTF8
+    if ($script:AgentFailureStreak -ge 3) {
+        Write-Host "The agent CLI failed $($script:AgentFailureStreak) times in a row; stopping." -ForegroundColor Red
+        "[$logTag] Stopped: the agent CLI failed $($script:AgentFailureStreak) times in a row." | Out-File $logFile -Append -Encoding UTF8
+        exit 4
+    }
+}
+
 function Write-Status {
     param([string]$Message)
     $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
@@ -767,6 +791,7 @@ try {
                 $cmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $conflictPrompt -Yolo -Provider $script:ProviderName
                 $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
                 & $cmdExe @cmdTail 2>&1 | Out-Null
+                Test-AgentExit $LASTEXITCODE
                 $actionTaken = $true
                 continue
             }
@@ -898,6 +923,7 @@ IMPORTANT: Make all fixes first, run the build and tests locally to verify, then
             $cmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $fullPrompt -Yolo -Provider $script:ProviderName
             $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
             & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $tempOut
+            Test-AgentExit $LASTEXITCODE
 
             $captured = Get-Content $tempOut -Encoding UTF8
             $statsLines = $captured |
@@ -1241,6 +1267,7 @@ If there are issues to fix:
                         $fixCmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $fixPrompt -Yolo -Provider $script:ProviderName
                         $cmdExe = $fixCmdArgs[0]; $cmdTail = $fixCmdArgs[1..($fixCmdArgs.Count-1)]
                         & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $fixTempOut
+                        Test-AgentExit $LASTEXITCODE
 
                         # Track fix cycle stats (even if exit code is nonzero)
                         $fixCaptured = Get-Content $fixTempOut -Encoding UTF8
