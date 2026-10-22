@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1538] - 2026-10-22
+
+### Fixed
+
+- Gate a required Ralph merge strictly and keep cleanup reserved
+
 ## [0.1.1537] - 2026-10-22
 
 ### Fixed

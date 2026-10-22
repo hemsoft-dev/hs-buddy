@@ -338,11 +338,12 @@ $script:SummaryLogFile = Join-Path $PSScriptRoot "ralph-summary.log"
 
 # --- Count open issues (for change detection) ---
 function Get-OpenIssueCount {
-    $count = gh issue list --repo $repoSlug --state open --limit 1 --json number -q 'length' 2>$null
-    if ($LASTEXITCODE -eq 0 -and $count -match '^\d+$') { return [int]$count }
-    # Fallback: count with higher limit
-    $issues = gh issue list --repo $repoSlug --state open --limit 500 --json number -q 'length' 2>$null
-    if ($LASTEXITCODE -eq 0 -and $issues -match '^\d+$') { return [int]$issues }
+    # The exact count of open issues (not pull requests), current as soon as one is created;
+    # `gh issue list --limit` returns at most that many, and search can lag.
+    $rsName = ($repoSlug -split '/')[1]
+    $count = gh api graphql -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issues(states: OPEN) { totalCount } } }' `
+        -f owner=$rsOwner -f name=$rsName --jq '.data.repository.issues.totalCount' 2>$null
+    if ($LASTEXITCODE -eq 0 -and "$count" -match '^\d+$') { return [int]$count }
     return -1
 }
 

@@ -115,7 +115,13 @@ The form has the same inputs as Electron Buddy:
   that fails or leaves no findings file blocks the merge, while a review with
   no findings counts as complete. A fix agent that fails at any point in the
   run blocks it too, since it may have resolved review threads without pushing
-  a fix.
+  a fix. Right before approving, the script reads the pull request's head,
+  every check run and status for it, and its review threads once more: if any
+  read fails, any check has not finished with success, neutral or skipped
+  (Snyk checks aside, as the loop treats them), or any thread is open, it
+  neither approves nor merges. The merge is pinned to that head
+  (`--match-head-commit`), so a commit pushed in the meantime is never merged
+  unchecked.
   Electron's "Auto-approve" option is on by default but never reached a Ralph
   Loop's review phase; Buddy Native asks for this choice explicitly.
 
@@ -187,6 +193,7 @@ Runs are folders below `native-ralph/runs` next to the configuration file.
 | `request.json` | Buddy      | The launch and the exact command, written once before the start |
 | `prompt.md`   | Buddy      | The prompt; the scripts read a prompt given as a file path     |
 | `host.lock`   | Host       | Locked while the host lives                                    |
+| `exec.lock`   | Loop process | Locked while the loop's exec process lives, including its cleanup after a dead host; the run stays reserved until then |
 | `started`     | Host       | Created once; a host finding it never starts the loop          |
 | `launch.ps1`  | Host       | Sets UTF-8 output, then calls the script with its arguments    |
 | `status.json` | Host       | State, phase, iteration, counters and the result               |

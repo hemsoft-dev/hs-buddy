@@ -485,6 +485,24 @@ mod tests {
             .unwrap();
         assert!(guard < pr.find("gh pr merge $PRNumber").unwrap());
         assert!(guard < pr.find("--approve").unwrap());
+        // A required merge is checked strictly, then pinned to the head that passed.
+        let gate = pr
+            .find("$script:MergeHead = Get-VerifiedMergeHead")
+            .unwrap();
+        assert!(gate < pr.find("--approve").unwrap());
+        assert!(pr.contains("--squash --delete-branch --admin @pin"));
+        assert!(pr.contains("@('--match-head-commit', $script:MergeHead)"));
+        let verify = pr.find("function Get-VerifiedMergeHead").unwrap();
+        let body = &pr[verify..verify + pr[verify..].find("\nfunction ").unwrap()];
+        assert!(body.contains("@('success', 'neutral', 'skipped')"));
+        assert!(body.matches("return $null").count() >= 7);
+        let issues = BUNDLED
+            .iter()
+            .find(|(name, _)| *name == "ralph-issues.ps1")
+            .unwrap()
+            .1;
+        assert!(issues.contains("issues(states: OPEN) { totalCount }"));
+        assert!(!issues.contains("--limit 1 --json number"));
         // A review-fix agent that fails leaves its review's threads open.
         let fix = pr.find("$fixFailed = $LASTEXITCODE -ne 0").unwrap();
         let gate = pr[fix..].find("if ($fixFailed) {").unwrap();

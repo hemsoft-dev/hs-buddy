@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use super::launch::Plan;
 use super::progress::{Progress, strip_ansi};
 use super::store::{
-    HostState, LOCK, OUTPUT, REQUEST, Request, START_GRACE, STARTED, STATUS, STOP, Status, now_ms,
-    private_file, write_atomically, write_private,
+    EXEC_LOCK, HostState, LOCK, OUTPUT, REQUEST, Request, START_GRACE, STARTED, STATUS, STOP,
+    Status, now_ms, private_file, write_atomically, write_private,
 };
 
 const MAX_START: usize = 1024 * 1024;
@@ -216,6 +216,9 @@ struct Start {
     /// Variables removed from the inherited environment before those are added.
     #[serde(default)]
     clear: Vec<String>,
+    /// The run folder's exec lock, held by the exec process until it ends.
+    #[serde(default)]
+    lock: Option<PathBuf>,
 }
 
 fn send_start(writer: &mut impl Write, start: &Start) -> io::Result<()> {
@@ -241,7 +244,10 @@ fn receive_start(reader: &mut impl Read) -> io::Result<Start> {
     reader.read_exact(&mut bytes)?;
     let start: Start = serde_json::from_slice(&bytes)
         .map_err(|_| io::Error::other("Unsupported loop start packet."))?;
-    if !start.program.is_absolute() || !start.directory.is_absolute() {
+    if !start.program.is_absolute()
+        || !start.directory.is_absolute()
+        || start.lock.as_ref().is_some_and(|lock| !lock.is_absolute())
+    {
         return Err(io::Error::other("Unsupported loop start packet."));
     }
     Ok(start)
@@ -257,6 +263,18 @@ pub fn run_ralph_exec() -> i32 {
             return 125;
         }
     };
+    // Held until this process ends, after any cleanup for a dead host: the store reads the
+    // run as live while it is held, so its repository stays reserved.
+    let _held = start.lock.as_ref().and_then(|path| {
+        let file = private_file()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path)
+            .ok()?;
+        file.try_lock().ok()?;
+        Some(file)
+    });
     let run = start
         .environment
         .iter()
@@ -637,6 +655,7 @@ impl Host {
             environment: vec![("GH_PROMPT_DISABLED".into(), "1".into())],
             // An inherited token would be printed instead of the account's own.
             clear: TOKEN_VARIABLES.map(String::from).to_vec(),
+            lock: None,
         };
         let (outcome, lines) = self.supervise(&start, Sink::Capture, Some(GIT_LIMIT));
         match (outcome, lines.first()) {
@@ -765,6 +784,7 @@ impl Host {
             environment: self.credentials.clone(),
             // Only the host binds a run to an account.
             clear: vec![ACCOUNT_VARIABLE.into()],
+            lock: None,
         };
         self.supervise(&start, Sink::Loop, None).0
     }
@@ -784,6 +804,7 @@ impl Host {
         start
             .environment
             .push((RUN_VARIABLE.into(), self.run.clone()));
+        start.lock = Some(self.folder.join(EXEC_LOCK));
         let start = &start;
         let mut owned = match Owned::spawn(self.run.clone()) {
             Ok(owned) => owned,
@@ -895,6 +916,7 @@ fn git_start(plan: &Plan, arguments: &[&str], credentials: &[(String, String)]) 
         path: plan.path.clone(),
         environment,
         clear: vec![],
+        lock: None,
     }
 }
 
@@ -1075,6 +1097,7 @@ mod tests {
             path: "x".into(),
             environment: vec![("GIT_TERMINAL_PROMPT".into(), "0".into())],
             clear: vec!["GH_TOKEN".into()],
+            lock: Some(std::env::temp_dir().join("exec.lock")),
         };
         let mut bytes = vec![];
         send_start(&mut bytes, &start).unwrap();

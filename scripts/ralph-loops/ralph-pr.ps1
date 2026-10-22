@@ -684,6 +684,69 @@ function Test-CopilotReviewRequested {
     return ($reviewers -match '^Copilot$')
 }
 
+# For -RequireMerge (Buddy's merge option, which merges with --admin): reads the pull
+# request's head, every check run and commit status for it, and its review threads, and
+# returns the head SHA only when every read succeeded, every check finished with an accepted
+# result and no thread is open. Anything else returns $null, so the merge never rests on
+# state that could not be confirmed. Snyk checks are left out, as the loop above leaves them.
+function Get-VerifiedMergeHead {
+    $sha = gh pr view $PRNumber --repo $repoSlug --json headRefOid -q '.headRefOid' 2>$null
+    if ($LASTEXITCODE -ne 0 -or "$sha" -notmatch '^[0-9a-f]{40}$') {
+        Write-Status "Merge gate: the pull request's head could not be read."
+        return $null
+    }
+    $runs = gh api "repos/$owner/$repo/commits/$sha/check-runs?per_page=100" --paginate `
+        --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Status "Merge gate: the check runs of $sha could not be read."
+        return $null
+    }
+    foreach ($line in @($runs | Where-Object { $_ })) {
+        $name, $status, $conclusion = "$line" -split "`t", 3
+        if ($name -match '(?i)snyk') { continue }
+        if ($status -ne 'completed' -or $conclusion -notin @('success', 'neutral', 'skipped')) {
+            Write-Status "Merge gate: check '$name' is $status $conclusion, not passed."
+            return $null
+        }
+    }
+    $statuses = gh api "repos/$owner/$repo/commits/$sha/status" `
+        --jq '.statuses[] | [.context, .state] | @tsv' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Status "Merge gate: the commit statuses of $sha could not be read."
+        return $null
+    }
+    foreach ($line in @($statuses | Where-Object { $_ })) {
+        $context, $state = "$line" -split "`t", 2
+        if ($context -match '(?i)snyk') { continue }
+        if ($state -ne 'success') {
+            Write-Status "Merge gate: status '$context' is $state, not success."
+            return $null
+        }
+    }
+    $cursor = $null
+    do {
+        $after = if ($null -ne $cursor) { ", after: `"$cursor`"" } else { "" }
+        $query = "query { repository(owner: `"$owner`", name: `"$repo`") { pullRequest(number: $PRNumber) { reviewThreads(first: 100$after) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }"
+        $json = gh api graphql -f query="$query" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Status "Merge gate: the review threads could not be read."
+            return $null
+        }
+        $result = $json | ConvertFrom-Json
+        $threads = $result.data.repository.pullRequest.reviewThreads
+        if ($result.errors -or -not $threads) {
+            Write-Status "Merge gate: the review threads could not be read."
+            return $null
+        }
+        if (@($threads.nodes | Where-Object { -not $_.isResolved }).Count -gt 0) {
+            Write-Status "Merge gate: review threads are still open."
+            return $null
+        }
+        $cursor = $threads.pageInfo.endCursor
+    } while ($threads.pageInfo.hasNextPage)
+    return "$sha"
+}
+
 function Get-PRMergeableState {
     $state = (gh pr view $PRNumber --repo $repoSlug --json mergeable -q '.mergeable' 2>&1).Trim()
     return $state
@@ -1593,6 +1656,18 @@ if ($RequireMerge -and $script:FixFailed -and $prClean) {
     $prClean = $false
 }
 
+# A required merge (--admin) is checked once more, strictly, right before approve and merge,
+# and the merge is pinned to the head that passed.
+$script:MergeHead = $null
+if ($RequireMerge -and $prClean) {
+    $script:MergeHead = Get-VerifiedMergeHead
+    if (-not $script:MergeHead) {
+        Write-Host "PR #$PRNumber did not pass the final merge check, so it is neither approved nor merged." -ForegroundColor Yellow
+        "[$logTag] Final merge check failed; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
+        $prClean = $false
+    }
+}
+
 # --- Auto-approve PR if requested and clean ---
 if ($prClean -and $AutoApprove) {
     Write-Host ""
@@ -1648,7 +1723,8 @@ if ($prClean) {
         # Leave the worktree before cleanup
         Set-Location $originalDir
 
-        $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch --admin 2>&1
+        $pin = if ($script:MergeHead) { @('--match-head-commit', $script:MergeHead) } else { @() }
+        $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch --admin @pin 2>&1
         $mergeOutput | Out-File $logFile -Append -Encoding UTF8
 
         if ($LASTEXITCODE -eq 0) {

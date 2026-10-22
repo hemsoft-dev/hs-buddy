@@ -34,6 +34,9 @@ const TAIL_LINES: usize = 2000;
 pub(super) const REQUEST: &str = "request.json";
 pub(super) const PROMPT: &str = "prompt.md";
 pub(super) const LOCK: &str = "host.lock";
+/// Locked by the run's exec process for as long as it lives, including the cleanup it does
+/// when its host dies, so the run stays live (and its repository reserved) until then.
+pub(super) const EXEC_LOCK: &str = "exec.lock";
 pub(super) const STARTED: &str = "started";
 pub(super) const STATUS: &str = "status.json";
 pub(super) const OUTPUT: &str = "output.log";
@@ -364,7 +367,7 @@ impl Store {
             at,
         } = observe(
             || read_json(&folder.join(STATUS)),
-            || locked(&folder.join(LOCK)),
+            || locked(&folder.join(LOCK)) || locked(&folder.join(EXEC_LOCK)),
             || folder.join(STARTED).exists(),
             now_ms,
         );
@@ -864,6 +867,35 @@ mod tests {
         let long = "x".repeat(TAIL_BYTES as usize) + "\nlast\n";
         std::fs::write(folder.join(OUTPUT), long).unwrap();
         assert_eq!(store.output("run"), (vec!["last".to_string()], true));
+    }
+
+    #[test]
+    fn a_run_whose_exec_process_still_cleans_up_stays_live() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::at(root.path().to_path_buf()).unwrap();
+        let folder = store.folder("run");
+        std::fs::create_dir_all(&folder).unwrap();
+        let request = Request {
+            id: "run".into(),
+            created_at: 0,
+            launch: Launch::default(),
+            plan: plan(&folder),
+            retry_of: None,
+            repository_key: None,
+        };
+        std::fs::write(folder.join(REQUEST), serde_json::to_vec(&request).unwrap()).unwrap();
+        std::fs::write(folder.join(STARTED), b"").unwrap();
+        std::fs::write(
+            folder.join(STATUS),
+            serde_json::to_vec(&status(HostState::Running)).unwrap(),
+        )
+        .unwrap();
+        // The host is gone, but its exec process still holds the exec lock.
+        let exec = File::create(folder.join(EXEC_LOCK)).unwrap();
+        exec.lock().unwrap();
+        assert_eq!(store.run("run").unwrap().state, RunState::Running);
+        drop(exec);
+        assert_eq!(store.run("run").unwrap().state, RunState::Interrupted);
     }
 
     #[test]
