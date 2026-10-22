@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use buddy_core::ralph::{
     host::spawn_host,
-    launch::{Launch, Plan},
+    launch::{CycleBase, Launch, Plan},
     progress::Phase,
     store::{RunState, Store},
 };
@@ -26,9 +26,10 @@ fn tool(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("{name} is required on PATH for the Ralph host tests"))
 }
 
-const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account, [switch]$Unset, [switch]$Stale, [string]$Daemon)
+const STUB: &str = r#"param([int]$Max = 1, [string]$Prompt, [int]$Code = 0, [string]$Beat, [string]$Account, [switch]$Unset, [switch]$Stale, [string]$Daemon, [switch]$Switch)
 Write-Host "== Iteration 1/$Max"
 if ($Unset) { git branch --unset-upstream }
+if ($Switch) { git checkout -q -b elsewhere --track origin/main }
 if ($Account) {
     $expected = "stub-token-$Account"
     Write-Host "token $($env:GH_TOKEN -eq $expected) $($env:GITHUB_TOKEN -eq $expected)"
@@ -65,6 +66,8 @@ struct Fixture {
     store: Store,
     cycles: u32,
     account: Option<String>,
+    /// The branch and upstream a repeat-cycle launch validated.
+    base: Option<CycleBase>,
     /// A stand-in `gh` that prints `stub-token-<user>` for `auth token`, and fails for `missing`.
     gh: PathBuf,
 }
@@ -105,6 +108,7 @@ fn fixture() -> Fixture {
         store,
         cycles: 1,
         account: None,
+        base: None,
         gh: gh_stub(root.path()),
         _root: root,
     }
@@ -150,6 +154,7 @@ impl Fixture {
         let cycles = self.cycles;
         let mut extra = arguments.iter().map(|a| a.to_string()).collect::<Vec<_>>();
         let account = self.account.clone();
+        let base = self.base.clone();
         let gh = self.gh.clone();
         let launch = Launch {
             repository: self.repository.clone(),
@@ -171,6 +176,7 @@ impl Fixture {
                     git: tool(if cfg!(windows) { "git.exe" } else { "git" }),
                     gh,
                     account,
+                    base,
                     script,
                     arguments,
                     directory,
@@ -565,6 +571,7 @@ fn repeat_cycles_fast_forward_the_checkout_between_cycles() {
     git(&other, &["commit", "-q", "-m", "merged"]);
     git(&other, &["push", "-q", "origin", "HEAD:main"]);
     fixture.cycles = 2;
+    fixture.base = Some(main_base());
     let id = fixture.start(&[]);
     assert_eq!(
         fixture.wait(&id, |state, _| !state.is_active()),
@@ -624,6 +631,61 @@ fn an_upstream_lost_between_cycles_fails_the_run() {
         status.error.as_deref(),
         Some(
             "The checked-out branch no longer tracks an upstream, so the next cycle cannot start from the merged work. Set its upstream, then retry."
+        )
+    );
+    let (output, _) = fixture.store.output(&id);
+    assert!(
+        !output.contains(&"[Buddy] Cycle 2 of 2 started.".to_string()),
+        "{output:?}"
+    );
+}
+
+/// What Launch records for `main` tracking `origin/main`.
+fn main_base() -> CycleBase {
+    CycleBase {
+        branch: "refs/heads/main".into(),
+        upstream: "origin/main".into(),
+    }
+}
+
+#[test]
+fn a_checkout_switched_between_cycles_fails_the_run() {
+    let mut fixture = fixture();
+    let parent = fixture.repository.parent().unwrap().to_path_buf();
+    let remote = parent.join("remote.git");
+    git(
+        &parent,
+        &[
+            "init",
+            "-q",
+            "--bare",
+            "-b",
+            "main",
+            remote.to_str().unwrap(),
+        ],
+    );
+    let repository = fixture.repository.clone();
+    git(&repository, &["init", "-q", "-b", "main"]);
+    git(&repository, &["add", "stub.ps1"]);
+    git(&repository, &["commit", "-q", "-m", "stub"]);
+    git(
+        &repository,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git(&repository, &["push", "-q", "-u", "origin", "main"]);
+    fixture.cycles = 2;
+    fixture.base = Some(main_base());
+    // The first cycle checks out another branch, which still tracks origin/main.
+    let id = fixture.start(&["-Switch"]);
+    assert_eq!(
+        fixture.wait(&id, |state, _| !state.is_active()),
+        RunState::Failed
+    );
+    let status = fixture.store.run(&id).unwrap().status.unwrap();
+    assert_eq!(
+        status.error.as_deref(),
+        Some(
+            "The checkout changed since launch: it was main tracking origin/main, and is now elsewhere tracking origin/main. The next cycle would not build on the merged work, so the loop stopped. Check out the original branch, then retry."
         )
     );
     let (output, _) = fixture.store.output(&id);

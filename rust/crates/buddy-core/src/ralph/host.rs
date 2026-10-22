@@ -688,6 +688,35 @@ impl Host {
             .first()
             .map_or("its upstream", String::as_str)
             .to_owned();
+        // The checkout must still be the branch and upstream Launch validated, or the
+        // pull below would bring in another branch instead of the merged work.
+        if let Some(base) = &plan.base {
+            let (head, branch) = self.supervise(
+                &git_start(plan, &["symbolic-ref", "-q", "HEAD"], &self.credentials),
+                Sink::Capture,
+                Some(GIT_LIMIT),
+            );
+            match head {
+                Outcome::Exited(_) => {}
+                other => return other,
+            }
+            let branch = branch.first().cloned().unwrap_or_default();
+            if branch != base.branch || name != base.upstream {
+                let now = if branch.is_empty() {
+                    "a detached HEAD".to_owned()
+                } else {
+                    format!(
+                        "{} tracking {name}",
+                        branch.trim_start_matches("refs/heads/")
+                    )
+                };
+                return Outcome::Error(format!(
+                    "The checkout changed since launch: it was {} tracking {}, and is now {now}. The next cycle would not build on the merged work, so the loop stopped. Check out the original branch, then retry.",
+                    base.branch.trim_start_matches("refs/heads/"),
+                    base.upstream
+                ));
+            }
+        }
         self.log.line(&format!(
             "[Buddy] Fast-forwarding from {name} before the next cycle."
         ));

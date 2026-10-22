@@ -34,6 +34,7 @@ fn write_run(root: &Path, id: &str, created: i64, status: Option<Status>, lines:
             git: "git".into(),
             gh: "gh".into(),
             account: None,
+            base: None,
             script: folder.join("ralph-pr.ps1"),
             arguments: vec![],
             directory: root.to_path_buf(),

@@ -62,6 +62,7 @@ fn a_host_inside_a_kill_on_close_job_says_what_ends_it() {
             git: tool("git.exe"),
             gh: PathBuf::new(),
             account: None,
+            base: None,
             script: script.clone(),
             arguments: vec![],
             directory: repository.clone(),

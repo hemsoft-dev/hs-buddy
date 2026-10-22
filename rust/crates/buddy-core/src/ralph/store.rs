@@ -525,13 +525,13 @@ impl Store {
 
     /// Deletes the oldest finished runs beyond the newest hundred.
     pub fn prune(&mut self) {
-        let runs = self.runs();
-        for run in runs.into_iter().skip(KEEP_RUNS) {
-            if !run.state.is_active() {
-                let folder = self.folder(&run.request.id);
-                if !locked(&folder.join(LOCK)) {
-                    let _ = std::fs::remove_dir_all(folder);
-                }
+        // The newest KEEP_RUNS finished runs stay, plus every active run, which does not
+        // count toward the limit.
+        let finished = self.runs().into_iter().filter(|run| !run.state.is_active());
+        for run in finished.skip(KEEP_RUNS) {
+            let folder = self.folder(&run.request.id);
+            if !locked(&folder.join(LOCK)) {
+                let _ = std::fs::remove_dir_all(folder);
             }
         }
     }
@@ -638,6 +638,7 @@ mod tests {
             git: "git".into(),
             gh: "gh".into(),
             account: None,
+            base: None,
             script: folder.join("ralph.ps1"),
             arguments: vec![],
             directory: folder.to_path_buf(),
@@ -869,7 +870,7 @@ mod tests {
     fn pruning_keeps_the_newest_hundred_and_every_active_run() {
         let root = tempfile::tempdir().unwrap();
         let mut store = Store::at(root.path().to_path_buf()).unwrap();
-        for index in 0..(KEEP_RUNS + 2) {
+        for index in 0..(KEEP_RUNS + 3) {
             let id = format!("run-{index:03}");
             let folder = store.folder(&id);
             std::fs::create_dir_all(&folder).unwrap();
@@ -883,7 +884,7 @@ mod tests {
             };
             std::fs::write(folder.join(REQUEST), serde_json::to_vec(&request).unwrap()).unwrap();
             std::fs::write(folder.join(STARTED), b"").unwrap();
-            let state = if index == 0 {
+            let state = if index == 0 || index == KEEP_RUNS + 2 {
                 HostState::Running
             } else {
                 HostState::Completed
@@ -894,13 +895,17 @@ mod tests {
             )
             .unwrap();
         }
-        // run-000 is the oldest but its host is alive.
+        // run-000 is the oldest but its host is alive; run-102, the newest, is running too.
+        // Neither counts toward the hundred finished runs kept.
         let holder = File::create(store.folder("run-000").join(LOCK)).unwrap();
         holder.lock().unwrap();
+        let newest = File::create(store.folder("run-102").join(LOCK)).unwrap();
+        newest.lock().unwrap();
         store.prune();
         let runs = store.runs();
-        assert_eq!(runs.len(), KEEP_RUNS + 1);
+        assert_eq!(runs.len(), KEEP_RUNS + 2);
         assert!(runs.iter().any(|run| run.request.id == "run-000"));
+        assert!(runs.iter().any(|run| run.request.id == "run-002"));
         assert!(!runs.iter().any(|run| run.request.id == "run-001"));
     }
 }

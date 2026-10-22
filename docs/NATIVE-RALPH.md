@@ -91,8 +91,9 @@ The form has the same inputs as Electron Buddy:
   `main` tracking `origin/main`); Launch says so otherwise, including for a
   branch that tracks another remote. Before each further cycle Buddy
   fast-forwards that branch (`git pull --ff-only`), so the next cycle starts
-  from the merged work. A failed fast-forward, or a branch that no longer
-  tracks an upstream, stops the run. Unlike the old repeat wrapper (which never worked from Electron) and
+  from the merged work. A failed fast-forward, a branch that no longer tracks
+  an upstream, or a checkout that moved to another branch or upstream since
+  Launch stops the run. Unlike the old repeat wrapper (which never worked from Electron) and
   the review phase's own clean-up, Buddy never switches the checkout to another
   branch. Templates run one cycle: they have no way to merge.
 - **Branch prefix** for Ralph Loop and templates. `ralph.ps1` adds a random
@@ -219,8 +220,8 @@ host has not started within 30 seconds is shown as interrupted too, and its
 repository is free again; a host that starts after that gives up without
 starting the loop, so two loops never share a repository. A host that cannot save the run's
 first status never starts the loop; a later failed save is noted in the log,
-and the final result is retried for a few seconds. Buddy keeps the newest 100 runs and
-deletes older finished ones. Output beyond 64 MB is not saved; the loop keeps
+and the final result is retried for a few seconds. Buddy keeps the newest 100 finished runs and
+every active run, and deletes older finished ones. Output beyond 64 MB is not saved; the loop keeps
 running. On macOS and Linux the run folders are readable only by you (`0700`
 folders, `0600` files), since prompts and loop output can be sensitive.
 

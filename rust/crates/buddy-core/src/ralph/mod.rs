@@ -31,9 +31,11 @@ pub fn start(
     let launch = launch.resolved(&catalog);
     let tools = launch::discover_installed()?;
     let repository_key = launch::verify_repository(&launch.repository, &tools)?;
-    if launch.script.uses_cycles() && launch.cycles > 1 {
-        launch::verify_cycle_base(&launch.repository, &tools)?;
-    }
+    let base = if launch.script.uses_cycles() && launch.cycles > 1 {
+        Some(launch::verify_cycle_base(&launch.repository, &tools)?)
+    } else {
+        None
+    };
     let cycles = if launch.script.uses_cycles() {
         launch.cycles
     } else {
@@ -46,6 +48,7 @@ pub fn start(
             git: tools.git.clone(),
             gh: tools.gh.clone(),
             account: launch.account.clone(),
+            base: base.clone(),
             script,
             arguments: launch.arguments(
                 &declared,

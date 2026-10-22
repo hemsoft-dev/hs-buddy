@@ -288,6 +288,10 @@ pub struct Plan {
     pub gh: PathBuf,
     #[serde(default)]
     pub account: Option<String>,
+    /// For repeat cycles, the branch and upstream Launch validated; each later cycle
+    /// checks the checkout still has them.
+    #[serde(default)]
+    pub base: Option<CycleBase>,
     pub script: PathBuf,
     /// Everything after `-File <script>`.
     pub arguments: Vec<String>,
@@ -408,10 +412,19 @@ fn git_output(repository: &Path, tools: &Tools, arguments: &[&str]) -> Option<St
         .filter(|text| !text.is_empty())
 }
 
+/// The checked-out branch and its upstream when a repeat-cycle run was launched.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CycleBase {
+    /// `refs/heads/main`, as `git symbolic-ref HEAD` prints it.
+    pub branch: String,
+    /// `origin/main`, as `git rev-parse --abbrev-ref @{upstream}` prints it.
+    pub upstream: String,
+}
+
 /// Repeat cycles build on each cycle's pull request, which merges into the remote's
 /// default branch, and Buddy only fast-forwards the checked-out branch between cycles. So
 /// that branch must track the default branch; Buddy never switches it.
-pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<(), String> {
+pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<CycleBase, String> {
     let git = |arguments: &[&str]| git_output(repository, tools, arguments);
     let untracked = "Repeat cycles need the checked-out branch to track the remote's default branch, where each cycle's pull request merges.";
     let upstream = git(&["rev-parse", "--abbrev-ref", "@{upstream}"]).ok_or(untracked)?;
@@ -434,7 +447,7 @@ pub fn verify_cycle_base(repository: &Path, tools: &Tools) -> Result<(), String>
         )
     })?;
     if upstream == default {
-        Ok(())
+        Ok(CycleBase { branch, upstream })
     } else {
         Err(format!(
             "Repeat cycles build on pull requests merged into {default}, so check out a branch that tracks it (this one tracks {upstream})."
@@ -967,6 +980,7 @@ mod tests {
             git: "git".into(),
             gh: "gh".into(),
             account: None,
+            base: None,
             script: PathBuf::from("D:/scripts/it's/ralph.ps1"),
             arguments: [
                 "-Autopilot",
@@ -1232,7 +1246,13 @@ mod tests {
                 clone.to_str().unwrap(),
             ],
         );
-        assert_eq!(verify_cycle_base(&clone, &tools), Ok(()));
+        assert_eq!(
+            verify_cycle_base(&clone, &tools),
+            Ok(CycleBase {
+                branch: "refs/heads/main".into(),
+                upstream: "origin/main".into(),
+            })
+        );
         git(&clone, &["checkout", "-q", "-b", "topic"]);
         assert!(
             verify_cycle_base(&clone, &tools)
@@ -1268,7 +1288,7 @@ mod tests {
             &clone,
             &["branch", "-q", "--set-upstream-to", "origin/main"],
         );
-        assert_eq!(verify_cycle_base(&clone, &tools), Ok(()));
+        assert!(verify_cycle_base(&clone, &tools).is_ok());
     }
 
     #[test]
