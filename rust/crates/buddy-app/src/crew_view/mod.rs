@@ -473,8 +473,13 @@ impl CrewView {
                         if !this.projects.iter().any(|known| known.id == id) {
                             this.projects.push(project);
                         }
-                        this.selected = None;
-                        this.select(id, window, cx);
+                        // `select` keeps the current project's unsent text as its draft.
+                        // Adding the project already shown just reads its files again.
+                        if this.selected.as_ref() == Some(&id) {
+                            this.scan(cx);
+                        } else {
+                            this.select(id, window, cx);
+                        }
                         this.notice = Some(format!("Added {slug}."));
                         this.refresh(cx);
                     }
@@ -627,13 +632,22 @@ impl CrewView {
             .update(cx, |input, cx| input.set_value("", window, cx));
         let request = uuid::Uuid::new_v4().to_string();
         let task = cx.background_executor().spawn({
-            let (store, request, id) = (store.clone(), request.clone(), session.id.clone());
+            let (store, request, id, text) = (
+                store.clone(),
+                request.clone(),
+                session.id.clone(),
+                text.clone(),
+            );
             async move { store.begin_turn(&id, &request, &text) }
         });
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let begun = task.await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 this.sending.remove(&project.id);
+                // A question that was not saved goes back where it was typed.
+                if begun.is_err() {
+                    this.restore_draft(&project.id, text, window, cx);
+                }
                 match begun {
                     Ok((session, guard)) => {
                         this.sessions.insert(project.id.clone(), session.clone());
@@ -668,6 +682,33 @@ impl CrewView {
         })
         .detach();
         cx.notify();
+    }
+
+    /// Puts unsent text back into its project's composer, or its draft when another
+    /// project is shown. Text typed meanwhile is kept ahead of it.
+    fn restore_draft(
+        &mut self,
+        project: &str,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let join = |typed: &str| {
+            if typed.trim().is_empty() {
+                text.clone()
+            } else {
+                format!("{typed}\n{text}")
+            }
+        };
+        if self.selected.as_deref() == Some(project) {
+            let typed = self.message.read(cx).value().to_string();
+            let value = join(&typed);
+            self.message
+                .update(cx, |input, cx| input.set_value(value, window, cx));
+        } else {
+            let typed = self.drafts.remove(project).unwrap_or_default();
+            self.drafts.insert(project.into(), join(&typed));
+        }
     }
 
     fn run_turn(

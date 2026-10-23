@@ -2,7 +2,7 @@
 use buddy_core::crew::changes::{Change, Kind};
 use buddy_core::crew::{Message, Project, Role, Session, Status};
 use gpui_kit::base::{Disableable, Selectable};
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::{
@@ -136,7 +136,6 @@ impl CrewView {
                                 } else {
                                     "Remove"
                                 })
-                                .when_confirming(confirming)
                                 .disabled(self.busy || replying)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
@@ -323,8 +322,11 @@ impl CrewView {
             )
             .child(
                 Button::new(("crew-undo", index))
-                    .label(if confirming { "Confirm undo" } else { "Undo" })
-                    .when_confirming(confirming)
+                    .label(if confirming {
+                        "Confirm undo"
+                    } else {
+                        "Undo change"
+                    })
                     .disabled(self.acting || change.no_undo.is_some())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.undo(undo_path.clone(), undo_seen.clone(), cx)
@@ -435,7 +437,6 @@ impl CrewView {
                 } else {
                     "Clear conversation"
                 })
-                .when_confirming(confirming)
                 .disabled(replying || self.busy)
                 .on_click(cx.listener(move |this, _, _, cx| this.clear(clear.clone(), cx))),
         );
@@ -556,16 +557,5 @@ impl<E: Styled> CrewStyle for E {
         } else {
             self
         }
-    }
-}
-
-trait Confirming: Sized {
-    fn when_confirming(self, confirming: bool) -> Self;
-}
-
-impl Confirming for Button {
-    /// A second click acts; the button says so in red.
-    fn when_confirming(self, confirming: bool) -> Self {
-        if confirming { self.danger() } else { self }
     }
 }

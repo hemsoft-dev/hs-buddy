@@ -70,7 +70,11 @@ struct Baseline {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Seen {
     Absent,
-    File(String),
+    /// Content digest and, on macOS and Linux, whether the file is executable.
+    File {
+        sha: String,
+        executable: Option<bool>,
+    },
     Link(String),
     Special,
 }
@@ -145,8 +149,14 @@ impl Side {
     fn seen(&self) -> Seen {
         match self {
             Self::Absent => Seen::Absent,
-            Self::File { bytes, .. } => Seen::File(digest(bytes)),
-            Self::Digest { sha, .. } => Seen::File(sha.clone()),
+            Self::File { bytes, mode } => Seen::File {
+                sha: digest(bytes),
+                executable: mode.map(executable),
+            },
+            Self::Digest { sha, mode } => Seen::File {
+                sha: sha.clone(),
+                executable: mode.map(executable),
+            },
             Self::Link(target) => Seen::Link(target.clone()),
             Self::Special => Seen::Special,
         }
@@ -550,7 +560,26 @@ fn stored_bytes(folder: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-/// Records the project's state as the session's baseline in `folder`.
+/// The ref that keeps a conversation's snapshot commit from Git's garbage collection,
+/// for as long as the conversation exists (an amend or rebase can orphan the commit).
+fn snapshot_ref(session: &str) -> Option<String> {
+    let valid = !session.is_empty()
+        && session.len() <= 64
+        && session
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+    valid.then(|| format!("refs/buddy/crew/{session}"))
+}
+
+/// Deletes the conversation's snapshot ref; the commit is then Git's to keep or prune.
+pub fn release(git: &Path, root: &Path, session: &str) {
+    if let Some(name) = snapshot_ref(session) {
+        let _ = output(git, Some(root), ["update-ref", "-d", name.as_str()]);
+    }
+}
+
+/// Records the project's state as the session's baseline in `folder`, whose name is
+/// the session's id.
 pub fn capture(git: &Path, root: &Path, folder: &Path) -> Result<(), String> {
     let directory = open_root(root)?;
     let dirty = dirty(git, root)?;
@@ -571,7 +600,22 @@ pub fn capture(git: &Path, root: &Path, folder: &Path) -> Result<(), String> {
         let entry = entry_for(folder, &side, &mut stored)?;
         baseline.files.insert(path, entry);
     }
-    save(folder, &baseline)
+    save(folder, &baseline)?;
+    // Last, so a capture that failed earlier leaves no ref behind.
+    if let Some(commit) = &baseline.commit {
+        let session = folder
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let name = snapshot_ref(session).ok_or("The conversation's snapshot name is invalid.")?;
+        output(
+            git,
+            Some(root),
+            ["update-ref", name.as_str(), commit.as_str()],
+        )
+        .ok_or("Git could not record the conversation's snapshot commit in the repository.")?;
+    }
+    Ok(())
 }
 
 fn baseline_side(

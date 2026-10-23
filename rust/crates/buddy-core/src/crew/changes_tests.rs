@@ -181,7 +181,10 @@ fn paths_outside_the_project_are_refused() {
     repo.capture();
     let outside = repo.root.parent().unwrap().join("outside.txt");
     std::fs::write(&outside, "keep me\n").unwrap();
-    let seen = Seen::File(digest(b"keep me\n"));
+    let seen = Seen::File {
+        sha: digest(b"keep me\n"),
+        executable: None,
+    };
     for path in [
         "../outside.txt",
         ".git/config",
@@ -213,7 +216,10 @@ fn a_link_out_of_the_project_is_not_followed() {
     let change = repo.change("link");
     assert_eq!(change.kind, Kind::Added);
     assert!(change.no_undo.is_some());
-    let seen = Seen::File(digest(b"outside\n"));
+    let seen = Seen::File {
+        sha: digest(b"outside\n"),
+        executable: None,
+    };
     let refused = undo(&repo.git, &repo.root, &repo.folder, "link/f.txt", &seen);
     assert!(refused.is_err());
     assert_eq!(
@@ -485,7 +491,10 @@ fn undo_never_writes_through_a_folder_replaced_by_a_link() {
         assert!(refused.is_err());
     }
     // Even with the seen state of the real metadata file, nothing is written through.
-    let seen = Seen::File(digest(&before));
+    let seen = Seen::File {
+        sha: digest(&before),
+        executable: None,
+    };
     assert!(undo(&repo.git, &repo.root, &repo.folder, "data/config", &seen).is_err());
     assert_eq!(std::fs::read(&git_config).unwrap(), before);
 }
@@ -496,4 +505,52 @@ fn no_path_part_may_be_git_metadata() {
         assert!(!valid_path(path), "{path}");
     }
     assert!(valid_path("a/.gitkeep"));
+}
+
+#[test]
+fn the_snapshot_commit_survives_an_amend_and_garbage_collection() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    let reference = output(
+        &repo.git,
+        Some(&repo.root),
+        ["rev-parse", "refs/buddy/crew/snapshot"],
+    );
+    assert!(reference.is_some(), "the snapshot commit has a ref");
+    // The commit is rewritten and every unreferenced object pruned.
+    repo.write("a.txt", "a\nb\n");
+    repo.run(&["commit", "-q", "-a", "--amend", "-m", "amended"]);
+    repo.run(&["reflog", "expire", "--expire=now", "--all"]);
+    repo.run(&["gc", "-q", "--prune=now"]);
+    assert_eq!(repo.change("a.txt").lines, Some((1, 0)));
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "a\n");
+    release(&repo.git, &repo.root, "snapshot");
+    let gone = output(
+        &repo.git,
+        Some(&repo.root),
+        ["rev-parse", "--verify", "-q", "refs/buddy/crew/snapshot"],
+    );
+    assert!(gone.is_none(), "the ref is deleted with the conversation");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mode_change_after_the_list_was_read_stops_keep_and_undo() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("run.sh", "echo hi\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("run.sh", "echo changed\n");
+    let seen = repo.change("run.sh").seen;
+    set_mode(&repo.root.join("run.sh"), 0o755);
+    assert_eq!(
+        keep(&repo.root, &repo.folder, "run.sh", &seen),
+        Err(ActionError::Changed)
+    );
+    let undone = undo(&repo.git, &repo.root, &repo.folder, "run.sh", &seen);
+    assert_eq!(undone, Err(ActionError::Changed));
+    assert_eq!(mode_of(&repo.root.join("run.sh")) & 0o111, 0o111);
 }

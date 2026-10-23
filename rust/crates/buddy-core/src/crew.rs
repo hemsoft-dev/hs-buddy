@@ -332,6 +332,7 @@ impl Store {
     /// Refused while a reply is in flight for it, in any window.
     pub fn remove(&self, project: &str) -> Result<Removed, String> {
         let current = self.session(project)?;
+        let root = self.project(project)?.map(|found| found.git_root);
         // Held through the change, so no window starts a reply in between.
         let _guard = self.claim(current.as_ref(), "removing the project")?;
         let removed = self.update(|state| {
@@ -345,21 +346,28 @@ impl Store {
                 .retain(|session| session.project_id != project);
             Ok(before != state.projects.len())
         })??;
-        let leftover = current.and_then(|session| self.discard_snapshot(&session.id).err());
+        let leftover =
+            current.and_then(|session| self.discard_snapshot(&session.id, root.as_deref()).err());
         Ok(Removed {
             done: removed,
             leftover,
         })
     }
 
-    /// Discards a session prepared by [`Store::prepare_session`] that never started.
+    /// Discards a session prepared by [`Store::prepare_session`] whose capture failed
+    /// (a failed capture records no snapshot ref).
     pub fn abandon_session(&self, session: &str) {
-        let _ = self.discard_snapshot(session);
+        let _ = self.discard_snapshot(session, None);
     }
 
-    fn discard_snapshot(&self, session: &str) -> Result<(), String> {
+    /// Deletes the snapshot folder and turn lock, and the snapshot ref in the repository
+    /// at `root` when one is given.
+    fn discard_snapshot(&self, session: &str, root: Option<&Path>) -> Result<(), String> {
         if !valid_id(session) {
             return Ok(());
+        }
+        if let (Some(root), Ok(git)) = (root, project::git()) {
+            changes::release(&git, root, session);
         }
         let _ = std::fs::remove_file(self.turn_lock(session));
         match std::fs::remove_dir_all(self.snapshot_folder(session)) {
@@ -488,11 +496,18 @@ impl Store {
         match outcome {
             Ok((session, true)) => Ok(session),
             Ok((session, false)) => {
-                self.abandon_session(id);
+                // Lost to a conversation another window started: its snapshot ref too.
+                let root = self.project(project)?.map(|found| found.git_root);
+                let _ = self.discard_snapshot(id, root.as_deref());
                 Ok(session)
             }
             Err(error) => {
-                self.abandon_session(id);
+                let root = self
+                    .project(project)
+                    .ok()
+                    .flatten()
+                    .map(|found| found.git_root);
+                let _ = self.discard_snapshot(id, root.as_deref());
                 Err(error)
             }
         }
@@ -657,8 +672,9 @@ impl Store {
                 .retain(|session| !(session.project_id == project && session.id == current.id));
             Ok(before != state.sessions.len())
         })??;
+        let root = self.project(project)?.map(|found| found.git_root);
         let leftover = cleared
-            .then(|| self.discard_snapshot(&current.id).err())
+            .then(|| self.discard_snapshot(&current.id, root.as_deref()).err())
             .flatten();
         Ok(Removed {
             done: cleared,

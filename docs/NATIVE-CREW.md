@@ -58,7 +58,10 @@ conversation's lock while it works. If a snapshot folder cannot be deleted at on
 ## Changed files
 
 Starting a conversation takes a snapshot of the project: the `HEAD` commit, and a
-copy of every file Git reports as changed or untracked at that moment. Changed
+copy of every file Git reports as changed or untracked at that moment. So that an amend,
+rebase or `git gc` cannot remove that commit, Buddy points a ref at it in the project's
+repository, `refs/buddy/crew/<conversation>`. It is the only thing the Crew writes to a
+repository on its own, and Clear and Remove delete it. Changed
 files then lists each file whose content, executable bit (on macOS and Linux) or link
 target differs from the snapshot, whoever changed
 it: an editor, a terminal, an agent loop. Edits made before the conversation started
@@ -81,7 +84,8 @@ on Refresh.
   was already changed (so your earlier edits survive), or no file for one that was
   added. A file deleted since the snapshot is recreated with its executable bit.
 
-Both act only on the file as the list showed it. If the file changed after the list
+Both act only on the file as the list showed it (its content, and on macOS and Linux its
+executable bit). If the file changed after the list
 was read, nothing is written and the row reports it; Refresh and look again. Undo
 prepares the restored file first and checks the file once more just before replacing
 or deleting it, which leaves only the moment of the replacement itself for an editor to

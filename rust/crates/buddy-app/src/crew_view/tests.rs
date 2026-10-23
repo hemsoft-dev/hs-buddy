@@ -771,3 +771,56 @@ fn a_reply_that_cannot_be_saved_is_kept_and_saved_later(cx: &mut gpui_kit::TestA
     assert!(!view.read_with(&visual, |view, _| view.turns.contains_key(&id)));
     assert_eq!(history(&view, &mut visual)[1].1, "the answer");
 }
+
+fn composer(view: &Entity<CrewView>, cx: &mut VisualTestContext) -> String {
+    view.read_with(cx, |view, cx| view.message.read(cx).value().to_string())
+}
+
+#[gpui_kit::test]
+fn a_question_that_was_not_saved_goes_back_to_the_composer(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    // Another window starts a reply before this one has polled.
+    let session = selected_session(&view, &mut visual);
+    let other = Store::at(root.path().join("native-crew")).unwrap();
+    let (_, guard) = other.begin_turn(&session.id, "elsewhere", "first").unwrap();
+    type_and_send(&view, "my question", &mut visual);
+    assert_eq!(assistant.count(), 0);
+    assert_eq!(composer(&view, &mut visual), "my question");
+    assert!(error(&view, &mut visual).is_some());
+    drop(guard);
+}
+
+#[gpui_kit::test]
+fn adding_a_project_keeps_the_current_draft(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let (alpha, beta) = (
+        repository(root.path(), "alpha"),
+        repository(root.path(), "beta"),
+    );
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.message
+                .update(cx, |input, cx| input.set_value("half written", window, cx))
+        })
+    });
+    add(&view, &beta, &mut visual);
+    assert_eq!(composer(&view, &mut visual), "");
+    // Adding the shown project again keeps its text where it is.
+    select(&view, "o/alpha", &mut visual);
+    assert_eq!(composer(&view, &mut visual), "half written");
+    add(&view, &alpha, &mut visual);
+    assert_eq!(composer(&view, &mut visual), "half written");
+}

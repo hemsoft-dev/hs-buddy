@@ -183,7 +183,7 @@ def qualify(executable, output, session, version):
             ("click", "alpha"), ("wait_text", "README.md"), ("capture", "one-change-dark"),
             ("click", "Keep"), ("wait_text", "Kept the changes to README.md."), ("capture", "kept-dark"),
         ], record=True)
-        github.check(kept / "one-change-dark.png", "Changed files", "README.md", "Modified", "+2", "Keep", "Undo")
+        github.check(kept / "one-change-dark.png", "Changed files", "README.md", "Modified", "+2", "Keep", "Undo change")
         github.check(kept / "kept-dark.png", "Kept the changes to README.md.",
             "No changes since this conversation started.")
         if readme.read_text(encoding="utf-8") != agent_readme:
@@ -191,8 +191,8 @@ def qualify(executable, output, session, version):
 
         library.write_text("pub fn answer() -> u32 { 0 } // an agent's edit\n", encoding="utf-8")
         undone = driver.drive("undo-dark", [
-            ("click", "alpha"), ("wait_text", "lib.rs"),
-            ("click", "Undo"), ("wait_text", "Confirm undo"), ("capture", "undo-confirm-dark"),
+            ("click", "alpha"), ("wait_text", "Modified"),
+            ("click", "Undo change"), ("wait_text", "Confirm undo"), ("capture", "undo-confirm-dark"),
             ("click", "Confirm undo"), ("wait_text", "Undid the changes to"), ("capture", "undone-dark"),
         ], record=True)
         github.check(undone / "undo-confirm-dark.png", "lib.rs", "Modified", "Keep")
