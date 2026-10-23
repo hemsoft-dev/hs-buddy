@@ -780,6 +780,9 @@ pub fn undo(
         return Err(refused_path());
     }
     let directory = open_root(root).map_err(ActionError::Refused)?;
+    // Held until the file is written, so a Keep from another window cannot land between
+    // reading the baseline and restoring it.
+    let _lock = lock(folder).map_err(ActionError::Refused)?;
     let baseline = load(folder).map_err(ActionError::Refused)?;
     let tree = match (&baseline.commit, baseline.files.contains_key(path)) {
         (Some(commit), false) => {
@@ -823,7 +826,8 @@ pub fn undo(
             else {
                 return Err(linked());
             };
-            let temporary = format!(".{name}.buddy-undo-{}", uuid::Uuid::new_v4().simple());
+            // Independent of the file's name, which may already be near the length limit.
+            let temporary = format!(".buddy-undo-{}", uuid::Uuid::new_v4().simple());
             let prepared = (|| -> std::io::Result<()> {
                 let mut file = folder.create(&temporary)?.into_std();
                 file.write_all(&bytes)?;

@@ -554,3 +554,34 @@ fn a_mode_change_after_the_list_was_read_stops_keep_and_undo() {
     assert_eq!(undone, Err(ActionError::Changed));
     assert_eq!(mode_of(&repo.root.join("run.sh")) & 0o111, 0o111);
 }
+
+#[test]
+fn undo_works_for_a_name_near_the_length_limit() {
+    let Some(repo) = Repo::new() else { return };
+    let long = format!("{}.txt", "n".repeat(230));
+    repo.write(&long, "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write(&long, "b\n");
+    repo.undo(&long).unwrap();
+    assert_eq!(repo.read(&long).unwrap(), "a\n");
+}
+
+#[test]
+fn undo_waits_for_a_keep_from_another_window() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("a.txt", "kept\n");
+    let seen = repo.change("a.txt").seen;
+    // Another window holds the baseline while it keeps the file.
+    let held = lock(&repo.folder).unwrap();
+    let refused = undo(&repo.git, &repo.root, &repo.folder, "a.txt", &seen);
+    assert!(
+        matches!(refused, Err(ActionError::Refused(_))),
+        "{refused:?}"
+    );
+    assert_eq!(repo.read("a.txt").unwrap(), "kept\n");
+    drop(held);
+}
