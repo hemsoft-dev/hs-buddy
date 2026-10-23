@@ -57,6 +57,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed automation qualification failed' }
     & python (Join-Path $PSScriptRoot 'ralph-desktop.py') --executable $exe --output (Join-Path $Output 'ralph') --session windows --version $metadata.version
     if ($LASTEXITCODE -ne 0) { throw 'Installed Ralph qualification failed' }
+    & python (Join-Path $PSScriptRoot 'crew-desktop.py') --executable $exe --output (Join-Path $Output 'crew') --session windows --version $metadata.version
+    if ($LASTEXITCODE -ne 0) { throw 'Installed Crew qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

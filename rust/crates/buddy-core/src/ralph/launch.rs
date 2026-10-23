@@ -229,8 +229,39 @@ fn runnable(path: &Path) -> bool {
     }
 }
 
+/// One program from this process's `PATH` or the common install folders, for features
+/// that need only it (the Crew runs `git` and `ssh`).
+pub fn locate(name: &str) -> Option<PathBuf> {
+    let (directories, extensions) = search(std::env::var_os("PATH"), &extra_directories());
+    find(&directories, &extensions, name)
+}
+
+fn find(directories: &[PathBuf], extensions: &[OsString], name: &str) -> Option<PathBuf> {
+    directories.iter().find_map(|directory| {
+        candidates(name, extensions)
+            .into_iter()
+            .map(|file| directory.join(file))
+            .find(|path| runnable(path))
+    })
+}
+
 /// Finds every tool on `path`, then in `extra` folders, or names the first missing one.
 pub fn discover(path: Option<OsString>, extra: &[PathBuf]) -> Result<Tools, String> {
+    let (directories, extensions) = search(path, extra);
+    let mut found = vec![];
+    for tool in TOOLS {
+        found.push(find(&directories, &extensions, tool.name).ok_or(tool.missing)?);
+    }
+    Ok(Tools {
+        pwsh: found[0].clone(),
+        git: found[1].clone(),
+        gh: found[2].clone(),
+        path: std::env::join_paths(&directories).map_err(|_| "PATH contains an invalid folder.")?,
+    })
+}
+
+/// The absolute folders to search, in order, and the executable extensions to try.
+fn search(path: Option<OsString>, extra: &[PathBuf]) -> (Vec<PathBuf>, Vec<OsString>) {
     let mut directories = path
         .as_ref()
         .map(|path| std::env::split_paths(path).collect::<Vec<_>>())
@@ -256,24 +287,7 @@ pub fn discover(path: Option<OsString>, extra: &[PathBuf]) -> Result<Tools, Stri
                 .map(OsString::from)
                 .to_vec()
         });
-    let find = |name: &str| {
-        directories.iter().find_map(|directory| {
-            candidates(name, &extensions)
-                .into_iter()
-                .map(|file| directory.join(file))
-                .find(|path| runnable(path))
-        })
-    };
-    let mut found = vec![];
-    for tool in TOOLS {
-        found.push(find(tool.name).ok_or(tool.missing)?);
-    }
-    Ok(Tools {
-        pwsh: found[0].clone(),
-        git: found[1].clone(),
-        gh: found[2].clone(),
-        path: std::env::join_paths(&directories).map_err(|_| "PATH contains an invalid folder.")?,
-    })
+    (directories, extensions)
 }
 
 /// The command a validated launch runs, recorded with the run so a restart never re-plans it.

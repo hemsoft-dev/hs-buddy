@@ -7,6 +7,7 @@ mod assets;
 mod automation_view;
 mod command_line;
 mod copilot_view;
+mod crew_view;
 mod dashboard;
 mod github_view;
 mod logging;

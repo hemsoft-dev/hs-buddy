@@ -1,0 +1,587 @@
+use super::*;
+
+struct Repo {
+    _temporary: tempfile::TempDir,
+    git: PathBuf,
+    root: PathBuf,
+    folder: PathBuf,
+}
+
+impl Repo {
+    fn new() -> Option<Self> {
+        let git = super::super::project::git().ok()?;
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project with spaces é");
+        let folder = temporary.path().join("snapshot");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        let repo = Self {
+            _temporary: temporary,
+            git,
+            root,
+            folder,
+        };
+        repo.run(&["init", "-q"]);
+        // Every Git call in the test, including the code under test, sees LF checkouts.
+        repo.run(&["config", "core.autocrlf", "false"]);
+        Some(repo)
+    }
+
+    fn run(&self, arguments: &[&str]) {
+        let mut all = vec![
+            "-c",
+            "user.name=Crew Test",
+            "-c",
+            "user.email=crew@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.autocrlf=false",
+        ];
+        all.extend_from_slice(arguments);
+        assert!(
+            output(&self.git, Some(&self.root), &all).is_some(),
+            "git {arguments:?}"
+        );
+    }
+
+    fn write(&self, path: &str, text: &str) {
+        let path = self.root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    fn read(&self, path: &str) -> Option<String> {
+        std::fs::read_to_string(self.root.join(path)).ok()
+    }
+
+    fn commit_all(&self) {
+        self.run(&["add", "-A"]);
+        self.run(&["commit", "-q", "-m", "c"]);
+    }
+
+    fn capture(&self) {
+        capture(&self.git, &self.root, &self.folder).unwrap();
+    }
+
+    fn scan(&self) -> Scan {
+        scan(&self.git, &self.root, &self.folder).unwrap()
+    }
+
+    fn change(&self, path: &str) -> Change {
+        self.scan()
+            .changes
+            .into_iter()
+            .find(|change| change.path == path)
+            .unwrap_or_else(|| panic!("{path} is not listed"))
+    }
+
+    fn listed(&self) -> Vec<(String, Kind)> {
+        self.scan()
+            .changes
+            .into_iter()
+            .map(|change| (change.path, change.kind))
+            .collect()
+    }
+
+    fn undo(&self, path: &str) -> Result<(), ActionError> {
+        let seen = self.change(path).seen;
+        undo(&self.git, &self.root, &self.folder, path, &seen)
+    }
+}
+
+#[test]
+fn changes_are_measured_from_the_session_start_not_from_head() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "one\ntwo\n");
+    repo.write("dir/b.txt", "bee\n");
+    repo.commit_all();
+    // Edits that existed before the session are the user's, not the session's.
+    repo.write("a.txt", "one\nmine\n");
+    repo.write("untracked.txt", "u\n");
+    repo.capture();
+    assert_eq!(repo.scan(), Scan::default());
+
+    repo.write("a.txt", "one\nmine\nmore\n");
+    repo.write("dir/b.txt", "bee\nsting\n");
+    repo.write("new file.txt", "fresh\n");
+    std::fs::remove_file(repo.root.join("untracked.txt")).unwrap();
+    assert_eq!(
+        repo.listed(),
+        [
+            ("a.txt".to_string(), Kind::Modified),
+            ("dir/b.txt".into(), Kind::Modified),
+            ("new file.txt".into(), Kind::Added),
+            ("untracked.txt".into(), Kind::Deleted),
+        ]
+    );
+    assert_eq!(repo.change("a.txt").lines, Some((1, 0)));
+    assert_eq!(repo.change("new file.txt").lines, Some((1, 0)));
+    assert_eq!(repo.change("untracked.txt").lines, Some((0, 1)));
+
+    // Undo restores each file to the session's start, keeping the user's earlier edit.
+    for path in ["a.txt", "dir/b.txt", "new file.txt", "untracked.txt"] {
+        repo.undo(path).unwrap();
+    }
+    assert_eq!(repo.read("a.txt").unwrap(), "one\nmine\n");
+    assert_eq!(repo.read("dir/b.txt").unwrap(), "bee\n");
+    assert_eq!(repo.read("new file.txt"), None);
+    assert_eq!(repo.read("untracked.txt").unwrap(), "u\n");
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[test]
+fn keep_accepts_the_current_content_until_it_changes_again() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("a.txt", "a\nkept\n");
+    let seen = repo.change("a.txt").seen;
+    keep(&repo.root, &repo.folder, "a.txt", &seen).unwrap();
+    assert_eq!(repo.scan(), Scan::default());
+
+    repo.write("a.txt", "a\nkept\nlater\n");
+    assert_eq!(repo.change("a.txt").lines, Some((1, 0)));
+    // Undo now returns to the kept content, not the commit.
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "a\nkept\n");
+
+    // Keeping a deletion accepts it too.
+    std::fs::remove_file(repo.root.join("a.txt")).unwrap();
+    let seen = repo.change("a.txt").seen;
+    assert_eq!(seen, Seen::Absent);
+    keep(&repo.root, &repo.folder, "a.txt", &seen).unwrap();
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[test]
+fn an_edit_after_the_list_was_read_is_never_overwritten() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("a.txt", "agent\n");
+    let seen = repo.change("a.txt").seen;
+    repo.write("a.txt", "the user's newer edit\n");
+    let undone = undo(&repo.git, &repo.root, &repo.folder, "a.txt", &seen);
+    assert_eq!(undone, Err(ActionError::Changed));
+    assert_eq!(
+        keep(&repo.root, &repo.folder, "a.txt", &seen),
+        Err(ActionError::Changed)
+    );
+    assert_eq!(repo.read("a.txt").unwrap(), "the user's newer edit\n");
+}
+
+#[test]
+fn paths_outside_the_project_are_refused() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    let outside = repo.root.parent().unwrap().join("outside.txt");
+    std::fs::write(&outside, "keep me\n").unwrap();
+    let seen = Seen::File {
+        sha: digest(b"keep me\n"),
+        executable: None,
+    };
+    for path in [
+        "../outside.txt",
+        ".git/config",
+        ".GIT/HEAD",
+        "/etc/passwd",
+        "dir\\..\\..\\outside.txt",
+        "./a.txt",
+        "",
+    ] {
+        let refused = undo(&repo.git, &repo.root, &repo.folder, path, &seen);
+        assert!(matches!(refused, Err(ActionError::Refused(_))), "{path}");
+        let refused = keep(&repo.root, &repo.folder, path, &seen);
+        assert!(matches!(refused, Err(ActionError::Refused(_))), "{path}");
+    }
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep me\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_out_of_the_project_is_not_followed() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    let outside = repo.root.parent().unwrap().join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("f.txt"), "outside\n").unwrap();
+    std::os::unix::fs::symlink(&outside, repo.root.join("link")).unwrap();
+    let change = repo.change("link");
+    assert_eq!(change.kind, Kind::Added);
+    assert!(change.no_undo.is_some());
+    let seen = Seen::File {
+        sha: digest(b"outside\n"),
+        executable: None,
+    };
+    let refused = undo(&repo.git, &repo.root, &repo.folder, "link/f.txt", &seen);
+    assert!(refused.is_err());
+    assert_eq!(
+        std::fs::read_to_string(outside.join("f.txt")).unwrap(),
+        "outside\n"
+    );
+}
+
+#[test]
+fn line_endings_follow_gits_checkout_filters() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write(".gitattributes", "*.txt text eol=crlf\n");
+    repo.write("a.txt", "one\ntwo\n");
+    repo.commit_all();
+    // Check the file out again so the working tree holds CRLF.
+    std::fs::remove_file(repo.root.join("a.txt")).unwrap();
+    repo.run(&["checkout", "--", "a.txt"]);
+    assert_eq!(repo.read("a.txt").unwrap(), "one\r\ntwo\r\n");
+    repo.capture();
+    assert_eq!(repo.scan(), Scan::default());
+    repo.write("a.txt", "one\r\nTWO\r\n");
+    assert_eq!(repo.change("a.txt").lines, Some((1, 1)));
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "one\r\ntwo\r\n");
+}
+
+#[test]
+fn commits_made_during_the_session_still_count() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("a.txt", "a\nb\n");
+    repo.write("c.txt", "c\n");
+    repo.commit_all();
+    assert_eq!(
+        repo.listed(),
+        [
+            ("a.txt".to_string(), Kind::Modified),
+            ("c.txt".into(), Kind::Added)
+        ]
+    );
+    repo.undo("c.txt").unwrap();
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "a\n");
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[test]
+fn a_repository_without_commits_starts_from_its_files() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.capture();
+    assert_eq!(repo.scan(), Scan::default());
+    repo.commit_all();
+    repo.write("a.txt", "a\nb\n");
+    repo.write("b.txt", "b\n");
+    repo.commit_all();
+    assert_eq!(
+        repo.listed(),
+        [
+            ("a.txt".to_string(), Kind::Modified),
+            ("b.txt".into(), Kind::Added)
+        ]
+    );
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "a\n");
+}
+
+#[test]
+fn binary_and_ignored_files() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write(".gitignore", "build/\n");
+    repo.commit_all();
+    repo.capture();
+    std::fs::create_dir_all(repo.root.join("build")).unwrap();
+    std::fs::write(repo.root.join("build/out.bin"), b"ignored").unwrap();
+    std::fs::write(repo.root.join("image.bin"), b"\0\x01\x02").unwrap();
+    let listed = repo.scan().changes;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, "image.bin");
+    assert_eq!(listed[0].lines, None);
+    repo.undo("image.bin").unwrap();
+    assert!(!repo.root.join("image.bin").exists());
+}
+
+#[test]
+fn reported_paths_are_validated() {
+    for path in [
+        "a.txt",
+        "dir/b c.txt",
+        "é/ü.txt",
+        ".github/x.yml",
+        ".gitignore",
+    ] {
+        assert!(valid_path(path), "{path}");
+    }
+    for path in [
+        "",
+        "../a",
+        "a/../../b",
+        "/a",
+        ".git",
+        ".git/x",
+        "a\\b",
+        "a\nb",
+        "./a",
+    ] {
+        assert!(!valid_path(path), "{path}");
+    }
+    // A drive or UNC prefix is a different volume on Windows.
+    #[cfg(windows)]
+    for path in ["C:/Windows/win.ini", "C:a.txt", "//server/share/a"] {
+        assert!(!valid_path(path), "{path}");
+    }
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
+fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[cfg(unix)]
+#[test]
+fn executable_bits_are_compared_and_restored() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("run.sh", "echo hi\n");
+    set_mode(&repo.root.join("run.sh"), 0o755);
+    repo.write("note.sh", "echo note\n");
+    set_mode(&repo.root.join("note.sh"), 0o755);
+    repo.commit_all();
+    repo.capture();
+    // Deleting an executable and undoing it brings back the executable bit.
+    std::fs::remove_file(repo.root.join("run.sh")).unwrap();
+    repo.undo("run.sh").unwrap();
+    assert_eq!(mode_of(&repo.root.join("run.sh")) & 0o111, 0o111);
+    // A mode-only change is listed, and Undo restores the bit.
+    set_mode(&repo.root.join("note.sh"), 0o644);
+    assert_eq!(repo.change("note.sh").kind, Kind::Modified);
+    repo.undo("note.sh").unwrap();
+    assert_eq!(mode_of(&repo.root.join("note.sh")) & 0o111, 0o111);
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_changed_link_target_is_listed_without_undo() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.write("b.txt", "b\n");
+    std::os::unix::fs::symlink("a.txt", repo.root.join("link")).unwrap();
+    repo.commit_all();
+    repo.capture();
+    assert_eq!(repo.scan(), Scan::default());
+    std::fs::remove_file(repo.root.join("link")).unwrap();
+    std::os::unix::fs::symlink("b.txt", repo.root.join("link")).unwrap();
+    let change = repo.change("link");
+    assert_eq!(change.kind, Kind::Modified);
+    assert!(matches!(change.seen, Seen::Link(_)));
+    assert!(change.no_undo.is_some());
+    assert!(matches!(repo.undo("link"), Err(ActionError::Refused(_))));
+    // Keep accepts the new target.
+    keep(&repo.root, &repo.folder, "link", &change.seen).unwrap();
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[test]
+fn large_git_output_is_hashed_not_buffered() {
+    let Some(repo) = Repo::new() else { return };
+    let big = vec![b'x'; MAX_FILE as usize + 4096];
+    std::fs::write(repo.root.join("big.bin"), &big).unwrap();
+    let object = output(
+        &repo.git,
+        Some(&repo.root),
+        ["hash-object", "-w", "big.bin"],
+    )
+    .unwrap();
+    let object = String::from_utf8(object).unwrap().trim().to_string();
+    let read = bounded(
+        &repo.git,
+        &repo.root,
+        &["cat-file", "blob", object.as_str()],
+    )
+    .unwrap();
+    assert_eq!(read, Err(digest(&big)));
+    let small = bounded(&repo.git, &repo.root, &["rev-parse", "--git-dir"]).unwrap();
+    assert!(small.is_ok());
+    assert!(bounded(&repo.git, &repo.root, &["cat-file", "blob", "0000"]).is_none());
+}
+
+#[test]
+fn the_snapshot_keeps_its_commits_line_endings() {
+    let Some(repo) = Repo::new() else { return };
+    let supported = output(
+        &repo.git,
+        Some(&repo.root),
+        ["--attr-source=HEAD", "version"],
+    );
+    repo.write(".gitattributes", "*.txt text eol=lf\n");
+    repo.write("a.txt", "one\ntwo\n");
+    repo.commit_all();
+    if supported.is_none() {
+        // Git before 2.40 reads the working tree's attributes instead.
+        return;
+    }
+    repo.capture();
+    // Attributes change after the conversation started.
+    repo.write(".gitattributes", "*.txt text eol=crlf\n");
+    repo.write("a.txt", "one\nTWO\n");
+    assert_eq!(repo.change("a.txt").lines, Some((1, 1)));
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "one\ntwo\n");
+}
+
+#[test]
+fn keeps_from_two_windows_are_both_recorded() {
+    let Some(repo) = Repo::new() else { return };
+    let names: Vec<String> = (0..6).map(|index| format!("f{index}.txt")).collect();
+    for name in &names {
+        repo.write(name, "a\n");
+    }
+    repo.commit_all();
+    repo.capture();
+    for name in &names {
+        repo.write(name, "a\nb\n");
+    }
+    let changes = repo.scan().changes;
+    std::thread::scope(|scope| {
+        for change in &changes {
+            let (root, folder) = (&repo.root, &repo.folder);
+            scope.spawn(move || keep(root, folder, &change.path, &change.seen).unwrap());
+        }
+    });
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[cfg(unix)]
+#[test]
+fn undo_never_writes_through_a_folder_replaced_by_a_link() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    // An untracked file in a folder, copied by the snapshot.
+    repo.write("data/config", "project content\n");
+    repo.capture();
+    let git_config = repo.root.join(".git").join("config");
+    let before = std::fs::read(&git_config).unwrap();
+    // The folder is replaced by a link into the repository's metadata.
+    std::fs::remove_dir_all(repo.root.join("data")).unwrap();
+    std::os::unix::fs::symlink(".git", repo.root.join("data")).unwrap();
+    let listed = repo.scan().changes;
+    let config = listed.iter().find(|change| change.path == "data/config");
+    if let Some(config) = config {
+        assert!(config.no_undo.is_some(), "{config:?}");
+        let refused = undo(
+            &repo.git,
+            &repo.root,
+            &repo.folder,
+            "data/config",
+            &config.seen,
+        );
+        assert!(refused.is_err());
+    }
+    // Even with the seen state of the real metadata file, nothing is written through.
+    let seen = Seen::File {
+        sha: digest(&before),
+        executable: None,
+    };
+    assert!(undo(&repo.git, &repo.root, &repo.folder, "data/config", &seen).is_err());
+    assert_eq!(std::fs::read(&git_config).unwrap(), before);
+}
+
+#[test]
+fn no_path_part_may_be_git_metadata() {
+    for path in ["sub/.git/config", "a/.GIT/HEAD", ".git/config"] {
+        assert!(!valid_path(path), "{path}");
+    }
+    assert!(valid_path("a/.gitkeep"));
+}
+
+#[test]
+fn the_snapshot_commit_survives_an_amend_and_garbage_collection() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    let reference = output(
+        &repo.git,
+        Some(&repo.root),
+        ["rev-parse", "refs/buddy/crew/snapshot"],
+    );
+    assert!(reference.is_some(), "the snapshot commit has a ref");
+    // The commit is rewritten and every unreferenced object pruned.
+    repo.write("a.txt", "a\nb\n");
+    repo.run(&["commit", "-q", "-a", "--amend", "-m", "amended"]);
+    repo.run(&["reflog", "expire", "--expire=now", "--all"]);
+    repo.run(&["gc", "-q", "--prune=now"]);
+    assert_eq!(repo.change("a.txt").lines, Some((1, 0)));
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "a\n");
+    release(&repo.git, &repo.root, "snapshot");
+    let gone = output(
+        &repo.git,
+        Some(&repo.root),
+        ["rev-parse", "--verify", "-q", "refs/buddy/crew/snapshot"],
+    );
+    assert!(gone.is_none(), "the ref is deleted with the conversation");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mode_change_after_the_list_was_read_stops_keep_and_undo() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("run.sh", "echo hi\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("run.sh", "echo changed\n");
+    let seen = repo.change("run.sh").seen;
+    set_mode(&repo.root.join("run.sh"), 0o755);
+    assert_eq!(
+        keep(&repo.root, &repo.folder, "run.sh", &seen),
+        Err(ActionError::Changed)
+    );
+    let undone = undo(&repo.git, &repo.root, &repo.folder, "run.sh", &seen);
+    assert_eq!(undone, Err(ActionError::Changed));
+    assert_eq!(mode_of(&repo.root.join("run.sh")) & 0o111, 0o111);
+}
+
+#[test]
+fn undo_works_for_a_name_near_the_length_limit() {
+    let Some(repo) = Repo::new() else { return };
+    let long = format!("{}.txt", "n".repeat(230));
+    repo.write(&long, "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write(&long, "b\n");
+    repo.undo(&long).unwrap();
+    assert_eq!(repo.read(&long).unwrap(), "a\n");
+}
+
+#[test]
+fn undo_waits_for_a_keep_from_another_window() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    repo.capture();
+    repo.write("a.txt", "kept\n");
+    let seen = repo.change("a.txt").seen;
+    // Another window holds the baseline while it keeps the file.
+    let held = lock(&repo.folder).unwrap();
+    let refused = undo(&repo.git, &repo.root, &repo.folder, "a.txt", &seen);
+    assert!(
+        matches!(refused, Err(ActionError::Refused(_))),
+        "{refused:?}"
+    );
+    assert_eq!(repo.read("a.txt").unwrap(), "kept\n");
+    drop(held);
+}

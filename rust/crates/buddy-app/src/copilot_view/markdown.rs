@@ -51,7 +51,7 @@ fn web_link(value: &str) -> Option<String> {
     .then(|| parsed.to_string())
 }
 
-pub(super) fn response(id: impl Into<ElementId>, source: String) -> impl IntoElement {
+pub(crate) fn response(id: impl Into<ElementId>, source: String) -> impl IntoElement {
     TextView::markdown(id, source)
         .selectable(true)
         .markdown_extensions(

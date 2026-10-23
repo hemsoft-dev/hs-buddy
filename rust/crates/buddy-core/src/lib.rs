@@ -20,6 +20,7 @@ pub mod copilot_runtime;
 pub mod copilot_sdk;
 pub mod copilot_sessions;
 pub mod copilot_usage;
+pub mod crew;
 pub mod dashboard;
 pub mod finance;
 pub mod format;
