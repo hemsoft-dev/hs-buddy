@@ -12,6 +12,7 @@ mod github_view;
 mod logging;
 mod notification_audio;
 mod platform_placement;
+mod ralph_view;
 mod runtime;
 mod settings;
 mod settings_view;
@@ -297,6 +298,12 @@ fn main() {
         }
         Ok(command_line::Command::AutomationHost) => {
             std::process::exit(buddy_core::automation::run_automation_host());
+        }
+        Ok(command_line::Command::RalphHost(run)) => {
+            std::process::exit(buddy_core::ralph::run_ralph_host(&run));
+        }
+        Ok(command_line::Command::RalphExec) => {
+            std::process::exit(buddy_core::ralph::run_ralph_exec());
         }
         Ok(command_line::Command::PrepareCopilotRuntime(root)) => {
             std::process::exit(buddy_core::copilot_runtime::helper_main(&root));

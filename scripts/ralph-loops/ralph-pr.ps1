@@ -15,6 +15,8 @@ param(
     [switch]$NoAudio,
     [switch]$SkipReview,
     [switch]$AutoApprove,
+    # Exit 3 unless the PR was merged (for callers that build on the merged work).
+    [switch]$RequireMerge,
     [switch]$Help
 )
 
@@ -22,7 +24,7 @@ param(
 if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Config: load shared model/agent configuration ---
-. "$PSScriptRoot\lib\config.ps1"
+. (Join-Path $PSScriptRoot 'lib' 'config.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -122,6 +124,7 @@ if ($Help) {
     Write-Host "                         Note: -SkipReview does NOT suppress explicit -Agents reviews."
     Write-Host "  -StatsPath <path>      Write PR phase stats JSON to this path (for parent rollup)"
     Write-Host "  -NoAudio               Suppress audio feedback"
+    Write-Host "  -RequireMerge          Exit 3 unless the PR was merged (with -Autopilot -AutoApprove)"
     Write-Host "  -Help                  Show this help message"
     Write-Host ""
     Write-Host "MODELS" -ForegroundColor Yellow
@@ -164,7 +167,7 @@ if ($Help) {
 }
 
 # --- Git repo validation ---
-$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', '\'
+$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', [IO.Path]::DirectorySeparatorChar
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not inside a git repository. Run this from within a repo." -ForegroundColor Red
     exit 1
@@ -228,8 +231,13 @@ $owner, $repo = $repoSlug -split '/'
 # active but running against a personal repo), API calls return 404. Detect
 # this and set GH_TOKEN to the matching account's token for the script duration.
 # If the owner is an org and the active user is a member, the current token works.
+# Buddy Native runs a loop as the account its GitHub view showed: RALPH_GH_ACCOUNT names
+# it and GH_TOKEN holds its token. That account is kept, never traded for the owner's.
 $activeGhUser = gh api user --jq '.login' 2>$null
-if ($activeGhUser -and $activeGhUser -ne $owner) {
+if ($env:RALPH_GH_ACCOUNT) {
+    Write-Host "  gh account: $env:RALPH_GH_ACCOUNT (chosen in Buddy)" -ForegroundColor DarkGray
+}
+elseif ($activeGhUser -and $activeGhUser -ne $owner) {
     $ownerToken = gh auth token --user $owner 2>$null
     if ($ownerToken) {
         $env:GH_TOKEN = $ownerToken
@@ -300,7 +308,7 @@ if (-not $PRNumber) {
 }
 
 # --- Get PR branch and set up worktree ---
-$prInfo = (gh pr view $PRNumber --repo $repoSlug --json headRefName,state 2>&1)
+$prInfo = (gh pr view $PRNumber --repo $repoSlug --json headRefName,state,isCrossRepository 2>&1)
 if ($LASTEXITCODE -ne 0 -or -not $prInfo) {
     Write-Host "Failed to get PR info for PR #$PRNumber." -ForegroundColor Red
     exit 1
@@ -316,6 +324,12 @@ if (-not $prBranch) {
 
 if ($prState -ne 'OPEN') {
     Write-Host "PR #$PRNumber is $($prState.ToLower()) — cannot run ralph-pr on a non-open PR." -ForegroundColor Red
+    exit 1
+}
+
+# Fixes are pushed to the PR's branch on origin, which a fork's branch is not.
+if ($prData.isCrossRepository) {
+    Write-Host "PR #$PRNumber comes from a fork. ralph-pr can only work on branches in $repoSlug." -ForegroundColor Red
     exit 1
 }
 
@@ -346,8 +360,8 @@ foreach ($line in $wtLines) {
     if ($line -match "^branch refs/heads/(.+)$") {
         $currentWtBranch = $Matches[1].Trim()
         if ($currentWtBranch -eq $prBranch) {
-            $normalizedWtPath = ($currentWtPath -replace '/', '\').TrimEnd('\')
-            $normalizedTarget = ($worktreeDir -replace '/', '\').TrimEnd('\')
+            $normalizedWtPath = ($currentWtPath -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            $normalizedTarget = ($worktreeDir -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
             if ($normalizedWtPath -eq $normalizedTarget) {
                 $worktreeExists = $true
             }
@@ -360,8 +374,8 @@ foreach ($line in $wtLines) {
 }
 
 if ($branchAttachedElsewhere) {
-    $normalizedAttached = ($attachedPath -replace '/', '\').TrimEnd('\')
-    $normalizedRepoRoot = ($repoRoot -replace '/', '\').TrimEnd('\')
+    $normalizedAttached = ($attachedPath -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $normalizedRepoRoot = ($repoRoot -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
     if ($normalizedAttached -eq $normalizedRepoRoot) {
         if ($Autopilot) {
             # In autopilot mode (launched from UI), always use a separate worktree.
@@ -370,9 +384,10 @@ if ($branchAttachedElsewhere) {
             Write-Host "Branch '$prBranch' checked out in current repo — switching to 'main' and creating worktree (autopilot)." -ForegroundColor Yellow
             git checkout main 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) {
-                Write-Host "Failed to switch to 'main'. Falling back to current directory." -ForegroundColor Yellow
-                $worktreeDir = $repoRoot
-                $worktreeExists = $true
+                # Never let an unattended agent work, commit or push in the user's own checkout.
+                Write-Host "Could not switch the repository off '$prBranch' (no 'main' branch, or local changes)." -ForegroundColor Red
+                Write-Host "  Check out another branch there, then run again; ralph-pr works in its own worktree." -ForegroundColor Yellow
+                exit 1
             }
             # else: fall through to worktree creation below
         }
@@ -416,6 +431,15 @@ else {
     $branchExistsLocally = git rev-parse --verify "refs/heads/$prBranch" 2>$null
     if ($LASTEXITCODE -eq 0) {
         git worktree add $worktreeDir $prBranch 2>&1
+        # A local branch can be behind the PR; work from the PR's current head.
+        if ($LASTEXITCODE -eq 0) {
+            git -C $worktreeDir merge --ff-only "origin/$prBranch" 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Local branch '$prBranch' has diverged from origin/$prBranch. Reconcile it, then run again." -ForegroundColor Red
+                git worktree remove $worktreeDir --force 2>$null
+                exit 1
+            }
+        }
     }
     else {
         git worktree add -b $prBranch $worktreeDir "origin/$prBranch" 2>&1
@@ -476,7 +500,7 @@ Write-Host "== Ralph PR - Comment Resolver" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "  Started:         $runStartStr"
 Write-Host "  PID:             $PID"
-Write-Host "  Host:            $env:COMPUTERNAME"
+Write-Host "  Host:            $([Environment]::MachineName)"
 Write-Host "  Invoked from:    $originalDir"
 Write-Host "  PR:              #$PRNumber ($repoSlug) - https://github.com/$repoSlug/pull/$PRNumber"
 Write-Host "  Branch:          $prBranch"
@@ -500,7 +524,7 @@ Write-Host "====================================" -ForegroundColor Cyan
 $startLogBlock = @"
 [$logTag] Ralph PR started at $runStartStr for PR #$PRNumber ($repoSlug, branch: $prBranch, worktree: $worktreeDir$deadlineStr)
   PID:              $PID
-  Host:             $env:COMPUTERNAME
+  Host:             $([Environment]::MachineName)
   Script:           $PSCommandPath
   Invoked from:     $originalDir
   PR:               #$PRNumber (https://github.com/$repoSlug/pull/$PRNumber)
@@ -524,6 +548,28 @@ $startLogBlock | Out-File $logFile -Append -Encoding UTF8
 # --- Summary log (centralized cross-repo log) ---
 $script:SummaryLogFile = Join-Path $PSScriptRoot "ralph-summary.log"
 "$(Get-Date -Format 'yyyy-MM-dd HH:mm') -- ${repoName}: Ralph PR #$PRNumber processing started. $promptDisplay." | Out-File $script:SummaryLogFile -Append -Encoding UTF8
+
+# A dev agent CLI that cannot run (sign-in, quota, startup) fails the same way every
+# time, and the loop would invoke it forever. Three failures in a row stop the run.
+$script:AgentFailureStreak = 0
+function Test-AgentExit {
+    param([int]$Code)
+    if ($Code -eq 0) {
+        $script:AgentFailureStreak = 0
+        return
+    }
+    $script:AgentFailureStreak++
+    # The agent may have resolved threads before it failed, without pushing a fix, so a
+    # later clean check cannot vouch for this pull request: a required merge is refused.
+    $script:FixFailed = $true
+    Write-Host "The agent CLI exited with code $Code." -ForegroundColor Red
+    "[$logTag] Agent CLI FAILED (exit code $Code), $($script:AgentFailureStreak) in a row" | Out-File $logFile -Append -Encoding UTF8
+    if ($script:AgentFailureStreak -ge 3) {
+        Write-Host "The agent CLI failed $($script:AgentFailureStreak) times in a row; stopping." -ForegroundColor Red
+        "[$logTag] Stopped: the agent CLI failed $($script:AgentFailureStreak) times in a row." | Out-File $logFile -Append -Encoding UTF8
+        exit 4
+    }
+}
 
 function Write-Status {
     param([string]$Message)
@@ -638,6 +684,94 @@ function Test-CopilotReviewRequested {
     return ($reviewers -match '^Copilot$')
 }
 
+# For -RequireMerge (Buddy's merge option): reads the pull request's head, every check run
+# and commit status for it, and its review threads, and returns the head SHA only when every
+# read succeeded, at least one check reported, every check finished with an accepted result
+# and no thread is open. Anything else returns $null, so the merge never rests on state that
+# could not be confirmed. Snyk checks are left out, as the loop above leaves them. The merge
+# itself runs without --admin, so GitHub still enforces the base branch's own rules on top:
+# required checks and the apps that must report them, approvals, conversation resolution.
+function Get-VerifiedMergeHead {
+    $sha = gh pr view $PRNumber --repo $repoSlug --json headRefOid -q '.headRefOid' 2>$null
+    if ($LASTEXITCODE -ne 0 -or "$sha" -notmatch '^[0-9a-f]{40}$') {
+        Write-Status "Merge gate: the pull request's head could not be read."
+        return $null
+    }
+    $runs = gh api "repos/$owner/$repo/commits/$sha/check-runs?per_page=100" --paginate `
+        --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Status "Merge gate: the check runs of $sha could not be read."
+        return $null
+    }
+    $passed = @()
+    foreach ($line in @($runs | Where-Object { $_ })) {
+        $name, $status, $conclusion = "$line" -split "`t", 3
+        if ($name -match '(?i)snyk') { continue }
+        if ($status -ne 'completed' -or $conclusion -notin @('success', 'neutral', 'skipped')) {
+            Write-Status "Merge gate: check '$name' is $status $conclusion, not passed."
+            return $null
+        }
+        $passed += $name
+    }
+    $statuses = gh api "repos/$owner/$repo/commits/$sha/status?per_page=100" --paginate `
+        --jq '.statuses[] | [.context, .state] | @tsv' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Status "Merge gate: the commit statuses of $sha could not be read."
+        return $null
+    }
+    foreach ($line in @($statuses | Where-Object { $_ })) {
+        $context, $state = "$line" -split "`t", 2
+        if ($context -match '(?i)snyk') { continue }
+        if ($state -ne 'success') {
+            Write-Status "Merge gate: status '$context' is $state, not success."
+            return $null
+        }
+        $passed += $context
+    }
+    # Nothing reported yet is not a pass: CI may not have registered this head.
+    if ($passed.Count -eq 0) {
+        Write-Status "Merge gate: no check has reported for $sha yet."
+        return $null
+    }
+    $cursor = $null
+    do {
+        $after = if ($null -ne $cursor) { ", after: `"$cursor`"" } else { "" }
+        $query = "query { repository(owner: `"$owner`", name: `"$repo`") { pullRequest(number: $PRNumber) { reviewThreads(first: 100$after) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }"
+        $json = gh api graphql -f query="$query" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Status "Merge gate: the review threads could not be read."
+            return $null
+        }
+        $result = $json | ConvertFrom-Json
+        $threads = $result.data.repository.pullRequest.reviewThreads
+        if ($result.errors -or -not $threads) {
+            Write-Status "Merge gate: the review threads could not be read."
+            return $null
+        }
+        if (@($threads.nodes | Where-Object { -not $_.isResolved }).Count -gt 0) {
+            Write-Status "Merge gate: review threads are still open."
+            return $null
+        }
+        $cursor = $threads.pageInfo.endCursor
+    } while ($threads.pageInfo.hasNextPage)
+    return "$sha"
+}
+
+# After a successful gh pr merge: waits up to an hour for the PR to be MERGED (a merge queue
+# may hold it) and returns the last state read: MERGED, CLOSED, OPEN, or UNKNOWN when it
+# could not be read.
+function Wait-PRMerged {
+    $deadline = (Get-Date).AddMinutes(60)
+    $state = 'UNKNOWN'
+    while ($true) {
+        $read = gh pr view $PRNumber --repo $repoSlug --json state -q '.state' 2>$null
+        $state = if ($LASTEXITCODE -eq 0 -and "$read") { "$read".Trim() } else { 'UNKNOWN' }
+        if ($state -in @('MERGED', 'CLOSED') -or (Get-Date) -ge $deadline) { return $state }
+        if ($state -eq 'OPEN') { Write-Status "PR #$PRNumber is queued for merging; waiting." }
+        Start-Sleep -Seconds 30
+    }
+}
+
 function Get-PRMergeableState {
     $state = (gh pr view $PRNumber --repo $repoSlug --json mergeable -q '.mergeable' 2>&1).Trim()
     return $state
@@ -748,6 +882,7 @@ try {
                 $cmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $conflictPrompt -Yolo -Provider $script:ProviderName
                 $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
                 & $cmdExe @cmdTail 2>&1 | Out-Null
+                Test-AgentExit $LASTEXITCODE
                 $actionTaken = $true
                 continue
             }
@@ -879,6 +1014,7 @@ IMPORTANT: Make all fixes first, run the build and tests locally to verify, then
             $cmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $fullPrompt -Yolo -Provider $script:ProviderName
             $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
             & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $tempOut
+            Test-AgentExit $LASTEXITCODE
 
             $captured = Get-Content $tempOut -Encoding UTF8
             $statsLines = $captured |
@@ -1019,7 +1155,7 @@ IMPORTANT: Make all fixes first, run the build and tests locally to verify, then
                     $reviewMarker = "<!-- ralph-review: role=$($spec.Role) model=$($spec.ModelId) sha=$headSha nonce=$reviewNonce -->"
 
                     # Agent writes structured findings to a temp file; Ralph posts the review
-                    $findingsPath = Join-Path $env:TEMP "ralph-review-findings-$reviewNonce.json"
+                    $findingsPath = Join-Path ([IO.Path]::GetTempPath()) "ralph-review-findings-$reviewNonce.json"
 
                     $reviewPrompt = @"
 You are reviewing PR #$PRNumber in $repoSlug (branch: $prBranch, head SHA: $headSha).
@@ -1108,6 +1244,8 @@ Your only output is the JSON findings file at the path above.
 
                     if ($reviewFailed) {
                         Remove-Item $findingsPath -Force -ErrorAction SilentlyContinue
+                        # A review the user selected did not complete: a required merge is refused.
+                        $script:ReviewUnavailable = $true
                         Write-Status "Agent $($spec.Role) failed. Skipping to next agent."
                         $agentReviewIndex++
                         $actionTaken = $true
@@ -1153,7 +1291,7 @@ Your only output is the JSON findings file at the path above.
                         if ($validComments.Count -gt 0) { $reviewPayload["comments"] = $validComments }
 
                         # Post the review via GitHub API
-                        $payloadPath = Join-Path $env:TEMP "ralph-review-payload-$reviewNonce.json"
+                        $payloadPath = Join-Path ([IO.Path]::GetTempPath()) "ralph-review-payload-$reviewNonce.json"
                         $reviewPayload | ConvertTo-Json -Depth 4 -Compress | Set-Content $payloadPath -Encoding UTF8
                         $apiResponse = gh api "repos/$owner/$repo/pulls/$PRNumber/reviews" --input $payloadPath 2>&1
                         Remove-Item $payloadPath -Force -ErrorAction SilentlyContinue
@@ -1222,6 +1360,8 @@ If there are issues to fix:
                         $fixCmdArgs = Build-RalphCommand -ModelId $script:ModelId -Agent $script:DevAgentName -Prompt $fixPrompt -Yolo -Provider $script:ProviderName
                         $cmdExe = $fixCmdArgs[0]; $cmdTail = $fixCmdArgs[1..($fixCmdArgs.Count-1)]
                         & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $fixTempOut
+                        $fixFailed = $LASTEXITCODE -ne 0
+                        Test-AgentExit $LASTEXITCODE
 
                         # Track fix cycle stats (even if exit code is nonzero)
                         $fixCaptured = Get-Content $fixTempOut -Encoding UTF8
@@ -1242,8 +1382,21 @@ If there are issues to fix:
 
                         Write-Host "    Fix cost: $fixPremium premium, `$$fixCost" -ForegroundColor DarkGray
 
-                        # Resolve agent review threads to prevent re-entering generic fix loop
-                        if ($postedReviewId) {
+                        # Resolve agent review threads to prevent re-entering generic fix loop,
+                        # but only after a fix agent that finished: unfixed findings stay open
+                        # so the fix loop retries them and the pull request is not clean.
+                        if ($fixFailed) {
+                            if ($postedReviewId) {
+                                Write-Status "The fix agent failed; the threads of review $postedReviewId stay open."
+                            }
+                            else {
+                                # The findings were never posted, so nothing on GitHub keeps
+                                # them open: a required merge is refused instead.
+                                $script:ReviewUnavailable = $true
+                                Write-Status "The fix agent failed and the findings were not posted; a required merge is refused."
+                            }
+                        }
+                        elseif ($postedReviewId) {
                             $cursor = $null
                             $threadsToResolve = @()
                             do {
@@ -1273,6 +1426,10 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                             }
                         }
                     } else {
+                        # No findings file, or one that is not valid JSON: the review did not
+                        # complete (a clean review writes an empty findings list), so a
+                        # required merge is refused.
+                        $script:ReviewUnavailable = $true
                         Write-Status "Reviewer $($spec.Role) did not produce findings. Skipping fix cycle."
                     }
 
@@ -1330,6 +1487,7 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                             $copilotReviewWaitCycles = 0
                         } else {
                             Write-Status "Copilot review request failed — treating PR as clean (no review available)."
+                            $script:ReviewUnavailable = $true
                             $prClean = $true
                             break
                         }
@@ -1337,6 +1495,7 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                         $copilotReviewWaitCycles++
                         if ($copilotReviewWaitCycles -ge 5) {
                             Write-Status "Copilot review not received after $copilotReviewWaitCycles cycles (~15 min). Skipping review — treating PR as clean."
+                            $script:ReviewUnavailable = $true
                             $copilotReviewPending = $false
                             $prClean = $true
                             break
@@ -1356,6 +1515,7 @@ query { repository(owner: "$owner", name: "$repo") { pullRequest(number: $PRNumb
                         $copilotReviewWaitCycles = 0
                     } else {
                         Write-Status "Copilot review request failed — treating PR as clean."
+                        $script:ReviewUnavailable = $true
                         $prClean = $true
                         break
                     }
@@ -1508,6 +1668,31 @@ $tokCachedStr = ConvertTo-TokenString $totalTokensCached
 # --- Completion audio ---
 Invoke-Audio "ralph-pr-loop-completed.mp3"
 
+# A merge a caller requires (-RequireMerge, Buddy's merge option) needs a completed review:
+# without one the PR is neither approved nor merged, and the run fails below.
+if ($RequireMerge -and $script:ReviewUnavailable -and $prClean) {
+    Write-Host "No review completed, so PR #$PRNumber is neither approved nor merged." -ForegroundColor Yellow
+    "[$logTag] No completed review; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
+    $prClean = $false
+}
+if ($RequireMerge -and $script:FixFailed -and $prClean) {
+    Write-Host "A fix agent failed during this run, so PR #$PRNumber is neither approved nor merged." -ForegroundColor Yellow
+    "[$logTag] A fix agent failed; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
+    $prClean = $false
+}
+
+# A required merge (--admin) is checked once more, strictly, right before approve and merge,
+# and the merge is pinned to the head that passed.
+$script:MergeHead = $null
+if ($RequireMerge -and $prClean) {
+    $script:MergeHead = Get-VerifiedMergeHead
+    if (-not $script:MergeHead) {
+        Write-Host "PR #$PRNumber did not pass the final merge check, so it is neither approved nor merged." -ForegroundColor Yellow
+        "[$logTag] Final merge check failed; skipped approve and merge." | Out-File $logFile -Append -Encoding UTF8
+        $prClean = $false
+    }
+}
+
 # --- Auto-approve PR if requested and clean ---
 if ($prClean -and $AutoApprove) {
     Write-Host ""
@@ -1563,19 +1748,39 @@ if ($prClean) {
         # Leave the worktree before cleanup
         Set-Location $originalDir
 
-        $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch --admin 2>&1
+        $pin = if ($script:MergeHead) { @('--match-head-commit', $script:MergeHead) } else { @() }
+        # A required merge (Buddy) never bypasses branch protection; GitHub refuses it when the
+        # base branch's rules are not met, and the run fails.
+        $admin = if ($RequireMerge) { @() } else { @('--admin') }
+        $mergeOutput = gh pr merge $PRNumber --repo $repoSlug --squash --delete-branch @admin @pin 2>&1
         $mergeOutput | Out-File $logFile -Append -Encoding UTF8
+        $mergeExit = $LASTEXITCODE
+        # With a merge queue, a successful gh pr merge may only have queued the PR, so the
+        # merge counts once GitHub reports it MERGED.
+        $mergedState = if ($mergeExit -eq 0) { Wait-PRMerged } else { $null }
 
-        if ($LASTEXITCODE -eq 0) {
+        if ($mergeExit -eq 0 -and $mergedState -ne 'MERGED') {
+            Write-Host "PR #$PRNumber was accepted for merging but is $mergedState, not merged." -ForegroundColor Red
+            "[$logTag] Merge accepted but PR is $mergedState, not merged." | Out-File $logFile -Append -Encoding UTF8
+        }
+        elseif ($mergeExit -eq 0) {
+            $script:Merged = $true
             Write-Host "PR #$PRNumber merged successfully." -ForegroundColor Green
             "[$logTag] PR #$PRNumber merged successfully." | Out-File $logFile -Append -Encoding UTF8
 
-            # Deterministic cleanup of this PR's worktree only
-            if (Test-Path $worktreeDir) {
+            # Deterministic cleanup of this PR's worktree only. A reused checkout (for example
+            # the repository itself, when the PR branch was checked out there) is never removed.
+            $separator = [IO.Path]::DirectorySeparatorChar
+            $ownedBase = [IO.Path]::GetFullPath($worktreeBase).TrimEnd($separator) + $separator
+            $ownedWorktree = [IO.Path]::GetFullPath($worktreeDir).StartsWith($ownedBase, [StringComparison]::OrdinalIgnoreCase)
+            if ((Test-Path $worktreeDir) -and $ownedWorktree) {
                 Write-Host "Removing worktree: $worktreeDir" -ForegroundColor DarkGray
                 git -C $originalDir worktree remove $worktreeDir --force 2>$null
                 if ($LASTEXITCODE -ne 0) { Remove-Item -Recurse -Force $worktreeDir -ErrorAction SilentlyContinue }
                 "[$logTag] Removed worktree: $worktreeDir" | Out-File $logFile -Append -Encoding UTF8
+            }
+            elseif (-not $ownedWorktree) {
+                Write-Host "Kept $worktreeDir`: it is not a Ralph worktree." -ForegroundColor DarkGray
             }
 
             # Clean up local branch if it still exists
@@ -1585,11 +1790,14 @@ if ($prClean) {
                 "[$logTag] Deleted local branch: $prBranch" | Out-File $logFile -Append -Encoding UTF8
             }
 
-            # Update main
-            Write-Host "Updating main..." -ForegroundColor DarkGray
-            git -C $originalDir checkout main 2>$null
-            git -C $originalDir pull --ff-only 2>$null
-            Write-Host "Done." -ForegroundColor Green
+            # Update main. A -RequireMerge caller (Buddy) refreshes the checkout itself and
+            # never wants its branch switched.
+            if (-not $RequireMerge) {
+                Write-Host "Updating main..." -ForegroundColor DarkGray
+                git -C $originalDir checkout main 2>$null
+                git -C $originalDir pull --ff-only 2>$null
+                Write-Host "Done." -ForegroundColor Green
+            }
         }
         else {
             Write-Host "Merge failed. Check output above." -ForegroundColor Red
@@ -1602,6 +1810,13 @@ if ($prClean) {
 # --- Restore BYOK environment variables ---
 if ($script:SavedByokEnv -and $script:SavedByokEnv.Count -gt 0) {
     Restore-RalphProviderEnv -Saved $script:SavedByokEnv
+}
+
+# A caller that builds on the merged work (repeat cycles) must not continue without it.
+if ($RequireMerge -and -not $script:Merged) {
+    Write-Host "A merge was required, but PR #$PRNumber was not merged." -ForegroundColor Red
+    "[$logTag] Required merge did not happen." | Out-File $logFile -Append -Encoding UTF8
+    exit 3
 }
 
 exit 0

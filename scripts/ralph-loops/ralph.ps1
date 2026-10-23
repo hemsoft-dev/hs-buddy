@@ -17,6 +17,8 @@ param(
     [switch]$Autopilot,
     [switch]$NoAudio,
     [switch]$SkipReview,
+    # Passed on to ralph-pr.ps1 as -AutoApprove: with -Autopilot it merges a clean PR.
+    [switch]$MergeWhenClean,
     [switch]$Install,
     [switch]$All,
     [switch]$Force,
@@ -28,7 +30,7 @@ param(
 if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Config: load shared model/agent configuration ---
-. "$PSScriptRoot\lib\config.ps1"
+. (Join-Path $PSScriptRoot 'lib' 'config.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -144,7 +146,8 @@ if ($Help) {
     Write-Host "  -Autopilot             Skip interactive prompts, auto-merge PR when clean"
     Write-Host "  -NoAudio               Suppress audio feedback"
     Write-Host "  -SkipReview            Skip Copilot PR review requests"
-    Write-Host "  -Install               Install ralph-loop scripts and audio into the current repo"
+    Write-Host "  -MergeWhenClean        With -Autopilot, merge the PR once clean (gh pr merge --admin)"
+    Write-Host "  -Install              Install ralph-loop scripts and audio into the current repo"
     Write-Host "    -All                   Install all, skip existing (use with -Install)"
     Write-Host "    -Force                 Install all, overwrite existing (use with -Install)"
     Write-Host "    -Pick                  Choose which scripts to install (use with -Install)"
@@ -198,7 +201,7 @@ if ($Install) {
         Write-Host "ERROR: Not inside a git repository." -ForegroundColor Red
         exit 1
     }
-    $installRepoRoot = $installRepoRoot -replace '/', '\'
+    $installRepoRoot = $installRepoRoot -replace '/', [IO.Path]::DirectorySeparatorChar
     $installRepoName = Split-Path $installRepoRoot -Leaf
     $targetScriptsDir = Join-Path $installRepoRoot "scripts"
 
@@ -313,7 +316,7 @@ if ($Install) {
 }
 
 # --- Git repo validation ---
-$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', '\'
+$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', [IO.Path]::DirectorySeparatorChar
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not inside a git repository. Run this from within a repo." -ForegroundColor Red
     exit 1
@@ -462,8 +465,8 @@ foreach ($line in $wtLines) {
     if ($line -match "^branch refs/heads/(.+)$") {
         $currentWtBranch = $Matches[1].Trim()
         if ($currentWtBranch -eq $Branch) {
-            $normalizedWtPath = ($currentWtPath -replace '/', '\').TrimEnd('\')
-            $normalizedTarget = ($worktreeDir -replace '/', '\').TrimEnd('\')
+            $normalizedWtPath = ($currentWtPath -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            $normalizedTarget = ($worktreeDir -replace '/', [IO.Path]::DirectorySeparatorChar).TrimEnd([IO.Path]::DirectorySeparatorChar)
             if ($normalizedWtPath -eq $normalizedTarget) {
                 $worktreeExists = $true
             }
@@ -537,7 +540,7 @@ Write-Host "== Ralph - Iterative Autopilot" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "  Started:         $runStartStr"
 Write-Host "  PID:             $PID"
-Write-Host "  Host:            $env:COMPUTERNAME"
+Write-Host "  Host:            $([Environment]::MachineName)"
 Write-Host "  Invoked from:    $originalDir"
 Write-Host "  Branch:          $Branch"
 Write-Host "  Worktree:        $worktreeDir"
@@ -556,7 +559,7 @@ Write-Host "====================================" -ForegroundColor Cyan
 $startLogBlock = @"
 [$logTag] Ralph run started at $runStartStr ($maxLabel iterations, branch: $Branch, worktree: $worktreeDir$deadlineStr)
   PID:              $PID
-  Host:             $env:COMPUTERNAME
+  Host:             $([Environment]::MachineName)
   Script:           $PSCommandPath
   Invoked from:     $originalDir
   Branch:           $Branch
@@ -584,6 +587,7 @@ Push-Location $targetDir
 try {
     $completedIterations = 0
     $copilotInvocations = 0
+    $agentFailures = 0
     $totalPremiumRequests = 0
     $totalTokensIn = 0.0
     $totalTokensOut = 0.0
@@ -676,6 +680,10 @@ Original goal: $promptBrief
         $cmdArgs = Build-RalphCommand @buildArgs
         $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
         & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $tempOut
+        if ($LASTEXITCODE -ne 0) {
+            $agentFailures++
+            Write-Host "The agent CLI exited with code $LASTEXITCODE." -ForegroundColor Red
+        }
 
         $iterEnd = Get-Date
         $iterDuration = $iterEnd - $iterStart
@@ -777,8 +785,9 @@ if (-not $NoPR) {
         if ($repoSlug) {
             # Match gh account to repo owner (same fix as ralph-pr.ps1)
             $rsOwner = ($repoSlug -split '/')[0]
+            # Buddy Native's chosen account (RALPH_GH_ACCOUNT, token in GH_TOKEN) is kept.
             $rsActiveUser = gh api user --jq '.login' 2>$null
-            if ($rsActiveUser -and $rsActiveUser -ne $rsOwner) {
+            if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwner) {
                 $rsToken = gh auth token --user $rsOwner 2>$null
                 if ($rsToken) {
                     $env:GH_TOKEN = $rsToken
@@ -815,12 +824,16 @@ if (-not $NoPR) {
                 Start-Sleep -Seconds 30
 
                 $prScriptPath = Join-Path $PSScriptRoot "ralph-pr.ps1"
-                $prStatsPath = Join-Path $env:TEMP "ralph-pr-stats-$([guid]::NewGuid().ToString('N').Substring(0,8)).json"
+                $prStatsPath = Join-Path ([IO.Path]::GetTempPath()) "ralph-pr-stats-$([guid]::NewGuid().ToString('N').Substring(0,8)).json"
                 $prArgs = @{ PRNumber = $newPRNumber; Model = $script:ModelId; OriginalPrompt = $promptBrief; DevAgent = $script:DevAgentRole; Provider = $Provider; StatsPath = $prStatsPath }
                 if ($WorkUntil) { $prArgs['WorkUntil'] = $WorkUntil }
                 if ($NoAudio) { $prArgs['NoAudio'] = $true }
                 if ($Autopilot) { $prArgs['Autopilot'] = $true }
                 if ($SkipReview) { $prArgs['SkipReview'] = $true }
+                if ($MergeWhenClean) {
+                    $prArgs['AutoApprove'] = $true
+                    $prArgs['RequireMerge'] = $true
+                }
                 if ($reviewAgents.Count -gt 0) { $prArgs['Agents'] = $reviewAgents }
 
                 Write-Host ""
@@ -992,5 +1005,15 @@ if ($script:SavedByokEnv -and $script:SavedByokEnv.Count -gt 0) {
 # --- Exit with PR phase exit code if applicable, otherwise success ---
 if ($handedOff -and $prExitCode) {
     exit $prExitCode
+}
+if ($copilotInvocations -gt 0 -and $agentFailures -eq $copilotInvocations) {
+    Write-Host "The agent CLI failed on every iteration; no work was done." -ForegroundColor Red
+    exit 4
+}
+# A requested merge is confirmed only by ralph-pr.ps1 -RequireMerge succeeding. Without a
+# handoff (no commits, a failed push or PR creation) nothing was merged.
+if ($MergeWhenClean -and -not $handedOff) {
+    Write-Host "A merge was requested, but no pull request was handed off for merging." -ForegroundColor Red
+    exit 3
 }
 exit 0

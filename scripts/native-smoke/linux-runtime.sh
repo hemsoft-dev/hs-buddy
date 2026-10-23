@@ -38,6 +38,16 @@ dpkg-query -W > /evidence/runtime-packages-before-test-tools.txt
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_directory/linux-desktop-tools.sh"
 buddy_install_linux_desktop_tools apt-get
+# Ralph loops need PowerShell 7, Git and the GitHub CLI; qualification runs a stub loop.
+apt-get install -y --no-install-recommends git gh curl ca-certificates libicu74
+pwsh_archive=/tmp/powershell-linux-x64.tar.gz
+curl -fsSL -o "$pwsh_archive" https://github.com/PowerShell/PowerShell/releases/download/v7.6.7/powershell-7.6.7-linux-x64.tar.gz
+echo "6896f9e3a6b0a354bf470835a96da76d2f801cd50dcf047ad7c4563bf93bf431  $pwsh_archive" | sha256sum -c -
+install -d -m 755 /opt/microsoft/powershell/7
+tar -xzf "$pwsh_archive" -C /opt/microsoft/powershell/7
+chmod 755 /opt/microsoft/powershell/7/pwsh
+ln -s /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
+pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' > /evidence/runtime-pwsh-version.txt
 useradd --create-home --uid 12345 qualification
 install -d -m 700 -o qualification -g qualification /tmp/buddy-runtime
 chown qualification:qualification /evidence

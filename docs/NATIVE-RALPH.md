@@ -1,0 +1,263 @@
+# Native Ralph loops
+
+Open Ralph Loops in Buddy Native to start an agent loop on a repository and
+follow it. A loop runs one of the PowerShell scripts in `scripts/ralph-loops`:
+
+| Script        | What it does                                                                 |
+| ------------- | ---------------------------------------------------------------------------- |
+| Ralph Loop    | Work iterations on a branch, then a pull request taken through review         |
+| Ralph PR      | Takes an existing pull request through CI and review comments                 |
+| Ralph Issues  | Scans the repository and files GitHub issues for what it finds                |
+| Templates     | The scripts in `scripts/ralph-loops/scripts`, each a preset Ralph Loop        |
+
+The dashboard lists the scripts, then every Active and Recent run Buddy keeps. New loop opens
+the form for Ralph Loop; choosing a script opens it for that script.
+
+From GitHub, Start Ralph PR review… on an open pull request opens the Ralph PR
+form with the pull request's number, and Start Ralph loop… on an issue opens
+the Ralph Loop form with branch `fix/issue-<number>` and a prompt quoting the
+issue. The repository is the shown account's repository root followed by the
+repository name when Settings has one for that account and organization. An
+account Settings doesn't list for that organization uses the organization's
+first root. Otherwise the form starts with the most recent run's repository. Nothing starts until Launch.
+
+A loop started from GitHub works as the account the GitHub view showed, not as
+whichever account `gh` has active. When the run starts, its host reads that
+account's token with `gh auth token --user <account>` and gives it to the loop
+as `GH_TOKEN` and `GITHUB_TOKEN`. The loop's `gh` commands, the Copilot CLI
+and Git over HTTPS with `gh` as its credential helper then use that account; a
+`COPILOT_GITHUB_TOKEN` you set yourself still wins for Copilot. The host also
+sets `RALPH_GH_ACCOUNT`, and the scripts then keep that account instead of
+switching to the repository owner's `gh` login as they otherwise do. The token
+is never written to the run's folder, and a loop that prints it has it
+replaced with `[token redacted]` in the log. If `gh` has no login for the account, the
+run fails before the loop starts. The form says which account the loop will
+use, and the run page shows it after the repository. A loop started from New
+loop uses `gh`'s active account, as in Electron Buddy. Git remotes reached
+over SSH use your SSH key, whatever the account.
+
+Ralph PR works on the pull request's current head and pushes its fixes to that
+branch on `origin`. A pull request from a fork fails at once with a message
+saying so, and a local branch that has diverged from the pull request stops
+the run rather than being used. If the pull request's branch is checked out in
+the selected repository, the script switches that checkout to `main` so it can
+work in its own worktree; when that is not possible (no `main`, or local
+changes), the run stops instead of working in your checkout.
+
+## Requirements
+
+A loop needs these programs on `PATH`. Buddy also looks in the usual install
+folders a desktop session can leave out (`/opt/homebrew/bin`,
+`/usr/local/bin`, `~/.local/bin`, `~/.dotnet/tools`, the npm global folder;
+on Windows the PowerShell 7, Git and GitHub CLI folders under Program Files,
+`%LOCALAPPDATA%\Microsoft\WindowsApps` and `%APPDATA%\npm`),
+and passes the folders it found to the loop.
+
+| Program                       | Install                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| PowerShell 7 (`pwsh`)         | [aka.ms/powershell](https://aka.ms/powershell)                                              |
+| Git 2.15 or later             | [git-scm.com/downloads](https://git-scm.com/downloads)                                      |
+| GitHub CLI (`gh`)             | [cli.github.com](https://cli.github.com/), then `gh auth login`                             |
+| GitHub Copilot CLI (`copilot`) | `npm install -g @github/copilot`                                                            |
+
+A missing program stops the launch with the line above for that program;
+nothing is recorded or started. Restart Buddy after installing one. The BYOK
+providers also need `OPENROUTER_API_KEY` or an OpenCode sign-in, as described
+in [the loop scripts' README](../scripts/ralph-loops/README.md).
+
+## Launching
+
+The form has the same inputs as Electron Buddy:
+
+- **Repository**: a folder inside a Git repository. Browse opens a folder
+  chooser. The form starts with the repository of the most recent run.
+- **Provider, Model, Work agent**: from `config/providers.json`,
+  `config/models.json` and `config/agents.json`. Model lists only what the
+  chosen provider can run. Default means the provider's own `defaultModel`
+  when it has one (the OpenCode and OpenRouter providers do), else the
+  catalog default, exactly as the scripts resolve it. The Default entry names
+  the model, for example `Default (medium → claude-opus-4.6)` when the default
+  is a tier.
+- **Review agents**: the review roles to run on the pull request, each with an
+  optional model. Ralph Issues opens no pull request, so it has none.
+- **Work iterations** (Scan iterations for Ralph Issues), 1 to 100, and
+  **Repeat cycles**, 1 to 50, for Ralph Loop. A cycle runs the whole script
+  again after the previous one succeeded, and builds on it only once its pull
+  request is merged, so more than one cycle requires the merge option below.
+  If a cycle's pull request is not merged (it was never opened, never became
+  clean, or the merge failed), the run fails instead of starting the next
+  cycle. `ralph.ps1` pushes each cycle's branch to `origin` and its pull
+  request merges into `origin`'s default branch, so more than one cycle needs
+  the repository checked out on a branch that tracks that branch (for example
+  `main` tracking `origin/main`); Launch says so otherwise, including for a
+  branch that tracks another remote. Launch asks origin which branch is its
+  default, rather than trusting a cached `origin/HEAD`. Before each further cycle Buddy
+  fast-forwards that branch (`git pull --ff-only`), so the next cycle starts
+  from the merged work. A failed fast-forward, a branch that no longer tracks
+  an upstream, or a checkout that moved to another branch or upstream since
+  Launch stops the run. Unlike the old repeat wrapper (which never worked from Electron) and
+  the review phase's own clean-up, Buddy never switches the checkout to another
+  branch. Templates run one cycle: they have no way to merge.
+- **Branch prefix** for Ralph Loop and templates. `ralph.ps1` adds a random
+  suffix (`fix/issue-12` becomes `fix/issue-12-1a2b3c4d`), and the run page
+  shows the branch the loop actually created once it prints it. Ralph PR works
+  on the pull request's branch and Ralph Issues on the checkout as it is, so
+  their runs say so instead of naming a new branch.
+  **Pull request number** for Ralph PR, **Issue labels** and **Dry run** for
+  Ralph Issues. A dry run tells the agent not to file issues, but the agent
+  runs as an account that can, so nothing stops it from doing so anyway; if
+  the open-issue count rises during a dry run, the run stops with exit code 5.
+- **Prompt**. A template fills in its own prompt.
+- **Merge the PR when it is clean and branch protection allows it**, off by
+  default, for Ralph PR and Ralph Loop. When on, `ralph-pr.ps1` merges a clean
+  pull request with `gh pr merge --squash --delete-branch`, without `--admin`,
+  so GitHub still enforces the base branch's rules: required checks and the
+  apps that must report them, approvals and conversation resolution. A pull
+  request those rules block is not merged, and the run fails. With a merge
+  queue, the pull request counts as merged only once GitHub reports it merged;
+  the script waits up to an hour for that. Ralph PR
+  receives the option as `-AutoApprove -RequireMerge`; a
+  Ralph Loop as `-MergeWhenClean`, which `ralph.ps1` passes on to its review
+  phase the same way. With it, a pull request that is not merged fails the run,
+  and a pull request whose review could not be requested or never arrived is
+  neither approved nor merged. The same goes for each selected review agent: one
+  that fails or leaves no findings file blocks the merge, while a review with
+  no findings counts as complete. A fix agent that fails at any point in the
+  run blocks it too, since it may have resolved review threads without pushing
+  a fix. Right before approving, the script reads the pull request's head,
+  every check run and status for it, and its review threads once more: if any
+  read fails, any check has not finished with success, neutral or skipped
+  (Snyk checks aside, as the loop treats them), any thread is open, or no check
+  has reported for the head yet, it neither approves nor merges. The merge is pinned to that head
+  (`--match-head-commit`), so a commit pushed in the meantime is never merged
+  unchecked.
+  Electron's "Auto-approve" option is on by default but never reached a Ralph
+  Loop's review phase; Buddy Native asks for this choice explicitly.
+
+Loops always run with `-NoAudio`. The scripts' status clips are not part of
+the repository, and their repository announcement needs `edge-tts` and saves
+an mp3 into the repository, so Buddy offers no audio option.
+
+Launch checks every input before anything starts: the repository exists and
+is inside a Git repository, the provider and model exist and the provider can
+run the model, the agents exist, and the numbers, branch and labels are valid
+(branches follow Git's own naming rules). Then it checks the programs above and
+asks Git to confirm the repository, as the scripts do. Only one loop can be
+active per repository, counting every subfolder and linked worktree of it as
+the same repository; a second launch there names the active run instead.
+
+## Following a run
+
+A run's page shows its state, model, provider, agent and branch, when it
+started, how long it has run, the current phase and iteration, and counters
+the scripts report (checks, agent reviews, review rounds, issues created and
+cost). A Ralph Loop cycle's totals cover its work iterations and its pull
+request phase, as `ralph.ps1`'s closing grand totals do; a Ralph Issues run's
+come from its scan summary. Each cycle's script
+reports from zero, so the cost and premium request totals add up every cycle
+of the run. The log below shows the last 400 lines and follows new output. The full
+log is in the run's folder, whose path is shown under it.
+
+| State       | Meaning                                                                    |
+| ----------- | -------------------------------------------------------------------------- |
+| Starting    | Recorded; its host process is starting                                     |
+| Running     | The loop is running                                                        |
+| Stopping    | Stop was requested; the loop's processes are being ended                   |
+| Completed   | The script ended normally or exited with code 0 (after every cycle)          |
+| Failed      | The script exited with another code, which is shown, or could not start; also when the agent CLI failed every time it ran, or in Ralph PR three times in a row |
+| Stopped     | Stopped from Buddy                                                         |
+| Interrupted | Its host process ended without recording a result, for example at a reboot, or did not start within 30 seconds |
+
+Stop loop asks once more, then ends the loop: the script and every process it
+started, including Git while it fast-forwards between cycles. Processes the
+loop did not start are left alone. If Buddy cannot confirm that the loop's
+processes ended, the run is recorded as Failed with that message rather than
+Stopped or Completed, so check for leftover processes before retrying. Commits
+and branches the loop already made stay. Retry starts a finished, failed, stopped
+or interrupted run again as a new run with the same settings; Edit and launch
+opens the form with them. A run records what Default meant when it started
+(the provider, the concrete model, the work agent and each review agent's
+provider and model), so a retry after an update repeats those choices.
+
+## Closing and reopening Buddy
+
+Each loop runs under its own host process, not inside the window. Closing
+Buddy leaves running loops running; reopening shows them with their progress
+and log, and Stop still works. Buddy never starts a loop by itself: an
+interrupted run stays interrupted until you choose Retry.
+
+On Windows the host leaves Buddy's Job when it starts. A program that started
+Buddy inside a Job that forbids leaving it (some terminals and IDEs do) keeps
+the host in that Job. Closing Buddy still leaves the loop running, but if the
+Job ends its processes when it closes, closing that program ends the loop and
+the run shows as interrupted. The run's log says so at its start. Start Buddy
+from the Start menu or File Explorer to avoid it.
+
+## How it works
+
+Runs are folders below `native-ralph/runs` next to the configuration file.
+
+| File          | Written by | Contents                                                       |
+| ------------- | ---------- | -------------------------------------------------------------- |
+| `request.json` | Buddy      | The launch and the exact command, written once before the start |
+| `prompt.md`   | Buddy      | The prompt; the scripts read a prompt given as a file path     |
+| `host.lock`   | Host       | Locked while the host lives                                    |
+| `exec.lock`   | Loop process | Locked while the loop's exec process lives, including its cleanup after a dead host; the run stays reserved until then. If it cannot be locked, the loop does not start |
+| `started`     | Host       | Created once; a host finding it never starts the loop          |
+| `launch.ps1`  | Host       | Sets UTF-8 output, then calls the script with its arguments    |
+| `status.json` | Host       | State, phase, iteration, counters and the result               |
+| `output.log`  | Host       | Output with terminal colors removed; stderr lines start `[stderr]` |
+| `stop`        | Buddy      | A stop request                                                 |
+
+Launch writes the request, then starts `buddy --ralph-host <run folder>`
+detached from Buddy (its own session on macOS and Linux; no console and
+outside Buddy's process group on Windows). The host starts
+`buddy --ralph-exec`, which runs `pwsh -NoProfile -NonInteractive -File
+launch.ps1` in the repository. The launcher switches PowerShell's output to
+UTF-8 (on Windows the console's legacy code page would otherwise drop most
+non-Latin text) and calls the script. A script that ends normally counts as
+exit code 0 even when a native command it handled failed last; only the
+script's own `exit` sets another code. That process tree belongs to a Job object on
+Windows and to its own session on macOS and Linux. Stop and the end of a run
+terminate exactly that Job or session. On macOS and Linux a process can leave
+its session (a daemon calls `setsid`), so every process a run starts also
+carries `BUDDY_RALPH_RUN=<run ID>` in its environment, which its descendants
+inherit. Stop and the end of a run also end every process of yours that still
+carries the run's ID, and a run whose marked process cannot be ended within
+five seconds is recorded as Failed. A process that clears its own environment
+is beyond this check. If the host itself dies, Windows closes the Job and the
+exec process on macOS and Linux ends the marked processes and its own session
+when its control pipe closes, so no loop runs without a host.
+
+While Ralph Loops is shown, Buddy reads the run folders every second; in
+another section it stops, and it reads them again on return. A run whose status
+is not final but whose lock is free is shown as interrupted. A new run whose
+host has not started within 30 seconds is shown as interrupted too, and its
+repository is free again; a host that starts after that gives up without
+starting the loop, so two loops never share a repository. A host that cannot save the run's
+first status never starts the loop; a later failed save is noted in the log,
+and the final result is retried for a few seconds. Buddy keeps the newest 100 finished runs and
+every active run, and deletes older finished ones. Output beyond 64 MB is not saved; the loop keeps
+running. On macOS and Linux the run folders are readable only by you (`0700`
+folders, `0600` files), since prompts and loop output can be sensitive.
+
+The scripts are built into the app and written to
+`native-ralph/scripts/<content hash>` before a launch, so every package runs
+the scripts it was built with. The launcher passes every value as a quoted
+PowerShell literal, never through a shell, so paths with spaces and quotes
+work. Only parameters a script declares are passed. The prompt always travels
+as a file, and branch and label values may not start with `-`. The scripts use
+the platform's path separator and temporary folder, so the same files run on
+Windows, macOS and Linux.
+
+Electron Buddy keeps its own in-memory Ralph runs; the two apps do not share
+runs. The Convex `ralphRuns` table is unchanged.
+
+## Development and qualification
+
+`BUDDY_RALPH_SCRIPTS_DIR` points Buddy at another scripts folder instead of
+the built-in copy. Installed qualification
+(`scripts/native-smoke/ralph-desktop.py`) uses it with
+`scripts/native-smoke/fixtures/ralph-stub.ps1` and a stub `copilot`, so no
+model is called and the repository stays unchanged, while the real catalog,
+validation, tool discovery, host and process ownership run as shipped.

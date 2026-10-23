@@ -9,6 +9,240 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1544] - 2026-10-22
+
+### Fixed
+
+- Check repeat cycles as the run's account and widen token redaction
+
+## [0.1.1543] - 2026-10-22
+
+### Fixed
+
+- Ask origin for its default branch and redact tokens across splits
+
+## [0.1.1542] - 2026-10-22
+
+### Fixed
+
+- Confirm queued merges, require the exec lock, redact the token
+
+## [0.1.1541] - 2026-10-22
+
+### Fixed
+
+- Never bypass branch protection when Buddy merges a Ralph PR
+
+## [0.1.1540] - 2026-10-22
+
+### Fixed
+
+- Read every status page and fail closed on unreadable protection
+
+## [0.1.1539] - 2026-10-22
+
+### Fixed
+
+- Require reported and required checks before a Ralph merge
+
+## [0.1.1538] - 2026-10-22
+
+### Fixed
+
+- Gate a required Ralph merge strictly and keep cleanup reserved
+
+## [0.1.1537] - 2026-10-22
+
+### Fixed
+
+- Keep repeat cycles on the launch branch and prune only finished runs
+
+## [0.1.1536] - 2026-10-22
+
+### Changed
+
+- Give host-death cleanup time before checking the daemon
+
+## [0.1.1535] - 2026-10-22
+
+### Fixed
+
+- Tie repeat cycles to origin, flag Job-bound hosts, list every run
+
+## [0.1.1534] - 2026-10-22
+
+### Fixed
+
+- Refuse a required merge after any failed Ralph PR fix agent
+
+## [0.1.1533] - 2026-10-22
+
+### Fixed
+
+- Finish host-death cleanup and keep unfixed review findings open
+
+## [0.1.1532] - 2026-10-22
+
+### Fixed
+
+- Block a required merge when a selected review agent does not finish
+
+## [0.1.1531] - 2026-10-22
+
+### Fixed
+
+- End Ralph loop processes that left the run's session
+
+## [0.1.1530] - 2026-10-22
+
+### Fixed
+
+- Keep the chosen account in the Ralph scripts and stop failing agents
+
+## [0.1.1529] - 2026-10-22
+
+### Fixed
+
+- Sample a run's started marker and age before its lock check
+
+## [0.1.1528] - 2026-10-22
+
+### Fixed
+
+- Keep a starting host live and count a loop cycle's work phase
+
+## [0.1.1527] - 2026-10-22
+
+### Fixed
+
+- Settle the deferred Ralph loop review findings
+
+## [0.1.1526] - 2026-10-22
+
+### Fixed
+
+- Run Ralph loops from GitHub as the account the view showed
+
+## [0.1.1525] - 2026-10-22
+
+### Fixed
+
+- Keep the Ralph provider, model and agent pickers on one row
+
+## [0.1.1524] - 2026-10-22
+
+### Fixed
+
+- Widen the Ralph model picker so the default label fits
+
+## [0.1.1523] - 2026-10-21
+
+### Fixed
+
+- Never merge a Ralph PR without a completed review
+
+## [0.1.1522] - 2026-10-21
+
+### Fixed
+
+- Never let ralph-pr fall back to working in the user's checkout
+
+## [0.1.1521] - 2026-10-21
+
+### Fixed
+
+- Guard the user's checkout in ralph-pr and fail loops whose agent never ran
+
+## [0.1.1520] - 2026-10-21
+
+### Fixed
+
+- Address the Ralph finish review
+
+## [0.1.1519] - 2026-10-21
+
+### Changed
+
+- Find the stub Copilot CLI without running it in Ralph qualification
+
+## [0.1.1518] - 2026-10-21
+
+### Fixed
+
+- Keep the user's checkout and bound Ralph host memory
+
+## [0.1.1517] - 2026-10-21
+
+### Fixed
+
+- Fail unmerged Ralph loops early and keep run status trustworthy
+
+## [0.1.1516] - 2026-10-21
+
+### Fixed
+
+- Run the Ralph scripts on Unix and fail cycles without a merge
+
+## [0.1.1515] - 2026-10-21
+
+### Fixed
+
+- Merge Ralph Loop PRs between repeat cycles and freeze defaults
+
+## [0.1.1514] - 2026-10-21
+
+### Changed
+
+- Pin the bare remote's branch in the repeat-cycle test
+
+## [0.1.1513] - 2026-10-21
+
+### Fixed
+
+- Make Ralph PR merges opt-in and own the refresh Git process
+
+## [0.1.1512] - 2026-10-21
+
+### Changed
+
+- Call the stub Copilot CLI by its path in Ralph qualification
+
+## [0.1.1511] - 2026-10-21
+
+### Changed
+
+- Wait for the idle dispatcher before opening automation output
+
+## [0.1.1510] - 2026-10-21
+
+### Fixed
+
+- Address Codex review of Ralph loops
+
+## [0.1.1509] - 2026-10-21
+
+### Fixed
+
+- Keep the Ralph Launch button readable by qualification OCR
+
+## [0.1.1508] - 2026-10-21
+
+### Fixed
+
+- Run Ralph loops through a UTF-8 launcher and settle status reads
+
+## [0.1.1507] - 2026-10-21
+
+### Fixed
+
+- Prune Ralph runs and limit auto-approve to Ralph PR
+
+## [0.1.1506] - 2026-10-21
+
+### Added
+
+- Port Ralph loop launch and monitoring to Rust and GPUI
+
 ## [0.1.1505] - 2026-10-21
 
 ### Changed

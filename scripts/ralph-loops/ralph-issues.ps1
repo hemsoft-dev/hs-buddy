@@ -18,7 +18,7 @@ param(
 if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 # --- Config: load shared model/agent configuration ---
-. "$PSScriptRoot\lib\config.ps1"
+. (Join-Path $PSScriptRoot 'lib' 'config.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -139,7 +139,7 @@ if ($Help) {
 }
 
 # --- Git repo validation ---
-$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', '\'
+$repoRoot = ([string](git rev-parse --show-toplevel 2>&1)).Trim() -replace '/', [IO.Path]::DirectorySeparatorChar
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Not inside a git repository. Run this from within a repo." -ForegroundColor Red
     exit 1
@@ -168,8 +168,10 @@ if (-not $repoSlug) {
 
 # Match gh account to repo owner
 $rsOwner = ($repoSlug -split '/')[0]
+# Buddy Native runs a loop as the account its GitHub view showed: RALPH_GH_ACCOUNT names
+# it and GH_TOKEN holds its token. That account is kept, never traded for the owner's.
 $rsActiveUser = gh api user --jq '.login' 2>$null
-if ($rsActiveUser -and $rsActiveUser -ne $rsOwner) {
+if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwner) {
     $rsToken = gh auth token --user $rsOwner 2>$null
     if ($rsToken) {
         $env:GH_TOKEN = $rsToken
@@ -300,7 +302,7 @@ Write-Host "== Ralph Issues - Codebase Scanner" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "  Started:         $runStartStr"
 Write-Host "  PID:             $PID"
-Write-Host "  Host:            $env:COMPUTERNAME"
+Write-Host "  Host:            $([Environment]::MachineName)"
 Write-Host "  Repo:            $repoSlug"
 Write-Host "  Directory:       $originalDir"
 Write-Host "  Max iterations:  $maxLabel"
@@ -316,7 +318,7 @@ Write-Host "====================================" -ForegroundColor Cyan
 $startLogBlock = @"
 [issues] Ralph Issues scan started at $runStartStr ($maxLabel iterations$deadlineStr)
   PID:              $PID
-  Host:             $env:COMPUTERNAME
+  Host:             $([Environment]::MachineName)
   Repo:             $repoSlug
   Directory:        $originalDir
   Max iterations:   $maxLabel
@@ -336,17 +338,21 @@ $script:SummaryLogFile = Join-Path $PSScriptRoot "ralph-summary.log"
 
 # --- Count open issues (for change detection) ---
 function Get-OpenIssueCount {
-    $count = gh issue list --repo $repoSlug --state open --limit 1 --json number -q 'length' 2>$null
-    if ($LASTEXITCODE -eq 0 -and $count -match '^\d+$') { return [int]$count }
-    # Fallback: count with higher limit
-    $issues = gh issue list --repo $repoSlug --state open --limit 500 --json number -q 'length' 2>$null
-    if ($LASTEXITCODE -eq 0 -and $issues -match '^\d+$') { return [int]$issues }
+    # The exact count of open issues (not pull requests), current as soon as one is created;
+    # `gh issue list --limit` returns at most that many, and search can lag.
+    $rsName = ($repoSlug -split '/')[1]
+    $count = gh api graphql -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issues(states: OPEN) { totalCount } } }' `
+        -f owner=$rsOwner -f name=$rsName --jq '.data.repository.issues.totalCount' 2>$null
+    if ($LASTEXITCODE -eq 0 -and "$count" -match '^\d+$') { return [int]$count }
     return -1
 }
 
 # --- Main loop ---
 $completedIterations = 0
 $copilotInvocations = 0
+# Detect console availability once — false when launched from hs-buddy with piped stdio
+$script:HasConsole = try { [Console]::KeyAvailable; $true } catch { $false }
+$agentFailures = 0
 $totalPremiumRequests = 0
 $totalTokensIn = 0.0
 $totalTokensOut = 0.0
@@ -365,7 +371,7 @@ for ($i = 1; $i -le $Max; $i++) {
     }
 
     # --- Early exit: hotkey check ---
-    while ([Console]::KeyAvailable) {
+    while ($script:HasConsole -and [Console]::KeyAvailable) {
         $key = [Console]::ReadKey($true)
         if ($key.Key -eq 'Q' -or $key.Key -eq 'Escape') {
             $earlyExitReason = "User pressed $($key.Key)"
@@ -452,6 +458,10 @@ Prioritize findings by severity (critical > high > medium > low).${labelClause}$
     $cmdArgs = Build-RalphCommand @buildArgs
     $cmdExe = $cmdArgs[0]; $cmdTail = $cmdArgs[1..($cmdArgs.Count-1)]
     & $cmdExe @cmdTail 2>&1 | Tee-Object -FilePath $tempOut
+    if ($LASTEXITCODE -ne 0) {
+        $agentFailures++
+        Write-Host "The agent CLI exited with code $LASTEXITCODE." -ForegroundColor Red
+    }
 
     $iterEnd = Get-Date
     $iterDuration = $iterEnd - $iterStart
@@ -489,6 +499,12 @@ Prioritize findings by severity (critical > high > medium > low).${labelClause}$
     $issueUrls = @($captured | Select-String -Pattern 'https://github\.com/.+/issues/\d+' | ForEach-Object { $_.Matches[0].Value } | Select-Object -Unique)
     if ($issueUrls.Count -gt $iterIssuesCreated) { $iterIssuesCreated = $issueUrls.Count }
     $totalIssuesCreated += $iterIssuesCreated
+    # A dry run only asks the agent not to file issues; it runs as an account that can. Issues
+    # appearing during one stop the run, so nothing more is filed.
+    if ($DryRun -and $iterIssuesCreated -gt 0) {
+        Write-Host "Dry run: $iterIssuesCreated issue(s) appeared during scan $i although the agent was told not to file any. Stopping." -ForegroundColor Red
+        exit 5
+    }
 
     Write-Host "------------------------------------"
     Write-Host "== Scan $i/$maxLabel completed in $iterDurStr  |  Total: $totalStr"
@@ -589,3 +605,8 @@ if ($script:SavedByokEnv) {
 }
 
 Play-Audio "ralph-complete.mp3"
+
+if ($copilotInvocations -gt 0 -and $agentFailures -eq $copilotInvocations) {
+    Write-Host "The agent CLI failed on every scan; no issues were looked for." -ForegroundColor Red
+    exit 4
+}

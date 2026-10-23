@@ -48,9 +48,10 @@ captures a pre-request checkpoint and looks for a new formal bot review or a new
 or edited bot summary. A request acknowledgement is not a completed review.
 Each provider has its own account-and-PR watch and status, so simultaneous
 CodeRabbit and Copilot requests remain independently monitored.
-CodeRabbit requests require `.coderabbit.yaml`. Native Copilot execution and
-Ralph launch handoffs are covered by their respective migration issues; GitHub
-review requests do not execute a local agent.
+CodeRabbit requests require `.coderabbit.yaml`. GitHub review requests do not
+execute a local agent. Start Ralph PR review… on an open pull request and Start
+Ralph loop… on an issue open the [Ralph loop form](NATIVE-RALPH.md) filled in;
+nothing runs until Launch.
 
 Nudge author first resolves a Slack email and previews the actual recipient and
 workspace. Enter the email explicitly when the GitHub profile does not publish
