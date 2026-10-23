@@ -697,3 +697,77 @@ fn an_untouched_start_form_follows_the_active_account(cx: &mut gpui_kit::TestApp
     });
     assert_eq!(account(&view, &mut visual).as_deref(), Some("someone"));
 }
+
+#[gpui_kit::test]
+fn a_draft_stays_with_its_project(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let (alpha, beta) = (
+        repository(root.path(), "alpha"),
+        repository(root.path(), "beta"),
+    );
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    add(&view, &beta, &mut visual);
+    start(&view, &mut visual);
+    select(&view, "o/alpha", &mut visual);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.message.update(cx, |input, cx| {
+                input.set_value("only for alpha", window, cx)
+            })
+        })
+    });
+    select(&view, "o/beta", &mut visual);
+    let text = |view: &Entity<CrewView>, visual: &mut VisualTestContext| {
+        view.read_with(visual, |view, cx| view.message.read(cx).value().to_string())
+    };
+    assert_eq!(text(&view, &mut visual), "");
+    // Sending in beta now sends nothing of alpha's.
+    visual.update(|window, cx| view.update(cx, |view, cx| view.send(window, cx)));
+    visual.run_until_parked();
+    assert_eq!(assistant.count(), 0);
+    select(&view, "o/alpha", &mut visual);
+    assert_eq!(text(&view, &mut visual), "only for alpha");
+}
+
+#[gpui_kit::test]
+fn a_reply_that_cannot_be_saved_is_kept_and_saved_later(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    type_and_send(&view, "question", &mut visual);
+    // Another window holds the state lock while the answer arrives.
+    let state = root.path().join("native-crew").join("state.json");
+    let held = buddy_core::config_lock::ConfigLock::acquire(&state, Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assistant
+        .last()
+        .finish(Reply::Complete("the answer".into()));
+    visual.run_until_parked();
+    let id = view.read_with(&visual, |view, _| view.selected.clone().unwrap());
+    let message = error(&view, &mut visual).unwrap();
+    assert!(
+        message.starts_with("The reply could not be saved yet"),
+        "{message}"
+    );
+    assert!(view.read_with(&visual, |view, _| view.turns.contains_key(&id)));
+    // Send stays unavailable: the answer is not saved yet.
+    type_and_send(&view, "too early", &mut visual);
+    assert_eq!(assistant.count(), 1);
+    drop(held);
+    visual.executor().advance_clock(SAVE_RETRY * 2);
+    visual.run_until_parked();
+    assert_eq!(error(&view, &mut visual), None);
+    assert!(!view.read_with(&visual, |view, _| view.turns.contains_key(&id)));
+    assert_eq!(history(&view, &mut visual)[1].1, "the answer");
+}

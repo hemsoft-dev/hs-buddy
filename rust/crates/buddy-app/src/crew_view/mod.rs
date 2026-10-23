@@ -26,6 +26,9 @@ use crate::settings::Settings;
 const TOO_LARGE: &str =
     "This conversation is too large for another message. Clear it to start a new one.";
 
+/// A reply that could not be saved is tried again after this long.
+const SAVE_RETRY: Duration = Duration::from_secs(2);
+
 /// Other windows and recovered replies show up within this long.
 const POLL: Duration = Duration::from_secs(2);
 
@@ -74,8 +77,12 @@ pub struct CrewView {
     default_account: Option<String>,
     /// Replies in flight, by project id.
     turns: HashMap<String, Active>,
+    /// Unsent message text of projects not shown now, by project id.
+    drafts: HashMap<String, String>,
     /// Projects whose send is being recorded, before their reply starts.
     sending: HashSet<String>,
+    /// Projects whose finished reply is waiting for another save attempt.
+    save_failed: HashSet<String>,
     changes: Option<Changes>,
     scanning: bool,
     rescan: bool,
@@ -161,7 +168,9 @@ impl CrewView {
             reset_start: false,
             default_account: None,
             turns: HashMap::new(),
+            drafts: HashMap::new(),
             sending: HashSet::new(),
+            save_failed: HashSet::new(),
             changes: None,
             scanning: false,
             rescan: false,
@@ -381,6 +390,18 @@ impl CrewView {
         if self.selected.as_ref() == Some(&id) {
             return;
         }
+        // A draft belongs to its project; it never travels to another conversation.
+        let draft = self.message.read(cx).value().to_string();
+        if let Some(previous) = self.selected.take() {
+            if draft.trim().is_empty() {
+                self.drafts.remove(&previous);
+            } else {
+                self.drafts.insert(previous, draft);
+            }
+        }
+        let restored = self.drafts.remove(&id).unwrap_or_default();
+        self.message
+            .update(cx, |input, cx| input.set_value(restored, window, cx));
         self.selected = Some(id.clone());
         self.confirm = None;
         self.error = None;
@@ -741,21 +762,45 @@ impl CrewView {
             return;
         };
         let task = cx.background_executor().spawn(async move {
-            let result = store.finish_turn(&session, &request, reply);
-            // Released only once the reply is written.
-            drop(guard);
-            result
+            let result = store.finish_turn(&session, &request, reply.clone());
+            // Released only once the reply is written; kept for the next attempt otherwise,
+            // so no other send can start before this answer is saved.
+            let guard = match result {
+                Ok(_) => {
+                    drop(guard);
+                    None
+                }
+                Err(_) => guard,
+            };
+            (result, guard, session, request, reply)
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let (result, guard, session, request, reply) = task.await;
+            if let Err(error) = result {
+                // The answer stays on screen and is saved again shortly.
+                let retried = this.update(cx, |this, cx| {
+                    this.error = Some(format!(
+                        "The reply could not be saved yet ({error}). Buddy keeps it and tries again."
+                    ));
+                    this.save_failed.insert(project.clone());
+                    cx.notify();
+                });
+                if retried.is_ok() {
+                    cx.background_executor().timer(SAVE_RETRY).await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.record(project, session, request, reply, guard, cx)
+                    });
+                }
+                return;
+            }
             let _ = this.update(cx, |this, cx| {
                 this.turns.remove(&project);
-                match result {
-                    Ok(Some(session)) => {
-                        this.sessions.insert(project.clone(), session);
-                    }
-                    Ok(None) => {}
-                    Err(error) => this.error = Some(error),
+                if this.save_failed.remove(&project) {
+                    this.error = None;
+                    this.notice = Some("The reply was saved.".into());
+                }
+                if let Ok(Some(session)) = result {
+                    this.sessions.insert(project.clone(), session);
                 }
                 if this.selected.as_ref() == Some(&project) {
                     this.scan(cx);

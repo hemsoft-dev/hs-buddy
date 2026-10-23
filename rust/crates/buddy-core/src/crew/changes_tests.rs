@@ -456,3 +456,44 @@ fn keeps_from_two_windows_are_both_recorded() {
     });
     assert_eq!(repo.scan(), Scan::default());
 }
+
+#[cfg(unix)]
+#[test]
+fn undo_never_writes_through_a_folder_replaced_by_a_link() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.commit_all();
+    // An untracked file in a folder, copied by the snapshot.
+    repo.write("data/config", "project content\n");
+    repo.capture();
+    let git_config = repo.root.join(".git").join("config");
+    let before = std::fs::read(&git_config).unwrap();
+    // The folder is replaced by a link into the repository's metadata.
+    std::fs::remove_dir_all(repo.root.join("data")).unwrap();
+    std::os::unix::fs::symlink(".git", repo.root.join("data")).unwrap();
+    let listed = repo.scan().changes;
+    let config = listed.iter().find(|change| change.path == "data/config");
+    if let Some(config) = config {
+        assert!(config.no_undo.is_some(), "{config:?}");
+        let refused = undo(
+            &repo.git,
+            &repo.root,
+            &repo.folder,
+            "data/config",
+            &config.seen,
+        );
+        assert!(refused.is_err());
+    }
+    // Even with the seen state of the real metadata file, nothing is written through.
+    let seen = Seen::File(digest(&before));
+    assert!(undo(&repo.git, &repo.root, &repo.folder, "data/config", &seen).is_err());
+    assert_eq!(std::fs::read(&git_config).unwrap(), before);
+}
+
+#[test]
+fn no_path_part_may_be_git_metadata() {
+    for path in ["sub/.git/config", "a/.GIT/HEAD", ".git/config"] {
+        assert!(!valid_path(path), "{path}");
+    }
+    assert!(valid_path("a/.gitkeep"));
+}

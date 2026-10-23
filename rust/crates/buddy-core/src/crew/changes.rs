@@ -16,6 +16,7 @@ use std::io::{Read as _, Write as _};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 
+use cap_fs_ext::DirExt as _;
 use cap_std::fs::Dir;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -120,6 +121,7 @@ impl std::fmt::Display for ActionError {
 
 const TOO_LARGE: &str = "Undo is unavailable: the original was too large to keep.";
 const NOT_A_FILE: &str = "Undo is unavailable for links, folders and submodules.";
+const LINKED: &str = "Undo is unavailable: a folder on the way to this file is a link.";
 
 /// One side of a comparison.
 enum Side {
@@ -176,12 +178,54 @@ pub fn valid_path(path: &str) -> bool {
     if path.is_empty() || path.contains('\0') || path.contains('\\') || path.contains('\n') {
         return false;
     }
-    let mut components = Path::new(path).components();
-    let first_is_git = Path::new(path)
+    // No part may be `.git`: Git never tracks a path through a repository's metadata.
+    Path::new(path)
         .components()
-        .next()
-        .is_some_and(|first| first.as_os_str().eq_ignore_ascii_case(".git"));
-    !first_is_git && components.all(|part| matches!(part, Component::Normal(_)))
+        .all(|part| matches!(part, Component::Normal(name) if !name.eq_ignore_ascii_case(".git")))
+}
+
+/// The folder holding a path, opened one part at a time without following links.
+enum Parent {
+    Found(Dir, String),
+    /// A folder on the way does not exist.
+    Missing,
+    /// A part on the way is a link or not a folder: nothing below it is followed.
+    Linked,
+}
+
+/// Opens the folder that holds `path` without following any link on the way, so a
+/// folder replaced by a link (even one into `.git`) is never written through. Missing
+/// folders are created when `create`.
+fn parent(root: &Dir, path: &str, create: bool) -> std::io::Result<Parent> {
+    let mut parts: Vec<&str> = path.split('/').collect();
+    let name = parts.pop().unwrap_or_default().to_owned();
+    let mut directory = root.try_clone()?;
+    for part in parts {
+        match directory.symlink_metadata(part) {
+            Ok(metadata) if metadata.is_symlink() || !metadata.is_dir() => {
+                return Ok(Parent::Linked);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
+                directory.create_dir(part)?
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                return Ok(Parent::Missing);
+            }
+            Err(error) => return Err(error),
+        }
+        directory = match directory.open_dir_nofollow(part) {
+            Ok(directory) => directory,
+            // Replaced by a link since the check above.
+            Err(_) => return Ok(Parent::Linked),
+        };
+    }
+    Ok(Parent::Found(directory, name))
 }
 
 fn open_root(root: &Path) -> Result<Dir, String> {
@@ -201,8 +245,17 @@ fn link_target(target: &Path) -> String {
     digest(&bytes)
 }
 
-/// The file at `path` inside `root`, never following a link out of it.
+/// The file at `path` inside `root`, never following a link on the way.
 fn current(root: &Dir, path: &str) -> Result<Side, String> {
+    match parent(root, path, false).map_err(storage)? {
+        Parent::Found(directory, name) => entry(&directory, &name),
+        Parent::Missing => Ok(Side::Absent),
+        Parent::Linked => Ok(Side::Special),
+    }
+}
+
+/// The entry `name` in an already opened folder.
+fn entry(root: &Dir, path: &str) -> Result<Side, String> {
     let metadata = match root.symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error)
@@ -695,8 +748,9 @@ pub fn undo(
     let base =
         baseline_side(git, root, folder, &baseline, path, &tree).map_err(ActionError::Refused)?;
     let failed = |error: std::io::Error| ActionError::Refused(format!("Undo failed: {error}"));
-    let check = || -> Result<Side, ActionError> {
-        let now = current(&directory, path).map_err(ActionError::Refused)?;
+    let linked = || ActionError::Refused(LINKED.into());
+    let check = |found: Result<Side, String>| -> Result<Side, ActionError> {
+        let now = found.map_err(ActionError::Refused)?;
         if now.seen() != *seen {
             return Err(ActionError::Changed);
         }
@@ -705,38 +759,36 @@ pub fn undo(
         }
         Ok(now)
     };
+    // Refuse a stale list before creating anything.
+    check(current(&directory, path))?;
     match base {
-        Side::Absent => match check()? {
-            Side::Absent => Ok(()),
-            _ => directory.remove_file(path).map_err(failed),
-        },
-        Side::File { bytes, mode } => {
-            let target = Path::new(path);
-            let parent = target
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty());
-            // Refuse a stale list before creating anything.
-            check()?;
-            if let Some(parent) = parent {
-                directory.create_dir_all(parent).map_err(failed)?;
+        Side::Absent => {
+            let Parent::Found(folder, name) = parent(&directory, path, false).map_err(failed)?
+            else {
+                return Ok(());
+            };
+            match check(entry(&folder, &name))? {
+                Side::Absent => Ok(()),
+                _ => folder.remove_file(&name).map_err(failed),
             }
-            let name = target.file_name().unwrap_or_default().to_string_lossy();
-            let temporary = parent
-                .map(Path::to_path_buf)
-                .unwrap_or_default()
-                .join(format!(
-                    ".{name}.buddy-undo-{}",
-                    uuid::Uuid::new_v4().simple()
-                ));
+        }
+        Side::File { bytes, mode } => {
+            // Every step below works in this folder handle, so a folder on the way that
+            // is swapped for a link afterwards is not followed either.
+            let Parent::Found(folder, name) = parent(&directory, path, true).map_err(failed)?
+            else {
+                return Err(linked());
+            };
+            let temporary = format!(".{name}.buddy-undo-{}", uuid::Uuid::new_v4().simple());
             let prepared = (|| -> std::io::Result<()> {
-                let mut file = directory.create(&temporary)?.into_std();
+                let mut file = folder.create(&temporary)?.into_std();
                 file.write_all(&bytes)?;
                 file.sync_all()?;
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt as _;
-                    let existing = directory
-                        .open(target)
+                    let existing = folder
+                        .open(&name)
                         .ok()
                         .and_then(|file| file.into_std().metadata().ok())
                         .map(|metadata| metadata.permissions().mode());
@@ -751,13 +803,11 @@ pub fn undo(
             })();
             // The last look before replacing: an edit made meanwhile wins.
             let outcome = prepared.map_err(failed).and_then(|()| {
-                check()?;
-                directory
-                    .rename(&temporary, &directory, target)
-                    .map_err(failed)
+                check(entry(&folder, &name))?;
+                folder.rename(&temporary, &folder, &name).map_err(failed)
             });
             if outcome.is_err() {
-                let _ = directory.remove_file(&temporary);
+                let _ = folder.remove_file(&temporary);
             }
             outcome
         }

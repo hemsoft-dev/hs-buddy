@@ -36,14 +36,17 @@ files, run commands or post to GitHub. Each message sends Electron's context lin
 `Project: owner/repo at <path>`, followed by the conversation as stored when the reply
 starts (including turns another window added), so one project's conversation never
 reaches another's. Enter sends; Shift+Enter adds a
-line. Stop reply ends the reply and keeps what arrived as a partial answer.
+line. Stop reply ends the reply and keeps what arrived as a partial answer. An unsent
+message stays with its project when you switch to another one.
 
 The question is saved before the reply starts, and the reply is saved only to the
 conversation that asked for it, once. While a reply is in progress, Send is
 unavailable for that project, in every Buddy window: the replying process holds a
 lock on the conversation, and the other windows show "Replying in another window" with
 Send, Clear and Remove unavailable. Another project can be asked at the same time. A failed
-reply is saved with its reason and the project is listed as "Last reply failed".
+reply is saved with its reason and the project is listed as "Last reply failed". If an
+answer cannot be saved (another window keeps the state busy), it stays on screen and
+Buddy saves it again every two seconds; Send stays unavailable until it is saved.
 If Buddy closes or crashes before a reply finishes, the next start records
 "Buddy closed before this reply finished." in that conversation.
 
@@ -83,8 +86,10 @@ was read, nothing is written and the row reports it; Refresh and look again. Und
 prepares the restored file first and checks the file once more just before replacing
 or deleting it, which leaves only the moment of the replacement itself for an editor to
 write in. Undo
-writes through a handle on the project folder that cannot leave it: paths with `..`,
-absolute paths, `.git`, and links that lead out of the project are refused. Links,
+writes through a handle on the file's own folder, opened one folder at a time without
+following links, so it cannot leave the project or reach `.git`: paths with `..`,
+absolute paths, any `.git` part, and any link on the way (even one that stays inside the
+project) are refused. Links,
 folders and submodules are listed without Undo. Files larger than 8 MiB, or beyond
 64 MiB of copies per conversation, are compared by digest and cannot be undone.
 A conversation can start with at most 5,000 changed or untracked files.
