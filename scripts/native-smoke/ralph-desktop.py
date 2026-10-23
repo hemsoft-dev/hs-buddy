@@ -163,7 +163,10 @@ def qualify(executable, output, session, version):
         github.check(launched / "dashboard-dark.png", "Ralph Loops", "Start a loop", "Ralph Loop", "Ralph PR", "Ralph Issues")
         github.check(launched / "form-dark.png", "Ralph Loop", "Launch", "Repository", "Provider", "Model",
             "Work agent", "Review agents", "Work iterations", "Repeat cycles", "Merge the PR when it is clean")
-        github.check(launched / "running-dark.png", "Running", "Iterating", "RALPH STUB TOOL", "Stop loop")
+        # The quick loop ends about 12 s after this line appears; on a slow runner OCR can take
+        # longer, so the capture may already show it Completed. The long loop below, which
+        # runs until stopped, proves the Running state.
+        github.check(launched / "running-dark.png", "RALPH STUB TOOL")
         github.check(launched / "completed-dark.png", "Completed", "RALPH STUB COMPLETE", "Retry", "Exit code 0")
         github.check(launched / "recent-dark.png", "Recent (1)", "Completed", "Ralph Loop")
         verify_receipts(proofs, repository_path, dict(quick=1))
@@ -174,7 +177,7 @@ def qualify(executable, output, session, version):
             ("click", "Stop loop"), ("capture", "stop-confirm-dark"),
             ("click", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "stopped-dark"),
         ], record=True)
-        github.check(stopped / "long-running-dark.png", "Running", "RALPH STUB RUNNING")
+        github.check(stopped / "long-running-dark.png", "Running", "Iterating", "RALPH STUB RUNNING", "Stop loop")
         github.check(stopped / "stop-confirm-dark.png", "Stop this loop?", "Stop now", "Keep running")
         github.check(stopped / "stopped-dark.png", "Stopped", "[Buddy] Stopped.")
         long_runs = [receipt for receipt in verify_receipts(proofs, repository_path, dict(quick=1, long=1))
