@@ -152,19 +152,21 @@ def qualify(executable, output, session, version):
             ("wait_text", "Start a conversation"), ("capture", "start-dark"),
             ("click", "Start conversation"), ("wait_text", "No changes since this conversation started."),
             ("input", "Message", f"{STREAM} What does alpha contain?"), ("click", "Send message"),
-            ("wait_text", "Offline stream"), ("capture", "alpha-reply-dark"),
+            ("wait_text", "Offline stream"), ("sleep", 3), ("capture", "alpha-reply-dark"),
             ("input", "Project folder", str(beta)), ("click", "Add project"),
             ("wait_text", "Start a conversation"), ("click", "Start conversation"),
             ("wait_text", "No changes since this conversation started."),
-            # Enter sends from the keyboard.
+            # Enter sends from the keyboard. Captures wait for the reply to finish streaming.
+            # OCR misreads short paths ("src/lib.rs") and red button text, so checks use the
+            # words it reads reliably; disabled buttons are too faint to require.
             ("input", "Message", f"{STREAM} And beta?"), ("key", "Return"),
-            ("wait_text", "Offline stream"), ("capture", "beta-reply-dark"),
+            ("wait_text", "Offline stream"), ("sleep", 3), ("capture", "beta-reply-dark"),
         ], record=True)
         github.check(chats / "empty-dark.png", "The Crew", "Project folder", "Add project", "No projects yet")
         github.check(chats / "not-a-repository-dark.png", "This folder is not inside a Git repository.")
         github.check(chats / "start-dark.png", "Start a conversation", ACCOUNT, "Model", "Start conversation")
         github.check(chats / "alpha-reply-dark.png", "alpha", "fixture-org/alpha", "Synthetic assistant",
-            "Offline stream", "Changed files", "Send message", "Clear conversation")
+            "Offline stream", "Changed files", "Message", "Clear conversation")
         github.check(chats / "beta-reply-dark.png", "beta", "fixture-org/beta", "Synthetic assistant", "2 messages")
         verify_conversations(state(output), {
             "fixture-org/alpha": [("user", False), ("assistant", False)],
@@ -189,12 +191,12 @@ def qualify(executable, output, session, version):
 
         library.write_text("pub fn answer() -> u32 { 0 } // an agent's edit\n", encoding="utf-8")
         undone = driver.drive("undo-dark", [
-            ("click", "alpha"), ("wait_text", "src/lib.rs"),
+            ("click", "alpha"), ("wait_text", "lib.rs"),
             ("click", "Undo"), ("wait_text", "Confirm undo"), ("capture", "undo-confirm-dark"),
-            ("click", "Confirm undo"), ("wait_text", "Undid the changes to src/lib.rs."), ("capture", "undone-dark"),
+            ("click", "Confirm undo"), ("wait_text", "Undid the changes to"), ("capture", "undone-dark"),
         ], record=True)
-        github.check(undone / "undo-confirm-dark.png", "src/lib.rs", "Confirm undo")
-        github.check(undone / "undone-dark.png", "Undid the changes to src/lib.rs.",
+        github.check(undone / "undo-confirm-dark.png", "lib.rs", "Modified", "Keep")
+        github.check(undone / "undone-dark.png", "Undid the changes to",
             "No changes since this conversation started.")
         if library.read_text(encoding="utf-8") != users:
             raise RuntimeError("Undo did not restore the user's earlier edit")
@@ -247,7 +249,7 @@ def qualify(executable, output, session, version):
         github.check(reopened / "interrupted-light.png", "Buddy closed before this reply finished.",
             "Synthetic assistant", "Last reply failed")
         github.check(reopened / "restored-light.png", "A question the provider refuses", "Copilot, failed")
-        github.check(reopened / "compact-light.png", "Changed files", "Send message", "Clear conversation")
+        github.check(reopened / "compact-light.png", "Changed files", "Message", "Clear conversation")
 
         verify_conversations(state(output), {
             "fixture-org/alpha": [("user", False), ("assistant", True)],
