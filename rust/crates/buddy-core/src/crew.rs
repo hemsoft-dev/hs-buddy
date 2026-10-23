@@ -15,9 +15,16 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config_lock::{ConfigLock, DEFAULT_TIMEOUT};
+use crate::config_lock::ConfigLock;
 
 const STATE: &str = "state.json";
+/// How long a write waits for another window's write before giving up.
+const LOCK_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(if cfg!(test) { 300 } else { 5_000 });
+/// Snapshot folders and turn locks no conversation names are deleted once this old;
+/// younger ones may belong to a conversation another window is starting.
+const ORPHAN_AGE: std::time::Duration =
+    std::time::Duration::from_secs(if cfg!(test) { 0 } else { 60 * 60 });
 /// The largest message a user can send.
 pub const MAX_MESSAGE: usize = 64 * 1024;
 
@@ -121,6 +128,14 @@ pub enum TurnError {
     Storage(String),
 }
 
+/// What Remove or Clear did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Removed {
+    pub done: bool,
+    /// The snapshot folder could not be deleted yet; the next start tries again.
+    pub leftover: Option<String>,
+}
+
 impl std::fmt::Display for TurnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -145,6 +160,36 @@ fn same_folder(a: &Path, b: &Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
     }
+}
+
+const CHANGED: &str = "The conversation changed in another window. Try again.";
+
+/// Takes `file`'s exclusive lock; `false` when another holder keeps it. On Unix a
+/// process being spawned (Buddy runs Git) briefly shares every open file until it
+/// executes, and with it a lock just released, so a held lock counts only when it
+/// stays held for a moment.
+fn lock_settled(file: &File) -> std::io::Result<bool> {
+    for attempt in 0..10 {
+        match file.try_lock() {
+            Ok(()) => return Ok(true),
+            Err(std::fs::TryLockError::WouldBlock) if attempt < 9 => {
+                std::thread::sleep(std::time::Duration::from_millis(20))
+            }
+            Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
+            Err(std::fs::TryLockError::Error(error)) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
+/// Whether the project's conversation is still the one read before taking its lock.
+fn same_session(state: &State, project: &str, read: Option<&Session>) -> bool {
+    let now = state
+        .sessions
+        .iter()
+        .find(|session| session.project_id == project)
+        .map(|session| session.id.as_str());
+    now == read.map(|session| session.id.as_str())
 }
 
 /// Session and snapshot ids become folder names, so only ids this module issues are used.
@@ -210,11 +255,15 @@ impl Store {
         }
     }
 
-    /// Reads, applies `change` and writes back while holding the state lock.
+    /// Reads, applies `change` and writes back while holding the state lock. Without the
+    /// lock nothing is written: an unlocked write could erase another window's change.
     fn update<T>(&self, change: impl FnOnce(&mut State) -> T) -> Result<T, String> {
         let path = self.root.join(STATE);
-        let _lock = ConfigLock::acquire(&path, DEFAULT_TIMEOUT)
+        let lock = ConfigLock::acquire(&path, LOCK_TIMEOUT)
             .map_err(|error| format!("The Crew state could not be locked: {error}"))?;
+        let Some(_lock) = lock else {
+            return Err("Another Buddy window is saving the Crew state. Try again.".into());
+        };
         let mut state = self.read()?;
         let result = change(&mut state);
         let bytes = serde_json::to_vec_pretty(&state)
@@ -281,42 +330,103 @@ impl Store {
 
     /// Removes a project with its conversation and snapshot. The repository is not touched.
     /// Refused while a reply is in flight for it, in any window.
-    pub fn remove(&self, project: &str) -> Result<bool, String> {
-        if self
-            .session(project)?
-            .is_some_and(|session| self.turn_running(&session.id))
-        {
-            return Err("Stop the reply in progress before removing the project.".into());
-        }
+    pub fn remove(&self, project: &str) -> Result<Removed, String> {
+        let current = self.session(project)?;
+        // Held through the change, so no window starts a reply in between.
+        let _guard = self.claim(current.as_ref(), "removing the project")?;
         let removed = self.update(|state| {
+            if !same_session(state, project, current.as_ref()) {
+                return Err(CHANGED.to_string());
+            }
             let before = state.projects.len();
             state.projects.retain(|candidate| candidate.id != project);
-            let sessions: Vec<String> = state
-                .sessions
-                .iter()
-                .filter(|session| session.project_id == project)
-                .map(|session| session.id.clone())
-                .collect();
             state
                 .sessions
                 .retain(|session| session.project_id != project);
-            (before != state.projects.len(), sessions)
-        })?;
-        for session in removed.1 {
-            self.discard_snapshot(&session);
-        }
-        Ok(removed.0)
+            Ok(before != state.projects.len())
+        })??;
+        let leftover = current.and_then(|session| self.discard_snapshot(&session.id).err());
+        Ok(Removed {
+            done: removed,
+            leftover,
+        })
     }
 
     /// Discards a session prepared by [`Store::prepare_session`] that never started.
     pub fn abandon_session(&self, session: &str) {
-        self.discard_snapshot(session);
+        let _ = self.discard_snapshot(session);
     }
 
-    fn discard_snapshot(&self, session: &str) {
-        if valid_id(session) {
-            let _ = std::fs::remove_dir_all(self.snapshot_folder(session));
-            let _ = std::fs::remove_file(self.turn_lock(session));
+    fn discard_snapshot(&self, session: &str) -> Result<(), String> {
+        if !valid_id(session) {
+            return Ok(());
+        }
+        let _ = std::fs::remove_file(self.turn_lock(session));
+        match std::fs::remove_dir_all(self.snapshot_folder(session)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "The conversation's snapshot folder could not be deleted yet ({error}). \
+                 Buddy deletes it at its next start."
+            )),
+        }
+    }
+
+    /// Holds `session`'s turn lock, or refuses because a reply is running for it.
+    fn claim(&self, session: Option<&Session>, action: &str) -> Result<Option<TurnGuard>, String> {
+        let Some(session) = session else {
+            return Ok(None);
+        };
+        match self.hold(&session.id) {
+            Ok(Some(guard)) => Ok(Some(guard)),
+            Ok(None) => Err(format!("Stop the reply in progress before {action}.")),
+            Err(error) => Err(format!("The conversation could not be locked: {error}")),
+        }
+    }
+
+    /// The session's turn lock, or `None` when another reply holds it.
+    fn hold(&self, session: &str) -> std::io::Result<Option<TurnGuard>> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.turn_lock(session))?;
+        Ok(lock_settled(&file)?.then_some(TurnGuard { _file: file }))
+    }
+
+    /// Deletes snapshot folders and turn locks that no conversation names any more
+    /// (a deletion that failed earlier). Recent ones are left for a starting conversation.
+    fn sweep(&self, state: &State) {
+        let known: std::collections::HashSet<&str> = state
+            .sessions
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect();
+        let old = |path: &Path| {
+            path.metadata()
+                .and_then(|metadata| metadata.modified())
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age >= ORPHAN_AGE)
+        };
+        for (folder, suffix) in [("snapshots", ""), ("turns", ".lock")] {
+            let Ok(entries) = std::fs::read_dir(self.root.join(folder)) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let Some(id) = name.strip_suffix(suffix) else {
+                    continue;
+                };
+                if !valid_id(id) || known.contains(id) || !old(&entry.path()) {
+                    continue;
+                }
+                if suffix.is_empty() {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                } else if self.hold(id).is_ok_and(|guard| guard.is_some()) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
         }
     }
 
@@ -378,11 +488,11 @@ impl Store {
         match outcome {
             Ok((session, true)) => Ok(session),
             Ok((session, false)) => {
-                self.discard_snapshot(id);
+                self.abandon_session(id);
                 Ok(session)
             }
             Err(error) => {
-                self.discard_snapshot(id);
+                self.abandon_session(id);
                 Err(error)
             }
         }
@@ -406,16 +516,10 @@ impl Store {
         if !valid_id(session) {
             return Err(TurnError::NoSession);
         }
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(self.turn_lock(session))
-            .map_err(|error| TurnError::Storage(format!("The reply could not start: {error}")))?;
-        if file.try_lock().is_err() {
-            return Err(TurnError::Busy);
-        }
-        let guard = TurnGuard { _file: file };
+        let guard = self
+            .hold(session)
+            .map_err(|error| TurnError::Storage(format!("The reply could not start: {error}")))?
+            .ok_or(TurnError::Busy)?;
         let session = self
             .update(|state| {
                 let Some(found) = state.sessions.iter_mut().find(|item| item.id == session) else {
@@ -500,8 +604,9 @@ impl Store {
     /// Marks replies whose process is gone (Buddy closed or crashed mid-reply) as
     /// interrupted, so a conversation never stays busy forever.
     pub fn recover(&self) -> Result<usize, String> {
-        let stale: Vec<(String, String)> = self
-            .read()?
+        let state = self.read()?;
+        self.sweep(&state);
+        let stale: Vec<(String, String)> = state
             .sessions
             .iter()
             .filter_map(|session| {
@@ -528,30 +633,37 @@ impl Store {
     pub fn turn_running(&self, session: &str) -> bool {
         valid_id(session)
             && File::open(self.turn_lock(session))
-                .is_ok_and(|file| matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)))
+                .is_ok_and(|file| lock_settled(&file).is_ok_and(|locked| !locked))
     }
 
     /// Ends the project's conversation and discards its snapshot. Refused while a reply
     /// is in flight; cancel it first.
-    pub fn clear(&self, project: &str) -> Result<bool, String> {
-        let current = self.session(project)?;
-        let Some(current) = current else {
-            return Ok(false);
+    pub fn clear(&self, project: &str) -> Result<Removed, String> {
+        let Some(current) = self.session(project)? else {
+            return Ok(Removed {
+                done: false,
+                leftover: None,
+            });
         };
-        if self.turn_running(&current.id) {
-            return Err("Stop the reply in progress before clearing the conversation.".into());
-        }
+        // Held through the change, so no window starts a reply in between.
+        let _guard = self.claim(Some(&current), "clearing the conversation")?;
         let cleared = self.update(|state| {
+            if !same_session(state, project, Some(&current)) {
+                return Err(CHANGED.to_string());
+            }
             let before = state.sessions.len();
             state
                 .sessions
                 .retain(|session| !(session.project_id == project && session.id == current.id));
-            before != state.sessions.len()
-        })?;
-        if cleared {
-            self.discard_snapshot(&current.id);
-        }
-        Ok(cleared)
+            Ok(before != state.sessions.len())
+        })??;
+        let leftover = cleared
+            .then(|| self.discard_snapshot(&current.id).err())
+            .flatten();
+        Ok(Removed {
+            done: cleared,
+            leftover,
+        })
     }
 
     pub fn project(&self, id: &str) -> Result<Option<Project>, String> {

@@ -330,3 +330,129 @@ fn reported_paths_are_validated() {
         assert!(!valid_path(path), "{path}");
     }
 }
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
+fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[cfg(unix)]
+#[test]
+fn executable_bits_are_compared_and_restored() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("run.sh", "echo hi\n");
+    set_mode(&repo.root.join("run.sh"), 0o755);
+    repo.write("note.sh", "echo note\n");
+    set_mode(&repo.root.join("note.sh"), 0o755);
+    repo.commit_all();
+    repo.capture();
+    // Deleting an executable and undoing it brings back the executable bit.
+    std::fs::remove_file(repo.root.join("run.sh")).unwrap();
+    repo.undo("run.sh").unwrap();
+    assert_eq!(mode_of(&repo.root.join("run.sh")) & 0o111, 0o111);
+    // A mode-only change is listed, and Undo restores the bit.
+    set_mode(&repo.root.join("note.sh"), 0o644);
+    assert_eq!(repo.change("note.sh").kind, Kind::Modified);
+    repo.undo("note.sh").unwrap();
+    assert_eq!(mode_of(&repo.root.join("note.sh")) & 0o111, 0o111);
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_changed_link_target_is_listed_without_undo() {
+    let Some(repo) = Repo::new() else { return };
+    repo.write("a.txt", "a\n");
+    repo.write("b.txt", "b\n");
+    std::os::unix::fs::symlink("a.txt", repo.root.join("link")).unwrap();
+    repo.commit_all();
+    repo.capture();
+    assert_eq!(repo.scan(), Scan::default());
+    std::fs::remove_file(repo.root.join("link")).unwrap();
+    std::os::unix::fs::symlink("b.txt", repo.root.join("link")).unwrap();
+    let change = repo.change("link");
+    assert_eq!(change.kind, Kind::Modified);
+    assert!(matches!(change.seen, Seen::Link(_)));
+    assert!(change.no_undo.is_some());
+    assert!(matches!(repo.undo("link"), Err(ActionError::Refused(_))));
+    // Keep accepts the new target.
+    keep(&repo.root, &repo.folder, "link", &change.seen).unwrap();
+    assert_eq!(repo.scan(), Scan::default());
+}
+
+#[test]
+fn large_git_output_is_hashed_not_buffered() {
+    let Some(repo) = Repo::new() else { return };
+    let big = vec![b'x'; MAX_FILE as usize + 4096];
+    std::fs::write(repo.root.join("big.bin"), &big).unwrap();
+    let object = output(
+        &repo.git,
+        Some(&repo.root),
+        ["hash-object", "-w", "big.bin"],
+    )
+    .unwrap();
+    let object = String::from_utf8(object).unwrap().trim().to_string();
+    let read = bounded(
+        &repo.git,
+        &repo.root,
+        &["cat-file", "blob", object.as_str()],
+    )
+    .unwrap();
+    assert_eq!(read, Err(digest(&big)));
+    let small = bounded(&repo.git, &repo.root, &["rev-parse", "--git-dir"]).unwrap();
+    assert!(small.is_ok());
+    assert!(bounded(&repo.git, &repo.root, &["cat-file", "blob", "0000"]).is_none());
+}
+
+#[test]
+fn the_snapshot_keeps_its_commits_line_endings() {
+    let Some(repo) = Repo::new() else { return };
+    let supported = output(
+        &repo.git,
+        Some(&repo.root),
+        ["--attr-source=HEAD", "version"],
+    );
+    repo.write(".gitattributes", "*.txt text eol=lf\n");
+    repo.write("a.txt", "one\ntwo\n");
+    repo.commit_all();
+    if supported.is_none() {
+        // Git before 2.40 reads the working tree's attributes instead.
+        return;
+    }
+    repo.capture();
+    // Attributes change after the conversation started.
+    repo.write(".gitattributes", "*.txt text eol=crlf\n");
+    repo.write("a.txt", "one\nTWO\n");
+    assert_eq!(repo.change("a.txt").lines, Some((1, 1)));
+    repo.undo("a.txt").unwrap();
+    assert_eq!(repo.read("a.txt").unwrap(), "one\ntwo\n");
+}
+
+#[test]
+fn keeps_from_two_windows_are_both_recorded() {
+    let Some(repo) = Repo::new() else { return };
+    let names: Vec<String> = (0..6).map(|index| format!("f{index}.txt")).collect();
+    for name in &names {
+        repo.write(name, "a\n");
+    }
+    repo.commit_all();
+    repo.capture();
+    for name in &names {
+        repo.write(name, "a\nb\n");
+    }
+    let changes = repo.scan().changes;
+    std::thread::scope(|scope| {
+        for change in &changes {
+            let (root, folder) = (&repo.root, &repo.folder);
+            scope.spawn(move || keep(root, folder, &change.path, &change.seen).unwrap());
+        }
+    });
+    assert_eq!(repo.scan(), Scan::default());
+}

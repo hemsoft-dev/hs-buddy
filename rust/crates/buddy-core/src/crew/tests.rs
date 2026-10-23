@@ -60,8 +60,8 @@ fn removing_a_project_drops_its_conversation_and_snapshot_only() {
     let second = session(&store, &two);
     assert!(store.snapshot_folder(&first.id).is_dir());
 
-    assert!(store.remove(&one.id).unwrap());
-    assert!(!store.remove(&one.id).unwrap());
+    assert!(store.remove(&one.id).unwrap().done);
+    assert!(!store.remove(&one.id).unwrap().done);
     assert!(!store.snapshot_folder(&first.id).exists());
     assert!(store.snapshot_folder(&second.id).is_dir());
     assert_eq!(store.session(&one.id).unwrap(), None);
@@ -195,12 +195,12 @@ fn a_cleared_conversation_ignores_its_late_reply() {
     let started = session(&store, &project);
     let (_, guard) = store.begin_turn(&started.id, "r1", "one").unwrap();
     drop(guard);
-    assert!(store.clear(&project.id).unwrap());
+    assert!(store.clear(&project.id).unwrap().done);
     assert!(!store.snapshot_folder(&started.id).exists());
     let late = Reply::Complete("late".into());
     assert_eq!(store.finish_turn(&started.id, "r1", late).unwrap(), None);
     assert_eq!(store.session(&project.id).unwrap(), None);
-    assert!(!store.clear(&project.id).unwrap());
+    assert!(!store.clear(&project.id).unwrap().done);
     // A new conversation starts empty.
     let next = session(&store, &project);
     assert_ne!(next.id, started.id);
@@ -306,4 +306,44 @@ fn state_uses_electrons_field_names() {
     ] {
         assert!(text.contains(field), "{field}");
     }
+}
+
+#[test]
+fn nothing_is_written_while_another_window_holds_the_state_lock() {
+    let (temporary, store) = store();
+    let held = ConfigLock::acquire(&store.root().join("state.json"), LOCK_TIMEOUT)
+        .unwrap()
+        .unwrap();
+    let error = store
+        .add(found(&temporary.path().join("a"), "o/a"))
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "Another Buddy window is saving the Crew state. Try again."
+    );
+    drop(held);
+    assert!(store.add(found(&temporary.path().join("a"), "o/a")).is_ok());
+}
+
+#[test]
+fn snapshots_no_conversation_names_are_swept_at_start() {
+    let (temporary, store) = store();
+    let project = store
+        .add(found(&temporary.path().join("p"), "o/p"))
+        .unwrap();
+    let kept = session(&store, &project);
+    let orphan = store.snapshot_folder("session-orphan");
+    std::fs::create_dir_all(orphan.join("blobs")).unwrap();
+    std::fs::write(orphan.join("blobs").join("x"), b"copy").unwrap();
+    std::fs::write(store.root().join("turns").join("session-orphan.lock"), b"").unwrap();
+    store.recover().unwrap();
+    assert!(!orphan.exists());
+    assert!(
+        !store
+            .root()
+            .join("turns")
+            .join("session-orphan.lock")
+            .exists()
+    );
+    assert!(store.snapshot_folder(&kept.id).is_dir());
 }

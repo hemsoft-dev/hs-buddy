@@ -17,57 +17,72 @@ and non-ASCII characters work on every platform.
 
 Remove asks once more (Confirm remove), then forgets the project, its conversation
 and its snapshot. The folder and its files are never touched. Remove is unavailable
-while a reply is in progress.
+while a reply is in progress in any Buddy window: it holds the conversation's lock while
+it works, so no reply can start meanwhile.
 
 ## Conversations
 
 A project starts without a conversation. Start conversation asks for the GitHub
 account and the model it uses. The account configured in Settings for the
 repository's owner is chosen first, else `gh`'s active account when Settings lists
-it, else the first configured account. The model starts as the Copilot model in
-Settings. A conversation keeps its account and model; to change either, clear it and
+it, else the first configured account; until you pick one, the choice follows a later
+change of `gh`'s active account. The model starts as the Copilot model in Settings,
+also after a conversation is cleared. A conversation keeps its account and model; to change either, clear it and
 start again.
 
 Replies come from the same assistant as Copilot Chat: the bundled Copilot runtime,
 signed in as the conversation's account through `gh`, with no tools. It cannot edit
 files, run commands or post to GitHub. Each message sends Electron's context line,
-`Project: owner/repo at <path>`, followed by the conversation so far, so one
-project's conversation never reaches another's. Enter sends; Shift+Enter adds a
+`Project: owner/repo at <path>`, followed by the conversation as stored when the reply
+starts (including turns another window added), so one project's conversation never
+reaches another's. Enter sends; Shift+Enter adds a
 line. Stop reply ends the reply and keeps what arrived as a partial answer.
 
 The question is saved before the reply starts, and the reply is saved only to the
 conversation that asked for it, once. While a reply is in progress, Send is
 unavailable for that project, in every Buddy window: the replying process holds a
-lock on the conversation. Another project can be asked at the same time. A failed
+lock on the conversation, and the other windows show "Replying in another window" with
+Send, Clear and Remove unavailable. Another project can be asked at the same time. A failed
 reply is saved with its reason and the project is listed as "Last reply failed".
 If Buddy closes or crashes before a reply finishes, the next start records
 "Buddy closed before this reply finished." in that conversation.
 
 Clear conversation asks once more (Confirm clear), then deletes the conversation and
-its snapshot. It is unavailable while a reply is in progress.
+its snapshot. It is unavailable while a reply is in progress, and holds the
+conversation's lock while it works. If a snapshot folder cannot be deleted at once
+(Windows can hold a file briefly), Buddy says so and deletes it at its next start.
 
 ## Changed files
 
 Starting a conversation takes a snapshot of the project: the `HEAD` commit, and a
 copy of every file Git reports as changed or untracked at that moment. Changed
-files then lists each file whose content differs from the snapshot, whoever changed
+files then lists each file whose content, executable bit (on macOS and Linux) or link
+target differs from the snapshot, whoever changed
 it: an editor, a terminal, an agent loop. Edits made before the conversation started
 are the starting point, not changes. Commits made during the conversation still
-count, because the comparison is with the snapshot's commit. Ignored files and
+count, because the comparison is with the snapshot's commit, read with that commit's
+own attributes, so a later `.gitattributes` edit does not change it (Git 2.40 or later;
+older Git uses the working tree's attributes). Ignored files and
 submodules are not followed. Text files show added and removed lines (a very large
-rewrite shows none); binary files show no counts.
+rewrite, or a file of more than 100,000 lines, shows none); binary files show no counts.
+Git's output for a snapshot file is read up to 8 MiB; a filter (such as Git LFS) that
+expands it further is compared by digest.
 
 The list is read when a project is opened, after each reply, after Keep or Undo, and
 on Refresh.
 
 - **Keep** accepts the file as it is now. It leaves the list until it changes again.
+  Keeps from two windows in the same conversation are both recorded.
 - **Undo** asks once more (Confirm undo), then writes the file back to the snapshot:
   the commit's version for a file that was clean, the copied version for a file that
   was already changed (so your earlier edits survive), or no file for one that was
-  added. A file deleted since the snapshot is recreated.
+  added. A file deleted since the snapshot is recreated with its executable bit.
 
 Both act only on the file as the list showed it. If the file changed after the list
 was read, nothing is written and the row reports it; Refresh and look again. Undo
+prepares the restored file first and checks the file once more just before replacing
+or deleting it, which leaves only the moment of the replacement itself for an editor to
+write in. Undo
 writes through a handle on the project folder that cannot leave it: paths with `..`,
 absolute paths, `.git`, and links that lead out of the project are refused. Links,
 folders and submodules are listed without Undo. Files larger than 8 MiB, or beyond

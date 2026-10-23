@@ -23,6 +23,9 @@ use gpui_kit::{AppContext as _, Context, Entity, PathPromptOptions, Window};
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 
+const TOO_LARGE: &str =
+    "This conversation is too large for another message. Clear it to start a new one.";
+
 /// Other windows and recovered replies show up within this long.
 const POLL: Duration = Duration::from_secs(2);
 
@@ -62,6 +65,11 @@ pub struct CrewView {
     message: Entity<TextareaState>,
     /// The account chosen for a new conversation.
     account: Option<String>,
+    /// The user picked `account`; a later active-account change leaves it alone.
+    account_chosen: bool,
+    /// The selected project's conversation went away: show the start form's defaults
+    /// again on the next render (setting a field's text needs the window).
+    reset_start: bool,
     /// The app's active GitHub account, preferred when no account matches the project.
     default_account: Option<String>,
     /// Replies in flight, by project id.
@@ -149,6 +157,8 @@ impl CrewView {
             model,
             message,
             account: None,
+            account_chosen: false,
+            reset_start: false,
             default_account: None,
             turns: HashMap::new(),
             sending: HashSet::new(),
@@ -217,7 +227,47 @@ impl CrewView {
 
     pub fn set_default_account(&mut self, account: Option<String>, cx: &mut Context<Self>) {
         self.default_account = account;
+        // A start form the user has not touched follows the new default.
+        if !self.account_chosen
+            && self.selected_session().is_none()
+            && let Some(project) = self.selected_project().cloned()
+        {
+            self.account = self.suggested_account(&project, cx);
+        }
         cx.notify();
+    }
+
+    /// Whether a reply is in flight for the project, here or in another window.
+    pub(super) fn replying(&self, project: &str) -> bool {
+        self.turns.contains_key(project)
+            || self.sending.contains(project)
+            || self
+                .sessions
+                .get(project)
+                .is_some_and(|session| session.pending.is_some())
+    }
+
+    /// The start form's account and model: the suggested account and Settings' model.
+    fn reset_start_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let project = self.selected_project().cloned();
+        self.account = project
+            .as_ref()
+            .and_then(|project| self.suggested_account(project, cx));
+        self.account_chosen = false;
+        let model = if cx.has_global::<Settings>() {
+            Settings::global(cx).config.copilot.model.clone()
+        } else {
+            String::new()
+        };
+        self.model
+            .update(cx, |input, cx| input.set_value(model, window, cx));
+    }
+
+    /// Applies a pending start-form reset; called while rendering, with the window.
+    pub(super) fn apply_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.reset_start) && self.selected_session().is_none() {
+            self.reset_start_form(window, cx);
+        }
     }
 
     fn accounts(cx: &gpui_kit::App) -> Vec<buddy_core::config::GitHubAccount> {
@@ -307,8 +357,12 @@ impl CrewView {
             self.confirm = None;
         }
         // Another window cleared or started this project's conversation.
-        if self.selected_session().map(|session| session.id.clone()) != previous {
+        let now = self.selected_session().map(|session| session.id.clone());
+        if now != previous {
             self.changes = None;
+            if now.is_none() {
+                self.reset_start = true;
+            }
             self.scan(cx);
         }
         cx.notify();
@@ -332,25 +386,8 @@ impl CrewView {
         self.error = None;
         self.notice = None;
         self.changes = None;
-        let project = self
-            .projects
-            .iter()
-            .find(|project| project.id == id)
-            .cloned();
-        self.account = project
-            .as_ref()
-            .and_then(|project| self.suggested_account(project, cx));
-        let model = self
-            .sessions
-            .get(&id)
-            .map(|session| session.model.clone())
-            .or_else(|| {
-                cx.has_global::<Settings>()
-                    .then(|| Settings::global(cx).config.copilot.model.clone())
-            })
-            .unwrap_or_default();
-        self.model
-            .update(cx, |input, cx| input.set_value(model, window, cx));
+        self.reset_start = false;
+        self.reset_start_form(window, cx);
         self.scan(cx);
         cx.notify();
     }
@@ -430,7 +467,7 @@ impl CrewView {
     }
 
     pub(super) fn remove(&mut self, id: String, cx: &mut Context<Self>) {
-        if self.busy || self.turns.contains_key(&id) || self.sending.contains(&id) {
+        if self.busy || self.replying(&id) {
             return;
         }
         if self.confirm != Some(Confirm::Remove(id.clone())) {
@@ -452,7 +489,7 @@ impl CrewView {
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
-                    Ok(_) => {
+                    Ok(removed) => {
                         this.projects.retain(|project| project.id != id);
                         this.sessions.remove(&id);
                         if this.selected.as_ref() == Some(&id) {
@@ -461,6 +498,7 @@ impl CrewView {
                         }
                         this.notice =
                             Some("Project removed. Its folder and files were not changed.".into());
+                        this.error = removed.leftover;
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -474,6 +512,7 @@ impl CrewView {
 
     pub(super) fn choose_account(&mut self, account: String, cx: &mut Context<Self>) {
         self.account = Some(account);
+        self.account_chosen = true;
         cx.notify();
     }
 
@@ -531,11 +570,7 @@ impl CrewView {
         ) else {
             return;
         };
-        if self.turns.contains_key(&project.id)
-            || self.sending.contains(&project.id)
-            || session.pending.is_some()
-            || !cx.has_global::<Runtime>()
-        {
+        if self.replying(&project.id) || !cx.has_global::<Runtime>() {
             return;
         }
         let text = self.message.read(cx).value().trim().to_string();
@@ -547,14 +582,23 @@ impl CrewView {
             cx.notify();
             return;
         }
-        let Some(prompt) = turn::prompt(&project, &session, &text) else {
-            self.error = Some(
-                "This conversation is too large for another message. Clear it to start a new one."
-                    .into(),
-            );
+        // Checked before the question is saved; the prompt itself is built from the
+        // conversation as stored when the reply was claimed (another window may have added
+        // to it since this window last read it).
+        let mut planned = session.conversation_history.clone();
+        planned.push(buddy_core::crew::Message {
+            id: String::new(),
+            role: buddy_core::crew::Role::User,
+            content: text.clone(),
+            timestamp: 0,
+            partial: false,
+            error: false,
+        });
+        if turn::prompt(&project, &planned).is_none() {
+            self.error = Some(TOO_LARGE.into());
             cx.notify();
             return;
-        };
+        }
         self.sending.insert(project.id.clone());
         self.error = None;
         self.notice = None;
@@ -572,7 +616,25 @@ impl CrewView {
                 match begun {
                     Ok((session, guard)) => {
                         this.sessions.insert(project.id.clone(), session.clone());
-                        this.run_turn(&project.id, session, request, prompt, guard, cx);
+                        match turn::prompt(&project, &session.conversation_history) {
+                            Some(prompt) => {
+                                this.run_turn(&project.id, session, request, prompt, guard, cx)
+                            }
+                            None => {
+                                let reply = Reply::Failed {
+                                    partial: String::new(),
+                                    reason: TOO_LARGE.into(),
+                                };
+                                this.record(
+                                    project.id.clone(),
+                                    session.id,
+                                    request,
+                                    reply,
+                                    Some(guard),
+                                    cx,
+                                );
+                            }
+                        }
                     }
                     Err(TurnError::NoSession) => {
                         this.error = Some(TurnError::NoSession.to_string());
@@ -713,7 +775,7 @@ impl CrewView {
     }
 
     pub(super) fn clear(&mut self, project: String, cx: &mut Context<Self>) {
-        if self.busy || self.turns.contains_key(&project) || self.sending.contains(&project) {
+        if self.busy || self.replying(&project) {
             return;
         }
         if self.confirm != Some(Confirm::Clear(project.clone())) {
@@ -735,13 +797,15 @@ impl CrewView {
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
-                    Ok(_) => {
+                    Ok(cleared) => {
                         this.sessions.remove(&project);
                         if this.selected.as_ref() == Some(&project) {
                             this.changes = None;
+                            this.reset_start = true;
                         }
                         this.notice =
                             Some("Conversation cleared. Project files were not changed.".into());
+                        this.error = cleared.leftover;
                     }
                     Err(error) => this.error = Some(error),
                 }

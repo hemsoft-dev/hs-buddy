@@ -38,6 +38,16 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let output = command(program, directory, arguments).output().ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
+/// The command [`output`] runs, for callers that stream its output.
+pub(crate) fn command<I, S>(program: &Path, directory: Option<&Path>, arguments: I) -> Command
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let mut command = Command::new(program);
     command
         .args(arguments)
@@ -54,8 +64,7 @@ where
         use std::os::windows::process::CommandExt;
         command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
     }
-    let output = command.output().ok()?;
-    output.status.success().then_some(output.stdout)
+    command
 }
 
 fn text(bytes: Option<Vec<u8>>) -> Option<String> {

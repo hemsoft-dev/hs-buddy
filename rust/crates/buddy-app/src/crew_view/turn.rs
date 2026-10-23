@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use buddy_core::copilot_assistant::{self, Progress, RunHandle, RunOptions};
 use buddy_core::copilot_runs::{Context as RunContext, Phase};
-use buddy_core::crew::{Project, Reply, Session};
+use buddy_core::crew::{Message, Project, Reply};
 use futures::future::BoxFuture;
 use tokio::sync::watch;
 
@@ -33,14 +33,14 @@ pub(super) struct Request {
 pub(super) type Started = (Arc<dyn Turn>, Option<BoxFuture<'static, ()>>);
 pub(super) type Starter = Arc<dyn Fn(Request) -> Result<Started, String> + Send + Sync>;
 
-/// Electron's Crew context, the conversation so far and the new message.
-pub(super) fn prompt(project: &Project, session: &Session, message: &str) -> Option<String> {
+/// Electron's Crew context and the conversation, whose last message is the question.
+pub(super) fn prompt(project: &Project, history: &[Message]) -> Option<String> {
     let mut text = format!(
         "Project: {} at {}\n\nAnswer using the supplied conversation. Format the response as Markdown.\n",
         project.github_slug,
         project.local_path.display()
     );
-    for previous in &session.conversation_history {
+    for previous in history {
         text.push_str(match (previous.role, previous.partial) {
             (buddy_core::crew::Role::User, _) => "\nUser: ",
             (_, true) => "\nAssistant (partial response): ",
@@ -48,8 +48,6 @@ pub(super) fn prompt(project: &Project, session: &Session, message: &str) -> Opt
         });
         text.push_str(&previous.content);
     }
-    text.push_str("\nUser: ");
-    text.push_str(message.trim());
     (text.len() <= MAX_PROMPT).then_some(text)
 }
 

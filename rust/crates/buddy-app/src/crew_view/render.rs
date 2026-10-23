@@ -107,8 +107,7 @@ impl CrewView {
             let id = project.id.clone();
             let remove = project.id.clone();
             let confirming = self.confirm == Some(Confirm::Remove(project.id.clone()));
-            let replying =
-                self.turns.contains_key(&project.id) || self.sending.contains(&project.id);
+            let replying = self.replying(&project.id);
             list = list.child(
                 v_flex()
                     .id(("crew-project", index))
@@ -411,7 +410,7 @@ impl CrewView {
     }
 
     fn render_composer(&self, project: &Project, cx: &mut Context<Self>) -> AnyElement {
-        let replying = self.turns.contains_key(&project.id) || self.sending.contains(&project.id);
+        let replying = self.replying(&project.id);
         let confirming = self.confirm == Some(Confirm::Clear(project.id.clone()));
         let empty = self.message.read(cx).value().trim().is_empty();
         let stop = project.id.clone();
@@ -532,9 +531,10 @@ impl CrewView {
 
     pub(super) fn render_view(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.apply_reset(window, cx);
         h_flex()
             .size_full()
             .debug_selector(|| "crew-view".into())

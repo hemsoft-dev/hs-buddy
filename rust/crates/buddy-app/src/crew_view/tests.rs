@@ -90,11 +90,16 @@ fn git(directory: &Path, arguments: &[&str]) {
 
 /// A clone of `o/<name>` with one committed file.
 fn repository(root: &Path, name: &str) -> PathBuf {
+    repository_of(root, "o", name)
+}
+
+/// A clone of `<owner>/<name>` with one committed file.
+fn repository_of(root: &Path, owner: &str, name: &str) -> PathBuf {
     let folder = root.join(format!("{name} repo"));
     std::fs::create_dir_all(&folder).unwrap();
     git(&folder, &["init", "-q", "-b", "main"]);
     git(&folder, &["config", "core.autocrlf", "false"]);
-    let url = format!("https://github.com/o/{name}.git");
+    let url = format!("https://github.com/{owner}/{name}.git");
     git(&folder, &["remote", "add", "origin", &url]);
     std::fs::write(folder.join("readme.md"), "hello\n").unwrap();
     std::fs::write(folder.join("lib.rs"), "fn main() {}\n").unwrap();
@@ -564,4 +569,131 @@ fn the_compact_window_keeps_changes_and_composer_in_view(cx: &mut gpui_kit::Test
         "{conversation:?}"
     );
     assert!(projects.right() <= conversation.left());
+}
+
+fn selected_session(view: &Entity<CrewView>, cx: &mut VisualTestContext) -> Session {
+    view.read_with(cx, |view, _| view.selected_session().cloned().unwrap())
+}
+
+#[gpui_kit::test]
+fn the_prompt_carries_turns_another_window_added(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    // Another window asks and gets an answer; this view has not polled since.
+    let session = selected_session(&view, &mut visual);
+    let other = Store::at(root.path().join("native-crew")).unwrap();
+    let (_, guard) = other
+        .begin_turn(&session.id, "elsewhere", "Asked elsewhere")
+        .unwrap();
+    other
+        .finish_turn(
+            &session.id,
+            "elsewhere",
+            Reply::Complete("Answered elsewhere".into()),
+        )
+        .unwrap();
+    drop(guard);
+    type_and_send(&view, "Asked here", &mut visual);
+    let prompt = assistant.requests.lock().unwrap()[0].prompt.clone();
+    assert!(
+        prompt.contains("User: Asked elsewhere\nAssistant: Answered elsewhere\nUser: Asked here"),
+        "{prompt}"
+    );
+    assert_eq!(history(&view, &mut visual).len(), 3);
+}
+
+#[gpui_kit::test]
+fn a_reply_running_in_another_window_disables_this_one(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    let session = selected_session(&view, &mut visual);
+    let other = Store::at(root.path().join("native-crew")).unwrap();
+    let (_, guard) = other
+        .begin_turn(&session.id, "elsewhere", "Running elsewhere")
+        .unwrap();
+    visual.executor().advance_clock(POLL * 2);
+    visual.run_until_parked();
+    let id = session.project_id.clone();
+    assert!(view.read_with(&visual, |view, _| view.replying(&id)));
+    let state = view.read_with(&visual, |view, _| {
+        view.project_state(view.selected_project().unwrap())
+    });
+    assert_eq!(state, "Replying in another window");
+    type_and_send(&view, "here", &mut visual);
+    for _ in 0..2 {
+        view.update(&mut visual, |view, cx| view.clear(id.clone(), cx));
+        view.update(&mut visual, |view, cx| view.remove(id.clone(), cx));
+    }
+    visual.run_until_parked();
+    assert_eq!(assistant.count(), 0);
+    assert_eq!(
+        view.read_with(&visual, |view, _| view.confirm.clone()),
+        None
+    );
+    assert!(other.session(&id).unwrap().is_some());
+    drop(guard);
+}
+
+#[gpui_kit::test]
+fn a_cleared_conversation_starts_again_with_current_settings(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    visual.update(|_, cx| {
+        let mut config = Settings::global(cx).config.clone();
+        config.copilot.model = "newer-model".into();
+        Settings::replace(cx, config);
+    });
+    let id = view.read_with(&visual, |view, _| view.selected.clone().unwrap());
+    for _ in 0..2 {
+        view.update(&mut visual, |view, cx| view.clear(id.clone(), cx));
+    }
+    visual.run_until_parked();
+    let model = view.read_with(&visual, |view, cx| view.model.read(cx).value().to_string());
+    assert_eq!(model, "newer-model");
+}
+
+#[gpui_kit::test]
+fn an_untouched_start_form_follows_the_active_account(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let other = repository_of(root.path(), "unlisted", "other");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &other, &mut visual);
+    // No account belongs to the owner: the first configured one, until gh's answer arrives.
+    let account = |view: &Entity<CrewView>, visual: &mut VisualTestContext| {
+        view.read_with(visual, |view, _| view.account.clone())
+    };
+    assert_eq!(account(&view, &mut visual).as_deref(), Some("someone"));
+    view.update(&mut visual, |view, cx| {
+        view.set_default_account(Some("octo".into()), cx)
+    });
+    assert_eq!(account(&view, &mut visual).as_deref(), Some("octo"));
+    // A choice the user made stays.
+    view.update(&mut visual, |view, cx| {
+        view.choose_account("someone".into(), cx)
+    });
+    view.update(&mut visual, |view, cx| {
+        view.set_default_account(Some("octo".into()), cx)
+    });
+    assert_eq!(account(&view, &mut visual).as_deref(), Some("someone"));
 }
