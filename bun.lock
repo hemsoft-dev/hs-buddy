@@ -36,7 +36,7 @@
         "koffi": "3.2.1",
         "lucide-react": "^1.23.0",
         "node-pty": "^1.1.0",
-        "react": "^19.2.7",
+        "react": "^19.3.1",
         "react-dom": "^19.2.7",
         "remark-gemoji": "^8.0.0",
         "shiki": "^4.3.1",
@@ -59,7 +59,7 @@
         "@testing-library/user-event": "^14.6.1",
         "@types/istanbul-lib-instrument": "1.7.8",
         "@types/node": "^26.1.1",
-        "@types/react": "^19.2.17",
+        "@types/react": "^19.3.0",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^6.1.2",
         "@vitest/coverage-istanbul": "5.0.3",
@@ -1033,7 +1033,7 @@
 
     "@types/prismjs": ["@types/prismjs@1.26.6", "", {}, "sha512-vqlvI7qlMvcCBbVe0AKAb4f97//Hy0EBTaiW8AalRnG/xAN5zOiWWyrNqNXeq8+KAuvRewjCVY1+IPxk4RdNYw=="],
 
-    "@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
+    "@types/react": ["@types/react@19.3.0", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg=="],
 
     "@types/react-dom": ["@types/react-dom@19.2.7", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-I8bPpDLcHBv1qiIiXDCy71Rt8eQDKJP0sMSWJphDdAcdqiJ1sGpZamavoEIRZmYzjia9LuEb2HlYdDpmoENpvQ=="],
 
@@ -2357,7 +2357,7 @@
 
     "raw-body": ["raw-body@2.5.3", "", { "dependencies": { "bytes": "~3.1.2", "http-errors": "~2.0.1", "iconv-lite": "~0.4.24", "unpipe": "~1.0.0" } }, "sha512-s4VSOf6yN0rvbRZGxs8Om5CWj6seneMwK3oDb4lWDH0UPhWcxwOWw5+qk24bxq87szX1ydrwylIOp2uG1ojUpA=="],
 
-    "react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
+    "react": ["react@19.3.1", "", {}, "sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw=="],
 
     "react-doctor": ["react-doctor@0.9.13", "", { "dependencies": { "@astrojs/compiler": "^4.0.0", "@sentry/node": "^10.54.0", "agent-install": "0.0.5", "bippy": "^0.6.1", "conf": "^15.1.0", "confbox": "^0.2.4", "eslint-plugin-react-hooks": "^7.1.1", "is-unicode-supported": "^2.1.0", "jiti": "^2.7.0", "magicast": "^0.5.3", "oxc-parser": "^0.146.0", "oxc-resolver": "^11.24.2", "oxlint": ">=1.79.0 <1.80.0", "oxlint-plugin-react-doctor": "0.9.13", "playwright-core": "^1.62.1", "prompts": "^2.4.2", "typescript": ">=5.0.4 <6", "yaml": "^2.9.0", "yoga-layout": "~3.2.1" }, "bin": { "react-doctor": "bin/react-doctor.js" } }, "sha512-OGzhgLmH+eFlYa3gOv8Y/yOaR6yswRxiLJ37wWc9/fm57bP8/3n5/TZQLMctv/8izKvqtmblIpW+0SqMYKP7Xg=="],
 
