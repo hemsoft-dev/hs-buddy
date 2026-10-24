@@ -24,6 +24,9 @@ impl Repo {
         repo.run(&["init", "-q"]);
         // Every Git call in the test, including the code under test, sees LF checkouts.
         repo.run(&["config", "core.autocrlf", "false"]);
+        // Git for Windows needs this for paths over 260 characters (a long file name below
+        // the runner's temporary folder); a developer machine may already set it globally.
+        repo.run(&["config", "core.longpaths", "true"]);
         Some(repo)
     }
 
