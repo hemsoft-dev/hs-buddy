@@ -162,7 +162,8 @@ def qualify(executable, output, session, version):
             ("input", "Message", f"{STREAM} And beta?"), ("key", "Return"),
             ("wait_text", "Offline stream"), ("sleep", 3), ("capture", "beta-reply-dark"),
         ], record=True)
-        github.check(chats / "empty-dark.png", "The Crew", "Project folder", "Add project", "No projects yet")
+        # Add project is disabled (faint) until a folder is entered; Browse is always available.
+        github.check(chats / "empty-dark.png", "The Crew", "Project folder", "Browse", "No projects yet")
         github.check(chats / "not-a-repository-dark.png", "This folder is not inside a Git repository.")
         github.check(chats / "start-dark.png", "Start a conversation", ACCOUNT, "Model", "Start conversation")
         github.check(chats / "alpha-reply-dark.png", "alpha", "fixture-org/alpha", "Synthetic assistant",
