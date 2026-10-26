@@ -162,7 +162,7 @@
     "lint-staged": "^17.6.0",
     "markdownlint-cli": "0.49.1",
     "png-to-ico": "^3.0.1",
-    "prettier": "^3.9.4",
+    "prettier": "^3.9.10",
     "puppeteer-core": "25.16.0",
     "react-doctor": "0.9.13",
     "react-scan": "^0.5.7",
