@@ -246,6 +246,7 @@ impl CrewView {
     fn render_conversation(&self, project: &Project, session: &Session, cx: &App) -> AnyElement {
         let mut body = v_flex()
             .id("crew-conversation")
+            .track_scroll(&self.conversation_scroll)
             .flex_1()
             .min_h(zpx(110.))
             .gap_3()
@@ -536,6 +537,9 @@ impl CrewView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.apply_reset(window, cx);
+        if std::mem::take(&mut self.scroll_to_end) {
+            self.conversation_scroll.scroll_to_bottom();
+        }
         h_flex()
             .size_full()
             .debug_selector(|| "crew-view".into())

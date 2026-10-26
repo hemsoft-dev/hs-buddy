@@ -18,7 +18,7 @@ use std::time::Duration;
 use buddy_core::crew::changes::{self, Scan, Seen};
 use buddy_core::crew::{Project, Reply, Session, Store, TurnError, TurnGuard, project};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
-use gpui_kit::{AppContext as _, Context, Entity, PathPromptOptions, Window};
+use gpui_kit::{AppContext as _, Context, Entity, PathPromptOptions, ScrollHandle, Window};
 
 use crate::runtime::Runtime;
 use crate::settings::Settings;
@@ -84,6 +84,10 @@ pub struct CrewView {
     /// Projects whose finished reply is waiting for another save attempt.
     save_failed: HashSet<String>,
     changes: Option<Changes>,
+    /// The conversation's scroll position; new messages and the live reply are kept in view.
+    conversation_scroll: ScrollHandle,
+    /// Scroll the conversation to its end at the next render.
+    scroll_to_end: bool,
     scanning: bool,
     rescan: bool,
     /// A Keep or Undo is running.
@@ -172,6 +176,8 @@ impl CrewView {
             sending: HashSet::new(),
             save_failed: HashSet::new(),
             changes: None,
+            conversation_scroll: ScrollHandle::new(),
+            scroll_to_end: false,
             scanning: false,
             rescan: false,
             acting: false,
@@ -356,9 +362,20 @@ impl CrewView {
         if !changed {
             return;
         }
-        let previous = self.selected_session().map(|session| session.id.clone());
+        let previous = self.selected_session().cloned();
         self.projects = projects;
         self.sessions = sessions;
+        // Another window added to the conversation shown here.
+        if self
+            .selected_session()
+            .map(|session| session.conversation_history.len())
+            != previous
+                .as_ref()
+                .map(|session| session.conversation_history.len())
+        {
+            self.scroll_to_end = true;
+        }
+        let previous = previous.map(|session| session.id);
         if let Some(selected) = &self.selected
             && !self.projects.iter().any(|project| &project.id == selected)
         {
@@ -409,6 +426,7 @@ impl CrewView {
         self.changes = None;
         self.reset_start = false;
         self.reset_start_form(window, cx);
+        self.scroll_to_end = true;
         self.scan(cx);
         cx.notify();
     }
@@ -651,6 +669,7 @@ impl CrewView {
                 match begun {
                     Ok((session, guard)) => {
                         this.sessions.insert(project.id.clone(), session.clone());
+                        this.scroll_to_end = true;
                         match turn::prompt(&project, &session.conversation_history) {
                             Some(prompt) => {
                                 this.run_turn(&project.id, session, request, prompt, guard, cx)
@@ -755,6 +774,9 @@ impl CrewView {
             loop {
                 let done = this
                     .update(cx, |this, cx| {
+                        if this.selected.as_ref() == Some(&project) {
+                            this.scroll_to_end = true;
+                        }
                         cx.notify();
                         this.poll_turn(&project, cx)
                     })
@@ -842,6 +864,9 @@ impl CrewView {
                 }
                 if let Ok(Some(session)) = result {
                     this.sessions.insert(project.clone(), session);
+                    if this.selected.as_ref() == Some(&project) {
+                        this.scroll_to_end = true;
+                    }
                 }
                 if this.selected.as_ref() == Some(&project) {
                     this.scan(cx);

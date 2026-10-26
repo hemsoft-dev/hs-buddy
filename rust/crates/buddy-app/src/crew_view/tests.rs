@@ -569,6 +569,18 @@ fn the_compact_window_keeps_changes_and_composer_in_view(cx: &mut gpui_kit::Test
         "{conversation:?}"
     );
     assert!(projects.right() <= conversation.left());
+    // The newest message, not the first, is in view.
+    let (offset, max) = view.read_with(&visual, |view, _| {
+        (
+            view.conversation_scroll.offset(),
+            view.conversation_scroll.max_offset(),
+        )
+    });
+    assert!(f32::from(max.y) > 0., "the conversation overflows: {max:?}");
+    assert!(
+        (f32::from(offset.y) + f32::from(max.y)).abs() < 1.,
+        "scrolled to the end: {offset:?} of {max:?}"
+    );
 }
 
 fn selected_session(view: &Entity<CrewView>, cx: &mut VisualTestContext) -> Session {
