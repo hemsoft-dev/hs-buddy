@@ -347,3 +347,67 @@ fn snapshots_no_conversation_names_are_swept_at_start() {
     );
     assert!(store.snapshot_folder(&kept.id).is_dir());
 }
+
+/// A committed repository whose `origin` names GitHub, for tests that capture snapshots.
+fn git_repository(root: &Path) -> Option<(PathBuf, PathBuf)> {
+    let git = project::git().ok()?;
+    std::fs::create_dir_all(root).unwrap();
+    let run = |arguments: &[&str]| {
+        let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@example.invalid"];
+        all.extend_from_slice(arguments);
+        assert!(
+            project::output(&git, Some(root), &all).is_some(),
+            "{arguments:?}"
+        );
+    };
+    run(&["init", "-q"]);
+    std::fs::write(root.join("a.txt"), "a\n").unwrap();
+    run(&["add", "-A"]);
+    run(&["-c", "commit.gpgsign=false", "commit", "-q", "-m", "c"]);
+    Some((git, root.to_path_buf()))
+}
+
+fn has_ref(git: &Path, root: &Path, session: &str) -> bool {
+    let name = format!("refs/buddy/crew/{session}");
+    project::output(
+        git,
+        Some(root),
+        ["rev-parse", "--verify", "-q", name.as_str()],
+    )
+    .is_some()
+}
+
+#[test]
+fn a_session_that_fails_to_register_leaves_no_snapshot_or_ref() {
+    let (temporary, store) = store();
+    let Some((git, root)) = git_repository(&temporary.path().join("repo")) else {
+        return;
+    };
+    let project = store.add(found(&root, "o/repo")).unwrap();
+    let (id, folder) = store.prepare_session().unwrap();
+    changes::capture(&git, &root, &folder).unwrap();
+    assert!(has_ref(&git, &root, &id));
+    let too_long = "m".repeat(300);
+    assert!(
+        store
+            .start_session(&project.id, &id, "octo", &too_long)
+            .is_err()
+    );
+    assert!(!folder.exists());
+    assert!(!has_ref(&git, &root, &id), "the snapshot ref is released");
+}
+
+#[test]
+fn the_sweep_releases_a_leftover_snapshots_ref() {
+    let (temporary, store) = store();
+    let Some((git, root)) = git_repository(&temporary.path().join("repo")) else {
+        return;
+    };
+    // A capture whose conversation was never recorded (Buddy closed in between).
+    let (id, folder) = store.prepare_session().unwrap();
+    changes::capture(&git, &root, &folder).unwrap();
+    assert!(has_ref(&git, &root, &id));
+    store.recover().unwrap();
+    assert!(!folder.exists());
+    assert!(!has_ref(&git, &root, &id));
+}

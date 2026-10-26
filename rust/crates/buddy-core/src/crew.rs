@@ -356,8 +356,8 @@ impl Store {
 
     /// Discards a session prepared by [`Store::prepare_session`] whose capture failed
     /// (a failed capture records no snapshot ref).
-    pub fn abandon_session(&self, session: &str) {
-        let _ = self.discard_snapshot(session, None);
+    pub fn abandon_session(&self, session: &str, root: Option<&Path>) {
+        let _ = self.discard_snapshot(session, root);
     }
 
     /// Deletes the snapshot folder and turn lock, and the snapshot ref in the repository
@@ -430,6 +430,12 @@ impl Store {
                     continue;
                 }
                 if suffix.is_empty() {
+                    // Its snapshot ref goes too, or the snapshot commit would be kept forever.
+                    if let (Some(root), Ok(git)) =
+                        (changes::snapshot_root(&entry.path()), project::git())
+                    {
+                        changes::release(&git, &root, id);
+                    }
                     let _ = std::fs::remove_dir_all(entry.path());
                 } else if self.hold(id).is_ok_and(|guard| guard.is_some()) {
                     let _ = std::fs::remove_file(entry.path());
@@ -457,13 +463,34 @@ impl Store {
         account: &str,
         model: &str,
     ) -> Result<Session, String> {
+        let outcome = self.register(project, id, account, model);
+        // Anything but a new conversation leaves the prepared snapshot and its ref unused.
+        if !matches!(outcome, Ok((_, true))) {
+            let root = self
+                .project(project)
+                .ok()
+                .flatten()
+                .map(|found| found.git_root);
+            let _ = self.discard_snapshot(id, root.as_deref());
+        }
+        outcome.map(|(session, _)| session)
+    }
+
+    /// Records the session; `true` when it is new, `false` for another window's.
+    fn register(
+        &self,
+        project: &str,
+        id: &str,
+        account: &str,
+        model: &str,
+    ) -> Result<(Session, bool), String> {
         if !crate::copilot_runs::account_slug(account) {
             return Err("Choose a GitHub account for this conversation.".into());
         }
         if model.trim().is_empty() || model.len() > 256 {
             return Err("Choose a model for this conversation.".into());
         }
-        let outcome = self.update(|state| {
+        self.update(|state| {
             if !state
                 .projects
                 .iter()
@@ -492,25 +519,7 @@ impl Store {
             };
             state.sessions.push(session.clone());
             Ok((session, true))
-        })?;
-        match outcome {
-            Ok((session, true)) => Ok(session),
-            Ok((session, false)) => {
-                // Lost to a conversation another window started: its snapshot ref too.
-                let root = self.project(project)?.map(|found| found.git_root);
-                let _ = self.discard_snapshot(id, root.as_deref());
-                Ok(session)
-            }
-            Err(error) => {
-                let root = self
-                    .project(project)
-                    .ok()
-                    .flatten()
-                    .map(|found| found.git_root);
-                let _ = self.discard_snapshot(id, root.as_deref());
-                Err(error)
-            }
-        }
+        })?
     }
 
     /// Records the user's message and claims the conversation for one reply. The returned

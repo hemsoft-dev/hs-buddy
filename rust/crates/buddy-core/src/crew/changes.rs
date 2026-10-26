@@ -64,6 +64,14 @@ enum Entry {
 struct Baseline {
     commit: Option<String>,
     files: BTreeMap<String, Entry>,
+    /// The repository holding the snapshot's ref, so a leftover snapshot can release it.
+    #[serde(default)]
+    root: Option<PathBuf>,
+}
+
+/// The repository a snapshot folder belongs to, as recorded at capture.
+pub fn snapshot_root(folder: &Path) -> Option<PathBuf> {
+    load(folder).ok()?.root
 }
 
 /// A file's state when the list was read; Keep and Undo act only on that state.
@@ -593,6 +601,7 @@ pub fn capture(git: &Path, root: &Path, folder: &Path) -> Result<(), String> {
     let mut baseline = Baseline {
         commit: head(git, root),
         files: BTreeMap::new(),
+        root: Some(root.to_path_buf()),
     };
     let mut stored = 0;
     for path in dirty {

@@ -582,7 +582,7 @@ impl CrewView {
             let captured =
                 project::git().and_then(|git| changes::capture(&git, &project.git_root, &folder));
             if let Err(error) = captured {
-                store.abandon_session(&id);
+                store.abandon_session(&id, Some(&project.git_root));
                 return Err(error);
             }
             store.start_session(&project.id, &id, &account, &model)
