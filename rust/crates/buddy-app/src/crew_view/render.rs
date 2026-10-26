@@ -538,7 +538,13 @@ impl CrewView {
     ) -> AnyElement {
         self.apply_reset(window, cx);
         if std::mem::take(&mut self.scroll_to_end) {
+            self.follow_frames = 30;
+        }
+        // Held for about half a second, so content that settles late is still followed.
+        if self.follow_frames > 0 {
+            self.follow_frames -= 1;
             self.conversation_scroll.scroll_to_bottom();
+            window.request_animation_frame();
         }
         h_flex()
             .size_full()

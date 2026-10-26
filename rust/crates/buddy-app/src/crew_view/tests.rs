@@ -836,3 +836,45 @@ fn adding_a_project_keeps_the_current_draft(cx: &mut gpui_kit::TestAppContext) {
     add(&view, &alpha, &mut visual);
     assert_eq!(composer(&view, &mut visual), "half written");
 }
+
+#[gpui_kit::test]
+fn a_reopened_conversation_shows_its_newest_message(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 852., 600.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    for index in 0..6 {
+        type_and_send(&view, &format!("question {index}"), &mut visual);
+        assistant.last().finish(Reply::Complete(
+            "## Heading\n\nA long answer.\n\n".repeat(6),
+        ));
+        visual.run_until_parked();
+    }
+    visual.update(|window, _| window.remove_window());
+    drop(view);
+    visual.run_until_parked();
+
+    let (window, reopened) = open(cx, &assistant, 852., 600.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&reopened, root.path(), &mut visual);
+    select(&reopened, "o/alpha", &mut visual);
+    for _ in 0..40 {
+        visual.update(|window, _| window.refresh());
+        visual.run_until_parked();
+    }
+    let (offset, max) = reopened.read_with(&visual, |view, _| {
+        (
+            view.conversation_scroll.offset(),
+            view.conversation_scroll.max_offset(),
+        )
+    });
+    assert!(f32::from(max.y) > 0., "{max:?}");
+    assert!(
+        (f32::from(offset.y) + f32::from(max.y)).abs() < 1.,
+        "{offset:?} of {max:?}"
+    );
+}

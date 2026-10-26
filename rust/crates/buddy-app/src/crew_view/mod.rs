@@ -88,6 +88,9 @@ pub struct CrewView {
     conversation_scroll: ScrollHandle,
     /// Scroll the conversation to its end at the next render.
     scroll_to_end: bool,
+    /// Frames left in which the conversation is held at its end: Markdown can grow a
+    /// message's height a frame or two after it first appears.
+    follow_frames: u8,
     scanning: bool,
     rescan: bool,
     /// A Keep or Undo is running.
@@ -178,6 +181,7 @@ impl CrewView {
             changes: None,
             conversation_scroll: ScrollHandle::new(),
             scroll_to_end: false,
+            follow_frames: 0,
             scanning: false,
             rescan: false,
             acting: false,
