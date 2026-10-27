@@ -233,13 +233,24 @@ fn a_finished_loop_records_its_output_progress_and_result() {
         output.contains(&"green ünïcödé 資料界".to_string()),
         "{output:?}"
     );
-    // The run's folder still names it; a second host for it does nothing.
-    let again = Command::new(env!("CARGO_BIN_EXE_buddy"))
-        .arg("--ralph-host")
-        .arg(fixture.store.folder(&id))
-        .status()
-        .unwrap();
-    assert_eq!(again.code(), Some(4));
+    // The run's folder still names it; a second host for it does nothing. The
+    // first host records Completed before its process exits and releases the
+    // run's lock, so a second host started meanwhile answers 3 (lock held) on
+    // a slow runner; ask again until the lock is free, then expect 4.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let again = loop {
+        let code = Command::new(env!("CARGO_BIN_EXE_buddy"))
+            .arg("--ralph-host")
+            .arg(fixture.store.folder(&id))
+            .status()
+            .unwrap()
+            .code();
+        if code != Some(3) || Instant::now() > deadline {
+            break code;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(again, Some(4));
     assert_eq!(fixture.store.run(&id).unwrap().state, RunState::Completed);
 }
 
