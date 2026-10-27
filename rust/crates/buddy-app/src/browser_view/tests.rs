@@ -643,3 +643,24 @@ fn the_selection_is_saved_among_the_saved_tabs(cx: &mut gpui_kit::TestAppContext
     harness.update(|view, cx| view.select(Some(0), cx));
     assert_eq!(harness.saved().active, None);
 }
+
+#[gpui_kit::test]
+fn no_more_tabs_open_than_a_restart_restores(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    for n in 0..browser::MAX_TABS {
+        harness.update(|view, cx| view.open(&format!("{PAGE}{n}"), "", cx));
+    }
+    harness.update(|view, cx| view.open(OTHER, "One too many", cx));
+    assert_eq!(harness.read(|view| view.tabs.len()), browser::MAX_TABS);
+    assert!(harness.read(|view| view.full));
+    assert!(harness.visual.debug_bounds("browser-notice").is_some());
+    assert_eq!(harness.saved().tabs.len(), browser::MAX_TABS);
+    // Closing one makes room again.
+    harness.update(|view, cx| view.close(0, cx));
+    assert!(!harness.read(|view| view.full));
+    harness.update(|view, cx| view.open(OTHER, "Now it fits", cx));
+    assert_eq!(harness.read(|view| view.tabs.len()), browser::MAX_TABS);
+    assert_eq!(harness.saved().active, Some(browser::MAX_TABS - 1));
+}

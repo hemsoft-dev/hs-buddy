@@ -122,6 +122,8 @@ pub struct BrowserView {
     /// Where the session is saved; `None` when the config path is unknown.
     config_file: Option<PathBuf>,
     pumping: bool,
+    /// The last open was refused because `MAX_TABS` tabs are open.
+    pub(super) full: bool,
     next_id: u64,
 }
 
@@ -167,6 +169,7 @@ impl BrowserView {
             window: Window::window_handle(window),
             config_file,
             pumping: false,
+            full: false,
             next_id: 0,
         };
         for saved in session.tabs {
@@ -190,7 +193,15 @@ impl BrowserView {
 
     /// Opens `raw` in a new tab, or hands a `mailto:` link to the system.
     pub fn open(&mut self, raw: &str, title: &str, cx: &mut Context<Self>) {
-        match browser::classify(raw, self.fixture.as_ref()) {
+        let target = browser::classify(raw, self.fixture.as_ref());
+        // Only `MAX_TABS` tabs are restored, so no more may be opened.
+        self.full = !matches!(target, Ok(Target::External(_) | Target::Blank))
+            && self.tabs.len() >= browser::MAX_TABS;
+        if self.full {
+            cx.notify();
+            return;
+        }
+        match target {
             Ok(Target::External(url)) => cx.open_url(url.as_str()),
             Ok(Target::Blank) => {}
             Ok(Target::Web(url)) => {
@@ -252,6 +263,7 @@ impl BrowserView {
             return;
         }
         let tab = self.tabs.remove(index);
+        self.full = false;
         if let Some(page) = &tab.page {
             page.set_visible(false);
         }

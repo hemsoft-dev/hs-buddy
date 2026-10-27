@@ -26,6 +26,19 @@ impl Render for BrowserView {
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| this.close_active(cx)))
             .debug_selector(|| "browser-view".into())
             .child(self.render_strip(cx))
+            .when(self.full, |this| {
+                this.child(self.render_notice(
+                    Notice {
+                        text: format!(
+                            "Buddy keeps up to {} tabs. Close one to open another.",
+                            buddy_core::browser::MAX_TABS
+                        ),
+                        offer: None,
+                    },
+                    false,
+                    cx,
+                ))
+            })
             .child(content)
     }
 }
@@ -250,6 +263,7 @@ impl BrowserView {
             .is_some_and(|url| url.scheme() == "mailto");
         h_flex()
             .id("browser-notice")
+            .debug_selector(|| "browser-notice".into())
             .w_full()
             .flex_shrink_0()
             .gap_2()

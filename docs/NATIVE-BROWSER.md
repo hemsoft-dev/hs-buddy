@@ -9,7 +9,8 @@ WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux under X11.
 The tab strip starts with Bookmarks (the list) followed by one tab per open page.
 A tab's toolbar has Back, Forward, Reload, the page address, zoom out, the zoom
 level, zoom in, and Open in your browser. Closing a tab selects its neighbor;
-closing the last one returns to the list.
+closing the last one returns to the list. Up to 20 tabs can be open, as many as a
+restart restores; opening another asks you to close one first.
 
 Open tabs, their titles, the selected tab (or the list) and the zoom level are saved in the
 configuration (`native.browser`) and restored at the next start. A restored tab
