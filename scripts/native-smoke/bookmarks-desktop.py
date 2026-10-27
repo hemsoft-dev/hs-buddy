@@ -104,7 +104,11 @@ def add_and_delete(driver, theme, victim):
         ("input", "URL", new["url"]), ("input", "Title", new["title"]),
         ("input", "Category", new["category"]), ("input", "Tags", ", ".join(new["tags"])),
         ("capture", f"editor-{theme}"),
-        ("click", "Add Bookmark"), ("wait_text", "Bookmark added."), ("capture", f"added-{theme}"),
+        # The new bookmark lands at the end of the list, which may be below the
+        # window's fold; its own category shows it whatever the window height.
+        ("click", "Add Bookmark"), ("wait_text", "Bookmark added."),
+        ("click", "Reading"), ("wait_text", new["title"]), ("capture", f"added-{theme}"),
+        ("click", "All bookmarks"), ("wait_text", "Morning news"),
         # `field` types at the middle of the box: `input` clicks beside the label,
         # which here is the search icon, and the text never reaches the editor.
         ("field", "Search", victim), ("wait_text", victim),
