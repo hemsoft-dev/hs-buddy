@@ -105,7 +105,9 @@ def add_and_delete(driver, theme, victim):
         ("input", "Category", new["category"]), ("input", "Tags", ", ".join(new["tags"])),
         ("capture", f"editor-{theme}"),
         ("click", "Add Bookmark"), ("wait_text", "Bookmark added."), ("capture", f"added-{theme}"),
-        ("input", "Search", victim), ("wait_text", victim),
+        # `field` types at the middle of the box: `input` clicks beside the label,
+        # which here is the search icon, and the text never reaches the editor.
+        ("field", "Search", victim), ("wait_text", victim),
         ("click", "Delete"), ("wait_text", "Confirm delete"), ("capture", f"delete-confirm-{theme}"),
         ("click", "Confirm delete"), ("wait_text", "Deleted"), ("capture", f"deleted-{theme}"),
         ("click", "Clear filters"), ("wait_text", "Rust Book"),
