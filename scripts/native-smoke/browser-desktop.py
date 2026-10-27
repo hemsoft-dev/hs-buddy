@@ -45,6 +45,7 @@ REQUIRED_REFUSALS = {"internal", "download"}
 
 PROBE = """<!doctype html><html><head><title>Buddy Probe</title></head>
 <body style="font:40px sans-serif;margin:32px"><p>PROBE PAGE</p><p id="state">running</p>
+<iframe src="http://127.0.0.3:PORT/frame" width="240" height="40"></iframe>
 <script>
 const report = (name, value) => fetch('/beacon?' + new URLSearchParams({name, value}));
 let popup = 'error';
@@ -162,7 +163,8 @@ def seed(backend, origin):
         github.mutate(backend, "bookmarks:create", arguments)
 
 
-def audit_kinds(path):
+def audit_records(path):
+    """(kind, origin) for each refusal the app recorded."""
     if not path.exists():
         return []
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -170,14 +172,24 @@ def audit_kinds(path):
         # Only the origin may be recorded, never a path or query.
         if set(record) != {"kind", "origin", "reason"} or "/" in record["origin"].removeprefix("http://").removeprefix("https://"):
             raise RuntimeError(f"Unexpected audit record {record}")
-    return [record["kind"] for record in records]
+    return [(record["kind"], record["origin"]) for record in records]
 
 
-def evaluate(kinds, beacons, downloads):
+def frame_origin(port):
+    """The private address only the probe's iframe uses."""
+    return f"http://127.0.0.3:{port}"
+
+
+def evaluate(records, beacons, downloads, frame):
     """The refusals every engine must make, and nothing the probe asked for granted."""
+    kinds = [kind for kind, _ in records]
     missing = REQUIRED_REFUSALS - set(kinds)
     if missing:
         raise RuntimeError(f"Expected refusals were not recorded: {sorted(missing)} (recorded {kinds})")
+    # A frame reaches the network separately from the page (WebView2 reports it
+    # through its own event), so its refusal is checked on its own.
+    if ("internal", frame) not in records:
+        raise RuntimeError(f"The probe's iframe to {frame} was not refused (recorded {records})")
     if beacons.get("popup") not in ("blocked", "threw"):
         raise RuntimeError(f"The probe's popup was not refused: {beacons.get('popup')}")
     granted = sorted(name for name, value in beacons.items() if value == "granted")
@@ -239,7 +251,8 @@ def qualify(executable, output, session, version, backend, site):
     terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
     light_pass(driver, 3)
     with site.lock:
-        result = evaluate(audit_kinds(audit), dict(site.beacons), site.downloads)
+        result = evaluate(audit_records(audit), dict(site.beacons), site.downloads,
+            frame_origin(site.server.server_port))
     saved = json.loads(config.read_text(encoding="utf-8"))["native"].get("browser", {})
     if [tab["url"] for tab in saved.get("tabs", [])] != [item["url"] for item in bookmarks(site.origin)]:
         raise RuntimeError(f"Unexpected saved tabs: {saved}")
@@ -248,7 +261,7 @@ def qualify(executable, output, session, version, backend, site):
         x11="WebKitGTK")[session], **result,
         dataSource="Installed app; loopback fixture site admitted by exact origin; bookmarks in an isolated anonymous Convex deployment",
         checks=["bookmark opens in a tab", "page renders inside the window", "private address refused",
-            "download refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
+            "download refused", "private iframe refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
             "compact window", "light/dark"]), indent=2), encoding="utf-8")
 
 

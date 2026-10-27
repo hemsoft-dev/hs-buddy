@@ -42,6 +42,11 @@ const PUMP: Duration = Duration::from_millis(16);
 /// How often live pages are asked for their address. wry reports loads, not
 /// same-document route changes, so those are noticed this way.
 const FOLLOW: Duration = Duration::from_secs(1);
+/// How long a load may run before the tab says it didn't finish. Some engines
+/// (WKWebView through wry) report no failed load at all.
+pub(super) const LOAD_LIMIT: Duration = Duration::from_secs(30);
+pub(super) const STALLED: &str =
+    "The page didn't finish loading. Try again, or open it in your browser.";
 pub(super) const ZOOM_DELTA: f64 = 0.1;
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
@@ -92,6 +97,8 @@ pub(super) struct Tab {
     pub url: String,
     pub title: String,
     pub loading: bool,
+    /// Distinguishes this tab's current load from earlier ones for the limit.
+    load: u64,
     pub notice: Option<Notice>,
     events: mpsc::UnboundedSender<PageEvent>,
     page: Option<Rc<dyn Page>>,
@@ -248,6 +255,7 @@ impl BrowserView {
             url,
             title,
             loading: false,
+            load: 0,
             notice: None,
             events,
             page: None,
@@ -332,6 +340,7 @@ impl BrowserView {
         let tab = &mut self.tabs[index];
         tab.starting = tab.page.is_none();
         tab.loading = true;
+        self.watch_load(id, cx);
         let checker = self.checker.clone();
         let target = url.clone();
         let result = cx
@@ -458,6 +467,37 @@ impl BrowserView {
         .detach();
     }
 
+    /// Ends a load that hasn't finished within `LOAD_LIMIT` with a notice
+    /// and an offer to open the page in the browser. A newer load, or a
+    /// finished one, makes the timer moot.
+    fn watch_load(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(index) = self.index_of(id) else {
+            return;
+        };
+        let tab = &mut self.tabs[index];
+        tab.load += 1;
+        let load = tab.load;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(LOAD_LIMIT).await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(index) = this.index_of(id) else {
+                    return;
+                };
+                let tab = &mut this.tabs[index];
+                if tab.load == load && tab.loading {
+                    tab.loading = false;
+                    tab.starting = false;
+                    tab.notice = Some(Notice {
+                        text: STALLED.into(),
+                        offer: Url::parse(&tab.url).ok(),
+                    });
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Reads every live page's address each second and keeps the tab (and
     /// the saved session) on it. Stops when no page is left.
     fn start_following(&mut self, cx: &mut Context<Self>) {
@@ -510,6 +550,7 @@ impl BrowserView {
         };
         match event {
             PageEvent::Loading(raw) => {
+                self.watch_load(id, cx);
                 let tab = &mut self.tabs[index];
                 tab.loading = true;
                 if matches!(
@@ -522,6 +563,13 @@ impl BrowserView {
             PageEvent::Loaded(raw) => {
                 let tab = &mut self.tabs[index];
                 tab.loading = false;
+                if tab
+                    .notice
+                    .as_ref()
+                    .is_some_and(|notice| notice.text == STALLED)
+                {
+                    tab.notice = None;
+                }
                 if matches!(
                     browser::classify(&raw, self.fixture.as_ref()),
                     Ok(Target::Web(_))

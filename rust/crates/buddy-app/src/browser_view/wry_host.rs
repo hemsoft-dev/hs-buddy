@@ -94,6 +94,8 @@ impl Host for WryHost {
             let _ = events.unbounded_send(event);
         };
 
+        #[cfg(windows)]
+        let frames = (checker.clone(), events.clone());
         let nav = events.clone();
         let popups = events.clone();
         let downloads = events.clone();
@@ -179,6 +181,13 @@ impl Host for WryHost {
             log::warn!("browser: page creation failed: {err}");
             Unavailable("The web engine couldn't start.".into())
         })?;
+        // Without the frame guard a frame could reach the network unchecked, so
+        // no page is shown at all.
+        #[cfg(windows)]
+        guard_frames(&webview, frames.0, frames.1).map_err(|err| {
+            log::warn!("browser: frame guard failed: {err}");
+            Unavailable("The web engine couldn't start.".into())
+        })?;
         let page = WryPage(webview);
         page.zoom(zoom);
         Ok(Rc::new(page))
@@ -191,6 +200,49 @@ impl Host for WryHost {
 
     fn needs_pump(&self) -> bool {
         cfg!(target_os = "linux")
+    }
+}
+
+/// WebView2 reports frame navigations through `FrameNavigationStarting`, which
+/// wry doesn't hook (its navigation handler sees the main frame only), so frames
+/// get the same decision here before any request leaves.
+#[cfg(windows)]
+fn guard_frames(
+    webview: &WebView,
+    checker: std::sync::Arc<buddy_core::browser::Checker>,
+    events: futures::channel::mpsc::UnboundedSender<PageEvent>,
+) -> windows::core::Result<()> {
+    use webview2_com::{NavigationStartingEventHandler, take_pwstr};
+    use windows::core::PWSTR;
+    use wry::WebViewExtWindows as _;
+
+    let handler = NavigationStartingEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args else {
+            return Ok(());
+        };
+        let mut uri = PWSTR::null();
+        // SAFETY: WebView2 writes a CoTaskMem string into `uri`, which
+        // `take_pwstr` copies and frees.
+        let raw = unsafe {
+            args.Uri(&mut uri)?;
+            take_pwstr(uri)
+        };
+        let step = checker.navigation(&raw);
+        if step != Step::Allow {
+            // SAFETY: a plain COM call on the live event arguments.
+            unsafe { args.SetCancel(true)? };
+        }
+        if let Step::Block(reason) = step {
+            let _ = events.unbounded_send(PageEvent::Blocked { raw, reason });
+        }
+        Ok(())
+    }));
+    let mut token = 0i64;
+    // SAFETY: the WebView2 object keeps the handler for as long as it lives.
+    unsafe {
+        webview
+            .webview()
+            .add_FrameNavigationStarting(&handler, &mut token)
     }
 }
 

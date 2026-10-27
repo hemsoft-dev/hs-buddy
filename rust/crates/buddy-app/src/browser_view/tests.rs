@@ -731,3 +731,37 @@ fn a_route_change_without_a_load_is_followed_and_saved(cx: &mut gpui_kit::TestAp
     harness.visual.run_until_parked();
     assert_eq!(harness.read(|view| view.tabs[0].url.clone()), route);
 }
+
+#[gpui_kit::test]
+fn a_load_that_never_finishes_ends_with_a_notice(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    assert!(harness.read(|view| view.tabs[0].loading));
+    // The engine never reports the load as finished (a refused TLS handshake
+    // on WKWebView, say).
+    harness.visual.executor().advance_clock(LOAD_LIMIT);
+    harness.visual.run_until_parked();
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(notice.text, STALLED);
+    assert_eq!(notice.offer.unwrap().as_str(), PAGE);
+    assert!(!harness.read(|view| view.tabs[0].loading));
+    // A load that does finish later clears it.
+    host.send(0, PageEvent::Loaded(PAGE.into()));
+    harness.visual.run_until_parked();
+    assert_eq!(harness.read(|view| view.tabs[0].notice.clone()), None);
+}
+
+#[gpui_kit::test]
+fn a_load_that_finishes_in_time_leaves_no_notice(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.send(0, PageEvent::Loaded(PAGE.into()));
+    harness.visual.run_until_parked();
+    harness.visual.executor().advance_clock(LOAD_LIMIT * 2);
+    harness.visual.run_until_parked();
+    assert_eq!(harness.read(|view| view.tabs[0].notice.clone()), None);
+}

@@ -47,6 +47,12 @@ window. They live in `rust/crates/buddy-core/src/browser.rs`:
   3 seconds and remembered for 60 seconds per host. A bookmark or restored tab is
   looked up in the background before it loads, so its own navigation finds the
   answer waiting.
+- Frames get the same decision. WebView2 reports frame navigations through a
+  separate event, which Buddy registers itself; if it can't, the page isn't
+  shown at all.
+- A load that hasn't finished after 30 seconds (an engine may report no failed
+  connection at all) ends with a notice offering to open the page in your
+  browser; a load that finishes later clears it.
 - Popups, downloads and every permission request (camera, microphone, location,
   notifications and the rest) are refused, and the tab says what was refused.
   Downloads have no Electron equivalent; Open in your browser is the way to

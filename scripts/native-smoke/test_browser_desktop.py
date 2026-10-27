@@ -39,6 +39,7 @@ class BrowserDesktopTests(unittest.TestCase):
 
             _, _, probe = fetch(site.origin + "probe")
             self.assertIn(f"127.0.0.2:{site.server.server_port}/private", probe)
+            self.assertIn(f"{desktop.frame_origin(site.server.server_port)}/frame", probe)
             self.assertNotIn("PORT", probe)
             fetch(site.origin + "beacon?name=popup&value=blocked")
             self.assertEqual(site.beacons, {"popup": "blocked"})
@@ -55,29 +56,35 @@ class BrowserDesktopTests(unittest.TestCase):
     def test_audit_records_keep_only_the_origin(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "audit.jsonl"
-            self.assertEqual(desktop.audit_kinds(path), [])
+            self.assertEqual(desktop.audit_records(path), [])
             path.write_text("\n".join(json.dumps(record) for record in [
                 dict(kind="internal", origin="http://127.0.0.2:5000", reason=""),
                 dict(kind="download", origin="http://127.0.0.1:5000", reason=""),
             ]) + "\n", encoding="utf-8")
-            self.assertEqual(desktop.audit_kinds(path), ["internal", "download"])
+            self.assertEqual(desktop.audit_records(path),
+                [("internal", "http://127.0.0.2:5000"), ("download", "http://127.0.0.1:5000")])
             path.write_text(json.dumps(dict(kind="popup", origin="https://a.example/secret", reason="")),
                 encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "Unexpected audit record"):
-                desktop.audit_kinds(path)
+                desktop.audit_records(path)
 
     def test_evaluation_needs_the_required_refusals_and_nothing_granted(self):
         good = dict(popup="blocked", geolocation="denied-1", camera="denied-NotAllowedError")
-        result = desktop.evaluate(["internal", "download", "permission"], good, 1)
+        frame = desktop.frame_origin(5000)
+        records = [("internal", "http://127.0.0.2:5000"), ("internal", frame),
+            ("download", "http://127.0.0.1:5000"), ("permission", "http://127.0.0.1:5000")]
+        result = desktop.evaluate(records, good, 1, frame)
         self.assertEqual(result["refusals"], ["download", "internal", "permission"])
         with self.assertRaisesRegex(RuntimeError, "download"):
-            desktop.evaluate(["internal"], good, 1)
+            desktop.evaluate([("internal", frame)], good, 1, frame)
+        with self.assertRaisesRegex(RuntimeError, "iframe"):
+            desktop.evaluate(records[:1] + records[2:], good, 1, frame)
         with self.assertRaisesRegex(RuntimeError, "popup"):
-            desktop.evaluate(["internal", "download"], dict(good, popup="opened"), 1)
+            desktop.evaluate(records, dict(good, popup="opened"), 1, frame)
         with self.assertRaisesRegex(RuntimeError, "granted"):
-            desktop.evaluate(["internal", "download"], dict(good, camera="granted"), 1)
+            desktop.evaluate(records, dict(good, camera="granted"), 1, frame)
         with self.assertRaisesRegex(RuntimeError, "never requested"):
-            desktop.evaluate(["internal", "download"], good, 0)
+            desktop.evaluate(records, good, 0, frame)
 
 
 if __name__ == "__main__":
