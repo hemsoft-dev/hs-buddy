@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Require a GitHub origin, validate reused PR worktrees, rebase onto the PR base
 
+- Fail the Windows OCR install when Chocolatey installs nothing
+
 ## [0.1.1547] - 2026-10-26
 
 ### Fixed
