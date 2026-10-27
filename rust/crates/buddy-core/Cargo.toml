@@ -9,6 +9,7 @@ description = "Buddy domain models, configuration, and data providers (no UI)"
 [dependencies]
 github-copilot-sdk = "=1.0.23-preview.2"
 cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
 tempfile = "3"
 async-trait = "0.1"
 bytes = "1"

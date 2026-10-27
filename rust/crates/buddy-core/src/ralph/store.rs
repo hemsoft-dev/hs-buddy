@@ -277,7 +277,7 @@ fn create_private_folder(path: &Path) -> std::io::Result<()> {
     builder.create(path)
 }
 
-pub(super) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
     write_private(&temporary, bytes)?;
     let mut attempt = 0;
