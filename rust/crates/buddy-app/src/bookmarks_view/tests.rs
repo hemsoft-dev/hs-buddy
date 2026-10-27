@@ -821,3 +821,23 @@ fn a_field_cleared_before_the_suggestion_stays_empty(cx: &mut gpui_kit::TestAppC
     assert_eq!(form.description, "");
     assert_eq!(form.tags, "web");
 }
+
+#[gpui_kit::test]
+fn an_open_editor_is_never_replaced(cx: &mut gpui_kit::TestAppContext) {
+    let fake = Fake::with(library());
+    let (mut visual, view) = open(cx, &fake);
+    visual.update(|window, cx| view.update(cx, |view, cx| view.add(window, cx)));
+    let url = view.read_with(&visual, |view, _| view.editor.as_ref().unwrap().url.clone());
+    type_in(&url, "https://example.com/unsaved", &mut visual);
+    // The tree's context menu calls the same Edit as a card.
+    visual.update(|window, cx| view.update(cx, |view, cx| view.edit("rust", window, cx)));
+    visual.run_until_parked();
+    let editing = view.read_with(&visual, |view, _| {
+        view.editor.as_ref().unwrap().editing.clone()
+    });
+    assert_eq!(editing, None);
+    assert_eq!(
+        editor_form(&view, &mut visual).url,
+        "https://example.com/unsaved"
+    );
+}

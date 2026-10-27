@@ -369,6 +369,11 @@ impl BookmarksView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // An open editor may hold unsaved text or a save in flight; every way to
+        // open another (Add, Paste, a card's or the tree's Edit) waits for it.
+        if self.editor.is_some() {
+            return;
+        }
         let request = self.request();
         self.confirm = None;
         self.notice = None;
