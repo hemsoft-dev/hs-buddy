@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Open no more tabs than a restart restores
 
+## [0.1.1554] - 2026-10-27
+
+### Fixed
+
+- Show the added bookmark through its category
+
 ## [0.1.1553] - 2026-10-27
 
 ### Fixed
