@@ -81,6 +81,35 @@ def unicode_clipboard(text):
         finish_cleanup(stop, primary, "Unicode clipboard owner")
 
 
+# Vision's boxes for an unchanged Mac window can differ by a pixel or two between captures;
+# four captures that never matched exactly failed qualification on unrelated stages (#868).
+STABLE_SLACK = 3
+
+
+def stable(current, previous, slack=STABLE_SLACK):
+    """Whether two OCR measurements name the same on-screen target.
+
+    Numbers may differ by `slack` pixels; everything else (keys, nesting, text) must match.
+    """
+    if previous is None or current is None:
+        return False
+    if isinstance(current, dict) and isinstance(previous, dict):
+        return current.keys() == previous.keys() and all(
+            stable(current[key], previous[key], slack) for key in current)
+    if isinstance(current, (int, float)) and isinstance(previous, (int, float)) \
+            and not isinstance(current, bool) and not isinstance(previous, bool):
+        return abs(current - previous) <= slack
+    return current == previous
+
+
+def record_measurement(directory, name, value):
+    """Keeps every Mac stability measurement, so a failure shows what moved."""
+    if not isinstance(directory, Path) or not directory.is_dir():
+        return
+    with (directory / "stability.jsonl").open("a", encoding="utf-8") as log:
+        log.write(json.dumps(dict(target=name, measurement=value)) + "\n")
+
+
 def b64(value):
     return base64.b64encode(str(value).encode()).decode()
 
@@ -407,9 +436,12 @@ class Driver:
             if row_control is not None:
                 options["row_control"] = row_control
             label = ocr.locate_image(image, text, **options)
+            if self.session != "macos":
+                return label
+            record_measurement(image.parent, text, label)
             # A pending save can insert feedback while OCR runs, moving every
             # content control. Measure twice before emitting any Mac input.
-            if self.session != "macos" or label == previous:
+            if stable(label, previous):
                 return label
             previous = label
         raise RuntimeError("The visible Mac input target did not become stable")
@@ -431,7 +463,10 @@ class Driver:
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
             point = grid.locate_image(image, *values)
-            if self.session != "macos" or point == previous:
+            if self.session != "macos":
+                break
+            record_measurement(image.parent, " / ".join(values), point)
+            if stable(point, previous):
                 break
             previous = point
         else:
