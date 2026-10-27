@@ -132,26 +132,30 @@ fn the_fixture_origin_needs_an_isolated_config_and_matches_exactly() {
     );
 }
 
-struct FakeResolver(
+/// Answers from a table and counts lookups; anything else fails to resolve.
+struct FakeLookup(
     BTreeMap<&'static str, std::io::Result<Vec<IpAddr>>>,
     Mutex<Vec<String>>,
 );
 
-impl FakeResolver {
-    fn new(entries: Vec<(&'static str, std::io::Result<Vec<IpAddr>>)>) -> Self {
-        Self(entries.into_iter().collect(), Mutex::default())
+impl FakeLookup {
+    fn new(entries: Vec<(&'static str, std::io::Result<Vec<IpAddr>>)>) -> Arc<Self> {
+        Arc::new(Self(entries.into_iter().collect(), Mutex::default()))
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.1.lock().unwrap().clone()
     }
 }
 
-impl Resolve for FakeResolver {
-    fn resolve(&self, host: String, port: u16) -> BoxFuture<'static, std::io::Result<Vec<IpAddr>>> {
+impl Lookup for FakeLookup {
+    fn lookup(&self, host: &str, port: u16) -> std::io::Result<Vec<IpAddr>> {
         self.1.lock().unwrap().push(format!("{host}:{port}"));
-        let result = match self.0.get(host.as_str()) {
+        match self.0.get(host) {
             Some(Ok(addresses)) => Ok(addresses.clone()),
             Some(Err(err)) => Err(std::io::Error::new(err.kind(), "fake")),
             None => Err(std::io::ErrorKind::NotFound.into()),
-        };
-        Box::pin(std::future::ready(result))
+        }
     }
 }
 
@@ -159,9 +163,8 @@ fn ip(raw: &str) -> IpAddr {
     raw.parse().unwrap()
 }
 
-#[tokio::test]
-async fn dns_check_refuses_names_that_resolve_inside() {
-    let resolver = FakeResolver::new(vec![
+fn table() -> Arc<FakeLookup> {
+    FakeLookup::new(vec![
         ("public.example", Ok(vec![ip("93.184.215.14")])),
         (
             "rebind.example",
@@ -171,76 +174,102 @@ async fn dns_check_refuses_names_that_resolve_inside() {
         ("tailnet.example", Ok(vec![ip("100.101.102.103")])),
         ("empty.example", Ok(vec![])),
         ("down.example", Err(std::io::ErrorKind::TimedOut.into())),
-    ]);
-    assert_eq!(
-        verify(&url("https://public.example/"), &resolver, None).await,
-        Ok(())
-    );
+    ])
+}
+
+#[test]
+fn names_that_resolve_inside_are_refused_before_anything_loads() {
+    let lookup = table();
+    let checker = Checker::new(lookup.clone(), None);
+    assert_eq!(checker.check(&url("https://public.example/")), Ok(()));
     for name in ["rebind", "mapped", "tailnet"] {
-        let target = url(&format!("https://{name}.example/"));
+        let target = format!("https://{name}.example/");
         assert_eq!(
-            verify(&target, &resolver, None).await,
+            checker.check(&url(&target)),
             Err(Blocked::Internal),
+            "{name}"
+        );
+        assert_eq!(
+            checker.navigation(&target),
+            Step::Block(Blocked::Internal),
             "{name}"
         );
     }
     for name in ["empty", "down", "missing"] {
-        let target = url(&format!("http://{name}.example/"));
+        let target = format!("http://{name}.example/");
         assert_eq!(
-            verify(&target, &resolver, None).await,
+            checker.check(&url(&target)),
             Err(Blocked::Unresolved),
             "{name}"
         );
     }
-    let calls = resolver.1.lock().unwrap().clone();
+    let calls = lookup.calls();
     assert!(calls.contains(&"public.example:443".to_owned()));
     assert!(calls.contains(&"down.example:80".to_owned()));
 }
 
-#[tokio::test]
-async fn dns_check_skips_literals_and_the_fixture() {
-    let resolver = FakeResolver::new(vec![]);
-    assert_eq!(
-        verify(&url("https://93.184.215.14/"), &resolver, None).await,
-        Ok(())
-    );
-    let origin = fixture();
-    assert_eq!(
-        verify(&url("http://127.0.0.1:8822/ok"), &resolver, Some(&origin)).await,
-        Ok(())
-    );
-    assert!(resolver.1.lock().unwrap().is_empty());
+#[test]
+fn verdicts_are_reused_until_they_expire() {
+    let lookup = table();
+    let checker = Checker::new(lookup.clone(), None);
+    for _ in 0..3 {
+        assert_eq!(checker.navigation("https://PUBLIC.example/a"), Step::Allow);
+        assert_eq!(
+            checker.navigation("https://rebind.example/"),
+            Step::Block(Blocked::Internal)
+        );
+    }
+    assert_eq!(lookup.calls().len(), 2);
+
+    let lookup = table();
+    let expired = Checker::with_ttl(lookup.clone(), None, Duration::ZERO);
+    for _ in 0..3 {
+        assert_eq!(expired.check(&url("https://public.example/")), Ok(()));
+    }
+    assert_eq!(lookup.calls().len(), 3);
 }
 
 #[test]
-fn every_navigation_gets_the_scheme_and_host_check() {
-    assert_eq!(navigation("https://example.com/a", None), Step::Allow);
+fn literals_and_the_fixture_need_no_lookup() {
+    let lookup = table();
+    let checker = Checker::new(lookup.clone(), Some(fixture()));
+    assert_eq!(checker.check(&url("https://93.184.215.14/")), Ok(()));
+    assert_eq!(checker.navigation("http://127.0.0.1:8822/ok"), Step::Allow);
     assert_eq!(
-        navigation("https://www.youtube.com/embed/x", None),
-        Step::Allow
+        checker.navigation("http://127.0.0.2:8822/"),
+        Step::Block(Blocked::Internal)
     );
-    assert_eq!(navigation("about:srcdoc", None), Step::Allow);
+    assert!(lookup.calls().is_empty());
+}
+
+#[test]
+fn every_navigation_gets_the_scheme_and_host_check_first() {
+    let lookup = table();
+    let checker = Checker::new(lookup.clone(), None);
+    assert_eq!(checker.navigation("about:srcdoc"), Step::Allow);
     assert_eq!(
-        navigation("file:///etc/passwd", None),
+        checker.navigation("file:///etc/passwd"),
         Step::Block(Blocked::Scheme("file".into()))
     );
     assert_eq!(
-        navigation("http://10.0.0.1/", None),
+        checker.navigation("http://10.0.0.1/"),
         Step::Block(Blocked::Internal)
     );
     assert!(matches!(
-        navigation("mailto:a@example.com", None),
+        checker.navigation("mailto:a@example.com"),
         Step::External(_)
     ));
+    assert!(lookup.calls().is_empty());
 }
 
 #[test]
-fn only_the_newest_load_check_counts() {
-    let mut checks = LoadChecks::default();
-    let slow = checks.start();
-    let fast = checks.start();
-    assert!(!checks.is_current(slow));
-    assert!(checks.is_current(fast));
+fn the_system_lookup_gives_up_after_its_timeout() {
+    // A name under the reserved `invalid` domain never resolves; it must fail,
+    // not hang, whatever the resolver does with it.
+    let lookup = SystemLookup {
+        timeout: Duration::from_millis(1),
+    };
+    assert!(lookup.lookup("buddy-browser-test.invalid", 443).is_err());
 }
 
 #[test]
@@ -292,7 +321,7 @@ fn session_round_trips_and_drops_disallowed_tabs() {
                 title: String::new(),
             },
         ],
-        active: 1,
+        active: Some(1),
         zoom: 1.25,
     };
     session.store(&mut config);
@@ -318,7 +347,7 @@ fn session_round_trips_and_drops_disallowed_tabs() {
             title: "Kept".into()
         }]
     );
-    assert_eq!(loaded.active, 0);
+    assert_eq!(loaded.active, Some(0));
     assert_eq!(loaded.zoom, ZOOM_RANGE.1);
 }
 
@@ -330,7 +359,7 @@ fn fixture_tabs_survive_only_with_the_fixture() {
             url: "http://127.0.0.1:8822/ok".into(),
             title: "Fixture".into(),
         }],
-        active: 0,
+        active: Some(0),
         zoom: 1.0,
     }
     .store(&mut config);
@@ -367,13 +396,13 @@ fn many_tabs_are_capped() {
         .collect();
     Session {
         tabs,
-        active: 29,
+        active: Some(29),
         zoom: 1.0,
     }
     .store(&mut config);
     let loaded = Session::load(&config, None);
     assert_eq!(loaded.tabs.len(), MAX_TABS);
-    assert_eq!(loaded.active, MAX_TABS - 1);
+    assert_eq!(loaded.active, Some(MAX_TABS - 1));
 }
 
 #[test]
@@ -392,4 +421,25 @@ fn the_profile_lives_beside_the_config() {
         data_store_id(&profile),
         data_store_id(Path::new("/other/browser-profile"))
     );
+}
+
+#[test]
+fn the_bookmark_list_selection_survives_a_restart() {
+    let mut config = AppConfig::default();
+    Session {
+        tabs: vec![Tab {
+            url: "https://example.com/".into(),
+            title: String::new(),
+        }],
+        active: None,
+        zoom: 1.0,
+    }
+    .store(&mut config);
+    assert_eq!(Session::load(&config, None).active, None);
+    // A session saved before the list had its own selection picks its tab.
+    config.native.extra.insert(
+        "browser".into(),
+        serde_json::json!({"tabs": [{"url": "https://example.com/"}], "active": 0}),
+    );
+    assert_eq!(Session::load(&config, None).active, Some(0));
 }

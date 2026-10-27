@@ -1,6 +1,6 @@
 //! Tab strip, toolbar, notices, and the area a native page is placed over.
 use gpui_kit::assets::IconName;
-use gpui_kit::base::Disableable;
+use gpui_kit::base::{Disableable, Selectable as _};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -9,7 +9,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window, canvas, div,
 };
 
-use super::{BrowserView, Notice, ZOOM_DELTA};
+use super::{BrowserView, CONTEXT, CloseTab, NextTab, Notice, PreviousTab, ZOOM_DELTA};
 use crate::zoom::zpx;
 
 impl Render for BrowserView {
@@ -20,6 +20,10 @@ impl Render for BrowserView {
         };
         v_flex()
             .size_full()
+            .key_context(CONTEXT)
+            .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle(true, cx)))
+            .on_action(cx.listener(|this, _: &PreviousTab, _, cx| this.cycle(false, cx)))
+            .on_action(cx.listener(|this, _: &CloseTab, _, cx| this.close_active(cx)))
             .debug_selector(|| "browser-view".into())
             .child(self.render_strip(cx))
             .child(content)
@@ -38,22 +42,33 @@ impl BrowserView {
             .border_b_1()
             .border_color(theme.border)
             .child(
-                strip_tab("browser-home", self.active.is_none(), cx)
-                    .child(Icon::new(IconName::Bookmark).size(zpx(14.0)))
-                    .child("Bookmarks")
-                    .on_click(cx.listener(|this, _, _, cx| this.select(None, cx))),
+                tab_frame(self.active.is_none(), cx).child(
+                    // Buttons, so Tab reaches every tab and Enter or Space selects it.
+                    Button::new("browser-home")
+                        .icon(IconName::Bookmark)
+                        .label("Bookmarks")
+                        .ghost()
+                        .small()
+                        .selected(self.active.is_none())
+                        .on_click(cx.listener(|this, _, _, cx| this.select(None, cx))),
+                ),
             );
         for (index, tab) in self.tabs.iter().enumerate() {
-            let label: SharedString = tab.label().to_string().into();
+            let full: SharedString = tab.label().to_string().into();
             strip = strip.child(
-                strip_tab(("browser-tab", tab.id), self.active == Some(index), cx)
-                    .max_w(zpx(220.0))
-                    .child(Icon::new(IconName::Globe).size(zpx(14.0)))
-                    .child(div().flex_1().min_w_0().truncate().child(label.clone()))
-                    .tooltip(move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(label.clone()).build(window, cx)
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| this.select(Some(index), cx)))
+                tab_frame(self.active == Some(index), cx)
+                    .child(
+                        Button::new(("browser-tab", tab.id))
+                            .icon(IconName::Globe)
+                            .label(short(&full))
+                            .ghost()
+                            .small()
+                            .selected(self.active == Some(index))
+                            .tooltip(full.clone())
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.select(Some(index), cx)),
+                            ),
+                    )
                     .child(
                         Button::new(("browser-close", tab.id))
                             .icon(IconName::X)
@@ -276,28 +291,30 @@ impl BrowserView {
     }
 }
 
-fn strip_tab(
-    id: impl Into<gpui_kit::ElementId>,
-    selected: bool,
-    cx: &App,
-) -> gpui_kit::Stateful<gpui_kit::Div> {
+/// A tab's frame in the strip; the selected one is marked like the shell's tabs.
+fn tab_frame(selected: bool, cx: &App) -> gpui_kit::Div {
     let theme = cx.theme();
     h_flex()
-        .id(id)
         .h(zpx(32.0))
         .flex_shrink_0()
-        .gap(zpx(8.0))
-        .px(zpx(12.0))
+        .gap_1()
+        .px_1()
         .items_center()
-        .cursor_pointer()
-        .text_size(zpx(12.0))
         .border_r_1()
         .border_color(theme.border)
         .when(selected, |this| {
             this.bg(theme.tab_active)
                 .border_b_1()
                 .border_color(theme.primary)
-                .text_color(theme.tab_active_foreground)
         })
-        .when(!selected, |this| this.text_color(theme.muted_foreground))
+}
+
+/// A page title short enough for the strip; the tooltip has all of it.
+fn short(label: &str) -> SharedString {
+    const MAX: usize = 28;
+    if label.chars().count() <= MAX {
+        return label.to_string().into();
+    }
+    let kept: String = label.chars().take(MAX - 1).collect();
+    format!("{}\u{2026}", kept.trim_end()).into()
 }

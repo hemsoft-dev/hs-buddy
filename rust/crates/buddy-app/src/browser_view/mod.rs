@@ -22,14 +22,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use buddy_core::browser::{
-    self, Audit, Blocked, FixtureOrigin, LoadChecks, Resolve, Session, SystemResolver, Target, Url,
+    self, Audit, Blocked, Checker, FixtureOrigin, Session, SystemLookup, Target, Url,
 };
 use futures::StreamExt as _;
 use futures::channel::mpsc;
-use gpui_kit::{AnyView, AnyWindowHandle, App, Bounds, Context, Global, Pixels, Window};
+use gpui_kit::{
+    AnyView, AnyWindowHandle, App, Bounds, Context, Global, KeyBinding, Pixels, Window, actions,
+};
 use raw_window_handle::HasWindowHandle;
 
-use crate::runtime::Runtime;
 use crate::settings::Settings;
 use host::{Host, Page, PageConfig, PageEvent, Unavailable};
 
@@ -39,7 +40,19 @@ pub const AUDIT_FILE_ENV: &str = "BUDDY_BROWSER_AUDIT_FILE";
 
 const PUMP: Duration = Duration::from_millis(16);
 pub(super) const ZOOM_DELTA: f64 = 0.1;
-const BLANK: &str = "about:blank";
+pub(super) const CONTEXT: &str = "BuddyBrowser";
+
+actions!(browser, [NextTab, PreviousTab, CloseTab]);
+
+/// Electron's tab shortcuts. They work while Buddy has the keyboard focus; a
+/// page that has it keeps its keys.
+pub fn init(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("ctrl-tab", NextTab, Some(CONTEXT)),
+        KeyBinding::new("ctrl-shift-tab", PreviousTab, Some(CONTEXT)),
+        KeyBinding::new("ctrl-f4", CloseTab, Some(CONTEXT)),
+    ]);
+}
 
 /// Open GPUI overlays (menus, dialogs) that a native page would cover.
 /// Whoever opens one counts it here while it is open.
@@ -71,22 +84,12 @@ pub(super) struct Notice {
     pub offer: Option<Url>,
 }
 
-/// What a passed DNS check leads to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Then {
-    /// The app is about to load this address: load it.
-    Load,
-    /// The page already started loading it: let it continue.
-    Continue,
-}
-
 pub(super) struct Tab {
     pub id: u64,
     pub url: String,
     pub title: String,
     pub loading: bool,
     pub notice: Option<Notice>,
-    checks: LoadChecks,
     events: mpsc::UnboundedSender<PageEvent>,
     page: Option<Rc<dyn Page>>,
     starting: bool,
@@ -106,7 +109,7 @@ impl Tab {
 
 pub struct BrowserView {
     host: Rc<dyn Host>,
-    resolver: Arc<dyn Resolve>,
+    checker: Arc<Checker>,
     pub(super) tabs: Vec<Tab>,
     /// `None` is the bookmark list.
     pub(super) active: Option<usize>,
@@ -130,31 +133,28 @@ impl BrowserView {
             .map(browser::profile_dir)
             .unwrap_or_else(|| std::env::temp_dir().join("buddy-browser-profile"));
         let host = Rc::new(wry_host::WryHost::new(profile));
-        Self::with_host(
-            host,
-            Arc::new(SystemResolver),
-            config_file,
-            FixtureOrigin::from_env(),
-            window,
-            cx,
-        )
+        let lookup = Arc::new(SystemLookup {
+            timeout: browser::LOOKUP_TIMEOUT,
+        });
+        let checker = Arc::new(Checker::new(lookup, FixtureOrigin::from_env()));
+        Self::with_host(host, checker, config_file, window, cx)
     }
 
     fn with_host(
         host: Rc<dyn Host>,
-        resolver: Arc<dyn Resolve>,
+        checker: Arc<Checker>,
         config_file: Option<PathBuf>,
-        fixture: Option<FixtureOrigin>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let fixture = checker.fixture().cloned();
         let isolated = std::env::var_os(buddy_core::config::CONFIG_PATH_ENV).is_some();
         let session = Session::load(&Settings::global(cx).config, fixture.as_ref());
         cx.observe_global::<Overlays>(|this, cx| this.sync(cx))
             .detach();
         let mut view = Self {
             host,
-            resolver,
+            checker,
             tabs: Vec::new(),
             active: None,
             home: None,
@@ -173,9 +173,7 @@ impl BrowserView {
             let tab = view.tab(saved.url, saved.title, cx);
             view.tabs.push(tab);
         }
-        if !view.tabs.is_empty() {
-            view.active = Some(session.active);
-        }
+        view.active = session.active;
         view
     }
 
@@ -235,7 +233,6 @@ impl BrowserView {
             title,
             loading: false,
             notice: None,
-            checks: LoadChecks::default(),
             events,
             page: None,
             starting: false,
@@ -304,58 +301,39 @@ impl BrowserView {
             && let Ok(Target::Web(url)) = browser::classify(&tab.url, self.fixture.as_ref())
         {
             let id = tab.id;
-            self.check(id, url, Then::Load, cx);
+            self.check(id, url, cx);
         }
         cx.notify();
     }
 
-    /// Resolves `url` before it loads (`Then::Load`) or while the page
-    /// starts loading it (`Then::Continue`). Only the tab's newest check
-    /// counts.
-    fn check(&mut self, id: u64, url: Url, then: Then, cx: &mut Context<Self>) {
+    /// Resolves `url` off the UI thread before the app loads it. The verdict
+    /// is cached, so the engine's own check of the same load is instant.
+    fn check(&mut self, id: u64, url: Url, cx: &mut Context<Self>) {
         let Some(index) = self.index_of(id) else {
             return;
         };
         let tab = &mut self.tabs[index];
-        let check = tab.checks.start();
-        if then == Then::Load {
-            tab.starting = tab.page.is_none();
-            tab.loading = true;
-        }
-        let resolver = self.resolver.clone();
-        let fixture = self.fixture.clone();
+        tab.starting = tab.page.is_none();
+        tab.loading = true;
+        let checker = self.checker.clone();
         let target = url.clone();
-        let result = Runtime::global(cx).spawn(async move {
-            browser::verify(&target, resolver.as_ref(), fixture.as_ref()).await
-        });
+        let result = cx
+            .background_executor()
+            .spawn(async move { checker.check(&target) });
         cx.spawn(async move |this, cx| {
-            let result = result.await.unwrap_or(Err(Blocked::Unresolved));
-            let _ = this.update(cx, |this, cx| {
-                this.checked(id, check, url, then, result, cx)
-            });
+            let result = result.await;
+            let _ = this.update(cx, |this, cx| this.checked(id, url, result, cx));
         })
         .detach();
     }
 
-    fn checked(
-        &mut self,
-        id: u64,
-        check: u64,
-        url: Url,
-        then: Then,
-        result: Result<(), Blocked>,
-        cx: &mut Context<Self>,
-    ) {
+    fn checked(&mut self, id: u64, url: Url, result: Result<(), Blocked>, cx: &mut Context<Self>) {
         let Some(index) = self.index_of(id) else {
             return;
         };
         let tab = &mut self.tabs[index];
-        if !tab.checks.is_current(check) {
-            return;
-        }
-        match (result, then) {
-            (Ok(()), Then::Continue) => {}
-            (Ok(()), Then::Load) => {
+        match result {
+            Ok(()) => {
                 tab.notice = None;
                 tab.url = url.to_string();
                 match tab.page.clone() {
@@ -363,15 +341,8 @@ impl BrowserView {
                     None => self.start_page(id, url, cx),
                 }
             }
-            (Err(reason), then) => {
+            Err(reason) => {
                 tab.starting = false;
-                if then == Then::Continue
-                    && let Some(page) = tab.page.clone()
-                {
-                    // The page started an address that resolves inside the
-                    // network: replace it before it can show anything.
-                    page.load(&Url::parse(BLANK).unwrap_or(url.clone()));
-                }
                 self.refuse(id, url.as_str(), reason, cx);
             }
         }
@@ -407,7 +378,7 @@ impl BrowserView {
             url,
             zoom: self.zoom,
             bounds: tab.bounds.get().unwrap_or_default(),
-            fixture: self.fixture.clone(),
+            checker: self.checker.clone(),
             events: tab.events.clone(),
         })
     }
@@ -453,7 +424,13 @@ impl BrowserView {
             loop {
                 host.pump();
                 cx.background_executor().timer(PUMP).await;
-                if this.update(cx, |_, _| ()).is_err() {
+                // Stop once no page is left; the next page restarts it.
+                let pages = this.update(cx, |this, _| {
+                    let any = this.tabs.iter().any(|tab| tab.page.is_some());
+                    this.pumping = any;
+                    any
+                });
+                if !matches!(pages, Ok(true)) {
                     break;
                 }
             }
@@ -469,15 +446,20 @@ impl BrowserView {
             PageEvent::Loading(raw) => {
                 let tab = &mut self.tabs[index];
                 tab.loading = true;
-                if let Ok(Target::Web(url)) = browser::classify(&raw, self.fixture.as_ref()) {
+                if matches!(
+                    browser::classify(&raw, self.fixture.as_ref()),
+                    Ok(Target::Web(_))
+                ) {
                     tab.url = raw;
-                    self.check(id, url, Then::Continue, cx);
                 }
             }
             PageEvent::Loaded(raw) => {
                 let tab = &mut self.tabs[index];
                 tab.loading = false;
-                if raw != BLANK {
+                if matches!(
+                    browser::classify(&raw, self.fixture.as_ref()),
+                    Ok(Target::Web(_))
+                ) {
                     tab.url = raw;
                 }
                 self.save(cx);
@@ -563,11 +545,31 @@ impl BrowserView {
             None => {
                 if let Ok(Target::Web(url)) = browser::classify(&tab.url, self.fixture.as_ref()) {
                     let id = tab.id;
-                    self.check(id, url, Then::Load, cx);
+                    self.check(id, url, cx);
                 }
             }
         }
         cx.notify();
+    }
+
+    /// Ctrl+Tab and Ctrl+Shift+Tab: the next or previous tab, the bookmark
+    /// list included, wrapping around.
+    pub(super) fn cycle(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let count = self.tabs.len() + 1;
+        let position = self.active.map_or(0, |index| index + 1);
+        let next = if forward {
+            (position + 1) % count
+        } else {
+            (position + count - 1) % count
+        };
+        self.select(next.checked_sub(1), cx);
+    }
+
+    /// Ctrl+F4: close the selected page tab.
+    pub(super) fn close_active(&mut self, cx: &mut Context<Self>) {
+        if let Some(index) = self.active {
+            self.close(index, cx);
+        }
     }
 
     pub(super) fn zoom_by(&mut self, delta: f64, cx: &mut Context<Self>) {
@@ -626,7 +628,7 @@ impl BrowserView {
                     title: tab.title.clone(),
                 })
                 .collect(),
-            active: self.active.unwrap_or(0),
+            active: self.active,
             zoom: self.zoom,
         };
         let Some(path) = &self.config_file else {

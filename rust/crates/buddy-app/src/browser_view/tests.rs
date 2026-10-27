@@ -28,6 +28,9 @@ struct FakeHost {
     log: Rc<Log>,
     refuse: Option<Unavailable>,
     events: RefCell<Vec<mpsc::UnboundedSender<PageEvent>>>,
+    checkers: RefCell<Vec<Arc<Checker>>>,
+    /// Counts pumps when set; the engine then asks to be pumped, like GTK.
+    pumps: Option<Cell<usize>>,
 }
 
 struct FakePage(Rc<Log>);
@@ -74,7 +77,18 @@ impl Host for FakeHost {
         }
         self.log.push(format!("create {}", config.url));
         self.events.borrow_mut().push(config.events);
+        self.checkers.borrow_mut().push(config.checker);
         Ok(Rc::new(FakePage(self.log.clone())))
+    }
+
+    fn pump(&self) {
+        if let Some(pumps) = &self.pumps {
+            pumps.set(pumps.get() + 1);
+        }
+    }
+
+    fn needs_pump(&self) -> bool {
+        self.pumps.is_some()
     }
 }
 
@@ -85,9 +99,13 @@ impl FakeHost {
         self.events.borrow()[page].unbounded_send(event).unwrap();
     }
 
-    /// The engine's own decision when the page navigates by itself.
+    /// The engine's own decision when the first page navigates by itself.
     fn navigate(&self, raw: &str) -> Step {
-        browser::navigation(raw, None)
+        self.checkers.borrow()[0].navigation(raw)
+    }
+
+    fn pump_count(&self) -> usize {
+        self.pumps.as_ref().map_or(0, Cell::get)
     }
 }
 
@@ -132,12 +150,10 @@ fn open_with(
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("config.json");
     std::fs::write(&file, serde_json::to_string(&config).unwrap()).unwrap();
-    let executor = cx.executor();
     let (window, view) = cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::install(&config, cx);
         cx.set_global(Settings::new(config));
-        cx.set_global(Runtime::for_test(executor));
         gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -148,9 +164,7 @@ fn open_with(
             },
             cx,
             |window, cx| {
-                cx.new(|cx| {
-                    BrowserView::with_host(host, resolver(), Some(file.clone()), None, window, cx)
-                })
+                cx.new(|cx| BrowserView::with_host(host, checker(), Some(file.clone()), window, cx))
             },
         )
         .unwrap()
@@ -240,77 +254,53 @@ fn a_page_is_not_started_until_the_section_is_shown(cx: &mut gpui_kit::TestAppCo
 }
 
 /// Names for the DNS check; anything else fails to resolve.
-struct FakeResolver(Vec<(&'static str, std::net::IpAddr)>);
+/// Names for the DNS check; anything else fails to resolve.
+struct FakeLookup(Vec<(&'static str, std::net::IpAddr)>);
 
-impl Resolve for FakeResolver {
-    fn resolve(
-        &self,
-        host: String,
-        _: u16,
-    ) -> futures::future::BoxFuture<'static, std::io::Result<Vec<std::net::IpAddr>>> {
+impl browser::Lookup for FakeLookup {
+    fn lookup(&self, host: &str, _: u16) -> std::io::Result<Vec<std::net::IpAddr>> {
         let found = self
             .0
             .iter()
             .filter(|(name, _)| *name == host)
             .map(|(_, ip)| *ip)
             .collect::<Vec<_>>();
-        Box::pin(std::future::ready(if found.is_empty() {
+        if found.is_empty() {
             Err(std::io::ErrorKind::NotFound.into())
         } else {
             Ok(found)
-        }))
+        }
     }
 }
 
-fn resolver() -> Arc<dyn Resolve> {
-    Arc::new(FakeResolver(vec![
-        ("public.example", "93.184.215.14".parse().unwrap()),
-        ("rebind.example", "192.168.1.10".parse().unwrap()),
-    ]))
+fn checker() -> Arc<Checker> {
+    Arc::new(Checker::new(
+        Arc::new(FakeLookup(vec![
+            ("public.example", "93.184.215.14".parse().unwrap()),
+            ("rebind.example", "192.168.1.10".parse().unwrap()),
+        ])),
+        None,
+    ))
 }
 
 #[gpui_kit::test]
-fn a_page_that_starts_loading_an_internal_name_is_blanked(cx: &mut gpui_kit::TestAppContext) {
+fn a_link_to_a_name_that_resolves_inside_is_refused_before_it_loads(
+    cx: &mut gpui_kit::TestAppContext,
+) {
     let host = Rc::new(FakeHost::default());
     let mut harness = open(cx, &host);
     shown(&mut harness);
     harness.update(|view, cx| view.open(PAGE, "", cx));
-    host.log.take();
-
-    // A public name loads on.
-    host.send(0, PageEvent::Loading("https://public.example/".into()));
-    harness.visual.run_until_parked();
-    assert!(host.log.take().is_empty());
-    // A name that resolves inside the network is replaced at once.
-    host.send(0, PageEvent::Loading("https://rebind.example/admin".into()));
-    harness.visual.run_until_parked();
-    let log = host.log.take();
-    let loads = log
-        .iter()
-        .filter(|entry| entry.starts_with("load "))
-        .collect::<Vec<_>>();
-    assert_eq!(loads, ["load about:blank"]);
-    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
-    assert_eq!(notice.text, Blocked::Internal.to_string());
-    // The notice takes room above the page, which shrinks to fit.
-    assert!(
-        log.iter().any(|entry| entry.starts_with("bounds ")),
-        "{log:?}"
+    // The engine asks before sending anything; the answer is already final.
+    assert_eq!(host.navigate("https://public.example/next"), Step::Allow);
+    assert_eq!(
+        host.navigate("https://rebind.example/admin"),
+        Step::Block(Blocked::Internal)
     );
-}
-
-#[gpui_kit::test]
-fn a_check_for_an_address_the_page_left_is_ignored(cx: &mut gpui_kit::TestAppContext) {
-    let host = Rc::new(FakeHost::default());
-    let mut harness = open(cx, &host);
-    shown(&mut harness);
-    harness.update(|view, cx| view.open(PAGE, "", cx));
-    host.log.take();
-    host.send(0, PageEvent::Loading("https://rebind.example/".into()));
-    host.send(0, PageEvent::Loading("https://public.example/".into()));
-    harness.visual.run_until_parked();
-    assert!(host.log.take().is_empty());
-    assert_eq!(harness.read(|view| view.tabs[0].notice.clone()), None);
+    assert_eq!(
+        host.navigate("https://missing.example/"),
+        Step::Block(Blocked::Unresolved)
+    );
 }
 
 #[gpui_kit::test]
@@ -334,6 +324,79 @@ fn a_bookmark_whose_name_resolves_inside_never_loads(cx: &mut gpui_kit::TestAppC
             Some(Blocked::Unresolved.to_string())
         ]
     );
+    // Try again starts the same check, not a page.
+    harness.update(|view, cx| view.reload(cx));
+    assert!(host.log.take().is_empty());
+}
+
+#[gpui_kit::test]
+fn the_bookmark_list_selection_survives_a_restart(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.select(None, cx));
+    let saved = harness.saved();
+    assert_eq!(saved.active, None);
+
+    let mut config = buddy_core::config::AppConfig::default();
+    saved.store(&mut config);
+    let restored_host = Rc::new(FakeHost::default());
+    let mut restored = open_with(cx, restored_host.clone(), config);
+    shown(&mut restored);
+    assert_eq!(restored.read(|view| view.active), None);
+    assert!(restored_host.log.take().is_empty(), "no page may start");
+}
+
+#[gpui_kit::test]
+fn tab_shortcuts_cycle_through_the_list_and_close_pages(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    assert_eq!(harness.read(|view| view.active), Some(1));
+    harness.update(|view, cx| view.cycle(true, cx));
+    assert_eq!(harness.read(|view| view.active), None);
+    harness.update(|view, cx| view.cycle(true, cx));
+    assert_eq!(harness.read(|view| view.active), Some(0));
+    harness.update(|view, cx| view.cycle(false, cx));
+    assert_eq!(harness.read(|view| view.active), None);
+    harness.update(|view, cx| view.cycle(false, cx));
+    assert_eq!(harness.read(|view| view.active), Some(1));
+    harness.update(|view, cx| view.close_active(cx));
+    assert_eq!(harness.read(|view| view.tabs.len()), 1);
+    // The list itself never closes.
+    harness.update(|view, cx| view.select(None, cx));
+    harness.update(|view, cx| view.close_active(cx));
+    assert_eq!(harness.read(|view| view.tabs.len()), 1);
+}
+
+#[gpui_kit::test]
+fn the_engine_pump_stops_when_the_last_page_closes(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost {
+        pumps: Some(Cell::new(0)),
+        ..FakeHost::default()
+    });
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.visual.executor().advance_clock(PUMP * 5);
+    harness.visual.run_until_parked();
+    assert!(host.pump_count() >= 3);
+    harness.update(|view, cx| view.close(0, cx));
+    harness.visual.executor().advance_clock(PUMP * 3);
+    harness.visual.run_until_parked();
+    let stopped = host.pump_count();
+    harness.visual.executor().advance_clock(PUMP * 10);
+    harness.visual.run_until_parked();
+    assert_eq!(host.pump_count(), stopped);
+    assert!(!harness.read(|view| view.pumping));
+    // A new page starts it again.
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    harness.visual.executor().advance_clock(PUMP * 5);
+    harness.visual.run_until_parked();
+    assert!(host.pump_count() > stopped);
 }
 
 #[gpui_kit::test]
@@ -481,7 +544,7 @@ fn tabs_and_titles_are_saved_and_restored(cx: &mut gpui_kit::TestAppContext) {
     assert_eq!(saved.tabs.len(), 2);
     assert_eq!(saved.tabs[0].title, "Example Domain");
     assert_eq!(saved.tabs[0].url, format!("{PAGE}moved"));
-    assert_eq!(saved.active, 1);
+    assert_eq!(saved.active, Some(1));
     assert_eq!(saved.zoom, 1.1);
 
     // A new start restores them without starting any page until shown.

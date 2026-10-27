@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use buddy_core::browser::{self, Blocked, Step, Url};
+use buddy_core::browser::{Blocked, Step, Url};
 use gpui_kit::{Bounds, Pixels};
 use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle, WindowHandle};
 use wry::{
@@ -86,7 +86,7 @@ impl Host for WryHost {
             url,
             zoom,
             bounds,
-            fixture,
+            checker,
             events,
         } = config;
         let send = |events: &futures::channel::mpsc::UnboundedSender<PageEvent>, event| {
@@ -109,7 +109,7 @@ impl Host for WryHost {
             .with_devtools(false)
             .with_back_forward_navigation_gestures(false)
             .with_navigation_handler(move |raw| {
-                let step = browser::navigation(&raw, fixture.as_ref());
+                let step = checker.navigation(&raw);
                 match step {
                     Step::Allow => true,
                     Step::Block(reason) => {

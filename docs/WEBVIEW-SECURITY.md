@@ -28,8 +28,8 @@ URLs or enable webview permissions must be treated as security-sensitive.
 ## Buddy Native
 
 Buddy Native embeds pages on the operating system's engine instead of
-`webviewTag`. Its rules are stricter: every address the page starts loading is checked
-against DNS, and downloads are refused. See
+`webviewTag`. Its rules are stricter: every navigation is checked against DNS before
+it sends a request, and downloads are refused. See
 [the native embedded browser](NATIVE-BROWSER.md).
 
 ## Verification

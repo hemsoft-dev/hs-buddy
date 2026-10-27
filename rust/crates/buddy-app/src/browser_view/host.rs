@@ -3,8 +3,9 @@
 //! browser instead of failing.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
-use buddy_core::browser::{Blocked, FixtureOrigin, Url};
+use buddy_core::browser::{Blocked, Checker, Url};
 use futures::channel::mpsc::UnboundedSender;
 use gpui_kit::{Bounds, Pixels};
 use raw_window_handle::RawWindowHandle;
@@ -23,7 +24,7 @@ pub struct PageConfig {
     pub url: Url,
     pub zoom: f64,
     pub bounds: Bounds<Pixels>,
-    pub fixture: Option<FixtureOrigin>,
+    pub checker: Arc<Checker>,
     pub events: UnboundedSender<PageEvent>,
 }
 

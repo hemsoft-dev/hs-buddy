@@ -354,6 +354,7 @@ fn main() {
             zoom::init(cx);
             terminal_view::init(cx);
             bookmarks_view::init(cx);
+            browser_view::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),

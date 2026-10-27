@@ -8,11 +8,13 @@
 //! re-checked against DNS before it loads, and popups, downloads and
 //! permission requests are always refused.
 
+use std::collections::HashMap;
 use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -176,50 +178,127 @@ fn private_v6(ip: Ipv6Addr) -> bool {
         || first & 0xffc0 == 0xfe80
 }
 
-/// DNS for the navigation check, replaceable in tests.
-pub trait Resolve: Send + Sync {
-    fn resolve(&self, host: String, port: u16) -> BoxFuture<'static, std::io::Result<Vec<IpAddr>>>;
+/// Name lookups the engine's navigation callback can afford: blocking, but
+/// bounded. Replaceable in tests.
+pub trait Lookup: Send + Sync {
+    fn lookup(&self, host: &str, port: u16) -> std::io::Result<Vec<IpAddr>>;
 }
 
-pub struct SystemResolver;
+/// The operating system's resolver, given up on after `timeout`.
+pub struct SystemLookup {
+    pub timeout: Duration,
+}
 
-impl Resolve for SystemResolver {
-    fn resolve(&self, host: String, port: u16) -> BoxFuture<'static, std::io::Result<Vec<IpAddr>>> {
-        Box::pin(async move {
-            Ok(tokio::net::lookup_host((host.as_str(), port))
-                .await?
-                .map(|address| address.ip())
-                .collect())
-        })
+impl Lookup for SystemLookup {
+    fn lookup(&self, host: &str, port: u16) -> std::io::Result<Vec<IpAddr>> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let host = host.to_owned();
+        std::thread::spawn(move || {
+            let result = (host.as_str(), port)
+                .to_socket_addrs()
+                .map(|addresses| addresses.map(|address| address.ip()).collect());
+            let _ = sender.send(result);
+        });
+        receiver
+            .recv_timeout(self.timeout)
+            .unwrap_or_else(|_| Err(std::io::ErrorKind::TimedOut.into()))
     }
 }
 
-/// Refuses a page whose name resolves to any internal address, so a public
-/// name pointing at the local network can't be used to reach it.
-pub async fn verify(
-    url: &Url,
-    resolver: &dyn Resolve,
-    fixture: Option<&FixtureOrigin>,
-) -> Result<(), Blocked> {
-    if fixture.is_some_and(|origin| origin.admits(url)) {
-        return Ok(());
+/// How long a lookup may hold a navigation, and how long its verdict is reused.
+pub const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
+pub const VERDICT_TTL: Duration = Duration::from_secs(60);
+
+type Verdicts = HashMap<(String, u16), (Instant, Result<(), Blocked>)>;
+
+/// Decides every navigation before the engine sends any request. The engine
+/// asks synchronously and, on WebKit, for subframes too without saying which
+/// frame is navigating, so the decision can't wait for an asynchronous lookup
+/// and reload afterwards: it resolves the name here, bounded by the lookup's
+/// timeout, and reuses each verdict for a while. A name that resolves to any
+/// internal address is refused, so a public name pointing at the local network
+/// can't be used to reach it.
+pub struct Checker {
+    lookup: Arc<dyn Lookup>,
+    fixture: Option<FixtureOrigin>,
+    ttl: Duration,
+    verdicts: Mutex<Verdicts>,
+}
+
+impl Checker {
+    pub fn new(lookup: Arc<dyn Lookup>, fixture: Option<FixtureOrigin>) -> Self {
+        Self::with_ttl(lookup, fixture, VERDICT_TTL)
     }
-    let Some(Host::Domain(name)) = url.host() else {
-        // IP literals were already checked by `classify`.
-        return Ok(());
-    };
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = resolver
-        .resolve(name.to_owned(), port)
-        .await
-        .map_err(|_| Blocked::Unresolved)?;
-    if addresses.is_empty() {
-        return Err(Blocked::Unresolved);
+
+    pub fn with_ttl(
+        lookup: Arc<dyn Lookup>,
+        fixture: Option<FixtureOrigin>,
+        ttl: Duration,
+    ) -> Self {
+        Self {
+            lookup,
+            fixture,
+            ttl,
+            verdicts: Mutex::default(),
+        }
     }
-    if addresses.into_iter().any(private_ip) {
-        return Err(Blocked::Internal);
+
+    pub fn fixture(&self) -> Option<&FixtureOrigin> {
+        self.fixture.as_ref()
     }
-    Ok(())
+
+    /// The scheme and host check, then the name check.
+    pub fn navigation(&self, raw: &str) -> Step {
+        match classify(raw, self.fixture.as_ref()) {
+            Err(reason) => Step::Block(reason),
+            Ok(Target::Blank) => Step::Allow,
+            Ok(Target::External(url)) => Step::External(url),
+            Ok(Target::Web(url)) => match self.check(&url) {
+                Ok(()) => Step::Allow,
+                Err(reason) => Step::Block(reason),
+            },
+        }
+    }
+
+    /// Resolves the page's name, or reuses a verdict younger than the TTL.
+    pub fn check(&self, url: &Url) -> Result<(), Blocked> {
+        if self
+            .fixture
+            .as_ref()
+            .is_some_and(|origin| origin.admits(url))
+        {
+            return Ok(());
+        }
+        let Some(Host::Domain(name)) = url.host() else {
+            // IP literals were already checked by `classify`.
+            return Ok(());
+        };
+        let key = (
+            name.to_ascii_lowercase(),
+            url.port_or_known_default().unwrap_or(443),
+        );
+        let now = Instant::now();
+        if let Some((at, verdict)) = self.verdicts().get(&key)
+            && now.duration_since(*at) < self.ttl
+        {
+            return verdict.clone();
+        }
+        let verdict = match self.lookup.lookup(&key.0, key.1) {
+            Err(_) => Err(Blocked::Unresolved),
+            Ok(addresses) if addresses.is_empty() => Err(Blocked::Unresolved),
+            Ok(addresses) if addresses.iter().copied().any(private_ip) => Err(Blocked::Internal),
+            Ok(_) => Ok(()),
+        };
+        self.verdicts().insert(key, (now, verdict.clone()));
+        verdict
+    }
+
+    fn verdicts(&self) -> std::sync::MutexGuard<'_, Verdicts> {
+        // A panic elsewhere can't leave a verdict half-written; keep using it.
+        self.verdicts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// What a tab does with one navigation request.
@@ -231,37 +310,6 @@ pub enum Step {
     Block(Blocked),
     /// Cancel and offer the link to the system handler.
     External(Url),
-}
-
-/// The engine asks synchronously and doesn't say which frame is navigating
-/// (WebKit asks for subframes too), so this is the scheme and host check
-/// only. The DNS check, [`verify`], runs before each load the app starts and
-/// whenever the main frame starts loading an address, tracked by [`LoadChecks`].
-pub fn navigation(raw: &str, fixture: Option<&FixtureOrigin>) -> Step {
-    match classify(raw, fixture) {
-        Err(reason) => Step::Block(reason),
-        Ok(Target::Blank | Target::Web(_)) => Step::Allow,
-        Ok(Target::External(url)) => Step::External(url),
-    }
-}
-
-/// DNS checks of the addresses a page starts loading. Only the newest check
-/// may stop the page, so a slow lookup for an address the page has already
-/// left can't blank the page it moved on to.
-#[derive(Debug, Default)]
-pub struct LoadChecks {
-    latest: u64,
-}
-
-impl LoadChecks {
-    pub fn start(&mut self) -> u64 {
-        self.latest += 1;
-        self.latest
-    }
-
-    pub fn is_current(&self, check: u64) -> bool {
-        check == self.latest
-    }
 }
 
 /// One refused request, as written to the qualification audit file. Only
@@ -306,7 +354,9 @@ impl Audit {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     pub tabs: Vec<Tab>,
-    pub active: usize,
+    /// The selected tab; `None` is the bookmark list.
+    #[serde(default)]
+    pub active: Option<usize>,
     #[serde(default = "default_zoom")]
     pub zoom: f64,
 }
@@ -343,7 +393,10 @@ impl Session {
             .tabs
             .retain(|tab| matches!(classify(&tab.url, fixture), Ok(Target::Web(_))));
         session.tabs.truncate(MAX_TABS);
-        session.active = session.active.min(session.tabs.len().saturating_sub(1));
+        session.active = session
+            .active
+            .map(|active| active.min(session.tabs.len().saturating_sub(1)))
+            .filter(|_| !session.tabs.is_empty());
         session.zoom = clamp_zoom(session.zoom);
         session
     }

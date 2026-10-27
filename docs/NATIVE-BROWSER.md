@@ -11,15 +11,18 @@ A tab's toolbar has Back, Forward, Reload, the page address, zoom out, the zoom
 level, zoom in, and Open in your browser. Closing a tab selects its neighbor;
 closing the last one returns to the list.
 
-Open tabs, their titles, the selected tab and the zoom level are saved in the
+Open tabs, their titles, the selected tab (or the list) and the zoom level are saved in the
 configuration (`native.browser`) and restored at the next start. A restored tab
 starts its page only when it is first shown. Cookies and site storage live in the
 app's own profile, `browser-profile` beside the configuration file, so an isolated
 `BUDDY_CONFIG_PATH` run never touches the real one. Electron's
 `persist:browser` cookies don't carry over: the engines differ.
 
-Keyboard shortcuts reach Buddy while Buddy has focus. Clicking into a page gives
-the page the keyboard until you click Buddy again.
+The tabs are buttons, so Tab reaches them and Enter or Space selects one. As in
+Electron, Ctrl+Tab and Ctrl+Shift+Tab move to the next or previous tab (the
+bookmark list included) and Ctrl+F4 closes the selected page. These shortcuts work
+while Buddy has the keyboard; clicking into a page gives the page the keyboard
+until you click Buddy again.
 
 ## What a page may do
 
@@ -32,14 +35,15 @@ window. They live in `rust/crates/buddy-core/src/browser.rs`:
 - Local and private addresses are refused: `localhost`, `.local`, `.internal`,
   `.home.arpa`, single-label names, loopback, private, link-local and carrier-grade
   NAT ranges (which includes Tailscale), multicast, and IPv4 written as IPv6.
-- Every navigation, in the page or in a frame, gets the scheme and host check
-  before the engine continues; the engines ask synchronously and WebKit doesn't
-  say which frame is navigating. A bookmark or restored tab is also resolved
-  through DNS before it loads, and so is every address the page itself starts
-  loading (a link click or a redirect): if any address it resolves to is
-  internal, the page is replaced with a blank one and the tab says why. Only the
-  newest check counts, so a slow lookup for an address the page already left
-  can't blank the next one.
+- Every navigation, in the page or in a frame, including a link click or a
+  redirect, is decided before the engine sends any request: the scheme and host
+  check, then a DNS lookup. If any address the name resolves to is internal, the
+  navigation is refused and the tab says why, so a public name pointing at the
+  local network can't reach it. The engines ask synchronously (and WebKit doesn't
+  say which frame is navigating), so the lookup runs right there, given up after
+  3 seconds and remembered for 60 seconds per host. A bookmark or restored tab is
+  looked up in the background before it loads, so its own navigation finds the
+  answer waiting.
 - Popups, downloads and every permission request (camera, microphone, location,
   notifications and the rest) are refused, and the tab says what was refused.
   Downloads have no Electron equivalent; Open in your browser is the way to
@@ -83,5 +87,6 @@ cargo test -p buddy-app browser_view
 ```
 
 The view tests use a fake engine and resolver and check page start, visibility
-across tabs, sections, menus and dialogs, the DNS checks (including a stale one),
-refusals, the no-engine fallback, session restore and placement on resize.
+across tabs, sections, menus and dialogs, the DNS refusals before a load, the tab
+shortcuts, the engine pump stopping with the last page, the no-engine fallback,
+session restore (the list selection included) and placement on resize.
