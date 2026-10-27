@@ -234,4 +234,8 @@ impl Page for WryPage {
     fn zoom(&self, zoom: f64) {
         logged("zoom", self.0.zoom(zoom));
     }
+
+    fn url(&self) -> Option<String> {
+        self.0.url().ok()
+    }
 }

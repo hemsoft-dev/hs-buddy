@@ -31,9 +31,12 @@ struct FakeHost {
     checkers: RefCell<Vec<Arc<Checker>>>,
     /// Counts pumps when set; the engine then asks to be pumped, like GTK.
     pumps: Option<Cell<usize>>,
+    /// What every page reports as its current address.
+    url: Rc<RefCell<Option<String>>>,
 }
 
-struct FakePage(Rc<Log>);
+/// Records calls; `url` is the address the page reports, shared with its host.
+struct FakePage(Rc<Log>, Rc<RefCell<Option<String>>>);
 
 impl Page for FakePage {
     fn load(&self, url: &Url) {
@@ -64,6 +67,9 @@ impl Page for FakePage {
     fn zoom(&self, zoom: f64) {
         self.0.push(format!("zoom {zoom}"));
     }
+    fn url(&self) -> Option<String> {
+        self.1.borrow().clone()
+    }
 }
 
 impl Host for FakeHost {
@@ -78,7 +84,7 @@ impl Host for FakeHost {
         self.log.push(format!("create {}", config.url));
         self.events.borrow_mut().push(config.events);
         self.checkers.borrow_mut().push(config.checker);
-        Ok(Rc::new(FakePage(self.log.clone())))
+        Ok(Rc::new(FakePage(self.log.clone(), self.url.clone())))
     }
 
     fn pump(&self) {
@@ -704,4 +710,24 @@ fn the_toolbar_opens_the_page_and_the_notice_opens_its_offer(cx: &mut gpui_kit::
         harness.visual.opened_url().as_deref(),
         Some("mailto:someone@example.com")
     );
+}
+
+#[gpui_kit::test]
+fn a_route_change_without_a_load_is_followed_and_saved(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    // The page moves with history.pushState: no load event, a new address.
+    let route = format!("{PAGE}inbox#unread");
+    *host.url.borrow_mut() = Some(route.clone());
+    harness.visual.executor().advance_clock(FOLLOW * 2);
+    harness.visual.run_until_parked();
+    assert_eq!(harness.read(|view| view.tabs[0].url.clone()), route);
+    assert_eq!(harness.saved().tabs[0].url, route);
+    // A refused address is never adopted.
+    *host.url.borrow_mut() = Some("file:///C:/x".into());
+    harness.visual.executor().advance_clock(FOLLOW * 2);
+    harness.visual.run_until_parked();
+    assert_eq!(harness.read(|view| view.tabs[0].url.clone()), route);
 }

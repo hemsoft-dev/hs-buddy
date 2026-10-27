@@ -13,7 +13,9 @@ closing the last one returns to the list. Up to 20 tabs can be open, as many as 
 restart restores; opening another asks you to close one first.
 
 Open tabs, their titles, the selected tab (or the list) and the zoom level are saved in the
-configuration (`native.browser`) and restored at the next start. A restored tab
+configuration (`native.browser`) and restored at the next start. A tab follows its page's
+address, including route changes a page makes without loading a new document
+(`history.pushState`, `#` links); Buddy reads it once a second. A restored tab
 starts its page only when it is first shown. Cookies and site storage live in the
 app's own profile, `browser-profile` beside the configuration file, so an isolated
 `BUDDY_CONFIG_PATH` run never touches the real one. Electron's

@@ -39,6 +39,9 @@ pub trait Page {
     fn set_visible(&self, visible: bool);
     fn focus_parent(&self);
     fn zoom(&self, zoom: f64);
+    /// The address the page shows now, including same-document changes
+    /// (`history.pushState`, fragments) that fire no load event.
+    fn url(&self) -> Option<String>;
 }
 
 /// Why this window can't embed pages. `Display` is the text the tab shows.

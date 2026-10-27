@@ -39,6 +39,9 @@ use host::{Host, Page, PageConfig, PageEvent, Unavailable};
 pub const AUDIT_FILE_ENV: &str = "BUDDY_BROWSER_AUDIT_FILE";
 
 const PUMP: Duration = Duration::from_millis(16);
+/// How often live pages are asked for their address. wry reports loads, not
+/// same-document route changes, so those are noticed this way.
+const FOLLOW: Duration = Duration::from_secs(1);
 pub(super) const ZOOM_DELTA: f64 = 0.1;
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
@@ -122,6 +125,7 @@ pub struct BrowserView {
     /// Where the session is saved; `None` when the config path is unknown.
     config_file: Option<PathBuf>,
     pumping: bool,
+    following: bool,
     /// The last open was refused because `MAX_TABS` tabs are open.
     pub(super) full: bool,
     next_id: u64,
@@ -169,6 +173,7 @@ impl BrowserView {
             window: Window::window_handle(window),
             config_file,
             pumping: false,
+            following: false,
             full: false,
             next_id: 0,
         };
@@ -416,6 +421,7 @@ impl BrowserView {
                 }
                 tab.page = Some(page);
                 self.start_pump(cx);
+                self.start_following(cx);
             }
             Err(unavailable) => {
                 tab.loading = false;
@@ -450,6 +456,52 @@ impl BrowserView {
             }
         })
         .detach();
+    }
+
+    /// Reads every live page's address each second and keeps the tab (and
+    /// the saved session) on it. Stops when no page is left.
+    fn start_following(&mut self, cx: &mut Context<Self>) {
+        if self.following {
+            return;
+        }
+        self.following = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(FOLLOW).await;
+                let pages = this.update(cx, |this, cx| {
+                    this.follow_urls(cx);
+                    let any = this.tabs.iter().any(|tab| tab.page.is_some());
+                    this.following = any;
+                    any
+                });
+                if !matches!(pages, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn follow_urls(&mut self, cx: &mut Context<Self>) {
+        let mut changed = false;
+        for tab in &mut self.tabs {
+            let Some(current) = tab.page.as_ref().and_then(|page| page.url()) else {
+                continue;
+            };
+            if current != tab.url
+                && matches!(
+                    browser::classify(&current, self.fixture.as_ref()),
+                    Ok(Target::Web(_))
+                )
+            {
+                tab.url = current;
+                changed = true;
+            }
+        }
+        if changed {
+            self.save(cx);
+            cx.notify();
+        }
     }
 
     pub(super) fn page_event(&mut self, id: u64, event: PageEvent, cx: &mut Context<Self>) {
