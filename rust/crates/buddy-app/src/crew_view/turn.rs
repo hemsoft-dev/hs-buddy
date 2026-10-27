@@ -51,15 +51,43 @@ pub(super) fn prompt(project: &Project, history: &[Message]) -> Option<String> {
     (text.len() <= MAX_PROMPT).then_some(text)
 }
 
-/// Chat's failure text, without its note that partial output is kept when none arrived.
+/// The Crew's own text for a failed reply. Chat's texts name controls the Crew does not have
+/// (review context, saved results), so every failure is worded here.
+pub(super) fn failure_text(failure: Failure) -> &'static str {
+    match failure {
+        Failure::InvalidContext => {
+            "This conversation's GitHub account or model is not usable. Clear the conversation to start one with another."
+        }
+        // The Crew checks the size first; the assistant's own limit says the same.
+        Failure::InvalidPrompt => super::TOO_LARGE,
+        Failure::NotPrepared => "The reply could not start. Send the message again.",
+        Failure::RecordUnknown => {
+            "The assistant could not confirm that the reply started. Send the message again."
+        }
+        Failure::SendUnknown => {
+            "The assistant could not confirm that it received the message, so it was not sent again."
+        }
+        Failure::AuthenticationRequired => {
+            "Sign in to this conversation's GitHub account, then send the message again."
+        }
+        Failure::ServiceUnavailable => "The assistant service is unavailable.",
+        Failure::IncompleteStream => "The reply stopped before it was complete.",
+        Failure::CancellationUnknown => "Stopping the reply could not be confirmed.",
+        Failure::OutputLimit => "The reply is longer than the assistant's output limit.",
+        Failure::EventLimit => "The reply sent more updates than the assistant allows.",
+        Failure::PersistenceFailed => {
+            "The assistant could not prepare the reply. Send the message again."
+        }
+    }
+}
+
+/// The Crew's failure text, noting that partial output is kept only when some arrived.
 pub(super) fn failure_reason(failure: Option<Failure>, partial: &str) -> String {
-    let text = failure
-        .map(|failure| failure.to_string())
-        .unwrap_or_else(|| "The reply ended without an answer.".into());
+    let text = failure.map_or("The reply ended without an answer.", failure_text);
     if partial.is_empty() {
-        text.replace(" Partial output is retained.", "")
+        text.into()
     } else {
-        text
+        format!("{text} Partial output is retained.")
     }
 }
 
@@ -112,7 +140,7 @@ pub(super) fn assistant() -> Starter {
             executable,
             owned_directory,
         })
-        .map_err(|failure| failure.to_string())?;
+        .map_err(|failure| failure_text(failure).to_string())?;
         let turn: Arc<dyn Turn> = Arc::new(Assistant(run));
         Ok((turn, Some(Box::pin(future) as BoxFuture<'static, ()>)))
     })
