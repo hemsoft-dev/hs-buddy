@@ -3,8 +3,8 @@
 Bookmarks in Buddy Native shows the web bookmarks Electron Buddy keeps in Convex, in a
 category tree and a searchable list, and adds, edits, reorders and deletes them. Both
 apps read and write the same `bookmarks` table through the same Convex functions, so a
-change in one shows up in the other. Embedded browsing (tabs, navigation, sessions) is
-a separate part of issue #822 and is not ported yet.
+change in one shows up in the other. Bookmarks open as tabs of the
+[embedded browser](NATIVE-BROWSER.md), whose first tab is this list.
 
 ## Data
 
@@ -44,15 +44,17 @@ a list emptied by filters says "No bookmarks match your filters".
 
 ## Opening
 
-Clicking a card or a bookmark in the tree, Open, and Open externally all hand the URL
-to the system browser and record the visit (`recordVisit`). Before that, the URL must
-pass `buddy_core::bookmarks::url::validate_url`, the native copy of Electron's
+Clicking a card or a bookmark in the tree, or Open, opens the bookmark in a new tab of
+the [embedded browser](NATIVE-BROWSER.md), which applies its own, stricter rules and
+explains a refusal in the tab. Open externally hands the URL to the system browser.
+Either records the visit (`recordVisit`) when the URL passes
+`buddy_core::bookmarks::url::validate_url`, the native copy of Electron's
 `validateUrl`: `http` or `https` only, and no internal host (`localhost`, loopback,
 `10.`, `172.16.` to `172.31.`, `192.168.`, `169.254.`, `.local`, `.internal`). A host
 written as an IP address is also checked by range, which refuses `0.0.0.0`, private
 IPv6 addresses and IPv4 addresses mapped into IPv6; Electron checks only the text.
-A refused bookmark is not opened and the section says why. The embedded browser is
-meant to reuse the same check.
+Open externally doesn't open a refused bookmark, and the section says why. Both checks
+share one rule for private address ranges.
 
 Favicons are not loaded: showing them would fetch a remote image for every bookmark.
 Each bookmark shows a globe icon instead.

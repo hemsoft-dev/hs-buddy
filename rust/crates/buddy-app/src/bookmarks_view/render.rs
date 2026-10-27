@@ -262,7 +262,7 @@ impl BookmarksView {
                 };
                 menu.item(action("Open", |this, id, _, cx| this.open(id, cx)))
                     .item(action("Open externally", |this, id, _, cx| {
-                        this.open(id, cx)
+                        this.open_externally(id, cx)
                     }))
                     .item(action("Edit", |this, id, window, cx| {
                         this.edit(id, window, cx)
@@ -467,9 +467,9 @@ impl BookmarksView {
                                     .small()
                                     .icon(IconName::ExternalLink)
                                     .label("Open externally")
-                                    .on_click(
-                                        cx.listener(move |this, _, _, cx| this.open(&external, cx)),
-                                    ),
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_externally(&external, cx)
+                                    })),
                             )
                             .child(
                                 Button::new(("bookmark-edit", index))

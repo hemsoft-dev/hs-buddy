@@ -64,24 +64,11 @@ fn is_172_private_prefix(hostname: &str) -> bool {
             .is_ok_and(|value| (16..=31).contains(&value))
 }
 
-/// `isPrivateIP`: loopback, unspecified, RFC 1918, link-local and unique-local
-/// addresses, including IPv4 addresses mapped into IPv6.
+/// `isPrivateIP`, with the embedded browser's ranges: loopback, unspecified,
+/// RFC 1918, link-local, unique-local, carrier-grade NAT and multicast,
+/// including IPv4 addresses mapped into IPv6.
 pub fn is_private_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(v4) => {
-            v4.is_loopback() || v4.is_unspecified() || v4.is_private() || v4.is_link_local()
-        }
-        IpAddr::V6(v6) => {
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return is_private_ip(IpAddr::V4(v4));
-            }
-            let first = v6.segments()[0];
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || first & 0xffc0 == 0xfe80
-                || first & 0xfe00 == 0xfc00
-        }
-    }
+    crate::browser::private_ip(address)
 }
 
 /// The address a host names directly, without brackets.

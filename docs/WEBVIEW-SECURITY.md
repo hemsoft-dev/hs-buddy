@@ -25,6 +25,13 @@ Navigation to local, loopback, private, and internal hostnames should stay
 blocked at the app URL-validation boundary. Future changes that broaden allowed
 URLs or enable webview permissions must be treated as security-sensitive.
 
+## Buddy Native
+
+Buddy Native embeds pages on the operating system's engine instead of
+`webviewTag`. Its rules are stricter: every address the page starts loading is checked
+against DNS, and downloads are refused. See
+[the native embedded browser](NATIVE-BROWSER.md).
+
 ## Verification
 
 Run these checks after changing browser or Electron window behavior:

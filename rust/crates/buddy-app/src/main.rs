@@ -6,6 +6,7 @@ mod app;
 mod assets;
 mod automation_view;
 mod bookmarks_view;
+mod browser_view;
 mod command_line;
 mod copilot_view;
 mod crew_view;
@@ -293,6 +294,13 @@ fn open_when_displays_ready(cx: &mut App) {
 }
 
 fn main() {
+    // GPUI's DirectComposition layer is drawn above child windows, so an
+    // embedded WebView2 page would load but stay hidden under it (#822).
+    #[cfg(windows)]
+    if std::env::var_os("GPUI_DISABLE_DIRECT_COMPOSITION").is_none() {
+        // SAFETY: the first statement of `main`, before any thread starts.
+        unsafe { std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1") };
+    }
     match command_line::parse(std::env::args_os().skip(1)) {
         Ok(command_line::Command::Open) => {}
         Ok(command_line::Command::TerminalHost) => {
@@ -371,8 +379,12 @@ fn main() {
                 if let Some(window) = cx.active_window() {
                     window
                         .update(cx, |_, window, cx| {
+                            browser_view::Overlays::set(true, cx);
                             window.open_alert_dialog(cx, |alert, _, _| {
-                                alert.title("About Buddy").description(format!(
+                                alert
+                                    .on_close(|_, _, cx| browser_view::Overlays::set(false, cx))
+                                    .title("About Buddy")
+                                    .description(format!(
                                     "Buddy {} (native GPUI build)\nYour Universal Productivity Companion\nMade with love by HemSoft Developments",
                                     env!("BUDDY_VERSION")
                                 ))

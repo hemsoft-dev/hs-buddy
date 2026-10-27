@@ -10,7 +10,8 @@ use gpui_kit::{
 };
 
 use crate::automation_view::AutomationView;
-use crate::bookmarks_view::BookmarksView;
+use crate::bookmarks_view::{BookmarksView, OpenInTab};
+use crate::browser_view::BrowserView;
 use crate::copilot_view::CopilotView;
 use crate::crew_view::CrewView;
 use crate::dashboard::{DashboardEvent, DashboardView};
@@ -125,6 +126,7 @@ pub struct BuddyApp {
     ralph_view: Entity<RalphView>,
     crew_view: Entity<CrewView>,
     bookmarks_view: Entity<BookmarksView>,
+    browser_view: Entity<BrowserView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -175,6 +177,9 @@ impl BuddyApp {
             view.set_active(section == Some(Section::Crew), cx)
         });
         self.bookmarks_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Bookmarks), cx)
+        });
+        self.browser_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Bookmarks), cx)
         });
         if section == Some(Section::Settings) && self.active_section != section {
@@ -402,6 +407,17 @@ impl BuddyApp {
         bookmarks_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Bookmarks), cx)
         });
+        // Bookmarks open as tabs of the browser, whose first tab is the list.
+        let browser_view = cx.new(|cx| BrowserView::new(window, cx));
+        browser_view.update(cx, |view, cx| {
+            view.set_home(bookmarks_view.clone().into(), cx);
+            view.set_active(section == Some(Section::Bookmarks), cx)
+        });
+        cx.subscribe(&bookmarks_view, |this, _, event: &OpenInTab, cx| {
+            this.browser_view
+                .update(cx, |view, cx| view.open(&event.url, &event.title, cx));
+        })
+        .detach();
         cx.subscribe(&settings_view, |this, _, event, cx| match event {
             SettingsEvent::ClearCache => {
                 this.dashboard
@@ -424,6 +440,7 @@ impl BuddyApp {
             ralph_view,
             crew_view,
             bookmarks_view,
+            browser_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -445,7 +462,7 @@ impl BuddyApp {
             Some(Section::Automation) => container.child(self.automation_view.clone()),
             Some(Section::Ralph) => container.child(self.ralph_view.clone()),
             Some(Section::Crew) => container.child(self.crew_view.clone()),
-            Some(Section::Bookmarks) => container.child(self.bookmarks_view.clone()),
+            Some(Section::Bookmarks) => container.child(self.browser_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -533,6 +550,7 @@ mod tests {
                         ralph_view: cx.new(|cx| RalphView::new(window, cx)),
                         crew_view: cx.new(|cx| CrewView::new(window, cx)),
                         bookmarks_view: cx.new(|cx| BookmarksView::new(window, cx)),
+                        browser_view: cx.new(|cx| BrowserView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }

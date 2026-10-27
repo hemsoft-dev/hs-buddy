@@ -1,0 +1,566 @@
+use std::cell::RefCell;
+
+use buddy_core::browser::Step;
+use gpui_kit::{AppContext as _, Entity, VisualTestContext, px, size};
+
+use super::*;
+
+#[derive(Default)]
+struct Log(RefCell<Vec<String>>);
+
+impl Log {
+    fn push(&self, entry: String) {
+        self.0.borrow_mut().push(entry);
+    }
+
+    fn take(&self) -> Vec<String> {
+        std::mem::take(&mut self.0.borrow_mut())
+    }
+
+    fn has(&self, entry: &str) -> bool {
+        self.0.borrow().iter().any(|logged| logged == entry)
+    }
+}
+
+/// An engine that records what the view asks of it.
+#[derive(Default)]
+struct FakeHost {
+    log: Rc<Log>,
+    refuse: Option<Unavailable>,
+    events: RefCell<Vec<mpsc::UnboundedSender<PageEvent>>>,
+}
+
+struct FakePage(Rc<Log>);
+
+impl Page for FakePage {
+    fn load(&self, url: &Url) {
+        self.0.push(format!("load {url}"));
+    }
+    fn back(&self) {
+        self.0.push("back".into());
+    }
+    fn forward(&self) {
+        self.0.push("forward".into());
+    }
+    fn reload(&self) {
+        self.0.push("reload".into());
+    }
+    fn set_bounds(&self, bounds: Bounds<Pixels>) {
+        self.0.push(format!(
+            "bounds {}x{}",
+            f32::from(bounds.size.width),
+            f32::from(bounds.size.height)
+        ));
+    }
+    fn set_visible(&self, visible: bool) {
+        self.0.push(format!("visible {visible}"));
+    }
+    fn focus_parent(&self) {
+        self.0.push("focus parent".into());
+    }
+    fn zoom(&self, zoom: f64) {
+        self.0.push(format!("zoom {zoom}"));
+    }
+}
+
+impl Host for FakeHost {
+    fn create(
+        &self,
+        _: Option<RawWindowHandleAlias>,
+        config: PageConfig,
+    ) -> Result<Rc<dyn Page>, Unavailable> {
+        if let Some(reason) = &self.refuse {
+            return Err(reason.clone());
+        }
+        self.log.push(format!("create {}", config.url));
+        self.events.borrow_mut().push(config.events);
+        Ok(Rc::new(FakePage(self.log.clone())))
+    }
+}
+
+type RawWindowHandleAlias = raw_window_handle::RawWindowHandle;
+
+impl FakeHost {
+    fn send(&self, page: usize, event: PageEvent) {
+        self.events.borrow()[page].unbounded_send(event).unwrap();
+    }
+
+    /// The engine's own decision when the page navigates by itself.
+    fn navigate(&self, raw: &str) -> Step {
+        browser::navigation(raw, None)
+    }
+}
+
+// IP literals skip DNS, so these tests never touch the network.
+const PAGE: &str = "https://93.184.215.14/";
+const OTHER: &str = "https://93.184.215.15/next";
+
+struct Harness {
+    view: Entity<BrowserView>,
+    visual: VisualTestContext,
+    config: tempfile::TempDir,
+}
+
+impl Harness {
+    fn config_file(&self) -> std::path::PathBuf {
+        self.config.path().join("config.json")
+    }
+
+    fn saved(&self) -> Session {
+        let text = std::fs::read_to_string(self.config_file()).unwrap();
+        let config: buddy_core::config::AppConfig = serde_json::from_str(&text).unwrap();
+        Session::load(&config, None)
+    }
+
+    fn update<R>(&mut self, f: impl FnOnce(&mut BrowserView, &mut Context<BrowserView>) -> R) -> R {
+        let result = self.view.update(&mut self.visual, f);
+        self.visual.run_until_parked();
+        result
+    }
+
+    fn read<R>(&mut self, f: impl FnOnce(&BrowserView) -> R) -> R {
+        self.view.read_with(&self.visual, |view, _| f(view))
+    }
+}
+
+fn open_with(
+    cx: &mut gpui_kit::TestAppContext,
+    host: Rc<dyn Host>,
+    config: buddy_core::config::AppConfig,
+) -> Harness {
+    use gpui_kit::{Bounds, Point, WindowBounds, WindowOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("config.json");
+    std::fs::write(&file, serde_json::to_string(&config).unwrap()).unwrap();
+    let executor = cx.executor();
+    let (window, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&config, cx);
+        cx.set_global(Settings::new(config));
+        cx.set_global(Runtime::for_test(executor));
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Point::default(),
+                    size: size(px(1200.), px(820.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                cx.new(|cx| {
+                    BrowserView::with_host(host, resolver(), Some(file.clone()), None, window, cx)
+                })
+            },
+        )
+        .unwrap()
+    });
+    let visual = VisualTestContext::from_window(window, cx);
+    visual.run_until_parked();
+    Harness {
+        view,
+        visual,
+        config: dir,
+    }
+}
+
+fn open(cx: &mut gpui_kit::TestAppContext, host: &Rc<FakeHost>) -> Harness {
+    open_with(cx, host.clone(), buddy_core::config::AppConfig::default())
+}
+
+fn shown(harness: &mut Harness) {
+    harness.update(|view, cx| view.set_active(true, cx));
+}
+
+#[gpui_kit::test]
+fn a_page_starts_after_its_check_and_shows_only_in_its_tab(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "Example", cx));
+
+    let log = host.log.take();
+    assert_eq!(
+        log.first().map(String::as_str),
+        Some(format!("create {PAGE}").as_str())
+    );
+    assert!(
+        log.iter().any(|entry| entry.starts_with("bounds ")),
+        "{log:?}"
+    );
+    assert_eq!(
+        log.last().map(String::as_str),
+        Some("visible true"),
+        "{log:?}"
+    );
+
+    // The bookmark list hides the page.
+    harness.update(|view, cx| view.select(None, cx));
+    assert_eq!(host.log.take(), ["focus parent", "visible false"]);
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(host.log.take(), ["visible true"]);
+
+    // Another section hides it too, and no second page is started.
+    harness.update(|view, cx| view.set_active(false, cx));
+    assert_eq!(host.log.take(), ["focus parent", "visible false"]);
+    harness.update(|view, cx| view.set_active(true, cx));
+    assert_eq!(host.log.take(), ["visible true"]);
+}
+
+#[gpui_kit::test]
+fn an_open_menu_or_dialog_hides_the_page(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.log.take();
+
+    harness.visual.update(|_, cx| Overlays::set(true, cx));
+    harness.visual.run_until_parked();
+    assert_eq!(host.log.take(), ["focus parent", "visible false"]);
+    // Nested overlays: the page returns only after the last one closes.
+    harness.visual.update(|_, cx| Overlays::set(true, cx));
+    harness.visual.update(|_, cx| Overlays::set(false, cx));
+    harness.visual.run_until_parked();
+    assert!(host.log.take().is_empty());
+    harness.visual.update(|_, cx| Overlays::set(false, cx));
+    harness.visual.run_until_parked();
+    assert_eq!(host.log.take(), ["visible true"]);
+}
+
+#[gpui_kit::test]
+fn a_page_is_not_started_until_the_section_is_shown(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    assert!(host.log.take().is_empty());
+    shown(&mut harness);
+    assert!(host.log.has(&format!("create {PAGE}")));
+    assert!(host.log.has("visible true"));
+}
+
+/// Names for the DNS check; anything else fails to resolve.
+struct FakeResolver(Vec<(&'static str, std::net::IpAddr)>);
+
+impl Resolve for FakeResolver {
+    fn resolve(
+        &self,
+        host: String,
+        _: u16,
+    ) -> futures::future::BoxFuture<'static, std::io::Result<Vec<std::net::IpAddr>>> {
+        let found = self
+            .0
+            .iter()
+            .filter(|(name, _)| *name == host)
+            .map(|(_, ip)| *ip)
+            .collect::<Vec<_>>();
+        Box::pin(std::future::ready(if found.is_empty() {
+            Err(std::io::ErrorKind::NotFound.into())
+        } else {
+            Ok(found)
+        }))
+    }
+}
+
+fn resolver() -> Arc<dyn Resolve> {
+    Arc::new(FakeResolver(vec![
+        ("public.example", "93.184.215.14".parse().unwrap()),
+        ("rebind.example", "192.168.1.10".parse().unwrap()),
+    ]))
+}
+
+#[gpui_kit::test]
+fn a_page_that_starts_loading_an_internal_name_is_blanked(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.log.take();
+
+    // A public name loads on.
+    host.send(0, PageEvent::Loading("https://public.example/".into()));
+    harness.visual.run_until_parked();
+    assert!(host.log.take().is_empty());
+    // A name that resolves inside the network is replaced at once.
+    host.send(0, PageEvent::Loading("https://rebind.example/admin".into()));
+    harness.visual.run_until_parked();
+    let log = host.log.take();
+    let loads = log
+        .iter()
+        .filter(|entry| entry.starts_with("load "))
+        .collect::<Vec<_>>();
+    assert_eq!(loads, ["load about:blank"]);
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(notice.text, Blocked::Internal.to_string());
+    // The notice takes room above the page, which shrinks to fit.
+    assert!(
+        log.iter().any(|entry| entry.starts_with("bounds ")),
+        "{log:?}"
+    );
+}
+
+#[gpui_kit::test]
+fn a_check_for_an_address_the_page_left_is_ignored(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.log.take();
+    host.send(0, PageEvent::Loading("https://rebind.example/".into()));
+    host.send(0, PageEvent::Loading("https://public.example/".into()));
+    harness.visual.run_until_parked();
+    assert!(host.log.take().is_empty());
+    assert_eq!(harness.read(|view| view.tabs[0].notice.clone()), None);
+}
+
+#[gpui_kit::test]
+fn a_bookmark_whose_name_resolves_inside_never_loads(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open("https://rebind.example/", "", cx));
+    harness.update(|view, cx| view.open("https://missing.example/", "", cx));
+    assert!(host.log.take().is_empty(), "no page may start");
+    let notices = harness.read(|view| {
+        view.tabs
+            .iter()
+            .map(|tab| tab.notice.clone().map(|notice| notice.text))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        notices,
+        [
+            Some(Blocked::Internal.to_string()),
+            Some(Blocked::Unresolved.to_string())
+        ]
+    );
+}
+
+#[gpui_kit::test]
+fn refused_requests_show_why_and_keep_the_page(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.log.take();
+
+    for (event, text) in [
+        (
+            PageEvent::Blocked {
+                raw: "https://ads.example/".into(),
+                reason: Blocked::Popup,
+            },
+            Blocked::Popup.to_string(),
+        ),
+        (
+            PageEvent::Blocked {
+                raw: String::new(),
+                reason: Blocked::Permission("camera".into()),
+            },
+            Blocked::Permission("camera".into()).to_string(),
+        ),
+        (
+            PageEvent::Blocked {
+                raw: "https://files.example/a.zip".into(),
+                reason: Blocked::Download,
+            },
+            Blocked::Download.to_string(),
+        ),
+    ] {
+        host.send(0, event);
+        harness.visual.run_until_parked();
+        let notice = harness.read(|view| view.tabs[0].notice.clone());
+        assert_eq!(notice.map(|notice| notice.text), Some(text));
+        harness.update(|view, cx| view.dismiss(cx));
+    }
+    // The engine refuses a private address by itself; the view explains it.
+    assert_eq!(
+        host.navigate("http://192.168.1.1/"),
+        Step::Block(Blocked::Internal)
+    );
+    assert!(
+        host.log
+            .take()
+            .iter()
+            .all(|entry| !entry.starts_with("load"))
+    );
+}
+
+#[gpui_kit::test]
+fn a_mailto_link_is_offered_not_opened(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    assert!(matches!(
+        host.navigate("mailto:someone@example.com"),
+        Step::External(_)
+    ));
+    host.send(
+        0,
+        PageEvent::External(Url::parse("mailto:someone@example.com").unwrap()),
+    );
+    harness.visual.run_until_parked();
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(notice.offer.unwrap().scheme(), "mailto");
+}
+
+#[gpui_kit::test]
+fn a_disallowed_bookmark_opens_a_tab_that_explains(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open("file:///C:/Windows/win.ini", "Local file", cx));
+    harness.update(|view, cx| view.open("http://localhost:3000/", "Dev server", cx));
+    assert!(host.log.take().is_empty(), "no page may start");
+    let notices = harness.read(|view| {
+        view.tabs
+            .iter()
+            .map(|tab| tab.notice.clone().map(|notice| notice.text))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        notices,
+        [
+            Some(Blocked::Scheme("file".into()).to_string()),
+            Some(Blocked::Internal.to_string())
+        ]
+    );
+    // Neither is saved for the next start.
+    assert!(harness.saved().tabs.is_empty());
+}
+
+#[gpui_kit::test]
+fn without_an_engine_the_tab_offers_the_system_browser(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost {
+        refuse: Some(Unavailable(
+            "Web pages can't be embedded on Wayland yet.".into(),
+        )),
+        ..FakeHost::default()
+    });
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert!(
+        notice
+            .text
+            .starts_with("Web pages can't be embedded on Wayland yet.")
+    );
+    assert_eq!(notice.offer.unwrap().as_str(), PAGE);
+}
+
+#[gpui_kit::test]
+fn the_real_engine_falls_back_in_a_window_without_a_handle(cx: &mut gpui_kit::TestAppContext) {
+    let profile = tempfile::tempdir().unwrap();
+    let host: Rc<dyn Host> = Rc::new(wry_host::WryHost::new(profile.path().to_path_buf()));
+    let mut harness = open_with(cx, host, buddy_core::config::AppConfig::default());
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert!(
+        notice.text.starts_with("This window can't host web pages."),
+        "{notice:?}"
+    );
+    assert!(notice.offer.is_some());
+}
+
+#[gpui_kit::test]
+fn tabs_and_titles_are_saved_and_restored(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "Second", cx));
+    host.send(0, PageEvent::Title("Example Domain".into()));
+    host.send(0, PageEvent::Loaded(format!("{PAGE}moved")));
+    harness.visual.run_until_parked();
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+
+    let saved = harness.saved();
+    assert_eq!(saved.tabs.len(), 2);
+    assert_eq!(saved.tabs[0].title, "Example Domain");
+    assert_eq!(saved.tabs[0].url, format!("{PAGE}moved"));
+    assert_eq!(saved.active, 1);
+    assert_eq!(saved.zoom, 1.1);
+
+    // A new start restores them without starting any page until shown.
+    let mut config = buddy_core::config::AppConfig::default();
+    saved.store(&mut config);
+    let restored_host = Rc::new(FakeHost::default());
+    let mut restored = open_with(cx, restored_host.clone(), config);
+    assert_eq!(restored.read(|view| view.tabs.len()), 2);
+    assert_eq!(restored.read(|view| view.active), Some(1));
+    assert!(restored_host.log.take().is_empty());
+    shown(&mut restored);
+    assert!(restored_host.log.has(&format!("create {OTHER}")));
+    assert!(restored_host.log.has("zoom 1.1") || restored.read(|view| view.zoom) == 1.1);
+}
+
+#[gpui_kit::test]
+fn closing_tabs_moves_the_selection(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    for raw in [PAGE, OTHER, "https://93.184.215.16/"] {
+        harness.update(|view, cx| view.open(raw, "", cx));
+    }
+    harness.update(|view, cx| view.select(Some(1), cx));
+    host.log.take();
+    harness.update(|view, cx| view.close(1, cx));
+    assert_eq!(harness.read(|view| view.active), Some(1));
+    assert!(host.log.has("visible false"));
+    harness.update(|view, cx| view.close(0, cx));
+    assert_eq!(harness.read(|view| view.active), Some(0));
+    harness.update(|view, cx| view.close(0, cx));
+    assert_eq!(harness.read(|view| view.active), None);
+    assert!(harness.saved().tabs.is_empty());
+}
+
+#[gpui_kit::test]
+fn toolbar_actions_reach_the_page(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.log.take();
+    harness.update(|view, cx| {
+        view.back();
+        view.forward();
+        view.reload(cx);
+        view.zoom_by(-10.0, cx);
+    });
+    assert_eq!(
+        host.log.take(),
+        [
+            "back",
+            "forward",
+            "reload",
+            &format!("zoom {}", browser::ZOOM_RANGE.0)
+        ]
+    );
+}
+
+#[gpui_kit::test]
+fn the_page_follows_its_area_when_the_window_resizes(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    let first = host
+        .log
+        .take()
+        .into_iter()
+        .rfind(|entry| entry.starts_with("bounds "))
+        .unwrap();
+    harness.visual.simulate_resize(size(px(900.), px(650.)));
+    harness.visual.run_until_parked();
+    let after = host
+        .log
+        .take()
+        .into_iter()
+        .rfind(|entry| entry.starts_with("bounds "))
+        .unwrap();
+    assert_ne!(first, after);
+    assert!(after.starts_with("bounds 900x"), "{after}");
+}

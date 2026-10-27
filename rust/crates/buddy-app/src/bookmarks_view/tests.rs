@@ -560,7 +560,9 @@ fn a_failed_or_slow_load_offers_retry(cx: &mut gpui_kit::TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn open_checks_the_url_before_the_browser_sees_it(cx: &mut gpui_kit::TestAppContext) {
+fn open_hands_every_bookmark_to_the_browser_and_external_open_checks_first(
+    cx: &mut gpui_kit::TestAppContext,
+) {
     let mut unsafe_link = bookmark("bad", "Script", "Dev", 0.);
     unsafe_link.url = "javascript:alert(1)".into();
     let mut internal = bookmark("internal", "Router", "Dev", 1.);
@@ -571,7 +573,16 @@ fn open_checks_the_url_before_the_browser_sees_it(cx: &mut gpui_kit::TestAppCont
         bookmark("good", "Good", "Dev", 2.),
     ]);
     let (mut visual, view) = open(cx, &fake);
-    view.update(&mut visual, |view, cx| view.open("bad", cx));
+    let tabs = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let _subscription = visual.update(|_, cx| {
+        let tabs = tabs.clone();
+        cx.subscribe(&view, move |_, event: &OpenInTab, _| {
+            tabs.borrow_mut().push(event.url.clone());
+        })
+    });
+
+    // The system browser only gets addresses the check accepts.
+    view.update(&mut visual, |view, cx| view.open_externally("bad", cx));
     visual.run_until_parked();
     assert_eq!(visual.opened_url(), None);
     assert_eq!(
@@ -579,17 +590,33 @@ fn open_checks_the_url_before_the_browser_sees_it(cx: &mut gpui_kit::TestAppCont
             .as_deref(),
         Some("Buddy will not open this bookmark. Only http and https URLs are allowed.")
     );
-    view.update(&mut visual, |view, cx| view.open("internal", cx));
+    view.update(&mut visual, |view, cx| view.open_externally("internal", cx));
     visual.run_until_parked();
     assert_eq!(visual.opened_url(), None);
-    view.update(&mut visual, |view, cx| view.open("good", cx));
+    view.update(&mut visual, |view, cx| view.open_externally("good", cx));
     visual.run_until_parked();
     assert_eq!(
         visual.opened_url().as_deref(),
         Some("https://example.com/good")
     );
-    assert_eq!(*fake.visits.lock().unwrap(), ["good"]);
     assert!(view.read_with(&visual, |view, _| view.error.is_none()));
+
+    // Open always reaches the browser, which applies its own rules and
+    // explains a refusal in the tab.
+    for id in ["bad", "internal", "good"] {
+        view.update(&mut visual, |view, cx| view.open(id, cx));
+    }
+    visual.run_until_parked();
+    assert_eq!(
+        *tabs.borrow(),
+        [
+            "javascript:alert(1)",
+            "http://192.168.0.1/admin",
+            "https://example.com/good"
+        ]
+    );
+    // Only accepted addresses count as visits.
+    assert_eq!(*fake.visits.lock().unwrap(), ["good", "good"]);
 }
 
 #[gpui_kit::test]

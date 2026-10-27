@@ -38,6 +38,15 @@ const POLL: Duration = Duration::from_secs(30);
 const LOAD_FAILED: &str =
     "Buddy could not reach its bookmark service. Check the Convex connection, then try again.";
 
+/// Asks the embedded browser to open a checked bookmark in a tab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenInTab {
+    pub url: String,
+    pub title: String,
+}
+
+impl gpui_kit::EventEmitter<OpenInTab> for BookmarksView {}
+
 pub fn init(cx: &mut App) {
     // Inputs bind the same keys in their own, deeper context, so they still paste text.
     cx.bind_keys([KeyBinding::new("secondary-v", Paste, Some(CONTEXT))]);
@@ -288,10 +297,30 @@ impl BookmarksView {
         cx.notify();
     }
 
-    /// Opens a bookmark in the system browser, only after the URL check, and records
-    /// the visit. Open and Open externally both do this until the embedded browser
-    /// lands; then Open will use a tab.
+    /// Opens a bookmark in an embedded tab. The browser applies its own,
+    /// stricter rules and explains a refusal in the tab; the visit counts only
+    /// for an address the bookmark check accepts.
     pub(super) fn open(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some((address, title)) = self
+            .find(id)
+            .map(|bookmark| (bookmark.url.clone(), bookmark.title.clone()))
+        else {
+            return;
+        };
+        self.error = None;
+        if bookmarks::url::validate_url(&address).is_ok() {
+            self.record_visit(id, cx);
+        }
+        cx.emit(OpenInTab {
+            url: address,
+            title,
+        });
+        cx.notify();
+    }
+
+    /// Opens a bookmark in the system browser, only after the URL check, and
+    /// records the visit.
+    pub(super) fn open_externally(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(address) = self.find(id).map(|bookmark| bookmark.url.clone()) else {
             return;
         };
@@ -299,17 +328,21 @@ impl BookmarksView {
             Ok(url) => {
                 self.error = None;
                 cx.open_url(url.as_str());
-                let rx = Runtime::global(cx).spawn(self.service.record_visit(id.to_string()));
-                // A failed visit record changes nothing the user can see; Electron
-                // ignores it too.
-                cx.spawn(async move |_, _| {
-                    let _ = rx.await;
-                })
-                .detach();
+                self.record_visit(id, cx);
             }
             Err(error) => self.error = Some(format!("Buddy will not open this bookmark. {error}.")),
         }
         cx.notify();
+    }
+
+    fn record_visit(&mut self, id: &str, cx: &mut Context<Self>) {
+        let rx = Runtime::global(cx).spawn(self.service.record_visit(id.to_string()));
+        // A failed visit record changes nothing the user can see; Electron
+        // ignores it too.
+        cx.spawn(async move |_, _| {
+            let _ = rx.await;
+        })
+        .detach();
     }
 
     fn request(&mut self) -> u64 {
