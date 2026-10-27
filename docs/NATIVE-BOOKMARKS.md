@@ -75,7 +75,7 @@ old values in that case, because it omits empty fields from the update.
 
 GPUI delivers only files when something is dropped on a window, never a URL dragged
 from a browser, so Electron's drop target cannot be ported. Instead, copy a link and
-press Ctrl+V (Cmd+V on macOS) on the list, choose Edit → Paste, or choose Paste URL.
+press Ctrl+V (Cmd+V on macOS) on the list, choose Edit → Paste, or choose Paste link.
 Inputs keep their own paste. The clipboard's first `http` or `https` URL (a
 `text/uri-list` comment line is skipped) opens the editor with that URL, and then,
 as Electron does for a drop:
@@ -94,8 +94,8 @@ as Electron does for a drop:
    configured account or model nothing is asked. A failed, unreadable or late reply
    (after 60 seconds the run is stopped) changes nothing.
 
-A field you typed in is never replaced by the fetched title or the suggestion. If
-you change the URL before they arrive, neither is applied.
+A field you typed in is never replaced by the fetched title or the suggestion, even
+if you cleared it again. If you change the URL before they arrive, neither is applied.
 
 ## Reordering
 

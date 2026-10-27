@@ -67,6 +67,9 @@ fn id(prefix: &str, key: &str) -> ElementId {
     ElementId::Name(format!("{prefix}-{key}").into())
 }
 
+/// The most room the tag filter takes above the list.
+pub(super) const TAG_AREA_HEIGHT: f32 = 76.0;
+
 impl BookmarksView {
     fn render_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
@@ -317,7 +320,7 @@ impl BookmarksView {
                     .child(div().flex_1().text_xl().child("Bookmarks"))
                     .child(
                         Button::new("bookmarks-paste")
-                            .label("Paste URL")
+                            .label("Paste link")
                             .icon(IconName::ExternalLink)
                             .disabled(!idle)
                             .on_click(cx.listener(|this, _, window, cx| this.paste(window, cx))),
@@ -356,7 +359,16 @@ impl BookmarksView {
 
     fn render_filters(&self, cx: &mut Context<Self>) -> AnyElement {
         let tags = bookmarks::all_tags(self.bookmarks());
-        let mut chips = h_flex().flex_wrap().gap_1().items_center();
+        // A large library has many tags; their own scrolling area keeps the list
+        // usable at 900 x 650 (about three rows of chips).
+        let mut chips = h_flex()
+            .id("bookmarks-tags")
+            .debug_selector(|| "bookmarks-tags".into())
+            .flex_wrap()
+            .gap_1()
+            .items_center()
+            .max_h(zpx(TAG_AREA_HEIGHT))
+            .overflow_y_scroll();
         if !tags.is_empty() {
             chips = chips.child(
                 Button::new("bookmarks-tag-all")
