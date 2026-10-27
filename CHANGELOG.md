@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1553] - 2026-10-27
+
+### Fixed
+
+- Read light text on colored buttons from an inverted copy
+
 ## [0.1.1552] - 2026-10-27
 
 ### Fixed
