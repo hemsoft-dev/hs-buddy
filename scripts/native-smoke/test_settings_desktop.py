@@ -709,7 +709,7 @@ class MacInputDelivery(unittest.TestCase):
         driver = desktop.Driver.__new__(desktop.Driver)
         driver.session = "macos"
         window, image = Mock(), Mock()
-        with patch.object(desktop.ocr, "locate_image", side_effect=[dict(top=i) for i in range(4)]):
+        with patch.object(desktop.ocr, "locate_image", side_effect=[dict(top=i * 20) for i in range(4)]):
             with self.assertRaisesRegex(RuntimeError, "stable"):
                 driver.locate(window, image, "field", "Notification audio file")
 
@@ -883,6 +883,42 @@ class WindowsScrollAnchors(unittest.TestCase):
             result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
                 encoding="utf-8", timeout=60, check=True)
         self.assertEqual(result.stdout.strip().split("|"), ["find", "find"])
+
+
+class MacStabilityTests(unittest.TestCase):
+    def driver(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = "macos"
+        return driver
+
+    def test_pixel_jitter_counts_as_the_same_target(self):
+        a = dict(left=340, top=450, width=180, height=13, row_control=dict(left=900, top=448))
+        b = dict(left=341, top=448, width=181, height=14, row_control=dict(left=902, top=449))
+        self.assertTrue(desktop.stable(b, a))
+        self.assertFalse(desktop.stable(a, None))
+        moved = dict(a, top=480)
+        self.assertFalse(desktop.stable(moved, a))
+        self.assertFalse(desktop.stable(dict(left=1), dict(top=1)))
+        self.assertFalse(desktop.stable(dict(text="Save"), dict(text="Saved")))
+
+    def test_locate_accepts_jitter_and_logs_each_measurement(self):
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "locator.png"
+            readings = [dict(left=340, top=450), dict(left=342, top=451)]
+            window = Mock()
+            with patch.object(desktop.ocr, "locate_image", side_effect=readings):
+                label = self.driver().locate(window, image, "click", "Send message")
+            self.assertEqual(label, readings[1])
+            lines = (Path(root) / "stability.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual([json.loads(line)["measurement"] for line in lines], readings)
+
+    def test_locate_still_refuses_a_target_that_keeps_moving(self):
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "locator.png"
+            readings = [dict(left=340, top=top) for top in (450, 470, 490, 510)]
+            with patch.object(desktop.ocr, "locate_image", side_effect=readings):
+                with self.assertRaisesRegex(RuntimeError, "did not become stable"):
+                    self.driver().locate(Mock(), image, "click", "Send message")
 
 
 if __name__ == "__main__":

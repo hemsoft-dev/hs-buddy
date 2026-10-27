@@ -86,3 +86,6 @@ bench-results.json
 .github/hooks/hooks-settings.json
 /reports/react-doctor/
 /reports/crap/
+
+# Python bytecode caches
+__pycache__/

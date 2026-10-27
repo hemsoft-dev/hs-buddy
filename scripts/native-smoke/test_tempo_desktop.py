@@ -417,7 +417,7 @@ class CellInput(unittest.TestCase):
         driver = object.__new__(desktop.settings.Driver)
         driver.session = 'macos'
         window, owned = Mock(), Mock()
-        grid = Mock(locate_image=Mock(side_effect=[dict(x=index, y=100) for index in range(4)]))
+        grid = Mock(locate_image=Mock(side_effect=[dict(x=index * 20, y=100) for index in range(4)]))
         with patch.object(desktop.settings, 'load', return_value=grid), \
                 patch.object(desktop.settings, 'OwnedMacInput', return_value=owned), patch.object(desktop.settings, 'run') as run:
             with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
