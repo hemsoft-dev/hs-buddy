@@ -894,6 +894,79 @@ fn failure_text_mentions_partial_output_only_when_some_arrived() {
         turn::failure_reason(None, ""),
         "The reply ended without an answer."
     );
+    assert_eq!(
+        turn::failure_reason(None, "Half"),
+        "The reply ended without an answer. Partial output is retained."
+    );
+}
+
+#[test]
+fn every_failure_has_crew_text() {
+    use buddy_core::copilot_runs::Failure;
+    let texts = [
+        (
+            Failure::InvalidContext,
+            "This conversation's GitHub account or model is not usable. Clear the conversation to start one with another.",
+        ),
+        (Failure::InvalidPrompt, TOO_LARGE),
+        (
+            Failure::NotPrepared,
+            "The reply could not start. Send the message again.",
+        ),
+        (
+            Failure::RecordUnknown,
+            "The assistant could not confirm that the reply started. Send the message again.",
+        ),
+        (
+            Failure::SendUnknown,
+            "The assistant could not confirm that it received the message, so it was not sent again.",
+        ),
+        (
+            Failure::AuthenticationRequired,
+            "Sign in to this conversation's GitHub account, then send the message again.",
+        ),
+        (
+            Failure::ServiceUnavailable,
+            "The assistant service is unavailable.",
+        ),
+        (
+            Failure::IncompleteStream,
+            "The reply stopped before it was complete.",
+        ),
+        (
+            Failure::CancellationUnknown,
+            "Stopping the reply could not be confirmed.",
+        ),
+        (
+            Failure::OutputLimit,
+            "The reply is longer than the assistant's output limit.",
+        ),
+        (
+            Failure::EventLimit,
+            "The reply sent more updates than the assistant allows.",
+        ),
+        (
+            Failure::PersistenceFailed,
+            "The assistant could not prepare the reply. Send the message again.",
+        ),
+    ];
+    for (failure, text) in texts {
+        assert_eq!(turn::failure_text(failure), text, "{failure:?}");
+        // Chat's controls and terms the Crew does not show.
+        let lower = text.to_lowercase();
+        for chat in [
+            "review",
+            "saved",
+            "saving",
+            "result",
+            "history",
+            "execution",
+            "prompt",
+            "retained",
+        ] {
+            assert!(!lower.contains(chat), "{failure:?} says {chat}: {text}");
+        }
+    }
 }
 
 #[gpui_kit::test]
@@ -917,4 +990,104 @@ fn cancel_disarms_a_confirm_without_acting(cx: &mut gpui_kit::TestAppContext) {
     view.update(&mut visual, |view, cx| view.clear(id.clone(), cx));
     visual.run_until_parked();
     assert!(view.read_with(&visual, |view, _| view.selected_session().is_some()));
+}
+
+/// The `seen` stamp of a listed changed file.
+fn seen(view: &CrewView, path: &str) -> Seen {
+    match &view.changes {
+        Some(Changes { scan: Ok(scan), .. }) => scan
+            .changes
+            .iter()
+            .find(|change| change.path == path)
+            .map(|change| change.seen.clone())
+            .unwrap_or_else(|| panic!("{path} is not listed")),
+        _ => panic!("no scan"),
+    }
+}
+
+fn confirm(view: &Entity<CrewView>, cx: &mut VisualTestContext) -> Option<Confirm> {
+    view.read_with(cx, |view, _| view.confirm.clone())
+}
+
+#[gpui_kit::test]
+fn any_other_action_disarms_a_pending_confirm(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    std::fs::write(alpha.join("lib.rs"), "fn main() { /* agent */ }\n").unwrap();
+    std::fs::write(alpha.join("readme.md"), "agent\n").unwrap();
+    for index in 0..3 {
+        std::fs::write(alpha.join(format!("kept{index}.md")), "agent\n").unwrap();
+    }
+    view.update(&mut visual, |view, cx| view.scan(cx));
+    visual.run_until_parked();
+    let id = view.read_with(&visual, |view, _| view.selected.clone().unwrap());
+    let confirms = [
+        Confirm::Remove(id.clone()),
+        Confirm::Clear(id.clone()),
+        Confirm::Undo("lib.rs".into()),
+    ];
+    let mut kept = 0;
+    for armed in confirms {
+        for action in [
+            "send",
+            "keep",
+            "refresh",
+            "undo another file",
+            "add a project",
+        ] {
+            let arming = armed.clone();
+            view.update(&mut visual, |view, cx| match arming {
+                Confirm::Remove(id) => view.remove(id, cx),
+                Confirm::Clear(id) => view.clear(id, cx),
+                Confirm::Undo(path) => {
+                    let seen = seen(view, &path);
+                    view.undo(path, seen, cx)
+                }
+            });
+            assert_eq!(confirm(&view, &mut visual), Some(armed.clone()));
+            match action {
+                "send" => {
+                    type_and_send(&view, "Hello", &mut visual);
+                    assistant.last().finish(Reply::Complete("Hi".into()));
+                }
+                "keep" => {
+                    let path = format!("kept{kept}.md");
+                    kept += 1;
+                    view.update(&mut visual, |view, cx| {
+                        let seen = seen(view, &path);
+                        view.keep(path, seen, cx)
+                    });
+                }
+                "refresh" => view.update(&mut visual, |view, cx| view.refresh_changes(cx)),
+                "undo another file" => view.update(&mut visual, |view, cx| {
+                    let seen = seen(view, "readme.md");
+                    view.undo("readme.md".into(), seen, cx)
+                }),
+                // The project already shown: it is read again, not selected again.
+                _ => add(&view, &alpha, &mut visual),
+            }
+            visual.run_until_parked();
+            let left = confirm(&view, &mut visual);
+            if action == "undo another file" {
+                // That click arms its own confirm instead.
+                assert_eq!(left, Some(Confirm::Undo("readme.md".into())), "{armed:?}");
+                view.update(&mut visual, |view, cx| view.cancel_confirm(cx));
+            } else {
+                assert_eq!(left, None, "{armed:?} after {action}");
+            }
+        }
+    }
+    // Nothing destructive ran.
+    assert!(view.read_with(&visual, |view, _| view.selected_session().is_some()));
+    assert_eq!(
+        std::fs::read_to_string(alpha.join("lib.rs")).unwrap(),
+        "fn main() { /* agent */ }\n"
+    );
+    assert_eq!(assistant.count(), 3);
 }
