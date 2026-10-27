@@ -613,22 +613,30 @@ impl BrowserView {
     }
 
     fn save(&self, cx: &mut Context<Self>) {
+        // Refused tabs aren't saved, so the selection is re-counted among the
+        // saved ones; a selected refused tab saves as the bookmark list.
+        let kept = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| {
+                matches!(
+                    browser::classify(&tab.url, self.fixture.as_ref()),
+                    Ok(Target::Web(_))
+                )
+            })
+            .collect::<Vec<_>>();
         let session = Session {
-            tabs: self
-                .tabs
-                .iter()
-                .filter(|tab| {
-                    matches!(
-                        browser::classify(&tab.url, self.fixture.as_ref()),
-                        Ok(Target::Web(_))
-                    )
-                })
-                .map(|tab| browser::Tab {
+            active: self
+                .active
+                .and_then(|active| kept.iter().position(|(index, _)| *index == active)),
+            tabs: kept
+                .into_iter()
+                .map(|(_, tab)| browser::Tab {
                     url: tab.url.clone(),
                     title: tab.title.clone(),
                 })
                 .collect(),
-            active: self.active,
             zoom: self.zoom,
         };
         let Some(path) = &self.config_file else {

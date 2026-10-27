@@ -627,3 +627,19 @@ fn the_page_follows_its_area_when_the_window_resizes(cx: &mut gpui_kit::TestAppC
     assert_ne!(first, after);
     assert!(after.starts_with("bounds 900x"), "{after}");
 }
+
+#[gpui_kit::test]
+fn the_selection_is_saved_among_the_saved_tabs(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open("file:///C:/notes.txt", "Refused", cx));
+    harness.update(|view, cx| view.open(PAGE, "Kept", cx));
+    assert_eq!(harness.read(|view| view.active), Some(1));
+    let saved = harness.saved();
+    assert_eq!(saved.tabs.len(), 1);
+    assert_eq!(saved.active, Some(0));
+    // A selected refused tab is not saved; the list is selected instead.
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(harness.saved().active, None);
+}
