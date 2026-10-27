@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Embed web pages in Bookmarks tabs on each OS's engine
 
+### Fixed
+
+- Bound the tag filter, keep cleared fields, rename Paste link
+
 ## [0.1.1548] - 2026-10-27
 
 ### Added

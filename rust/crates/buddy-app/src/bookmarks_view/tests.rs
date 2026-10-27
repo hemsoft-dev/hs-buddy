@@ -679,7 +679,7 @@ fn a_typed_title_is_kept_and_a_changed_url_gets_no_suggestion(cx: &mut gpui_kit:
     let mut visual = VisualTestContext::from_window(window, cx);
     activate(&view, &mut visual);
     visual.write_to_clipboard(ClipboardItem::new_string("https://example.com/a".into()));
-    // Paste URL, then type a title and change the URL before the fetch returns.
+    // Paste link, then type a title and change the URL before the fetch returns.
     visual.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.paste(window, cx);
@@ -759,4 +759,65 @@ fn the_compact_window_keeps_tree_and_list_side_by_side(cx: &mut gpui_kit::TestAp
     assert!(f32::from(editor.bottom()) <= 540., "{editor:?}");
     let last = visual.debug_bounds("bookmarks-editor-description").unwrap();
     assert!(last.bottom() <= editor.bottom(), "{last:?} in {editor:?}");
+}
+
+#[gpui_kit::test]
+fn many_tags_keep_room_for_the_list(cx: &mut gpui_kit::TestAppContext) {
+    let many = (0..120)
+        .map(|n| {
+            let mut item = bookmark(&format!("b{n}"), &format!("Bookmark {n}"), "Dev", n as f64);
+            item.tags = vec![format!("tag-number-{n}")];
+            item
+        })
+        .collect();
+    let fake = Fake::with(many);
+    let (window, view) = open_with(cx, &fake, true, 900., 650.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    activate(&view, &mut visual);
+    let tags = visual.debug_bounds("bookmarks-tags").unwrap();
+    assert!(
+        f32::from(tags.size.height) <= super::render::TAG_AREA_HEIGHT + 0.5,
+        "{tags:?}"
+    );
+    let list = visual.debug_bounds("bookmarks-list").unwrap();
+    assert!(f32::from(list.size.height) >= 200.0, "{list:?}");
+}
+
+#[gpui_kit::test]
+fn a_field_cleared_before_the_suggestion_stays_empty(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::component::input::InputEvent;
+    let fake = Fake::with(library());
+    *fake.title.lock().unwrap() = Some("Fetched title".into());
+    let (mut visual, view) = open(cx, &fake);
+    visual.write_to_clipboard(ClipboardItem::new_string(
+        "https://example.com/cleared".into(),
+    ));
+    visual.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-v"
+    } else {
+        "ctrl-v"
+    });
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |view, _| view.editor.as_ref().unwrap().suggesting));
+
+    // The user types a description and deletes it again before Copilot answers.
+    let description = view.read_with(&visual, |view, _| {
+        view.editor.as_ref().unwrap().description.clone()
+    });
+    visual.update(|window, cx| {
+        description.update(cx, |input, cx| {
+            input.set_value("draft", window, cx);
+            cx.emit(InputEvent::Change);
+            input.set_value("", window, cx);
+            cx.emit(InputEvent::Change);
+        })
+    });
+    visual.run_until_parked();
+    fake.answer(Some(
+        "{\"description\": \"A suggested summary.\", \"tags\": [\"web\"]}",
+    ));
+    visual.run_until_parked();
+    let form = editor_form(&view, &mut visual);
+    assert_eq!(form.description, "");
+    assert_eq!(form.tags, "web");
 }

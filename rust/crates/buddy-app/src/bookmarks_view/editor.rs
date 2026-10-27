@@ -1,13 +1,12 @@
-//! The Add/Edit bookmark editor. A field differs from what Buddy last wrote into it
-//! only when the user typed there, so fetched titles and AI suggestions never replace
-//! the user's own text.
+//! The Add/Edit bookmark editor. A field the user typed in, even one they cleared
+//! again, keeps their text: fetched titles and AI suggestions never replace it.
 use buddy_core::bookmarks::Form;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::{AppContext as _, Context, Entity, Window};
 
 use super::BookmarksView;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Field {
     Title,
     Description,
@@ -24,6 +23,9 @@ pub(super) struct Editor {
     pub tags: Entity<InputState>,
     /// What Buddy itself last put in each field.
     written: Form,
+    /// Fields the user changed. Programmatic `set_value` emits no change event,
+    /// so only typing (or pasting, or clearing) lands here.
+    touched: std::collections::HashSet<Field>,
     /// The URL that was pasted to open this editor; its title and suggestion are
     /// only applied while the URL field still holds it.
     pub pasted: Option<String>,
@@ -46,6 +48,7 @@ impl Editor {
     ) -> Self {
         let input = |text: &str,
                      placeholder: &'static str,
+                     field: Option<Field>,
                      window: &mut Window,
                      cx: &mut Context<BookmarksView>| {
             let text = text.to_string();
@@ -54,28 +57,50 @@ impl Editor {
                 state.set_value(text, window, cx);
                 state
             });
-            cx.subscribe_in(&state, window, |this, _, event: &InputEvent, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.save(window, cx);
-                } else {
-                    cx.notify();
-                }
-            })
+            cx.subscribe_in(
+                &state,
+                window,
+                move |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.save(window, cx);
+                    } else {
+                        if matches!(event, InputEvent::Change)
+                            && let (Some(field), Some(editor)) = (field, this.editor.as_mut())
+                        {
+                            editor.touched.insert(field);
+                        }
+                        cx.notify();
+                    }
+                },
+            )
             .detach();
             state
         };
-        let url = input(&form.url, "https://example.com", window, cx);
-        let title = input(&form.title, "My Bookmark", window, cx);
-        let category = input(&form.category, "Category/Subcategory", window, cx);
-        let tags = input(&form.tags, "tag1, tag2, tag3", window, cx);
+        let url = input(&form.url, "https://example.com", None, window, cx);
+        let title = input(&form.title, "My Bookmark", Some(Field::Title), window, cx);
+        let category = input(&form.category, "Category/Subcategory", None, window, cx);
+        let tags = input(
+            &form.tags,
+            "tag1, tag2, tag3",
+            Some(Field::Tags),
+            window,
+            cx,
+        );
         let text = form.description.clone();
         let description = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx).placeholder("Optional description…");
             state.set_value(text, window, cx);
             state
         });
-        cx.subscribe(&description, |_, _, _: &InputEvent, cx| cx.notify())
-            .detach();
+        cx.subscribe(&description, |this, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change)
+                && let Some(editor) = this.editor.as_mut()
+            {
+                editor.touched.insert(Field::Description);
+            }
+            cx.notify()
+        })
+        .detach();
         Self {
             editing,
             url,
@@ -84,6 +109,7 @@ impl Editor {
             category,
             tags,
             written: form,
+            touched: Default::default(),
             pasted,
             fetching_title: false,
             suggesting: false,
@@ -104,6 +130,9 @@ impl Editor {
     }
 
     pub fn edited(&self, field: Field, cx: &gpui_kit::App) -> bool {
+        if self.touched.contains(&field) {
+            return true;
+        }
         let form = self.form(cx);
         match field {
             Field::Title => form.title != self.written.title,

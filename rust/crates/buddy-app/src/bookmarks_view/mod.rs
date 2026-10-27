@@ -4,7 +4,7 @@
 //! Opening a bookmark hands its URL to the system browser after `buddy_core`'s URL
 //! check; the embedded browser is a separate port. GPUI only delivers dropped files,
 //! never URLs dragged from another app, so a URL is added by pasting it (Ctrl+V or
-//! Cmd+V on the list, or Paste URL): the editor opens with the URL, fetches the page
+//! Cmd+V on the list, or Paste link): the editor opens with the URL, fetches the page
 //! title and asks Copilot for a description and tags, as Electron does for a drop.
 mod editor;
 mod render;
@@ -390,7 +390,7 @@ impl BookmarksView {
         cx.notify();
     }
 
-    /// Ctrl+V / Cmd+V on the list, Edit → Paste, or Paste URL: add the URL on the
+    /// Ctrl+V / Cmd+V on the list, Edit → Paste, or Paste link: add the URL on the
     /// clipboard, as a drop does in Electron.
     pub(super) fn paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.editor.is_some() || self.data.is_none() {
