@@ -90,8 +90,28 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install tesseract ffmpeg --yes --no-progress
-          'C:\Program Files\Tesseract-OCR' | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          # Chocolatey exits 0 with "installed 0/0 packages" when its feed
+          # returns 503 (#851), so judge each attempt by the tools themselves.
+          $tesseractDirectory = 'C:\Program Files\Tesseract-OCR'
+          $env:PATH = "$tesseractDirectory;$env:PATH"
+          $tools = [ordered]@{ tesseract = '--version'; ffmpeg = '-version' }
+          $attempts = 3
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            choco install tesseract ffmpeg --yes --no-progress
+            $chocoExit = $LASTEXITCODE
+            $missing = @($tools.Keys | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
+            if ($chocoExit -eq 0 -and $missing.Count -eq 0) { break }
+            if ($attempt -eq $attempts) {
+              throw "Chocolatey attempt $attempt of $attempts exited $chocoExit; missing: $($missing -join ', ')"
+            }
+            Write-Warning "Chocolatey attempt $attempt of $attempts exited $chocoExit; missing: $($missing -join ', '). Retrying in 30 seconds."
+            Start-Sleep -Seconds 30
+          }
+          foreach ($tool in $tools.Keys) {
+            & $tool $tools[$tool]
+            if ($LASTEXITCODE -ne 0) { throw "$tool $($tools[$tool]) exited $LASTEXITCODE" }
+          }
+          $tesseractDirectory | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup package driver Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
