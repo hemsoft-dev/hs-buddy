@@ -64,11 +64,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      # scripts/lib/bounded-apt.sh limits each attempt, so a slow mirror fails
+      # here with a message rather than at the job limit.
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
+        working-directory: .
+        timeout-minutes: 35
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          source scripts/lib/bounded-apt.sh
+          buddy_apt sudo update
+          buddy_apt sudo install -y --no-install-recommends \
             build-essential cmake clang pkg-config mold \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
             libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \

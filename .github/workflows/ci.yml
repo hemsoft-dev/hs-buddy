@@ -475,7 +475,11 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install virtual display server
-        run: sudo apt-get update && sudo apt-get install --yes xvfb
+        timeout-minutes: 35
+        run: |
+          source scripts/lib/bounded-apt.sh
+          buddy_apt sudo update
+          buddy_apt sudo install --yes xvfb
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -650,7 +654,11 @@ jobs:
 
       - name: Install Linux display server
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes xvfb
+        timeout-minutes: 35
+        run: |
+          source scripts/lib/bounded-apt.sh
+          buddy_apt sudo update
+          buddy_apt sudo install --yes xvfb
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -672,9 +680,11 @@ jobs:
 
       - name: Install Linux distributable
         if: runner.os == 'Linux'
+        timeout-minutes: 25
         run: |
+          source scripts/lib/bounded-apt.sh
           package_file="$(find release -type f -name '*.deb' -print -quit)"
-          sudo apt-get install --yes "./$package_file"
+          buddy_apt sudo install --yes "./$package_file"
           executable="$(find /opt -type f -name Buddy -perm /111 -print -quit)"
           test -n "$executable"
           echo "BUDDY_PACKAGE_EXECUTABLE=$executable" >> "$GITHUB_ENV"
