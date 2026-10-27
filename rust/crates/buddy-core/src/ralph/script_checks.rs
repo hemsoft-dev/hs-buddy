@@ -343,3 +343,60 @@ fn loop_scripts_use_the_shared_checks() {
     assert!(pr.contains("$rebaseError = Invoke-RalphRebaseOnto -Base $script:PRBase"));
     assert!(!pr.contains("origin/main"));
 }
+
+#[test]
+fn a_branch_ralph_pushed_is_ready_for_its_pr_loop() {
+    // ralph.ps1 creates the worktree branch from HEAD, so it has no upstream
+    // until its own push sets one; ralph-pr.ps1 then refuses a worktree without.
+    let push = BUNDLED
+        .iter()
+        .find(|(file, _)| *file == "ralph.ps1")
+        .unwrap()
+        .1
+        .lines()
+        .find(|line| line.contains("git -C $worktreeDir push"))
+        .expect("ralph.ps1 pushes the worktree branch")
+        .trim()
+        .to_owned();
+    let root = tempfile::tempdir().unwrap();
+    let (remote, _) = remote(root.path());
+    let clone = root.path().join("clone");
+    git(
+        root.path(),
+        &[
+            "clone",
+            "-q",
+            remote.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
+    let worktree = root.path().join("clone.worktrees").join("fresh");
+    git(
+        &clone,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "fresh",
+            worktree.to_str().unwrap(),
+            "HEAD",
+        ],
+    );
+    commit(&worktree, "work.txt", "done\n");
+    let body = format!(
+        "$worktreeDir = $env:RALPH_TEST_WORKTREE\n$Branch = 'fresh'\n{push} | Out-Null\n\
+         $reason = Test-RalphReusedWorktree -Path $worktreeDir -Branch fresh\n\
+         if ($reason) {{ $reason }} else {{ 'ready' }}"
+    );
+    let output = pwsh(
+        &clone,
+        &body,
+        &[("RALPH_TEST_WORKTREE", worktree.clone().into_os_string())],
+    );
+    assert_eq!(
+        output.last().map(String::as_str),
+        Some("ready"),
+        "{output:?}"
+    );
+}

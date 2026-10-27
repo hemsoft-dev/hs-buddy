@@ -776,10 +776,10 @@ finally {
 # --- PR creation and handoff to ralph-pr ---
 $handedOff = $false
 if (-not $NoPR) {
-    # Ensure branch is pushed
+    # Ensure branch is pushed, tracking origin: ralph-pr.ps1 refuses a worktree without an upstream
     Write-Host ""
     Write-Host "Pushing branch '$Branch' to origin..." -ForegroundColor Cyan
-    git -C $worktreeDir push origin $Branch 2>&1
+    git -C $worktreeDir push -u origin $Branch 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Push failed or nothing to push. Skipping PR creation." -ForegroundColor Yellow
     }
