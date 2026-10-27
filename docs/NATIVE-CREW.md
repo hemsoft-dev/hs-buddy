@@ -15,7 +15,7 @@ default branch from `refs/remotes/origin/HEAD`, else the checked-out branch.
 Adding a folder whose root is already listed opens that project. Paths with spaces
 and non-ASCII characters work on every platform.
 
-Remove asks once more (Confirm remove), then forgets the project, its conversation
+Remove asks once more (Confirm remove, or Cancel), then forgets the project, its conversation
 and its snapshot. The folder and its files are never touched. Remove is unavailable
 while a reply is in progress in any Buddy window: it holds the conversation's lock while
 it works, so no reply can start meanwhile.
@@ -50,7 +50,7 @@ Buddy saves it again every two seconds; Send stays unavailable until it is saved
 If Buddy closes or crashes before a reply finishes, the next start records
 "Buddy closed before this reply finished." in that conversation.
 
-Clear conversation asks once more (Confirm clear), then deletes the conversation and
+Clear conversation asks once more (Confirm clear, or Cancel), then deletes the conversation and
 its snapshot. It is unavailable while a reply is in progress, and holds the
 conversation's lock while it works. If a snapshot folder cannot be deleted at once
 (Windows can hold a file briefly), Buddy says so and deletes it at its next start.
@@ -79,7 +79,7 @@ on Refresh.
 
 - **Keep** accepts the file as it is now. It leaves the list until it changes again.
   Keeps from two windows in the same conversation are both recorded.
-- **Undo** asks once more (Confirm undo), then writes the file back to the snapshot:
+- **Undo change** asks once more (Confirm undo, or Cancel), then writes the file back to the snapshot:
   the commit's version for a file that was clean, the copied version for a file that
   was already changed (so your earlier edits survive), or no file for one that was
   added. A file deleted since the snapshot is recreated with its executable bit.
@@ -125,4 +125,5 @@ project cannot be undone; clears a conversation; records a service error; quits
 Buddy mid-reply; and checks after restart that state persisted and the reply was
 marked interrupted. It checks `state.json` for each project's messages, account and
 model, the provider fixture's request counts, and that the other repository was not
-changed. Captures cover the dark and light themes at 1200 × 820 and 900 × 650.
+changed. Captures cover the dark and light themes at 1200 × 820 (1044 × 788 on the
+Windows runner, its largest window) and 900 × 650.

@@ -878,3 +878,43 @@ fn a_reopened_conversation_shows_its_newest_message(cx: &mut gpui_kit::TestAppCo
         "{offset:?} of {max:?}"
     );
 }
+
+#[test]
+fn failure_text_mentions_partial_output_only_when_some_arrived() {
+    use buddy_core::copilot_runs::Failure;
+    assert_eq!(
+        turn::failure_reason(Some(Failure::ServiceUnavailable), ""),
+        "The assistant service is unavailable."
+    );
+    assert_eq!(
+        turn::failure_reason(Some(Failure::ServiceUnavailable), "Half"),
+        "The assistant service is unavailable. Partial output is retained."
+    );
+    assert_eq!(
+        turn::failure_reason(None, ""),
+        "The reply ended without an answer."
+    );
+}
+
+#[gpui_kit::test]
+fn cancel_disarms_a_confirm_without_acting(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let alpha = repository(root.path(), "alpha");
+    let assistant = Arc::new(Assistant::default());
+    let (window, view) = open(cx, &assistant, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    add(&view, &alpha, &mut visual);
+    start(&view, &mut visual);
+    let id = view.read_with(&visual, |view, _| view.selected.clone().unwrap());
+    view.update(&mut visual, |view, cx| view.clear(id.clone(), cx));
+    assert_eq!(
+        view.read_with(&visual, |view, _| view.confirm.clone()),
+        Some(Confirm::Clear(id.clone()))
+    );
+    view.update(&mut visual, |view, cx| view.cancel_confirm(cx));
+    // The next click asks again instead of clearing.
+    view.update(&mut visual, |view, cx| view.clear(id.clone(), cx));
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |view, _| view.selected_session().is_some()));
+}

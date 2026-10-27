@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use buddy_core::copilot_assistant::{self, Progress, RunHandle, RunOptions};
-use buddy_core::copilot_runs::{Context as RunContext, Phase};
+use buddy_core::copilot_runs::{Context as RunContext, Failure, Phase};
 use buddy_core::crew::{Message, Project, Reply};
 use futures::future::BoxFuture;
 use tokio::sync::watch;
@@ -51,6 +51,18 @@ pub(super) fn prompt(project: &Project, history: &[Message]) -> Option<String> {
     (text.len() <= MAX_PROMPT).then_some(text)
 }
 
+/// Chat's failure text, without its note that partial output is kept when none arrived.
+pub(super) fn failure_reason(failure: Option<Failure>, partial: &str) -> String {
+    let text = failure
+        .map(|failure| failure.to_string())
+        .unwrap_or_else(|| "The reply ended without an answer.".into());
+    if partial.is_empty() {
+        text.replace(" Partial output is retained.", "")
+    } else {
+        text
+    }
+}
+
 struct Assistant(RunHandle);
 
 impl Turn for Assistant {
@@ -61,10 +73,7 @@ impl Turn for Assistant {
             Phase::Cancelled => Reply::Partial(state.output.clone()),
             _ => Reply::Failed {
                 partial: state.output.clone(),
-                reason: state
-                    .failure
-                    .map(|failure| failure.to_string())
-                    .unwrap_or_else(|| "The reply ended without an answer.".into()),
+                reason: failure_reason(state.failure, &state.output),
             },
         });
         Live {

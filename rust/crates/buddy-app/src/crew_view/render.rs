@@ -5,6 +5,7 @@ use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div,
@@ -61,7 +62,7 @@ impl CrewView {
     }
 
     fn render_projects(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
+        let (primary, border) = (cx.theme().primary, cx.theme().border);
         let mut list = v_flex()
             .gap_2()
             .debug_selector(|| "crew-projects".into())
@@ -115,11 +116,7 @@ impl CrewView {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(if selected {
-                        theme.primary
-                    } else {
-                        theme.border
-                    })
+                    .border_color(if selected { primary } else { border })
                     .when_selected(selected, cx)
                     .cursor_pointer()
                     .on_click(
@@ -128,20 +125,31 @@ impl CrewView {
                     .child(div().child(project.display_name.clone()))
                     .child(muted(project.github_slug.clone(), cx))
                     .child(muted(self.project_state(project), cx))
-                    .child(
-                        h_flex().child(
-                            Button::new(("crew-remove", index))
-                                .label(if confirming {
-                                    "Confirm remove"
-                                } else {
-                                    "Remove"
-                                })
-                                .disabled(self.busy || replying)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.remove(remove.clone(), cx)
-                                })),
+                    .when_some(
+                        confirming.then_some(
+                            "Forget this project and its conversation? Its folder is not changed.",
                         ),
+                        |card, question| card.child(muted(question, cx)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new(("crew-remove", index))
+                                    .label(if confirming {
+                                        "Confirm remove"
+                                    } else {
+                                        "Remove"
+                                    })
+                                    .disabled(self.busy || replying)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.remove(remove.clone(), cx)
+                                    })),
+                            )
+                            .when(confirming, |row| {
+                                row.child(self.cancel_button(("crew-remove-cancel", index), cx))
+                            }),
                     ),
             );
         }
@@ -153,7 +161,7 @@ impl CrewView {
             .overflow_y_scroll()
             .p_4()
             .border_r_1()
-            .border_color(theme.border)
+            .border_color(border)
             .child(list)
             .into_any_element()
     }
@@ -333,6 +341,18 @@ impl CrewView {
                         this.undo(undo_path.clone(), undo_seen.clone(), cx)
                     })),
             );
+        if confirming {
+            row = row
+                .child(self.cancel_button(("crew-undo-cancel", index), cx))
+                .child(
+                    muted(
+                        "Restore the file as it was when this conversation started? \
+                         Later edits to it are lost.",
+                        cx,
+                    )
+                    .w_full(),
+                );
+        }
         if let Some(reason) = change.no_undo {
             row = row.child(muted(reason, cx).w_full());
         }
@@ -441,6 +461,9 @@ impl CrewView {
                 .disabled(replying || self.busy)
                 .on_click(cx.listener(move |this, _, _, cx| this.clear(clear.clone(), cx))),
         );
+        if confirming {
+            buttons = buttons.child(self.cancel_button("crew-clear-cancel", cx));
+        }
         v_flex()
             .flex_none()
             .gap_2()
@@ -452,6 +475,12 @@ impl CrewView {
                     .child(Textarea::new(&self.message).disabled(replying)),
             ))
             .child(muted("Enter sends · Shift+Enter adds a newline", cx))
+            .when(confirming, |composer| {
+                composer.child(muted(
+                    "Delete this conversation and its snapshot? Project files are not changed.",
+                    cx,
+                ))
+            })
             .child(buttons)
             .into_any_element()
     }
@@ -460,6 +489,7 @@ impl CrewView {
         let Some(project) = self.selected_project().cloned() else {
             return v_flex()
                 .flex_1()
+                .h_full()
                 .p_4()
                 .gap_3()
                 .child(self.render_messages(cx))
@@ -529,6 +559,16 @@ impl CrewView {
             }
         }
         page.into_any_element()
+    }
+
+    /// Disarms a confirm step without doing anything.
+    fn cancel_button(&self, id: impl Into<gpui_kit::ElementId>, cx: &mut Context<Self>) -> Button {
+        Button::new(id)
+            .label("Cancel")
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.cancel_confirm(cx);
+            }))
     }
 
     pub(super) fn render_view(

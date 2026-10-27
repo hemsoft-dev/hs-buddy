@@ -117,7 +117,12 @@ impl CrewView {
 
     fn with_starter(starter: turn::Starter, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let path = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Project folder, for example C:\\repos\\app")
+            // Short enough for the 280 px list, in the platform's own path style.
+            InputState::new(window, cx).placeholder(if cfg!(windows) {
+                "For example C:\\repos\\app"
+            } else {
+                "For example ~/code/app"
+            })
         });
         let model = cx.new(|cx| InputState::new(window, cx).placeholder("Copilot model ID"));
         let message = cx.new(|cx| {
@@ -555,6 +560,12 @@ impl CrewView {
             });
         })
         .detach();
+        cx.notify();
+    }
+
+    /// Disarms a pending Confirm remove, clear or undo without doing it.
+    pub(super) fn cancel_confirm(&mut self, cx: &mut Context<Self>) {
+        self.confirm = None;
         cx.notify();
     }
 
