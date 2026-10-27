@@ -380,7 +380,7 @@ impl CrewView {
                 Button::new("crew-refresh-changes")
                     .label("Refresh")
                     .disabled(self.scanning)
-                    .on_click(cx.listener(|this, _, _, cx| this.scan(cx))),
+                    .on_click(cx.listener(|this, _, _, cx| this.refresh_changes(cx))),
             );
         let current = self
             .changes

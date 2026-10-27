@@ -441,6 +441,7 @@ impl CrewView {
     }
 
     pub(super) fn browse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.disarm(cx);
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -474,6 +475,7 @@ impl CrewView {
     }
 
     pub(super) fn add_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.disarm(cx);
         let Some(store) = self.store.clone() else {
             return;
         };
@@ -569,13 +571,23 @@ impl CrewView {
         cx.notify();
     }
 
+    /// Every action except a confirm's own second click calls this first: an armed
+    /// destructive confirm never outlives the moment it was asked for.
+    fn disarm(&mut self, cx: &mut Context<Self>) {
+        if self.confirm.take().is_some() {
+            cx.notify();
+        }
+    }
+
     pub(super) fn choose_account(&mut self, account: String, cx: &mut Context<Self>) {
+        self.disarm(cx);
         self.account = Some(account);
         self.account_chosen = true;
         cx.notify();
     }
 
     pub(super) fn start_session(&mut self, cx: &mut Context<Self>) {
+        self.disarm(cx);
         let (Some(store), Some(project)) = (self.store.clone(), self.selected_project().cloned())
         else {
             return;
@@ -622,6 +634,7 @@ impl CrewView {
     }
 
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.disarm(cx);
         let (Some(store), Some(project), Some(session)) = (
             self.store.clone(),
             self.selected_project().cloned(),
@@ -894,6 +907,7 @@ impl CrewView {
     }
 
     pub(super) fn stop(&mut self, project: &str, cx: &mut Context<Self>) {
+        self.disarm(cx);
         if let Some(active) = self.turns.get(project) {
             active.turn.cancel();
             cx.notify();
@@ -983,7 +997,14 @@ impl CrewView {
         cx.notify();
     }
 
+    /// The Refresh button: reads the changed files again.
+    pub(super) fn refresh_changes(&mut self, cx: &mut Context<Self>) {
+        self.disarm(cx);
+        self.scan(cx);
+    }
+
     pub(super) fn keep(&mut self, path: String, seen: Seen, cx: &mut Context<Self>) {
+        self.disarm(cx);
         self.act(path, seen, false, cx);
     }
 
