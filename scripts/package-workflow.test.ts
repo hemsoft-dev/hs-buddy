@@ -227,6 +227,8 @@ describe('bounded apt installs', () => {
 
   it('bounds each attempt and names the mirror and step on failure', () => {
     expect(helper).toContain('timeout --kill-after=30 "$limit" apt-get')
+    expect(helper).toContain('timeout --kill-after=30 "$limit" dpkg --configure -a')
+    expect(helper).toContain('limit="${BUDDY_APT_LIMIT:-$limit}"')
     expect(helper).toContain(
       '-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30'
     )
@@ -246,5 +248,32 @@ describe('bounded apt installs', () => {
       expect(step).toMatch(/\n\s+timeout-minutes: \d+\n/)
       expect(step).toContain('source scripts/lib/bounded-apt.sh')
     }
+  })
+
+  it('gives every apt step and its job room for both attempts and the failure message', () => {
+    // Per buddy_apt call: two attempts, each allowed 30 s to die after its
+    // limit; an install also runs one bounded dpkg recovery.
+    const worstSeconds = (step: string) => {
+      const override = step.match(/BUDDY_APT_LIMIT: '(\d+)'/)
+      return [...step.matchAll(/buddy_apt sudo (update|install)/g)].reduce((total, [, kind]) => {
+        const limit = override ? Number(override[1]) : kind === 'update' ? 300 : 600
+        return total + (kind === 'update' ? 2 : 3) * (limit + 30)
+      }, 0)
+    }
+    let checked = 0
+    for (const path of ['.github/workflows/ci.yml', '.github/workflows/rust.yml']) {
+      for (const job of read(path).split(/\n {2}(?=[\w-]+:\n)/)) {
+        const jobLimit = job.match(/\n {4}timeout-minutes: (\d+)\n/)
+        for (const step of job
+          .split(/\n\s+- (?=name:|uses:)/)
+          .filter(s => s.includes('buddy_apt'))) {
+          const stepLimit = Number(step.match(/\n\s+timeout-minutes: (\d+)\n/)?.[1])
+          expect(stepLimit * 60, step).toBeGreaterThanOrEqual(worstSeconds(step))
+          if (jobLimit) expect(Number(jobLimit[1]), step).toBeGreaterThanOrEqual(stepLimit + 5)
+          checked += 1
+        }
+      }
+    }
+    expect(checked).toBe(4)
   })
 })

@@ -69,7 +69,7 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         working-directory: .
-        timeout-minutes: 35
+        timeout-minutes: 45
         run: |
           source scripts/lib/bounded-apt.sh
           buddy_apt sudo update

@@ -16,11 +16,15 @@ buddy_apt() {
   shift
   local limit=600
   if [[ "$step" == update ]]; then limit=300; fi
+  # A job with a short time limit sets a shorter one, so both attempts and the
+  # failure message still fit inside it.
+  limit="${BUDDY_APT_LIMIT:-$limit}"
   local attempt status=0
   for attempt in 1 2; do
     if ((attempt > 1)) && [[ "$step" == install ]]; then
-      # A limit that stopped dpkg mid-unpack leaves it interrupted; finish that first.
-      ${privilege[@]+"${privilege[@]}"} dpkg --configure -a || true
+      # A limit that stopped dpkg mid-unpack leaves it interrupted; finish that
+      # first, bounded too, since it can rerun the script that stalled.
+      ${privilege[@]+"${privilege[@]}"} timeout --kill-after=30 "$limit" dpkg --configure -a || true
     fi
     # The `+` form expands an empty array under `set -u` in bash 3.2 (macOS) too.
     ${privilege[@]+"${privilege[@]}"} timeout --kill-after=30 "$limit" apt-get \

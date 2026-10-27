@@ -453,7 +453,7 @@ jobs:
 
   test-electron-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -475,7 +475,9 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-bun-native-${{ hashFiles('bun.lock', '.github/actions/setup-bun/action.yml', '.github/workflows/ci.yml', '.github/workflows/benchmarks.yml') }}
 
       - name: Install virtual display server
-        timeout-minutes: 35
+        timeout-minutes: 8
+        env:
+          BUDDY_APT_LIMIT: '60'
         run: |
           source scripts/lib/bounded-apt.sh
           buddy_apt sudo update
@@ -597,7 +599,7 @@ jobs:
   package-smoke:
     name: Package smoke (${{ matrix.name }})
     needs: typecheck
-    timeout-minutes: 35
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -654,7 +656,9 @@ jobs:
 
       - name: Install Linux display server
         if: runner.os == 'Linux'
-        timeout-minutes: 35
+        timeout-minutes: 8
+        env:
+          BUDDY_APT_LIMIT: '60'
         run: |
           source scripts/lib/bounded-apt.sh
           buddy_apt sudo update
@@ -680,7 +684,7 @@ jobs:
 
       - name: Install Linux distributable
         if: runner.os == 'Linux'
-        timeout-minutes: 25
+        timeout-minutes: 32
         run: |
           source scripts/lib/bounded-apt.sh
           package_file="$(find release -type f -name '*.deb' -print -quit)"
