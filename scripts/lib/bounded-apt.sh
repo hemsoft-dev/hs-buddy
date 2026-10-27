@@ -20,9 +20,10 @@ buddy_apt() {
   for attempt in 1 2; do
     if ((attempt > 1)) && [[ "$step" == install ]]; then
       # A limit that stopped dpkg mid-unpack leaves it interrupted; finish that first.
-      "${privilege[@]}" dpkg --configure -a || true
+      ${privilege[@]+"${privilege[@]}"} dpkg --configure -a || true
     fi
-    "${privilege[@]}" timeout --kill-after=30 "$limit" apt-get \
+    # The `+` form expands an empty array under `set -u` in bash 3.2 (macOS) too.
+    ${privilege[@]+"${privilege[@]}"} timeout --kill-after=30 "$limit" apt-get \
       -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
       "$step" "$@" && return 0 || status=$?
   done
