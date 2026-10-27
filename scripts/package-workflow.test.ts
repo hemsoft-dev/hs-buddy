@@ -94,6 +94,24 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   expect(Number(limit?.[1])).toBeLessThanOrEqual(240)
 })
 
+it('fails the Windows OCR install when Chocolatey installs nothing', () => {
+  // A 503 from the Chocolatey feed printed "installed 0/0 packages", the step
+  // passed, and the job failed about 50 minutes later at tesseract (#851).
+  const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
+  const step = native.split('- name: Install Windows OCR')[1]?.split('\n      - name:', 1)[0]
+
+  expect(step).toContain("if: runner.os == 'Windows'")
+  expect(step).toContain('$attempts = 3')
+  expect(step).toContain('Start-Sleep -Seconds 30')
+  expect(step).toContain("$tools = [ordered]@{ tesseract = '--version'; ffmpeg = '-version' }")
+  expect(step).toContain('Get-Command $_ -ErrorAction SilentlyContinue')
+  expect(step).toContain('& $tool $tools[$tool]')
+  expect(step).toContain('if ($LASTEXITCODE -ne 0) { throw "$tool')
+  const pathPrepend = step?.indexOf('$env:PATH = "$tesseractDirectory;$env:PATH"') ?? -1
+  expect(pathPrepend).toBeGreaterThan(-1)
+  expect(pathPrepend).toBeLessThan(step?.indexOf('choco install') ?? -1)
+})
+
 describe('desktop package qualification workflow', () => {
   it.each(qualifiedTargets)('builds and starts $name packages on a native runner', target => {
     const matrixEntry = workflow.split(`- name: ${target.name}`)[1]?.split(/\n\s+- name: /, 1)[0]
