@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1548] - 2026-10-27
+
+### Fixed
+
+- Require a GitHub origin, validate reused PR worktrees, rebase onto the PR base
+
 ## [0.1.1547] - 2026-10-26
 
 ### Fixed

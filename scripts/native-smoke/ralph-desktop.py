@@ -80,6 +80,8 @@ def repository(path):
     git(path, "add", "README.md")
     git(path, "-c", "user.name=Buddy Qualification", "-c", "user.email=qualification@example.invalid",
         "commit", "-q", "-m", "Initial")
+    # Launch refuses a repository whose origin is not on GitHub; the stub loop never contacts it.
+    git(path, "remote", "add", "origin", "https://github.com/example/qualification.git")
     return git(path, "rev-parse", "HEAD")
 
 

@@ -39,7 +39,10 @@ over SSH use your SSH key, whatever the account.
 Ralph PR works on the pull request's current head and pushes its fixes to that
 branch on `origin`. A pull request from a fork fails at once with a message
 saying so, and a local branch that has diverged from the pull request stops
-the run rather than being used. If the pull request's branch is checked out in
+the run rather than being used, as does a worktree left by an earlier run that
+has local changes, tracks no upstream or cannot fast-forward to the pull
+request. Merge conflicts are rebased onto the pull request's own base branch.
+If the pull request's branch is checked out in
 the selected repository, the script switches that checkout to `main` so it can
 work in its own worktree; when that is not possible (no `main`, or local
 changes), the run stops instead of working in your checkout.
@@ -142,7 +145,11 @@ Launch checks every input before anything starts: the repository exists and
 is inside a Git repository, the provider and model exist and the provider can
 run the model, the agents exist, and the numbers, branch and labels are valid
 (branches follow Git's own naming rules). Then it checks the programs above and
-asks Git to confirm the repository, as the scripts do. Only one loop can be
+asks Git to confirm the repository, as the scripts do, and that its `origin`
+is a GitHub repository: on github.com, or an SSH alias whose host is
+github.com. A local or other host's `origin` is refused before a run is
+recorded; the scripts stop on it too, rather than reading a same-named GitHub
+repository from its path. Only one loop can be
 active per repository, counting every subfolder and linked worktree of it as
 the same repository; a second launch there names the active run instead.
 

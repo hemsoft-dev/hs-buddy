@@ -403,6 +403,26 @@ pub fn verify_repository(repository: &Path, tools: &Tools) -> Result<PathBuf, St
     }
 }
 
+/// Every script works on the GitHub repository `origin` names, so a launch whose `origin` is
+/// missing, a local path or another host is refused before anything is recorded; the
+/// scripts would otherwise stop at once, or act on a same-named GitHub repository. Like
+/// `gh`, an SSH alias counts when `resolve` (`ssh -G`) maps it to GitHub. The URL is not
+/// shown: it can hold a token. Returns `owner/repo`.
+pub fn verify_github_origin(
+    repository: &Path,
+    tools: &Tools,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Result<String, String> {
+    let origin = git_output(repository, tools, &["remote", "get-url", "origin"], &[])
+        .ok_or("This repository has no origin remote. Ralph loops work on the GitHub repository origin names.")?;
+    crate::crew::project::github_remote(&origin, resolve)
+        .map(|remote| remote.slug)
+        .ok_or_else(|| {
+            "The origin remote is not a GitHub repository. Ralph loops only work on GitHub repositories."
+                .into()
+        })
+}
+
 /// Git's trimmed output in `repository`, or `None` when it fails.
 fn git_output(
     repository: &Path,
@@ -1480,6 +1500,78 @@ mod tests {
         let other = tempfile::tempdir().unwrap();
         git(other.path(), &["init", "-q"]);
         assert_ne!(verify_repository(other.path(), &tools), Ok(key));
+    }
+
+    #[test]
+    fn a_launch_needs_an_origin_on_github() {
+        let tools = Tools {
+            pwsh: PathBuf::from("pwsh"),
+            git: PathBuf::from("git"),
+            gh: PathBuf::from("gh"),
+            path: std::env::var_os("PATH").unwrap_or_default(),
+        };
+        let git = |directory: &Path, arguments: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(directory)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        };
+        let repository = tempfile::tempdir().unwrap();
+        git(repository.path(), &["init", "-q"]);
+        // A stand-in for `ssh -G`: only `github-work` is an alias for GitHub.
+        let resolve = |host: &str| (host == "github-work").then(|| "github.com".to_owned());
+        let check = |url: Option<&str>| {
+            if let Some(url) = url {
+                git(repository.path(), &["remote", "set-url", "origin", url]);
+            }
+            verify_github_origin(repository.path(), &tools, resolve)
+        };
+        assert_eq!(
+            check(None),
+            Err("This repository has no origin remote. Ralph loops work on the GitHub repository origin names.".into())
+        );
+        git(
+            repository.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/project.git",
+            ],
+        );
+        assert_eq!(check(None), Ok("acme/project".into()));
+        assert_eq!(
+            check(Some("git@github.com:acme/project.git")),
+            Ok("acme/project".into())
+        );
+        assert_eq!(
+            check(Some("ssh://git@ssh.github.com:443/acme/project")),
+            Ok("acme/project".into())
+        );
+        assert_eq!(
+            check(Some("git@github-work:acme/project.git")),
+            Ok("acme/project".into())
+        );
+        // A local remote, another host or an alias for another host is never read as the
+        // same-named GitHub repository.
+        let refused = "The origin remote is not a GitHub repository. Ralph loops only work on GitHub repositories.";
+        for url in [
+            "/srv/acme/project.git",
+            "file:///srv/acme/project.git",
+            "C:/srv/acme/project.git",
+            "../acme/project.git",
+            "https://gitlab.com/acme/project.git",
+            "git@gitlab.com:acme/project.git",
+            "git@gitlab-work:acme/project.git",
+            "https://github.com.evil.example/acme/project.git",
+        ] {
+            assert_eq!(check(Some(url)), Err(refused.into()), "{url}");
+        }
+        // A folder that is no repository has no origin either.
+        let plain = tempfile::tempdir().unwrap();
+        assert!(verify_github_origin(plain.path(), &tools, resolve).is_err());
     }
 
     #[test]
