@@ -289,7 +289,7 @@ impl BrowserView {
                             "Open in browser"
                         })
                         .small()
-                        .on_click(cx.listener(|this, _, _, cx| this.open_externally(cx))),
+                        .on_click(cx.listener(|this, _, _, cx| this.open_offer(cx))),
                 )
             })
             .when(live, |this| {

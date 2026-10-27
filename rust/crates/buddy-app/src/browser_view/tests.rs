@@ -664,3 +664,44 @@ fn no_more_tabs_open_than_a_restart_restores(cx: &mut gpui_kit::TestAppContext) 
     assert_eq!(harness.read(|view| view.tabs.len()), browser::MAX_TABS);
     assert_eq!(harness.saved().active, Some(browser::MAX_TABS - 1));
 }
+
+#[gpui_kit::test]
+fn reload_while_a_tab_starts_starts_nothing_more(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    // Reload before the first check and page creation have finished.
+    harness.update(|view, cx| {
+        view.open(PAGE, "", cx);
+        view.reload(cx);
+        view.reload(cx);
+    });
+    let created = host
+        .log
+        .take()
+        .into_iter()
+        .filter(|entry| entry.starts_with("create "))
+        .count();
+    assert_eq!(created, 1);
+    assert!(harness.read(|view| view.tabs[0].page.is_some()));
+}
+
+#[gpui_kit::test]
+fn the_toolbar_opens_the_page_and_the_notice_opens_its_offer(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.send(
+        0,
+        PageEvent::External(Url::parse("mailto:someone@example.com").unwrap()),
+    );
+    harness.visual.run_until_parked();
+    harness.update(|view, cx| view.open_externally(cx));
+    assert_eq!(harness.visual.opened_url().as_deref(), Some(PAGE));
+    harness.update(|view, cx| view.open_offer(cx));
+    assert_eq!(
+        harness.visual.opened_url().as_deref(),
+        Some("mailto:someone@example.com")
+    );
+}

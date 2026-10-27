@@ -408,6 +408,8 @@ impl BrowserView {
         let tab = &mut self.tabs[index];
         tab.starting = false;
         match result {
+            // A page that arrives after one is installed is dropped, never swapped in.
+            Ok(_) if tab.page.is_some() => {}
             Ok(page) => {
                 if let Some(bounds) = tab.bounds.get() {
                     page.set_bounds(bounds);
@@ -551,6 +553,10 @@ impl BrowserView {
             return;
         };
         let tab = &mut self.tabs[index];
+        // A first load still being checked or started has nothing to retry yet.
+        if tab.starting {
+            return;
+        }
         tab.notice = None;
         match &tab.page {
             Some(page) => page.reload(),
@@ -593,16 +599,26 @@ impl BrowserView {
         cx.notify();
     }
 
+    /// The toolbar's Open in your browser: always the page the tab shows.
     pub(super) fn open_externally(&mut self, cx: &mut Context<Self>) {
-        let url = self.active_tab().and_then(|tab| match &tab.notice {
-            Some(Notice {
-                offer: Some(url), ..
-            }) => Some(url.clone()),
-            _ => match browser::classify(&tab.url, self.fixture.as_ref()) {
-                Ok(Target::Web(url) | Target::External(url)) => Some(url),
+        let url = self.active_tab().and_then(|tab| {
+            match browser::classify(&tab.url, self.fixture.as_ref()) {
+                Ok(Target::Web(url)) => Some(url),
                 _ => None,
-            },
+            }
         });
+        if let Some(url) = url {
+            cx.open_url(url.as_str());
+        }
+    }
+
+    /// The notice's button: the link it offers (a `mailto:` link, or the page
+    /// itself when this window can't show it).
+    pub(super) fn open_offer(&mut self, cx: &mut Context<Self>) {
+        let url = self
+            .active_tab()
+            .and_then(|tab| tab.notice.as_ref())
+            .and_then(|notice| notice.offer.clone());
         if let Some(url) = url {
             cx.open_url(url.as_str());
         }
