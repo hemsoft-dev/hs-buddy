@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1548] - 2026-10-27
+
+### Fixed
+
+- Raise danger button text contrast to 4.5:1 (#854)
+
 ## [0.1.1547] - 2026-10-26
 
 ### Fixed
