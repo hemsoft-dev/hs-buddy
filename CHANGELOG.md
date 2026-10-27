@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1548] - 2026-10-27
+
+### Added
+
+- Port bookmark management to GPUI
+
 ## [0.1.1547] - 2026-10-26
 
 ### Fixed

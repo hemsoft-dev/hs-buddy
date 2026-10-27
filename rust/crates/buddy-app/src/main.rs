@@ -5,6 +5,7 @@
 mod app;
 mod assets;
 mod automation_view;
+mod bookmarks_view;
 mod command_line;
 mod copilot_view;
 mod crew_view;
@@ -344,6 +345,7 @@ fn main() {
             cx.set_global(Runtime::start());
             zoom::init(cx);
             terminal_view::init(cx);
+            bookmarks_view::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
