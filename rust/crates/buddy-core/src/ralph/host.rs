@@ -272,7 +272,9 @@ pub fn run_ralph_exec() -> i32 {
             .write(true)
             .open(path)
             .ok()?;
-        file.try_lock().ok()?;
+        crate::file_lock::acquire(&file)
+            .ok()
+            .filter(|taken| *taken)?;
         Some(file)
     });
     // Without that lock a dead host would free the repository while this process still
@@ -375,7 +377,7 @@ pub fn run_ralph_host(folder: &Path) -> i32 {
     else {
         return 2;
     };
-    if lock.try_lock().is_err() {
+    if !crate::file_lock::acquire(&lock).unwrap_or(false) {
         // Another host owns this run.
         return 3;
     }
