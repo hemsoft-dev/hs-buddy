@@ -164,24 +164,6 @@ fn same_folder(a: &Path, b: &Path) -> bool {
 
 const CHANGED: &str = "The conversation changed in another window. Try again.";
 
-/// Takes `file`'s exclusive lock; `false` when another holder keeps it. On Unix a
-/// process being spawned (Buddy runs Git) briefly shares every open file until it
-/// executes, and with it a lock just released, so a held lock counts only when it
-/// stays held for a moment.
-fn lock_settled(file: &File) -> std::io::Result<bool> {
-    for attempt in 0..10 {
-        match file.try_lock() {
-            Ok(()) => return Ok(true),
-            Err(std::fs::TryLockError::WouldBlock) if attempt < 9 => {
-                std::thread::sleep(std::time::Duration::from_millis(20))
-            }
-            Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
-            Err(std::fs::TryLockError::Error(error)) => return Err(error),
-        }
-    }
-    Ok(false)
-}
-
 /// Whether the project's conversation is still the one read before taking its lock.
 fn same_session(state: &State, project: &str, read: Option<&Session>) -> bool {
     let now = state
@@ -399,7 +381,7 @@ impl Store {
             .truncate(false)
             .write(true)
             .open(self.turn_lock(session))?;
-        Ok(lock_settled(&file)?.then_some(TurnGuard { _file: file }))
+        Ok(crate::file_lock::acquire(&file)?.then_some(TurnGuard { _file: file }))
     }
 
     /// Deletes snapshot folders and turn locks that no conversation names any more
@@ -656,8 +638,7 @@ impl Store {
     /// Whether a process holds this session's turn lock.
     pub fn turn_running(&self, session: &str) -> bool {
         valid_id(session)
-            && File::open(self.turn_lock(session))
-                .is_ok_and(|file| lock_settled(&file).is_ok_and(|locked| !locked))
+            && File::open(self.turn_lock(session)).is_ok_and(|file| crate::file_lock::held(&file))
     }
 
     /// Ends the project's conversation and discards its snapshot. Refused while a reply

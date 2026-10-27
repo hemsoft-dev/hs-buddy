@@ -234,10 +234,7 @@ pub(super) fn observe(
 
 /// Whether a host holds `path` locked. A missing file means no host ever started.
 pub(super) fn locked(path: &Path) -> bool {
-    match File::open(path) {
-        Ok(file) => matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
-        Err(_) => false,
-    }
+    File::open(path).is_ok_and(|file| crate::file_lock::held(&file))
 }
 
 /// Options for a run file: owner-only on Unix from its first byte, since prompts and
