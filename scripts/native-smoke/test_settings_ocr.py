@@ -205,6 +205,22 @@ class LabelGuards(unittest.TestCase):
             self.assertEqual(filters, ["scale=iw*3:ih*3:flags=neighbor",
                 "scale=iw*3:ih*3:flags=neighbor,format=gray,negate"])
 
+    def test_a_button_sparse_segmentation_skips_is_read_from_a_uniform_block(self):
+        block = [dict(text="+", left=3375, top=381, width=30, height=30, line="1/1/2"),
+            dict(text="Add", left=3438, top=381, width=78, height=33, line="1/1/2")]
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "owned.png"
+            image.write_bytes(b"untouched original capture")
+            with patch.object(ocr.shutil, "which", return_value="tesseract"), \
+                    patch.object(ocr, "recognize", side_effect=[[], [], [], [], [], block]) as recognize, \
+                    patch.object(ocr.subprocess, "run") as convert:
+                self.assertEqual(ocr.locate_image(image, "Add"), dict(left=1146, top=127, width=26, height=11))
+            self.assertEqual(image.read_bytes(), b"untouched original capture")
+            self.assertEqual([call.args[1] for call in recognize.call_args_list], [11, 3, 6, 11, 11, 6])
+            self.assertEqual(recognize.call_args.args[0], image.with_suffix(".ocr-analysis-3x.png"))
+            # Each copy is converted once; the block pass rereads the same files.
+            self.assertEqual(convert.call_count, 2)
+
     def test_button_label_wins_over_the_same_word_in_status_prose(self):
         words = [word("Refresh", 142, 188, "button"),
             word("Comment", 64, 282, "status"), word("posted.", 99, 282, "status"),

@@ -225,27 +225,31 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
         # Keep the original capture. Exact 3x analysis copies handle small
         # glyphs, then light text on a colored control (a primary button,
         # which Tesseract misses in the light theme) as dark text after an
-        # inverted grayscale pass. All label matching and returned bounds stay
-        # in window pixels.
-        for suffix, filters in ((".ocr-analysis-3x.png", "scale=iw*3:ih*3:flags=neighbor"),
-                (".ocr-analysis-3x-inverted.png", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate")):
-            analysis = image.with_suffix(suffix)
-            subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
-                "-vf", filters, "-frames:v", "1", str(analysis)],
-                capture_output=True, check=True, timeout=30)
-            raw = recognize(analysis, 11)
-            words = [dict(word, **{key: word[key] / 3 for key in ("left", "top", "width", "height")}) for word in raw]
-            try:
-                label = locate_label(words, labels, navigation, field, tab)
-                if save_row:
-                    label["save"] = aligned_save(words, label)
-                if row_control is not None:
-                    label["row_control"] = aligned_control(words, label, row_control)
-                return label
-            except RuntimeError as error:
-                analysis.with_suffix(".ocr-11.json").write_text(json.dumps(raw), encoding="utf-8")
-                if isinstance(error, AmbiguousLabel):
-                    raise
+        # inverted grayscale pass. Sparse segmentation can still skip a lone
+        # button beside a toolbar (light Add in Bookmarks on Ubuntu), so both
+        # copies are then read again as one uniform block. All label matching
+        # and returned bounds stay in window pixels.
+        for mode in (11, 6):
+            for suffix, filters in ((".ocr-analysis-3x.png", "scale=iw*3:ih*3:flags=neighbor"),
+                    (".ocr-analysis-3x-inverted.png", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate")):
+                analysis = image.with_suffix(suffix)
+                if mode == 11:
+                    subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
+                        "-vf", filters, "-frames:v", "1", str(analysis)],
+                        capture_output=True, check=True, timeout=30)
+                raw = recognize(analysis, mode)
+                words = [dict(word, **{key: word[key] / 3 for key in ("left", "top", "width", "height")}) for word in raw]
+                try:
+                    label = locate_label(words, labels, navigation, field, tab)
+                    if save_row:
+                        label["save"] = aligned_save(words, label)
+                    if row_control is not None:
+                        label["row_control"] = aligned_control(words, label, row_control)
+                    return label
+                except RuntimeError as error:
+                    analysis.with_suffix(f".ocr-{mode}.json").write_text(json.dumps(raw), encoding="utf-8")
+                    if isinstance(error, AmbiguousLabel):
+                        raise
         if sys.platform in ("win32", "darwin"):
             # Native OCR can read controls that Tesseract's sparse
             # segmentation misses. Use the untouched capture and identical
