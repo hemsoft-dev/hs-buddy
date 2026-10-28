@@ -32,9 +32,12 @@ THEMES = ("dark", "light")
 
 
 def created(theme):
-    """The bookmark each theme's pass adds; Convex refuses a URL twice in one category."""
-    return dict(url=f"https://example.org/native-guide-{theme}", title="Native guide", category="Reading/Guides",
-        tags=["native", "guide"])
+    """The bookmark each theme's pass adds; Convex refuses a URL twice in one category.
+
+    Titles differ too: the light pass lists Reading after the dark pass added its
+    own bookmark there, and one shared title is two matches for OCR."""
+    return dict(url=f"https://example.org/native-guide-{theme}", title=f"{theme.capitalize()} native guide",
+        category="Reading/Guides", tags=["native", "guide"])
 
 
 def load(name):
@@ -124,7 +127,7 @@ def add_and_delete(driver, theme, victim):
     github.check(flow / f"category-{theme}.png", "In Development", "Rust", "Web", "GPUI guide", "MDN reference",
         absent=("Morning news",))
     github.check(flow / f"editor-{theme}.png", "New bookmark", "URL", "Title", "Category", "Tags", "Add Bookmark")
-    github.check(flow / f"added-{theme}.png", "Bookmark added.", "Native guide", "Reading")
+    github.check(flow / f"added-{theme}.png", "Bookmark added.", new["title"], "Reading")
     github.check(flow / f"delete-confirm-{theme}.png", "Confirm delete", "permanently removed")
     github.check(flow / f"deleted-{theme}.png", "Deleted", absent=("Confirm delete",))
     github.check(flow / f"compact-list-{theme}.png", "Bookmarks", "Rust Book", "Search")

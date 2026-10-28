@@ -45,10 +45,13 @@ class BookmarksDesktopTests(unittest.TestCase):
         self.assertIn("Old dark link", titles)
         self.assertIn("Old light link", titles)
         added = [desktop.created(theme) for theme in desktop.THEMES]
-        self.assertNotIn(added[0]["title"], titles)
         # Convex refuses a URL twice in one category, so each pass adds its own.
         self.assertNotEqual(added[0]["url"], added[1]["url"])
         self.assertEqual(added[0]["category"], added[1]["category"])
+        # The light pass lists that category with the dark pass's bookmark still
+        # in it (Windows run 40621445078): a shared title is two OCR matches.
+        all_titles = titles + [value["title"] for value in added]
+        self.assertEqual(len(all_titles), len(set(all_titles)), "added titles identify bookmarks on screen")
 
     def test_seeding_refuses_a_backend_that_already_has_bookmarks(self):
         class Backend:
