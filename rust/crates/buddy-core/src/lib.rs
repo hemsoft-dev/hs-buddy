@@ -5,6 +5,7 @@
 
 pub mod application_settings;
 pub mod automation;
+pub mod bookmarks;
 pub mod codex_usage;
 pub mod config;
 pub mod config_lock;

@@ -59,6 +59,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed Ralph qualification failed' }
     & python (Join-Path $PSScriptRoot 'crew-desktop.py') --executable $exe --output (Join-Path $Output 'crew') --session windows --version $metadata.version
     if ($LASTEXITCODE -ne 0) { throw 'Installed Crew qualification failed' }
+    & python (Join-Path $PSScriptRoot 'bookmarks-desktop.py') --executable $exe --output (Join-Path $Output 'bookmarks') --session windows --version $metadata.version
+    if ($LASTEXITCODE -ne 0) { throw 'Installed Bookmarks qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

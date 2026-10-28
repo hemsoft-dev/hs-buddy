@@ -793,6 +793,29 @@ class WindowsScrollAnchors(unittest.TestCase):
                     desktop.verify_text(image, "2 worklogs were not attempted")
             self.assertEqual(image.with_suffix(".ocr.txt").read_text(encoding="utf-8"), wrapped.casefold())
 
+    def test_a_box_is_a_field_without_the_mac_save_row_anchor(self):
+        # macOS run 40629646121: Bookmarks' search has no Save button in its
+        # row, so `field` failed with "The field's aligned Save button is not visible".
+        with tempfile.TemporaryDirectory(prefix="buddy-box-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("search", [("box", "Search", "Old dark link")])
+            commands = run.call_args.args[run.call_args.args.index("-Actions") + 1].split(",")
+            encoded = ":".join(base64.b64encode(value.encode()).decode() for value in ("Search", "Old dark link"))
+            self.assertIn("field64:" + encoded, commands)
+            driver.session = "macos"
+            label = dict(left=10, top=20, width=40, height=12)
+            for kind, save_row in (("box", False), ("field", True)):
+                with patch.object(desktop.ocr, "locate_image", return_value=dict(label)) as locate, \
+                        patch.object(desktop, "record_measurement"):
+                    driver.locate(Mock(), directory / "locator.png", kind, "Search")
+                self.assertTrue(locate.call_args.kwargs["field"])
+                self.assertIs(locate.call_args.kwargs["save_row"], save_row)
+
     def test_explicit_sleeps_extend_the_windows_stage_deadline(self):
         with tempfile.TemporaryDirectory(prefix="buddy-sleep-budget-") as root:
             directory = Path(root)
@@ -844,6 +867,30 @@ class WindowsScrollAnchors(unittest.TestCase):
             result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
                 encoding="utf-8", timeout=60, check=True)
         return result.stdout.strip().split("|")
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_windows_field_targets_match_the_unix_geometry(self):
+        # Native run 40605735878: Windows `field` clicked 20 px past the Search
+        # label, on the magnifier prefix, so the typed filter never reached the
+        # editor and four Delete buttons stayed visible. Unix aims at the middle.
+        lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
+        start = next(index for index, line in enumerate(lines) if line.startswith("function Get-OwnedLabelTarget"))
+        depth, block = 0, []
+        for line in lines[start:]:
+            block.append(line)
+            depth += line.count("{") - line.count("}")
+            if depth == 0:
+                break
+        calls = "\n".join(
+            f"$t = Get-OwnedLabelTarget @{{ left=332; top=224; width=42; height=14 }} '{mode}' 1044 2 20; "
+            "'{0},{1}' -f $t.X, $t.Y"
+            for mode in ("field", "input", "leftfield", "rightfield", "save", "button"))
+        with tempfile.TemporaryDirectory(prefix="buddy-field-target-") as root:
+            script = Path(root) / "target.ps1"
+            script.write_text("\n".join(block) + "\n" + calls + "\n", encoding="utf-8")
+            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
+                encoding="utf-8", timeout=60, check=True)
+        self.assertEqual(result.stdout.split(), ["522,278", "372,278", "261,278", "783,278", "946,278", "353,231"])
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
     def test_visible_target_never_requires_its_scroll_anchor(self):

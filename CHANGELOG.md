@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1565] - 2026-10-28
+
+### Fixed
+
+- Finish the review: clear on Clear filters, a visible selection
+
+## [0.1.1564] - 2026-10-28
+
+### Fixed
+
+- Act on the finish review of the installed captures
+
+## [0.1.1562] - 2026-10-28
+
+### Fixed
+
+- Check the bookmark tree's root where it isn't selected
+
+## [0.1.1561] - 2026-10-28
+
+### Fixed
+
+- Type the bookmark search through a box, not a field
+
+## [0.1.1559] - 2026-10-28
+
+### Fixed
+
+- Give each theme pass's added bookmark its own title
+
+## [0.1.1557] - 2026-10-28
+
+### Fixed
+
+- Aim the Windows field action at the editor, as on Unix
+
+## [0.1.1556] - 2026-10-28
+
+### Fixed
+
+- Read a button sparse OCR skips as a uniform block
+
+## [0.1.1554] - 2026-10-27
+
+### Fixed
+
+- Show the added bookmark through its category
+
+## [0.1.1553] - 2026-10-27
+
+### Fixed
+
+- Read light text on colored buttons from an inverted copy
+
+## [0.1.1552] - 2026-10-27
+
+### Fixed
+
+- Type the bookmark search into the field itself
+
+## [0.1.1550] - 2026-10-27
+
+### Fixed
+
+- Never replace an open editor
+
 ## [0.1.1554] - 2026-10-28
 
 ### Fixed
@@ -34,6 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.1549] - 2026-10-27
 
 ### Fixed
+
+- Bound the tag filter, keep cleared fields, rename Paste link
+
+## [0.1.1548] - 2026-10-27
+
+### Added
+
+- Port bookmark management to GPUI
 
 - Bound and retry apt installs so a slow mirror fails fast
 

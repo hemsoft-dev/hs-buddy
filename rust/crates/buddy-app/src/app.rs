@@ -10,6 +10,7 @@ use gpui_kit::{
 };
 
 use crate::automation_view::AutomationView;
+use crate::bookmarks_view::BookmarksView;
 use crate::copilot_view::CopilotView;
 use crate::crew_view::CrewView;
 use crate::dashboard::{DashboardEvent, DashboardView};
@@ -123,6 +124,7 @@ pub struct BuddyApp {
     automation_view: Entity<AutomationView>,
     ralph_view: Entity<RalphView>,
     crew_view: Entity<CrewView>,
+    bookmarks_view: Entity<BookmarksView>,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -171,6 +173,9 @@ impl BuddyApp {
         });
         self.crew_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Crew), cx)
+        });
+        self.bookmarks_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Bookmarks), cx)
         });
         if section == Some(Section::Settings) && self.active_section != section {
             self.settings_view
@@ -322,6 +327,9 @@ impl BuddyApp {
                                 this.crew_view.update(cx, |view, cx| {
                                     view.set_default_account(account.clone(), cx)
                                 });
+                                this.bookmarks_view.update(cx, |view, _| {
+                                    view.set_default_account(account.clone())
+                                });
                                 this.active_account = account;
                                 cx.notify();
                             }
@@ -350,6 +358,7 @@ impl BuddyApp {
         ralph_view.update(cx, |view, cx| view.start(cx));
         let crew_view = cx.new(|cx| CrewView::new(window, cx));
         crew_view.update(cx, |view, cx| view.start(cx));
+        let bookmarks_view = cx.new(|cx| BookmarksView::new(window, cx));
         if section == Some(Section::Tempo) {
             tempo_view.update(cx, |view, cx| view.activate(cx));
         }
@@ -390,6 +399,9 @@ impl BuddyApp {
         crew_view.update(cx, |view, cx| {
             view.set_active(section == Some(Section::Crew), cx)
         });
+        bookmarks_view.update(cx, |view, cx| {
+            view.set_active(section == Some(Section::Bookmarks), cx)
+        });
         cx.subscribe(&settings_view, |this, _, event, cx| match event {
             SettingsEvent::ClearCache => {
                 this.dashboard
@@ -411,6 +423,7 @@ impl BuddyApp {
             automation_view,
             ralph_view,
             crew_view,
+            bookmarks_view,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -432,6 +445,7 @@ impl BuddyApp {
             Some(Section::Automation) => container.child(self.automation_view.clone()),
             Some(Section::Ralph) => container.child(self.ralph_view.clone()),
             Some(Section::Crew) => container.child(self.crew_view.clone()),
+            Some(Section::Bookmarks) => container.child(self.bookmarks_view.clone()),
             Some(section) => container
                 .flex()
                 .items_center()
@@ -518,6 +532,7 @@ mod tests {
                         automation_view: cx.new(|cx| AutomationView::new(window, cx)),
                         ralph_view: cx.new(|cx| RalphView::new(window, cx)),
                         crew_view: cx.new(|cx| CrewView::new(window, cx)),
+                        bookmarks_view: cx.new(|cx| BookmarksView::new(window, cx)),
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }
