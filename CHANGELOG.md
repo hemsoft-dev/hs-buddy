@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1569] - 2026-10-28
+
+### Fixed
+
+- Prove the browser page by its content, not the URL bar
+
 ## [0.1.1567] - 2026-10-28
 
 ### Fixed
