@@ -118,13 +118,22 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     $origin = New-Object Drive+POINT
     [Drive]::ClientToScreen($h, [ref]$origin) | Out-Null
     $scale = [Drive]::GetDpiForWindow($h) / 96.0
-    $x = $box.left + $box.width / 2
-    $y = $box.top + $box.height / 2
-    if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $y = $box.top + $box.height + $LabelBottomOffset * $scale; $x = $box.left + 20 * $scale }
-    if ($Mode -eq 'leftfield') { $x = ($rect.r-$rect.l) / 4 }
-    if ($Mode -eq 'rightfield') { $x = 3 * ($rect.r-$rect.l) / 4 }
-    if ($Mode -eq 'save') { $x = ($rect.r-$rect.l) - 49 * $scale }
-    return @{ X=[int]($rect.l + $x - $origin.x); Y=[int]($rect.t + $y - $origin.y) }
+    $target = Get-OwnedLabelTarget $box $Mode ($rect.r-$rect.l) $scale $LabelBottomOffset
+    return @{ X=[int]($rect.l + $target.X - $origin.x); Y=[int]($rect.t + $target.Y - $origin.y) }
+}
+# Window-relative target for an OCR label box, matching settings-desktop.py's
+# Unix geometry. `field` aims at the middle of the window width: beside the
+# label sits any prefix icon (Bookmarks' search magnifier), and clicking it
+# focuses the frame while typed text never reaches the editor.
+function Get-OwnedLabelTarget($Box, [string] $Mode, [double] $Width, [double] $Scale, [int] $LabelBottomOffset) {
+    $x = $Box.left + $Box.width / 2
+    $y = $Box.top + $Box.height / 2
+    if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $y = $Box.top + $Box.height + $LabelBottomOffset * $Scale; $x = $Box.left + 20 * $Scale }
+    if ($Mode -eq 'field') { $x = $Width / 2 }
+    if ($Mode -eq 'leftfield') { $x = $Width / 4 }
+    if ($Mode -eq 'rightfield') { $x = 3 * $Width / 4 }
+    if ($Mode -eq 'save') { $x = $Width - 49 * $Scale }
+    return @{ X=$x; Y=$y }
 }
 function Find-OwnedCellPoint([string] $EncodedRow, [string] $EncodedDate) {
     $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'tempo-cell-locator.png'

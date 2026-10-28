@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1557] - 2026-10-28
+
+### Fixed
+
+- Aim the Windows field action at the editor, as on Unix
+
 ## [0.1.1556] - 2026-10-28
 
 ### Fixed
