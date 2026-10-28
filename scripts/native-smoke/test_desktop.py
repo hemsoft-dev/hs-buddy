@@ -14,21 +14,28 @@ BODY = "Your Universal Productivity Companion Customize Command Center Configure
 
 
 class DashboardGate(unittest.TestCase):
-    def test_an_x11_shortcut_parks_the_pointer_off_any_page_first(self):
-        # #875 browser run: Ctrl+Q went to the web page under the pointer and
-        # Buddy never quit. Plain keys still go to the focused control.
+    def test_an_x11_shortcut_leaves_the_pointer_where_it_is(self):
+        # #880: a page hands Buddy's shortcuts back, so the driver no longer
+        # parks the pointer off the page before one, as #875's driver did.
         import desktop
         window = desktop.UnixWindow(None, "x11")
         window.window = "42"
         with patch.object(desktop, "run") as run_command, patch.object(desktop.time, "sleep"):
             window.key("q")
             shortcut = [call.args for call in run_command.call_args_list]
-            run_command.reset_mock()
-            window.key("Tab", control=False)
-            plain = [call.args for call in run_command.call_args_list]
-        self.assertEqual(shortcut[0], ("xdotool", "mousemove", "--window", "42", 600, 15))
+        self.assertFalse(any("mousemove" in args for args in shortcut))
         self.assertEqual(shortcut[-1], ("xdotool", "key", "--clearmodifiers", "ctrl+q"))
-        self.assertFalse(any("mousemove" in args for args in plain))
+
+    def test_hover_rests_the_pointer_in_the_middle_of_the_window(self):
+        import desktop
+        window = desktop.UnixWindow(None, "x11")
+        window.window = "42"
+        geometry = "\n".join(["WINDOW=42", "X=80", "Y=40", "WIDTH=1200", "HEIGHT=820", "SCREEN=0"])
+        with patch.object(desktop, "run", return_value=geometry) as run_command, patch.object(desktop.time, "sleep"):
+            window.hover()
+        self.assertEqual(run_command.call_args_list[-1].args, ("xdotool", "mousemove", "--window", "42", 600, 410))
+        with self.assertRaises(RuntimeError):
+            desktop.UnixWindow(None, "wayland").hover()
 
     def test_seat_keyboard_lives_through_actions_and_is_reaped_on_failure(self):
         spawn = subprocess.Popen

@@ -258,6 +258,15 @@ class UnixWindow:
         return (f'tell application "System Events" to tell first application process '
                 f'whose unix id is {self.process.pid}\n{command}\nend tell')
 
+    def hover(self):
+        """Rests the pointer in the middle of the window: over the page when a
+        browser tab shows one."""
+        if self.session != "x11":
+            raise RuntimeError("Only the X11 driver rests the pointer over a page")
+        properties = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", self.window).splitlines())
+        run("xdotool", "mousemove", "--window", self.window, int(properties["WIDTH"]) // 2, int(properties["HEIGHT"]) // 2)
+        time.sleep(0.3)
+
     def resize(self, width, height):
         if self.session == "macos":
             run("osascript", "-e", self.apple(f"set size of window 1 to {{{width}, {height}}}"))
@@ -285,12 +294,8 @@ class UnixWindow:
                        f'key code {dict(Tab=48, Return=36, Escape=53)[key]}')
             run("osascript", "-e", self.apple(f'set frontmost to true\n{command}'))
         elif self.session == "x11":
-            if control:
-                # X11 sends a key to the deepest window under the pointer, which
-                # is a web page's own window when the pointer rests over one, so
-                # an app shortcut then never reaches Buddy (docs/NATIVE-BROWSER.md).
-                # Park the pointer on the title bar, as a user would have to.
-                run("xdotool", "mousemove", "--window", self.window, 600, 15)
+            # The pointer stays where it is: over a web page, X11 sends the key
+            # to the page's window, which hands Buddy's shortcuts back (#880).
             run("xdotool", "windowactivate", "--sync", self.window)
             run("xdotool", "key", "--clearmodifiers", f"ctrl+{key}" if control else key)
         else:

@@ -7,6 +7,7 @@
 //! (menu, dialog) would sit under it.
 
 mod host;
+mod keys;
 #[cfg(target_os = "linux")]
 mod linux;
 mod render;
@@ -27,7 +28,8 @@ use buddy_core::browser::{
 use futures::StreamExt as _;
 use futures::channel::mpsc;
 use gpui_kit::{
-    AnyView, AnyWindowHandle, App, Bounds, Context, Global, KeyBinding, Pixels, Window, actions,
+    AnyView, AnyWindowHandle, App, Bounds, Context, FocusHandle, Global, KeyBinding, Pixels,
+    Window, actions,
 };
 use raw_window_handle::HasWindowHandle;
 
@@ -136,6 +138,9 @@ pub struct BrowserView {
     /// The last open was refused because `MAX_TABS` tabs are open.
     pub(super) full: bool,
     next_id: u64,
+    /// The tab shortcuts need the keyboard inside the browser. Buttons don't
+    /// take focus on a click, so clicking a tab gives it to the browser.
+    pub(super) focus: FocusHandle,
 }
 
 impl BrowserView {
@@ -183,6 +188,7 @@ impl BrowserView {
             following: false,
             full: false,
             next_id: 0,
+            focus: cx.focus_handle(),
         };
         for saved in session.tabs {
             let tab = view.tab(saved.url, saved.title, cx);
@@ -419,6 +425,7 @@ impl BrowserView {
             checker: self.checker.clone(),
             events: tab.events.clone(),
             visible,
+            shortcuts: keys::claimed(cx),
         })
     }
 

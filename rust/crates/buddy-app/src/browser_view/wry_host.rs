@@ -124,7 +124,11 @@ impl Host for WryHost {
             checker,
             events,
             visible,
+            shortcuts,
         } = config;
+        // Only WebKitGTK under X11 receives keys meant for the window.
+        #[cfg(not(target_os = "linux"))]
+        let _ = shortcuts;
         let send = |events: &futures::channel::mpsc::UnboundedSender<PageEvent>, event| {
             // A closed channel means the tab is gone; nothing to report to.
             let _ = events.unbounded_send(event);
@@ -223,6 +227,8 @@ impl Host for WryHost {
             log::warn!("browser: page creation failed: {err}");
             Unavailable("The web engine couldn't start.".into())
         })?;
+        #[cfg(target_os = "linux")]
+        platform::hand_back(parent.0, shortcuts);
         // Without the frame guard a frame could reach the network unchecked, so
         // no page is shown at all.
         #[cfg(windows)]

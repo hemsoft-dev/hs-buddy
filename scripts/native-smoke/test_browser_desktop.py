@@ -19,6 +19,23 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_the_x11_shortcuts_are_pressed_with_the_pointer_over_a_page(self):
+        # #880: Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+F4 (and Ctrl+Q ending the
+        # drive) are sent only after the pointer rests over the page.
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions = actions
+                return Path("flow")
+        driver = Driver()
+        with patch.object(desktop.github, "check"):
+            desktop.shortcut_pass(driver)
+        kinds = [action[0] for action in driver.actions]
+        hovered = kinds.index("hover")
+        shortcuts = [action[1] for action in driver.actions if action[0] == "shortcut"]
+        self.assertEqual(shortcuts, ["Tab", "shift+Tab", "F4"])
+        self.assertLess(hovered, kinds.index("shortcut"))
+        self.assertNotIn("click", kinds[hovered:])
+
     def test_non_runner_is_refused_before_argument_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.argparse, "ArgumentParser") as parser:
