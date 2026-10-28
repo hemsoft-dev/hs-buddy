@@ -1,0 +1,15 @@
+[package]
+name = "spike-875-x11"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Throwaway reproduction for hs-buddy#875 (second WebKitGTK child page renders
+# black on X11). Not part of the rust/ workspace.
+[workspace]
+
+[dependencies]
+wry = "=0.57.1"
+tao = { version = "=0.37.2", default-features = false }
+raw-window-handle = "0.6"
+x11-dl = "2.21"

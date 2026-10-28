@@ -1,0 +1,50 @@
+# Throwaway reproduction for hs-buddy#875; runs only on its own spike branch.
+name: spike-875-x11
+
+on:
+  push:
+    branches: [spike/875-x11-black]
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install WebKitGTK and the X11 test desktop
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev xvfb openbox imagemagick
+          dpkg -s libwebkit2gtk-4.1-0 | grep -E '^Version'
+
+      - name: Build
+        run: cargo build --release --manifest-path spike/875-x11/Cargo.toml
+
+      - name: Run each variant
+        run: |
+          mkdir -p out
+          bin="$PWD/spike/875-x11/target/release/spike-875-x11"
+          run() {
+            xvfb-run -a -s '-screen 0 1600x1000x24' bash -c "openbox >/dev/null 2>&1 & sleep 1; $* || echo 'exit '\$?" 2>&1 | tail -n 25
+          }
+          for variant in first second second-nohide second-delay second-toggle second-visible; do
+            echo "== $variant"
+            run timeout 60 "$bin" "$variant" out
+          done
+          echo "== second, DMA-BUF renderer off"
+          run env SPIKE_TAG=second-nodmabuf WEBKIT_DISABLE_DMABUF_RENDERER=1 timeout 60 "$bin" second out
+          echo "== second, compositing off"
+          run env SPIKE_TAG=second-nocompositing WEBKIT_DISABLE_COMPOSITING_MODE=1 timeout 60 "$bin" second out
+          ls -la out
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: spike-875-x11
+          path: out/
