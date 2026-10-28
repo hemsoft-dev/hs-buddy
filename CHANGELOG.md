@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1562] - 2026-10-28
+
+### Changed
+
+- Run #875's Windows package through the whole browser flow
+
 ## [0.1.1561] - 2026-10-28
 
 ### Changed

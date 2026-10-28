@@ -1,11 +1,7 @@
 # Throwaway reproduction for hs-buddy#875; runs only on its own spike branch.
-# Linux: #875's second page stays black intermittently (round 4: 2 of 3 runs);
-# turning GDK frame sync off after creation didn't help (round 5: 4 of 4 black).
-# Round 7 builds #875 once with two spike-only switches and repeats each:
-#   SPIKE_VISIBLE creates the page visible (wry warns hidden-at-creation pages
-#   need alternating set_visible calls); SPIKE_TOGGLE hides and shows the page
-#   once its load finishes. The pointer is parked before every Ctrl+Q.
-# (Round 6 found Windows' failure: WebView2 0x80070578 on the hidden desktop.)
+# Round 8: #875's own Windows package (run 40647223188, head 043b914f) through
+# only the browser qualification, with the next driver change applied, to see
+# the whole Windows flow (restart and light passes) before a 90-minute CI round.
 name: spike-875-x11
 
 on:
@@ -16,16 +12,18 @@ permissions:
   contents: read
 
 jobs:
-  app:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
+  windows-app:
+    runs-on: windows-2025
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: c02febd22ed613aaed06b7d1b251128e42b24ce9
+          ref: 043b914fea3cca23e15a52b1f09459b41b96f3a6
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,29 +31,22 @@ jobs:
           path: spike-source
           persist-credentials: false
 
-      - name: Apply the spike switches and park the pointer before shortcuts
+      - name: Apply the next driver change
+        run: git apply --verbose spike-source/spike/875-x11/driver-checks.patch
+
+      - name: Install Windows OCR
+        shell: pwsh
         run: |
-          git apply --verbose spike-source/spike/875-x11/visible-toggle.patch
-          python3 spike-source/spike/875-x11/park_pointer.py .
-
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake clang pkg-config mold \
-            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
-            libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
-            libssl-dev libdbus-1-dev dbus-x11 gnome-keyring libglib2.0-bin \
-            libwebkit2gtk-4.1-dev libgtk-3-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable, 2026-10-07
-        with:
-          toolchain: stable
-
-      - name: Build the app
-        working-directory: rust
-        run: cargo build --locked --release --bin buddy
+          $tesseractDirectory = 'C:\Program Files\Tesseract-OCR'
+          $env:PATH = "$tesseractDirectory;$env:PATH"
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install tesseract ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -eq 0 -and (Get-Command tesseract -ErrorAction SilentlyContinue) -and (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { break }
+            if ($attempt -eq 3) { throw 'OCR tools missing' }
+            Start-Sleep -Seconds 30
+          }
+          tesseract --version
+          $tesseractDirectory | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup package driver Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -67,45 +58,32 @@ jobs:
       - name: Install the checkout's dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install #875's package for its runtime dependencies (run 40629646121)
+      - name: Fetch #875's Windows package (run 40647223188)
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 40629646121 -R "$GITHUB_REPOSITORY" -n buddy-native-ubuntu-24.04 -D "$RUNNER_TEMP/artifact"
-          deb="$(find "$RUNNER_TEMP/artifact" -name '*.deb' | head -n 1)"
-          sudo apt-get install -y --no-install-recommends "$deb"
-          source scripts/native-smoke/linux-desktop-tools.sh
-          buddy_install_linux_desktop_tools sudo apt-get
-          electron_executable="$(bun -e "console.log(require('electron'))" | tail -n 1)"
-          sandbox="$(realpath "$(dirname "$electron_executable")/chrome-sandbox")"
-          sudo chown root:root "$sandbox"
-          sudo chmod 4755 "$sandbox"
+          gh run download 40647223188 -R $env:GITHUB_REPOSITORY -n buddy-native-windows-2025 -D "$env:RUNNER_TEMP\artifact"
 
-      - name: Browser qualification, repeated per switch
+      - name: Install and run the browser qualification
+        shell: pwsh
         run: |
-          binary="$PWD/rust/target/release/buddy"
-          version="$(node -p "require('./package.json').version")"
-          variant() {
-            name="$1"; shift
-            echo "== $name"
-            if env "$@" xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
-              openbox >/dev/null 2>&1 &
-              BUDDY_SETTINGS_FIXTURE=1 python3 scripts/native-smoke/browser-desktop.py --executable "$1" \
-                --output "$RUNNER_TEMP/ev/$0" --session x11 --version "$2"
-            ' "$name" "$binary" "$version" > "$RUNNER_TEMP/$name.log" 2>&1; then
-              echo "RESULT $name passed"
-            else
-              echo "RESULT $name failed"
-              tail -n 4 "$RUNNER_TEMP/$name.log"
-            fi
-          }
-          mkdir -p "$RUNNER_TEMP/ev"
-          for run in 1 2; do variant "base-$run" SPIKE=1; done
-          for run in 1 2 3; do variant "visible-$run" SPIKE_VISIBLE=1; done
-          for run in 1 2 3; do variant "toggle-$run" SPIKE_TOGGLE=1; done
+          $manifest = Get-ChildItem "$env:RUNNER_TEMP\artifact" -Recurse -Filter build.json | Select-Object -First 1
+          $metadata = Get-Content $manifest.FullName -Raw | ConvertFrom-Json
+          $installer = Join-Path $manifest.DirectoryName $metadata.package.file
+          $install = Join-Path $env:RUNNER_TEMP 'buddy-native-installed'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$install") -WindowStyle Hidden -PassThru
+          if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'Installer failed' }
+          $exe = Join-Path $install 'buddy-native.exe'
+          $env:BUDDY_SETTINGS_FIXTURE = '1'
+          # Only so windows-window.ps1 keeps the app's output in app.log.
+          $env:BUDDY_COPILOT_FIXTURE = '1'
+          $env:RUST_LOG = 'info'
+          & python scripts/native-smoke/browser-desktop.py --executable $exe --output "$env:RUNNER_TEMP\ev\browser" --session windows --version $metadata.version
+          "browser qualification exit $LASTEXITCODE"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: spike-875-app
+          name: spike-875-windows
           path: ${{ runner.temp }}/ev/
