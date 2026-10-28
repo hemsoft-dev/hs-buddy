@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1561] - 2026-10-28
+
+### Fixed
+
+- Type the bookmark search through a box, not a field
+
 ## [0.1.1559] - 2026-10-28
 
 ### Fixed

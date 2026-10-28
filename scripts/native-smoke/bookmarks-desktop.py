@@ -112,9 +112,10 @@ def add_and_delete(driver, theme, victim):
         ("click", "Add Bookmark"), ("wait_text", "Bookmark added."),
         ("click", "Reading"), ("wait_text", new["title"]), ("capture", f"added-{theme}"),
         ("click", "All bookmarks"), ("wait_text", "Morning news"),
-        # `field` types at the middle of the box: `input` clicks beside the label,
+        # `box` types at the middle of the input: `input` clicks beside the label,
         # which here is the search icon, and the text never reaches the editor.
-        ("field", "Search", victim), ("wait_text", victim),
+        # Unlike `field`, it needs no Save button in the row (Mac anchors on one).
+        ("box", "Search", victim), ("wait_text", victim),
         ("click", "Delete"), ("wait_text", "Confirm delete"), ("capture", f"delete-confirm-{theme}"),
         ("click", "Confirm delete"), ("wait_text", "Deleted"), ("capture", f"deleted-{theme}"),
         ("click", "Clear filters"), ("wait_text", "Rust Book"),
