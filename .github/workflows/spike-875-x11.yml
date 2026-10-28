@@ -34,20 +34,18 @@ jobs:
             xvfb-run -a -s '-screen 0 1600x1000x24' bash -c "openbox >/dev/null 2>&1 & sleep 1; $* || echo 'exit '\$?" 2>&1 | tail -n 40
           }
           # Round 1 (inline pages, every switching variant) rendered the second page.
-          # Round 2: the qualification's real pages over HTTP with the app's handlers.
+          # Round 2 (real pages over HTTP, app handlers, probe per feature) rendered it too.
+          # Round 3: a parent like GPUI's (32-bit ARGB visual, own colormap), and one
+          # repainted every frame, for the qualification's probe -> /ok switch.
           python3 spike/875-x11/site.py 42069 &
           sleep 1
           base=http://127.0.0.1:42069
-          for probe in all popup geo camera notification iframe private download plain; do
-            case "$probe" in
-              all) first="$base/probe" ;;
-              plain) first="$base/ok?first" ;;
-              *) first="$base/probe?only=$probe" ;;
-            esac
-            for handlers in 1 0; do
-              tag="url-$probe-h$handlers"
-              echo "== $tag ($first)"
-              run env SPIKE_TAG="$tag" SPIKE_A="$first" SPIKE_B="$base/ok" SPIKE_HANDLERS="$handlers" timeout 90 "$bin" second out
+          for parent in plain argb; do
+            for repaint in 0 1; do
+              tag="gpui-$parent-r$repaint"
+              echo "== $tag"
+              run env SPIKE_TAG="$tag" SPIKE_PARENT="$parent" SPIKE_REPAINT="$repaint" SPIKE_HANDLERS=1 \
+                SPIKE_A="$base/probe" SPIKE_B="$base/ok" timeout 90 "$bin" second out
             done
           done
           ls -la out

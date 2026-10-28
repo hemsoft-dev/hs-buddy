@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1556] - 2026-10-28
+
+### Changed
+
+- Parent the pages to a GPUI-like 32-bit ARGB window
+
 ## [0.1.1555] - 2026-10-28
 
 ### Changed

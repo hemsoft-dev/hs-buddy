@@ -36,15 +36,42 @@ impl HasWindowHandle for Parent {
     }
 }
 
+thread_local! {
+    /// With SPIKE_REPAINT=1, redraws the parent every frame as GPUI does.
+    static REPAINT: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+}
+
 fn pump(ms: u64) {
     let end = Instant::now() + Duration::from_millis(ms);
     while Instant::now() < end {
+        REPAINT.with(|repaint| {
+            if let Some(repaint) = repaint.borrow().as_ref() {
+                repaint();
+            }
+        });
         unsafe {
             while gtk_events_pending() != 0 {
                 gtk_main_iteration_do(0);
             }
         }
         sleep(Duration::from_millis(16));
+    }
+}
+
+/// A parent like GPUI's X11 window (gpui-pre-linux 0.3.8 x11/window.rs): the
+/// screen's 32-bit TrueColor ("transparent") visual with its own colormap.
+unsafe fn argb_window(x: &xlib::Xlib, display: *mut xlib::Display, screen: c_int, root: c_ulong) -> c_ulong {
+    unsafe {
+        let mut info: xlib::XVisualInfo = std::mem::zeroed();
+        assert!((x.XMatchVisualInfo)(display, screen, 32, xlib::TrueColor, &mut info) != 0, "no 32-bit visual");
+        let colormap = (x.XCreateColormap)(display, root, info.visual, xlib::AllocNone);
+        let mut attributes: xlib::XSetWindowAttributes = std::mem::zeroed();
+        attributes.colormap = colormap;
+        attributes.border_pixel = 0;
+        attributes.background_pixel = 0xff_33_66_99;
+        println!("parent: 32-bit visual 0x{:x}", info.visualid);
+        (x.XCreateWindow)(display, root, 0, 0, 1000, 700, 0, 32, xlib::InputOutput as u32, info.visual,
+            xlib::CWColormap | xlib::CWBorderPixel | xlib::CWBackPixel, &mut attributes)
     }
 }
 
@@ -133,11 +160,30 @@ fn main() {
     let window = unsafe {
         let screen = (x.XDefaultScreen)(display);
         let root = (x.XRootWindow)(display, screen);
-        let window = (x.XCreateSimpleWindow)(display, root, 0, 0, 1000, 700, 0, 0, 0x33_66_99);
+        let window = if std::env::var("SPIKE_PARENT").as_deref() == Ok("argb") {
+            argb_window(&x, display, screen, root)
+        } else {
+            (x.XCreateSimpleWindow)(display, root, 0, 0, 1000, 700, 0, 0, 0x33_66_99)
+        };
         (x.XMapWindow)(display, window);
         (x.XFlush)(display);
         window
     };
+    if std::env::var("SPIKE_REPAINT").as_deref() == Ok("1") {
+        let gc = unsafe { (x.XCreateGC)(display, window, 0, std::ptr::null_mut()) };
+        let fill = x.XFillRectangle;
+        let foreground = x.XSetForeground;
+        let flush = x.XFlush;
+        let shade = std::cell::Cell::new(0u64);
+        REPAINT.with(|repaint| {
+            *repaint.borrow_mut() = Some(Box::new(move || unsafe {
+                shade.set((shade.get() + 1) % 64);
+                foreground(display, gc, 0xff_33_66_00 | (0x60 + shade.get() as c_ulong));
+                fill(display, window, gc, 0, 0, 1000, 700);
+                flush(display);
+            }));
+        });
+    }
     unsafe {
         gdk_set_allowed_backends(c"x11".as_ptr());
         assert!(gtk_init_check(std::ptr::null_mut(), std::ptr::null_mut()) != 0, "gtk init");
