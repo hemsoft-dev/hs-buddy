@@ -132,8 +132,17 @@ pub(crate) fn github_host(host: &str) -> bool {
     host == "github.com" || host.ends_with(".github.com")
 }
 
+/// The GitHub repository `url` names: on github.com or a subdomain, or over an SSH alias
+/// that `resolve` maps to one. A local path or another host is no GitHub repository.
+pub(crate) fn github_remote(url: &str, resolve: impl Fn(&str) -> Option<String>) -> Option<Remote> {
+    parse_remote(url).filter(|remote| {
+        github_host(&remote.host)
+            || (remote.ssh && resolve(&remote.host).is_some_and(|host| github_host(&host)))
+    })
+}
+
 /// The real host behind an SSH alias such as `github-work`.
-fn resolve_ssh_host(host: &str) -> Option<String> {
+pub(crate) fn resolve_ssh_host(host: &str) -> Option<String> {
     if host.starts_with('-') {
         return None;
     }
@@ -171,12 +180,8 @@ pub(crate) fn validate_with(
     let root = native_path(&root);
     let origin = text(output(git, Some(&root), ["remote", "get-url", "origin"]))
         .ok_or("This repository has no origin remote.")?;
-    let remote = parse_remote(&origin).ok_or("The origin remote is not a GitHub repository.")?;
-    let github = github_host(&remote.host)
-        || (remote.ssh && resolve(&remote.host).is_some_and(|host| github_host(&host)));
-    if !github {
-        return Err("The origin remote is not a GitHub repository.".into());
-    }
+    let remote =
+        github_remote(&origin, resolve).ok_or("The origin remote is not a GitHub repository.")?;
     let default_branch = text(output(
         git,
         Some(&root),

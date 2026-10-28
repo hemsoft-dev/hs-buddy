@@ -130,7 +130,8 @@ A **work cycle** is a meaningful iteration where Copilot is invoked to make chan
 **Worktree behavior:**
 
 - Fetches the PR branch before creating the worktree to ensure latest code
-- Reuses an existing worktree with `git pull --ff-only` to stay current
+- Reuses an existing worktree only when it is clean, tracks `origin/<branch>` and fast-forwards with `git pull --ff-only`; otherwise the run stops before the agent starts
+- Rebases a conflicting PR onto the PR's own base branch (`baseRefName`), not an assumed `main`
 - Does **not** auto-remove the worktree after completion (the PR may still need work)
 
 ---
