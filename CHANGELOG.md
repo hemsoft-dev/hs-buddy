@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1556] - 2026-10-28
+
+### Fixed
+
+- Read a button sparse OCR skips as a uniform block
+
 ## [0.1.1554] - 2026-10-27
 
 ### Fixed
