@@ -46,7 +46,7 @@ const FOLLOW: Duration = Duration::from_secs(1);
 /// (WKWebView through wry) report no failed load at all.
 pub(super) const LOAD_LIMIT: Duration = Duration::from_secs(30);
 pub(super) const STALLED: &str =
-    "The page didn't finish loading. Try again, or open it in your browser.";
+    "The page didn't finish loading. Try again, or open it externally.";
 pub(super) const ZOOM_DELTA: f64 = 0.1;
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
@@ -448,7 +448,7 @@ impl BrowserView {
             Err(unavailable) => {
                 tab.loading = false;
                 tab.notice = Some(Notice {
-                    text: format!("{unavailable} Open it in your browser instead."),
+                    text: format!("{unavailable} Open it externally instead."),
                     offer: Url::parse(&tab.url).ok(),
                 });
             }
@@ -604,14 +604,29 @@ impl BrowserView {
     fn refuse(&mut self, id: u64, raw: &str, reason: Blocked, cx: &mut Context<Self>) {
         self.record(raw, &reason);
         if let Some(index) = self.index_of(id) {
+            // The notice offers what its text asks for: the page for a
+            // download, the pop-up's own address for a pop-up. Only a web
+            // address the policy admits is offered.
+            let offer = match reason {
+                Blocked::Download => self.web(&self.tabs[index].url),
+                Blocked::Popup => self.web(raw),
+                _ => None,
+            };
             let tab = &mut self.tabs[index];
             tab.loading = false;
             tab.notice = Some(Notice {
                 text: reason.to_string(),
-                offer: None,
+                offer,
             });
         }
         cx.notify();
+    }
+
+    fn web(&self, raw: &str) -> Option<Url> {
+        match browser::classify(raw, self.fixture.as_ref()) {
+            Ok(Target::Web(url)) => Some(url),
+            _ => None,
+        }
     }
 
     fn offer(&mut self, id: u64, url: Url, cx: &mut Context<Self>) {
@@ -712,21 +727,17 @@ impl BrowserView {
         cx.notify();
     }
 
-    /// The toolbar's Open in your browser: always the page the tab shows.
+    /// The toolbar's Open externally: always the page the tab shows.
     pub(super) fn open_externally(&mut self, cx: &mut Context<Self>) {
-        let url = self.active_tab().and_then(|tab| {
-            match browser::classify(&tab.url, self.fixture.as_ref()) {
-                Ok(Target::Web(url)) => Some(url),
-                _ => None,
-            }
-        });
+        let url = self.active_tab().and_then(|tab| self.web(&tab.url));
         if let Some(url) = url {
             cx.open_url(url.as_str());
         }
     }
 
-    /// The notice's button: the link it offers (a `mailto:` link, or the page
-    /// itself when this window can't show it).
+    /// The notice's button: the link it offers (a `mailto:` link, the page
+    /// itself when this window can't show it or a download was refused, or a
+    /// refused pop-up's address).
     pub(super) fn open_offer(&mut self, cx: &mut Context<Self>) {
         let url = self
             .active_tab()

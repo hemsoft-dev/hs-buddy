@@ -1,14 +1,15 @@
 # Native embedded browser
 
 Bookmarks in Buddy Native open as tabs inside the Bookmarks section, beside the
-bookmark list. Each tab shows the page on the operating system's own web engine:
+bookmark list: click a card, or its Open in tab button (Open externally sends it to
+the system browser instead). Each tab shows the page on the operating system's own web engine:
 WebView2 on Windows, WKWebView on macOS, and WebKitGTK on Linux under X11.
 
 ## Tabs
 
 The tab strip starts with Bookmarks (the list) followed by one tab per open page.
 A tab's toolbar has Back, Forward, Reload, the page address, zoom out, the zoom
-level, zoom in, and Open in your browser. Closing a tab selects its neighbor;
+level, zoom in, and Open externally. Closing a tab selects its neighbor;
 closing the last one returns to the list. Up to 20 tabs can be open, as many as a
 restart restores; opening another asks you to close one first.
 
@@ -55,8 +56,9 @@ window. They live in `rust/crates/buddy-core/src/browser.rs`:
   browser; a load that finishes later clears it.
 - Popups, downloads and every permission request (camera, microphone, location,
   notifications and the rest) are refused, and the tab says what was refused.
-  Downloads have no Electron equivalent; Open in your browser is the way to
-  download.
+  Downloads have no Electron equivalent; the download notice's Open externally
+  button (or the toolbar's) is the way to download. A refused pop-up's notice
+  offers its address the same way, when the policy admits it.
 - Pages get no bridge to the app: no IPC handler, no injected scripts, no
   developer tools, no clipboard reads, and (on Windows) no browser accelerator
   keys or default context menus. Credentials stay in the app process; the engines

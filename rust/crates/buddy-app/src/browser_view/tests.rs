@@ -501,6 +501,52 @@ fn refused_requests_show_why_and_keep_the_page(cx: &mut gpui_kit::TestAppContext
 }
 
 #[gpui_kit::test]
+fn a_refused_download_or_popup_offers_what_its_notice_asks_for(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    let offered = |harness: &mut Harness| {
+        harness.read(|view| {
+            view.tabs[0]
+                .notice
+                .as_ref()
+                .and_then(|notice| notice.offer.clone())
+                .map(|url| url.to_string())
+        })
+    };
+    let refuse = |harness: &mut Harness, raw: &str, reason: Blocked| {
+        host.send(
+            0,
+            PageEvent::Blocked {
+                raw: raw.into(),
+                reason,
+            },
+        );
+        harness.visual.run_until_parked();
+    };
+
+    // "Open the page externally to download": the page, not the file.
+    refuse(
+        &mut harness,
+        "https://files.example/a.zip",
+        Blocked::Download,
+    );
+    assert_eq!(offered(&mut harness).as_deref(), Some(PAGE));
+    // A pop-up offers its own address, when the policy admits it.
+    refuse(&mut harness, "https://93.184.215.16/popup", Blocked::Popup);
+    assert_eq!(
+        offered(&mut harness).as_deref(),
+        Some("https://93.184.215.16/popup")
+    );
+    refuse(&mut harness, "http://192.168.1.1/", Blocked::Popup);
+    assert_eq!(offered(&mut harness), None);
+    // Other refusals offer nothing.
+    refuse(&mut harness, "", Blocked::Permission("camera".into()));
+    assert_eq!(offered(&mut harness), None);
+}
+
+#[gpui_kit::test]
 fn a_mailto_link_is_offered_not_opened(cx: &mut gpui_kit::TestAppContext) {
     let host = Rc::new(FakeHost::default());
     let mut harness = open(cx, &host);

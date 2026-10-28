@@ -1,6 +1,6 @@
 //! Tab strip, toolbar, notices, and the area a native page is placed over.
 use gpui_kit::assets::IconName;
-use gpui_kit::base::{Disableable, Selectable as _};
+use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -62,7 +62,6 @@ impl BrowserView {
                         .label("Bookmarks")
                         .ghost()
                         .small()
-                        .selected(self.active.is_none())
                         .on_click(cx.listener(|this, _, _, cx| this.select(None, cx))),
                 ),
             );
@@ -76,7 +75,6 @@ impl BrowserView {
                             .label(short(&full))
                             .ghost()
                             .small()
-                            .selected(self.active == Some(index))
                             .tooltip(full.clone())
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.select(Some(index), cx)),
@@ -227,9 +225,10 @@ impl BrowserView {
                     .on_click(cx.listener(|this, _, _, cx| this.zoom_by(-ZOOM_DELTA, cx))),
             )
             .child(
+                // Full foreground: muted, this 12px label measured 4.52:1 in dark.
                 div()
                     .text_size(zpx(12.0))
-                    .text_color(theme.muted_foreground)
+                    .text_color(theme.foreground)
                     .child(format!("{:.0}%", self.zoom * 100.0)),
             )
             .child(
@@ -245,7 +244,7 @@ impl BrowserView {
                     .icon(IconName::ExternalLink)
                     .ghost()
                     .small()
-                    .tooltip("Open in your browser")
+                    .tooltip("Open externally")
                     .on_click(cx.listener(|this, _, _, cx| this.open_externally(cx))),
             )
     }
@@ -269,10 +268,18 @@ impl BrowserView {
             .gap_2()
             .px_3()
             .py_2()
-            .bg(theme.warning.opacity(0.12))
+            // A stronger tint in dark, where 12% barely parted the strip from
+            // the toolbar; the icon carries the warning color too.
+            .bg(theme
+                .warning
+                .opacity(if theme.is_dark() { 0.24 } else { 0.12 }))
             .border_b_1()
             .border_color(theme.warning)
-            .child(Icon::new(IconName::TriangleAlert).size(zpx(16.0)))
+            .child(
+                Icon::new(IconName::TriangleAlert)
+                    .size(zpx(16.0))
+                    .text_color(theme.warning),
+            )
             .child(
                 div()
                     .flex_1()
@@ -286,7 +293,7 @@ impl BrowserView {
                         .label(if mailto {
                             "Open in mail app"
                         } else {
-                            "Open in browser"
+                            "Open externally"
                         })
                         .small()
                         .on_click(cx.listener(|this, _, _, cx| this.open_offer(cx))),
@@ -309,6 +316,7 @@ impl BrowserView {
 fn tab_frame(selected: bool, cx: &App) -> gpui_kit::Div {
     let theme = cx.theme();
     h_flex()
+        .relative()
         .h(zpx(32.0))
         .flex_shrink_0()
         .gap_1()
@@ -316,10 +324,18 @@ fn tab_frame(selected: bool, cx: &App) -> gpui_kit::Div {
         .items_center()
         .border_r_1()
         .border_color(theme.border)
+        // One selection marker: an accent underline of its own, so the
+        // divider on the right keeps the border color.
         .when(selected, |this| {
-            this.bg(theme.tab_active)
-                .border_b_1()
-                .border_color(theme.primary)
+            this.bg(theme.tab_active).child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(zpx(2.0))
+                    .bg(theme.primary),
+            )
         })
 }
 
