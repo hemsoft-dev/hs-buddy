@@ -294,6 +294,8 @@ impl BookmarksView {
 
     pub(super) fn clear_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.filter = Filter::default();
+        // `set_value` emits no Change, so the search handler can't clear it.
+        self.notice = None;
         self.search
             .update(cx, |input, cx| input.set_value("", window, cx));
         cx.notify();
