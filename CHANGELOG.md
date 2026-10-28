@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1563] - 2026-10-28
+
+### Changed
+
+- Re-check out as LF before applying the Windows driver patch
+
 ## [0.1.1562] - 2026-10-28
 
 ### Changed

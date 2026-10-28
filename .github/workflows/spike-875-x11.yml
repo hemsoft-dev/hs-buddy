@@ -32,7 +32,12 @@ jobs:
           persist-credentials: false
 
       - name: Apply the next driver change
-        run: git apply --verbose spike-source/spike/875-x11/driver-checks.patch
+        # The runner checks out CRLF; the patch is LF. Re-check out as LF first.
+        run: |
+          git config core.autocrlf false
+          git rm -r -q --cached .
+          git reset -q --hard
+          git apply --verbose spike-source/spike/875-x11/driver-checks.patch
 
       - name: Install Windows OCR
         shell: pwsh
