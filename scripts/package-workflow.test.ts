@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const workflow = readFileSync('.github/workflows/ci.yml', 'utf8').replaceAll('\r\n', '\n')
@@ -140,7 +140,7 @@ describe('desktop package qualification workflow', () => {
   })
 
   it('launches each generated distributable rather than its staging tree', () => {
-    expect(workflow).toContain('sudo apt-get install --yes "./$package_file"')
+    expect(workflow).toContain('buddy_apt sudo install --yes "./$package_file"')
     expect(workflow).toContain('./scripts/install-windows-package.ps1')
     expect(windowsInstaller).toContain('Get-ChildItem $ReleaseDirectory -Recurse')
     expect(windowsInstaller).toContain("Start-Process $installer -ArgumentList @('/S'")
@@ -196,5 +196,84 @@ describe('desktop package qualification workflow', () => {
     expect(smokeRunner).toContain("child.once('exit'")
     expect(smokeRunner).toContain("child.once('close'")
     expect(smokeRunner).toContain('5_000')
+  })
+})
+
+describe('bounded apt installs', () => {
+  const helperPath = 'scripts/lib/bounded-apt.sh'
+  const read = (path: string) => readFileSync(path, 'utf8').replaceAll('\r\n', '\n')
+  const helper = read(helperPath)
+  const workflowPaths = readdirSync('.github/workflows')
+    .filter(name => name.endsWith('.yml') && !name.endsWith('.lock.yml'))
+    .map(name => `.github/workflows/${name}`)
+  const scriptPaths = readdirSync('scripts', { recursive: true, encoding: 'utf8' })
+    .filter(name => name.endsWith('.sh'))
+    .map(name => `scripts/${name.replaceAll('\\', '/')}`)
+
+  it('sends every apt update and install through the bounded helper', () => {
+    const bareApt = /\bapt(?:-get)?\s+(?:-\S+\s+)*(?:update|install|upgrade|dist-upgrade)\b/
+    const offenders = [...workflowPaths, ...scriptPaths]
+      .filter(path => path !== helperPath)
+      .flatMap(path =>
+        read(path)
+          .split('\n')
+          .map((line, index) => ({ line, location: `${path}:${index + 1}` }))
+          .filter(({ line }) => !line.trimStart().startsWith('#') && bareApt.test(line))
+          .map(({ location, line }) => `${location}: ${line.trim()}`)
+      )
+    expect(offenders).toEqual([])
+    expect(scriptPaths).toContain(helperPath)
+  })
+
+  it('bounds each attempt and names the mirror and step on failure', () => {
+    expect(helper).toContain('timeout --kill-after=30 "$limit" apt-get')
+    expect(helper).toContain('timeout --kill-after=30 "$limit" dpkg --configure -a')
+    expect(helper).toContain('limit="${BUDDY_APT_LIMIT:-$limit}"')
+    expect(helper).toContain(
+      '-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30'
+    )
+    expect(helper).toContain('local limit=600')
+    expect(helper).toContain('if [[ "$step" == update ]]; then limit=300; fi')
+    expect(helper).toContain('Step: apt-get %s. Mirrors: %s')
+  })
+
+  it('limits every workflow step that installs packages', () => {
+    const steps = ['.github/workflows/ci.yml', '.github/workflows/rust.yml'].flatMap(path =>
+      read(path)
+        .split(/\n\s+- (?=name:|uses:)/)
+        .filter(step => step.includes('buddy_apt'))
+    )
+    expect(steps).toHaveLength(4)
+    for (const step of steps) {
+      expect(step).toMatch(/\n\s+timeout-minutes: \d+\n/)
+      expect(step).toContain('source scripts/lib/bounded-apt.sh')
+    }
+  })
+
+  it('gives every apt step and its job room for both attempts and the failure message', () => {
+    // Per buddy_apt call: two attempts, each allowed 30 s to die after its
+    // limit; an install also runs one bounded dpkg recovery.
+    const worstSeconds = (step: string) => {
+      const override = step.match(/BUDDY_APT_LIMIT: '(\d+)'/)
+      return [...step.matchAll(/buddy_apt sudo (update|install)/g)].reduce((total, [, kind]) => {
+        const limit = override ? Number(override[1]) : kind === 'update' ? 300 : 600
+        return total + (kind === 'update' ? 2 : 3) * (limit + 30)
+      }, 0)
+    }
+    let checked = 0
+    for (const path of ['.github/workflows/ci.yml', '.github/workflows/rust.yml']) {
+      for (const job of read(path).split(/\n {2}(?=[\w-]+:\n)/)) {
+        const jobLimit = job.match(/\n {4}timeout-minutes: (\d+)\n/)
+        for (const step of job
+          .split(/\n\s+- (?=name:|uses:)/)
+          .filter(s => s.includes('buddy_apt'))) {
+          const stepLimit = Number(step.match(/\n\s+timeout-minutes: (\d+)\n/)?.[1])
+          expect(stepLimit * 60, step).toBeGreaterThanOrEqual(worstSeconds(step))
+          if (jobLimit) expect(Number(jobLimit[1]), step).toBeGreaterThanOrEqual(stepLimit + 5)
+          checked += 1
+        }
+      }
+    }
+    expect(checked).toBe(4)
   })
 })
