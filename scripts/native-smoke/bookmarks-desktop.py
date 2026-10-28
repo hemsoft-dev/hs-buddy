@@ -109,7 +109,7 @@ def add_and_delete(driver, theme, victim):
         ("capture", f"editor-{theme}"),
         # The new bookmark lands at the end of the list, which may be below the
         # window's fold; its own category shows it whatever the window height.
-        ("click", "Add Bookmark"), ("wait_text", "Bookmark added."),
+        ("click", "Add bookmark"), ("wait_text", "Bookmark added."),
         ("click", "Reading"), ("wait_text", new["title"]), ("capture", f"added-{theme}"),
         ("click", "All bookmarks"), ("wait_text", "Morning news"),
         # `box` types at the middle of the input: `input` clicks beside the label,
@@ -129,8 +129,10 @@ def add_and_delete(driver, theme, victim):
         "Rust Book", "Morning news", "Open externally")
     github.check(flow / f"category-{theme}.png", "All bookmarks", "In Development", "Rust", "Web", "GPUI guide",
         "MDN reference", absent=("Morning news",))
-    github.check(flow / f"editor-{theme}.png", "New bookmark", "URL", "Title", "Category", "Tags", "Add Bookmark")
-    github.check(flow / f"added-{theme}.png", "Bookmark added.", new["title"], "Reading")
+    github.check(flow / f"editor-{theme}.png", "New bookmark", "URL", "Title", "Category", "Tags", "Add bookmark")
+    # "Bookmark added." is waited for before Reading is chosen, which clears it;
+    # the category heading, not the selected tree row, shows the filter.
+    github.check(flow / f"added-{theme}.png", new["title"], "In Reading")
     github.check(flow / f"delete-confirm-{theme}.png", "Confirm delete", "permanently removed")
     github.check(flow / f"deleted-{theme}.png", "Deleted", absent=("Confirm delete",))
     github.check(flow / f"compact-list-{theme}.png", "Bookmarks", "Rust Book", "Search")

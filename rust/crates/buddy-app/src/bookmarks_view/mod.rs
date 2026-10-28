@@ -71,7 +71,10 @@ pub struct BookmarksView {
     delete_error: Option<String>,
     /// A delete or reorder is running.
     busy: bool,
+    /// Feedback after an action; it clears at the next one.
     notice: Option<String>,
+    /// The notice confirms a finished change (added, saved, deleted).
+    notice_success: bool,
     error: Option<String>,
     active: bool,
     /// `gh`'s active account, used for suggestions when Settings names no Copilot account.
@@ -93,8 +96,13 @@ impl BookmarksView {
         cx: &mut Context<Self>,
     ) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search bookmarks…"));
-        cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify())
-            .detach();
+        cx.subscribe(&search, |this, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.notice = None;
+            }
+            cx.notify()
+        })
+        .detach();
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(POLL).await;
@@ -125,6 +133,7 @@ impl BookmarksView {
             delete_error: None,
             busy: false,
             notice: None,
+            notice_success: false,
             error: None,
             active: false,
             default_account: None,
@@ -266,6 +275,7 @@ impl BookmarksView {
             self.expanded.insert(path.clone());
         }
         self.filter.category = category.unwrap_or_default();
+        self.notice = None;
         cx.notify();
     }
 
@@ -278,6 +288,7 @@ impl BookmarksView {
 
     pub(super) fn select_tag(&mut self, tag: Option<String>, cx: &mut Context<Self>) {
         self.filter.tag = tag.unwrap_or_default();
+        self.notice = None;
         cx.notify();
     }
 
@@ -375,6 +386,7 @@ impl BookmarksView {
         let Some(url) = bookmarks::pasted_url(&text) else {
             self.error = None;
             self.notice = Some("The clipboard holds no http or https URL to add.".into());
+            self.notice_success = false;
             cx.notify();
             return;
         };
@@ -552,6 +564,7 @@ impl BookmarksView {
                     editor.saving = false;
                     match result {
                         Ok(Ok(_)) => {
+                            this.notice_success = true;
                             this.notice = Some(
                                 if editing.is_some() {
                                     "Bookmark saved."
@@ -578,6 +591,8 @@ impl BookmarksView {
         if self.find(id).is_some() {
             self.confirm = Some(id.to_string());
             self.delete_error = None;
+            // An earlier "Bookmark added." doesn't describe this delete.
+            self.notice = None;
             cx.notify();
         }
     }
@@ -610,6 +625,7 @@ impl BookmarksView {
                     Ok(Ok(())) => {
                         this.confirm = None;
                         this.notice = Some(format!("Deleted \u{201c}{title}\u{201d}."));
+                        this.notice_success = true;
                         if let Some(data) = &mut this.data {
                             data.bookmarks.retain(|bookmark| bookmark.id != id);
                         }

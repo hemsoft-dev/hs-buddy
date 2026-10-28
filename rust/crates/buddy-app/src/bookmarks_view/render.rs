@@ -73,7 +73,8 @@ pub(super) const TAG_AREA_HEIGHT: f32 = 76.0;
 impl BookmarksView {
     fn render_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let (border, primary) = (theme.border, theme.primary);
+        let (border, list_active, list_active_border) =
+            (theme.border, theme.list_active, theme.list_active_border);
         let total = self.bookmarks().len();
         let mut tree = v_flex()
             .gap_1()
@@ -97,10 +98,11 @@ impl BookmarksView {
                         .rounded_md()
                         .border_1()
                         .border_color(if all {
-                            primary
+                            list_active_border
                         } else {
                             gpui_kit::transparent_black()
                         })
+                        .when(all, |row| row.bg(list_active))
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _, _, cx| this.select_category(None, cx)))
                         .child(Icon::new(IconName::Globe).size(zpx(14.)))
@@ -137,7 +139,8 @@ impl BookmarksView {
     }
 
     fn render_node(&self, node: &CategoryNode, depth: usize, cx: &mut Context<Self>) -> AnyElement {
-        let primary = cx.theme().primary;
+        let (list_active, list_active_border) =
+            (cx.theme().list_active, cx.theme().list_active_border);
         let path = node.full_path.clone();
         let direct = bookmarks::in_order(self.bookmarks(), &node.full_path);
         let has_children = !node.children.is_empty() || !direct.is_empty();
@@ -154,11 +157,14 @@ impl BookmarksView {
             .pr_1()
             .rounded_md()
             .border_1()
+            // A selected fill, so the chosen category doesn't read as keyboard
+            // focus (an outline alone matched a focused input).
             .border_color(if selected {
-                primary
+                list_active_border
             } else {
                 gpui_kit::transparent_black()
             })
+            .when(selected, |row| row.bg(list_active))
             .child(if has_children {
                 Button::new(id("bookmark-toggle", &path))
                     .ghost()
@@ -282,11 +288,20 @@ impl BookmarksView {
     fn render_messages(&self, cx: &App) -> AnyElement {
         let mut messages = v_flex().gap_1();
         if let Some(notice) = &self.notice {
+            // A finished change reads as a success, a hint as information; the
+            // tone is on the icon, so the text keeps full contrast.
+            let (icon, color) = if self.notice_success {
+                (IconName::CircleCheck, cx.theme().success)
+            } else {
+                (IconName::Info, cx.theme().muted_foreground)
+            };
             messages = messages.child(
-                div()
-                    .whitespace_normal()
+                h_flex()
+                    .gap_2()
+                    .items_center()
                     .debug_selector(|| "bookmarks-notice".into())
-                    .child(notice.clone()),
+                    .child(Icon::new(icon).size(zpx(16.)).text_color(color))
+                    .child(div().whitespace_normal().child(notice.clone())),
             );
         }
         let refresh = self
@@ -371,10 +386,13 @@ impl BookmarksView {
             .overflow_y_scroll();
         if !tags.is_empty() {
             chips = chips.child(
+                // The chosen chip is filled: the selected tint alone (#333 on
+                // #272727 in dark) barely showed which filter is on.
                 Button::new("bookmarks-tag-all")
                     .xsmall()
                     .label("All tags")
                     .selected(self.filter.tag.is_empty())
+                    .when(self.filter.tag.is_empty(), |chip| chip.primary())
                     .on_click(cx.listener(|this, _, _, cx| this.select_tag(None, cx))),
             );
         }
@@ -386,6 +404,7 @@ impl BookmarksView {
                     .xsmall()
                     .label(format!("#{tag}"))
                     .selected(selected)
+                    .when(selected, |chip| chip.primary())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select_tag((!selected).then(|| chosen.clone()), cx)
                     })),
@@ -425,7 +444,8 @@ impl BookmarksView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let (border, danger) = (theme.border, theme.danger);
+        let (border, danger, link, link_hover) =
+            (theme.border, theme.danger, theme.link, theme.link_hover);
         let confirming = self.confirm.as_deref() == Some(bookmark.id.as_str());
         let (open, external, edit, delete) = (
             bookmark.id.clone(),
@@ -433,10 +453,18 @@ impl BookmarksView {
             bookmark.id.clone(),
             bookmark.id.clone(),
         );
-        let mut meta = h_flex()
-            .flex_wrap()
-            .gap_2()
-            .child(muted(bookmark.category_leaf().to_string(), cx));
+        // The category carries a folder glyph, so it doesn't run into the tags.
+        let mut meta = h_flex().flex_wrap().gap_2().items_center().child(
+            h_flex()
+                .gap_1()
+                .items_center()
+                .child(
+                    Icon::new(IconName::FolderOpen)
+                        .size(zpx(12.))
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(muted(bookmark.category_leaf().to_string(), cx)),
+        );
         for tag in &bookmark.tags {
             meta = meta.child(muted(format!("#{tag}"), cx));
         }
@@ -459,8 +487,18 @@ impl BookmarksView {
                             .min_w(zpx(200.))
                             .gap_1()
                             .cursor_pointer()
+                            .group("bookmark-open")
                             .on_click(cx.listener(move |this, _, _, cx| this.open(&open, cx)))
-                            .child(div().text_lg().child(bookmark.title.clone()))
+                            // The title is the open target, so it reads as a link.
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .text_color(link)
+                                    .group_hover("bookmark-open", |style| {
+                                        style.text_color(link_hover).underline()
+                                    })
+                                    .child(bookmark.title.clone()),
+                            )
                             .child(muted(bookmark.url.clone(), cx))
                             .when_some(
                                 bookmark.description.clone().filter(|d| !d.is_empty()),
@@ -623,6 +661,7 @@ impl BookmarksView {
                 all
             })
             .unwrap_or_default();
+        let has_categories = !categories.is_empty();
         let mut existing = h_flex().flex_wrap().gap_1();
         for (index, category) in categories.into_iter().enumerate() {
             let chosen = category.clone();
@@ -658,9 +697,9 @@ impl BookmarksView {
                     .label(if saving {
                         "Saving…"
                     } else if editor.editing.is_some() {
-                        "Save Changes"
+                        "Save changes"
                     } else {
-                        "Add Bookmark"
+                        "Add bookmark"
                     })
                     .disabled(saving)
                     .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
@@ -680,9 +719,11 @@ impl BookmarksView {
                 .child(left.flex_1().min_w(zpx(220.)))
                 .child(right.flex_1().min_w(zpx(220.)))
         };
+        // Sized to its fields: it shrinks and scrolls in a short window, but
+        // never stretches into an empty slab below Description.
         v_flex()
             .id("bookmarks-editor")
-            .flex_1()
+            .flex_initial()
             .min_h_0()
             .overflow_y_scroll()
             .gap_2()
@@ -721,12 +762,13 @@ impl BookmarksView {
                 labeled(tags_label, Input::new(&editor.tags).disabled(saving)),
             ))
             .child(muted(
-                "URL, title and category are required. Categories nest with / (e.g. \
-                 Development/Frontend): pick an existing one below, then type /Name after it for \
-                 a new subcategory. Tags are comma-separated, at most 50.",
+                "URL, title and category are required. A / nests a category, as in \
+                 Development/Rust. Tags are comma-separated.",
                 cx,
             ))
-            .child(existing)
+            .when(has_categories, |column| {
+                column.child(labeled("Existing categories", existing))
+            })
             .child(
                 labeled(
                     description_label,
@@ -740,9 +782,11 @@ impl BookmarksView {
     }
 
     fn render_failure(&self, error: String, cx: &mut Context<Self>) -> AnyElement {
+        // Vertical padding only: the pane's own padding already aligns it with
+        // the header's "Bookmarks".
         v_flex()
             .gap_2()
-            .p_4()
+            .py_4()
             .items_start()
             .debug_selector(|| "bookmarks-failure".into())
             .child(div().text_lg().child("Unable to load bookmarks"))

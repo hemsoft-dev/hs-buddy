@@ -439,6 +439,44 @@ fn the_editor_validates_then_creates_and_updates(cx: &mut gpui_kit::TestAppConte
             .as_deref(),
         Some("Bookmark added.")
     );
+    assert!(view.read_with(&visual, |view, _| view.notice_success));
+    // The next action clears it: a stale "Bookmark added." once stood beside a
+    // delete confirm for another card.
+    let notice =
+        |visual: &mut VisualTestContext| view.read_with(visual, |view, _| view.notice.clone());
+    let set = |visual: &mut VisualTestContext| {
+        view.update(visual, |view, _| {
+            view.notice = Some("Bookmark added.".into())
+        })
+    };
+    view.update(&mut visual, |view, cx| {
+        view.select_category(Some("Dev".into()), cx)
+    });
+    assert_eq!(notice(&mut visual), None);
+    set(&mut visual);
+    view.update(&mut visual, |view, cx| {
+        view.select_tag(Some("rust".into()), cx)
+    });
+    assert_eq!(notice(&mut visual), None);
+    set(&mut visual);
+    view.update(&mut visual, |view, cx| view.ask_delete("news", cx));
+    assert_eq!(notice(&mut visual), None);
+    view.update(&mut visual, |view, cx| view.cancel_delete(cx));
+    set(&mut visual);
+    let search = view.read_with(&visual, |view, _| view.search.clone());
+    visual.update(|window, cx| {
+        search.update(cx, |input, cx| {
+            input.set_value("rust", window, cx);
+            cx.emit(InputEvent::Change);
+        })
+    });
+    visual.run_until_parked();
+    assert_eq!(notice(&mut visual), None);
+    type_in(&search, "", &mut visual);
+    view.update(&mut visual, |view, cx| {
+        view.select_category(None, cx);
+        view.select_tag(None, cx)
+    });
     assert!(
         fake.loads.load(Ordering::SeqCst) > loads,
         "the list is read again"
