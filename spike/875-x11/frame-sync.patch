@@ -1,0 +1,96 @@
+diff --git a/rust/crates/buddy-app/src/browser_view/linux.rs b/rust/crates/buddy-app/src/browser_view/linux.rs
+index eab9dd38..082064bc 100644
+--- a/rust/crates/buddy-app/src/browser_view/linux.rs
++++ b/rust/crates/buddy-app/src/browser_view/linux.rs
+@@ -1,12 +1,12 @@
+ //! WebKitGTK inside GPUI's X11 window. wry wants an Xlib parent and an
+ //! initialized GTK pumped by the host app; GPUI hands out XCB and has no
+ //! GTK. The `gtk` crate itself isn't a dependency here: its bindings are
+-//! flagged unmaintained, so this module talks to the three GTK/GDK calls it
++//! flagged unmaintained, so this module talks to the few GTK/GDK calls it
+ //! needs directly and lets tao (wry's maintained sibling) set gtk-rs's own
+ //! "initialized" flag, which webkit2gtk checks.
+ 
+ use std::cell::Cell;
+-use std::os::raw::{c_char, c_int, c_ulong};
++use std::os::raw::{c_char, c_int, c_ulong, c_void};
+ 
+ use raw_window_handle::{RawWindowHandle, XlibWindowHandle};
+ 
+@@ -15,6 +15,7 @@ use super::host::{Unavailable, no_window};
+ #[link(name = "gdk-3")]
+ unsafe extern "C" {
+     fn gdk_set_allowed_backends(backends: *const c_char);
++    fn gdk_x11_window_set_frame_sync_enabled(window: *mut c_void, enabled: c_int);
+ }
+ 
+ #[link(name = "gtk-3")]
+@@ -22,6 +23,20 @@ unsafe extern "C" {
+     fn gtk_init_check(argc: *mut c_int, argv: *mut *mut *mut c_char) -> c_int;
+     fn gtk_events_pending() -> c_int;
+     fn gtk_main_iteration_do(blocking: c_int) -> c_int;
++    fn gtk_window_list_toplevels() -> *mut GList;
++    fn gtk_widget_get_window(widget: *mut c_void) -> *mut c_void;
++}
++
++#[link(name = "glib-2.0")]
++unsafe extern "C" {
++    fn g_list_free(list: *mut GList);
++}
++
++#[repr(C)]
++struct GList {
++    data: *mut c_void,
++    next: *mut GList,
++    _prev: *mut GList,
+ }
+ 
+ thread_local! {
+@@ -66,6 +81,33 @@ pub fn parent(raw: RawWindowHandle) -> Result<RawWindowHandle, Unavailable> {
+     Ok(RawWindowHandle::Xlib(XlibWindowHandle::new(window)))
+ }
+ 
++/// Turns off GDK's frame sync for every page window. wry parents each page's
++/// GTK window into GPUI's X11 window, where no window manager or compositor
++/// manages it, so `_NET_WM_FRAME_DRAWN` never arrives for it. With sync on,
++/// GDK froze the window after its first frame to wait for that message, and a
++/// page whose first paint lost the race stayed black until hidden (#875's X11
++/// qualification: the second tab). GDK documents turning sync off for windows
++/// embedded this way. Every GTK toplevel here is a page window: GPUI isn't GTK.
++pub fn embedded() {
++    if READY.with(Cell::get) != Some(true) {
++        return;
++    }
++    // SAFETY: GTK was initialized on this thread by `gtk_ready`. The list
++    // holds borrowed widgets and is freed here; each window is checked.
++    unsafe {
++        let list = gtk_window_list_toplevels();
++        let mut node = list;
++        while !node.is_null() {
++            let window = gtk_widget_get_window((*node).data);
++            if !window.is_null() {
++                gdk_x11_window_set_frame_sync_enabled(window, 0);
++            }
++            node = (*node).next;
++        }
++        g_list_free(list);
++    }
++}
++
+ pub fn pump() {
+     if READY.with(Cell::get) != Some(true) {
+         return;
+diff --git a/rust/crates/buddy-app/src/browser_view/wry_host.rs b/rust/crates/buddy-app/src/browser_view/wry_host.rs
+index fe405654..a0f8bf17 100644
+--- a/rust/crates/buddy-app/src/browser_view/wry_host.rs
++++ b/rust/crates/buddy-app/src/browser_view/wry_host.rs
+@@ -188,6 +188,9 @@ impl Host for WryHost {
+             log::warn!("browser: frame guard failed: {err}");
+             Unavailable("The web engine couldn't start.".into())
+         })?;
++        // Before the page is first shown, so no frame waits on a compositor.
++        #[cfg(target_os = "linux")]
++        platform::embedded();
+         let page = WryPage(webview);
+         page.zoom(zoom);
+         Ok(Rc::new(page))

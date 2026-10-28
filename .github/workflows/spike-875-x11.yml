@@ -1,7 +1,10 @@
 # Throwaway reproduction for hs-buddy#875; runs only on its own spike branch.
-# Rounds 1-3 (a minimal wry + tao program: switching variants, the real fixture
-# pages with the app's handlers, a GPUI-like 32-bit ARGB parent) all rendered the
-# second page. Round 4 runs the real app: #875's own package and browser driver.
+# Rounds 1-3 (a minimal wry + tao program) never reproduced the black second
+# page. Round 4 ran #875's real package: the page stayed black in 2 of 3 runs,
+# always after a GDK frame-clock freeze that no thaw followed. Round 5 builds
+# #875 with GDK frame sync turned off for page windows and repeats the run, and
+# separately parks the pointer before the final Ctrl+Q (the passing round-4 run
+# then never quit: X11 delivers keys to the page window under the pointer).
 name: spike-875-x11
 
 on:
@@ -14,7 +17,7 @@ permissions:
 jobs:
   app:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read
@@ -23,6 +26,36 @@ jobs:
         with:
           ref: c02febd22ed613aaed06b7d1b251128e42b24ce9
           persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: spike-source
+          persist-credentials: false
+
+      - name: Apply the frame-sync change
+        run: git apply --verbose spike-source/spike/875-x11/frame-sync.patch
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang pkg-config mold \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
+            libssl-dev libdbus-1-dev dbus-x11 gnome-keyring libglib2.0-bin \
+            libwebkit2gtk-4.1-dev libgtk-3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable, 2026-10-07
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Build and lint the app
+        working-directory: rust
+        run: |
+          cargo clippy --locked -p buddy-app --bin buddy -- -D warnings
+          cargo build --locked --release --bin buddy
 
       - name: Setup package driver Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -34,17 +67,12 @@ jobs:
       - name: Install the checkout's dependencies
         run: bun install --frozen-lockfile
 
-      - name: Fetch #875's Ubuntu package (run 40629646121)
+      - name: Install #875's package for its runtime dependencies (run 40629646121)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run download 40629646121 -R "$GITHUB_REPOSITORY" -n buddy-native-ubuntu-24.04 -D "$RUNNER_TEMP/artifact"
-          find "$RUNNER_TEMP/artifact" -name '*.deb' -o -name build.json | head
-
-      - name: Install the package and desktop tools
-        run: |
           deb="$(find "$RUNNER_TEMP/artifact" -name '*.deb' | head -n 1)"
-          sudo apt-get update
           sudo apt-get install -y --no-install-recommends "$deb"
           source scripts/native-smoke/linux-desktop-tools.sh
           buddy_install_linux_desktop_tools sudo apt-get
@@ -52,24 +80,31 @@ jobs:
           sandbox="$(realpath "$(dirname "$electron_executable")/chrome-sandbox")"
           sudo chown root:root "$sandbox"
           sudo chmod 4755 "$sandbox"
-          dpkg-query -W -f='${Version}\n' buddy-native libwebkit2gtk-4.1-0
 
-      - name: Browser qualification per variant
+      - name: Browser qualification, repeated
         run: |
-          version="$(dpkg-query -W -f='${Version}' buddy-native)"
+          binary="$PWD/rust/target/release/buddy"
+          version="$(node -p "require('./package.json').version")"
+          "$binary" --version
           variant() {
-            name="$1"; shift
+            name="$1"
             echo "== $name"
-            env "$@" RUST_LOG=info,wry=debug xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
+            if xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
               openbox >/dev/null 2>&1 &
-              BUDDY_SETTINGS_FIXTURE=1 python3 scripts/native-smoke/browser-desktop.py --executable "$(command -v buddy-native)" \
-                --output "$RUNNER_TEMP/ev/$0" --session x11 --version "$1"
-            ' "$name" "$version" 2>&1 | tail -n 15 && echo "RESULT $name passed" || echo "RESULT $name failed"
+              BUDDY_SETTINGS_FIXTURE=1 python3 scripts/native-smoke/browser-desktop.py --executable "$1" \
+                --output "$RUNNER_TEMP/ev/$0" --session x11 --version "$2"
+            ' "$name" "$binary" "$version" > "$RUNNER_TEMP/$name.log" 2>&1; then
+              echo "RESULT $name passed"
+            else
+              echo "RESULT $name failed"
+              tail -n 6 "$RUNNER_TEMP/$name.log"
+            fi
+            grep -c 'Gdk-CRITICAL' "$RUNNER_TEMP/ev/$name/browser-dark/app.log" 2>/dev/null || true
           }
           mkdir -p "$RUNNER_TEMP/ev"
-          variant base SPIKE=1
-          variant nocompositing WEBKIT_DISABLE_COMPOSITING_MODE=1
-          variant nodmabuf WEBKIT_DISABLE_DMABUF_RENDERER=1
+          for run in 1 2 3 4; do variant "fixed-$run"; done
+          python3 spike-source/spike/875-x11/park_pointer.py .
+          for run in 1 2; do variant "fixed-parked-$run"; done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

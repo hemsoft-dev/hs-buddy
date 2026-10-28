@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1558] - 2026-10-28
+
+### Changed
+
+- Build #875 with GDK frame sync off and repeat the run
+
 ## [0.1.1557] - 2026-10-28
 
 ### Changed
