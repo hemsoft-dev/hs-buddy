@@ -323,6 +323,10 @@ impl BrowserView {
             && tab.page.is_none()
             && !tab.starting
             && tab.notice.is_none()
+            // An engine that wants its page created on screen waits for the
+            // tab's first layout (a frame): before it, a new tab has no area,
+            // so its page was still created hidden, and stayed black (#875).
+            && (tab.bounds.get().is_some() || !self.host.shows_at_creation())
             && let Ok(Target::Web(url)) = browser::classify(&tab.url, self.fixture.as_ref())
         {
             let id = tab.id;
