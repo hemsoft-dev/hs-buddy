@@ -25,6 +25,7 @@ if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-
 
 # --- Config: load shared model/agent configuration ---
 . (Join-Path $PSScriptRoot 'lib' 'config.ps1')
+. (Join-Path $PSScriptRoot 'lib' 'repository.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -210,21 +211,13 @@ $runStart = Get-Date
 $runStartStr = $runStart.ToString("yyyy-MM-dd HH:mm:ss")
 
 # --- Resolve repo slug ---
-$repoSlug = gh repo view --json nameWithOwner -q '.nameWithOwner' 2>$null
-if (-not $repoSlug) {
-    $remoteUrl = git --no-pager remote get-url origin 2>$null
-    if ($remoteUrl -match '[:/]([^/]+/[^/]+?)(?:\.git)?$') {
-        $repoSlug = $Matches[1]
-    }
-    else {
-        Write-Host "Failed to resolve GitHub repo from this directory." -ForegroundColor Red
-        if ($remoteUrl) {
-            Write-Host "  Remote: $remoteUrl" -ForegroundColor DarkGray
-        }
-        exit 1
-    }
+# origin must name a GitHub repository; gh confirms it once the account is matched below.
+$originRepo = Get-RalphOriginRemote
+if ($originRepo.Error) {
+    Write-Host $originRepo.Error -ForegroundColor Red
+    exit 1
 }
-$owner, $repo = $repoSlug -split '/'
+$owner, $repo = $originRepo.Slug -split '/'
 
 # --- Match gh account to repo owner ---
 # When the active gh account differs from the repo owner (e.g. Relias account
@@ -256,6 +249,14 @@ elseif ($activeGhUser -and $activeGhUser -ne $owner) {
         }
     }
 }
+
+$repoSlug = Confirm-RalphGitHubRepo -Slug $originRepo.Slug
+if (-not $repoSlug) {
+    Write-Host "gh repo view could not resolve origin as the GitHub repository $($originRepo.Slug)." -ForegroundColor Red
+    Write-Host "  Check that it exists and that your gh account can read it." -ForegroundColor DarkGray
+    exit 1
+}
+$owner, $repo = $repoSlug -split '/'
 
 # --- PR selection ---
 if (-not $PRNumber) {
@@ -308,17 +309,19 @@ if (-not $PRNumber) {
 }
 
 # --- Get PR branch and set up worktree ---
-$prInfo = (gh pr view $PRNumber --repo $repoSlug --json headRefName,state,isCrossRepository 2>&1)
+$prInfo = (gh pr view $PRNumber --repo $repoSlug --json headRefName,baseRefName,state,isCrossRepository 2>&1)
 if ($LASTEXITCODE -ne 0 -or -not $prInfo) {
     Write-Host "Failed to get PR info for PR #$PRNumber." -ForegroundColor Red
     exit 1
 }
 $prData = $prInfo | ConvertFrom-Json
 $prBranch = $prData.headRefName
+# The branch the PR merges into. Conflicts are rebased onto it, never an assumed main.
+$script:PRBase = $prData.baseRefName
 $prState = $prData.state
 
-if (-not $prBranch) {
-    Write-Host "Failed to get branch name for PR #$PRNumber." -ForegroundColor Red
+if (-not $prBranch -or -not $script:PRBase) {
+    Write-Host "Failed to get the head and base branch names for PR #$PRNumber." -ForegroundColor Red
     exit 1
 }
 
@@ -422,7 +425,13 @@ if ($branchAttachedElsewhere) {
 
 if ($worktreeExists) {
     Write-Host "Reusing existing worktree at: $worktreeDir" -ForegroundColor Cyan
-    git -C $worktreeDir pull --ff-only 2>&1 | Out-Null
+    # An interrupted run can leave it dirty, diverged or untracked; never work on a stale head.
+    $notReusable = Test-RalphReusedWorktree -Path $worktreeDir -Branch $prBranch
+    if ($notReusable) {
+        Write-Host "Cannot reuse the worktree at ${worktreeDir}: $notReusable" -ForegroundColor Red
+        Write-Host "  Fix it there or remove it (git worktree remove '$worktreeDir'), then run again." -ForegroundColor Yellow
+        exit 1
+    }
 }
 else {
     if (-not (Test-Path $worktreeBase)) {
@@ -777,14 +786,20 @@ function Get-PRMergeableState {
     return $state
 }
 
+# The PR's current base branch; it can be retargeted while the loop runs. A failed read
+# keeps the base read at the start.
+function Update-PRBase {
+    $base = gh pr view $PRNumber --repo $repoSlug --json baseRefName -q '.baseRefName' 2>$null
+    if ($LASTEXITCODE -eq 0 -and "$base".Trim()) { $script:PRBase = "$base".Trim() }
+}
+
 function Resolve-MergeConflicts {
-    Write-Status "PR has merge conflicts. Attempting rebase on origin/main..."
-    git fetch origin main 2>&1 | Out-Null
-    $rebaseOutput = git -c core.hooksPath=NUL rebase origin/main 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Status "Rebase failed — conflicts require manual resolution. Aborting rebase."
-        git rebase --abort 2>&1 | Out-Null
-        Write-Status "REBASE OUTPUT:`n$($rebaseOutput | Out-String)"
+    Update-PRBase
+    Write-Status "PR has merge conflicts. Attempting rebase on origin/$script:PRBase..."
+    $rebaseError = Invoke-RalphRebaseOnto -Base $script:PRBase
+    if ($rebaseError) {
+        Write-Status "Could not rebase onto origin/$script:PRBase; the conflicts need resolving by hand."
+        Write-Status "REBASE OUTPUT:`n$rebaseError"
         return $false
     }
     Write-Status "Rebase succeeded. Force-pushing..."
@@ -875,7 +890,7 @@ try {
                     break
                 }
                 Write-Status "Handing off to Copilot to resolve merge conflicts (attempt $conflictAttempts)..."
-                $conflictPrompt = "PR #$PRNumber in $repoSlug has merge conflicts with origin/main. Resolve them by rebasing branch '$prBranch' on origin/main, fixing all conflict markers in the affected files, then force-push. Working directory: $(Get-Location)"
+                $conflictPrompt = "PR #$PRNumber in $repoSlug has merge conflicts with its base branch origin/$script:PRBase. Resolve them by fetching origin/$script:PRBase and rebasing branch '$prBranch' on it, fixing all conflict markers in the affected files, then force-push. Working directory: $(Get-Location)"
                 "[$logTag] Merge conflict — invoking copilot (attempt $conflictAttempts): $conflictPrompt" | Out-File $logFile -Append -Encoding UTF8
                 $workCycles++
                 $copilotInvocations++

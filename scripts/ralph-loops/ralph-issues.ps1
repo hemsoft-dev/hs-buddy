@@ -19,6 +19,7 @@ if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-
 
 # --- Config: load shared model/agent configuration ---
 . (Join-Path $PSScriptRoot 'lib' 'config.ps1')
+. (Join-Path $PSScriptRoot 'lib' 'repository.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -154,20 +155,15 @@ if (-not $ghCmd) {
 }
 
 # --- Resolve repo slug for issue tracking ---
-$repoSlug = gh repo view --json nameWithOwner -q '.nameWithOwner' 2>$null
-if (-not $repoSlug) {
-    $remoteUrl = git --no-pager remote get-url origin 2>$null
-    if ($remoteUrl -match '[:/]([^/]+/[^/]+?)(?:\.git)?$') {
-        $repoSlug = $Matches[1]
-    }
-}
-if (-not $repoSlug) {
-    Write-Host "Cannot determine repo slug. Ensure 'origin' remote is configured." -ForegroundColor Red
+# Issues are filed in the GitHub repository origin names, never one a slug merely resembles.
+$originRepo = Get-RalphOriginRemote
+if ($originRepo.Error) {
+    Write-Host $originRepo.Error -ForegroundColor Red
     exit 1
 }
 
 # Match gh account to repo owner
-$rsOwner = ($repoSlug -split '/')[0]
+$rsOwner = ($originRepo.Slug -split '/')[0]
 # Buddy Native runs a loop as the account its GitHub view showed: RALPH_GH_ACCOUNT names
 # it and GH_TOKEN holds its token. That account is kept, never traded for the owner's.
 $rsActiveUser = gh api user --jq '.login' 2>$null
@@ -176,6 +172,13 @@ if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwne
     if ($rsToken) {
         $env:GH_TOKEN = $rsToken
     }
+}
+
+$repoSlug = Confirm-RalphGitHubRepo -Slug $originRepo.Slug
+if (-not $repoSlug) {
+    Write-Host "gh repo view could not resolve origin as the GitHub repository $($originRepo.Slug)." -ForegroundColor Red
+    Write-Host "  Check that it exists and that your gh account can read it." -ForegroundColor DarkGray
+    exit 1
 }
 
 # --- Repo audio identification ---

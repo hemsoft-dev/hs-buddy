@@ -6,6 +6,8 @@ pub mod launch;
 #[cfg(unix)]
 mod marked;
 pub mod progress;
+#[cfg(test)]
+mod script_checks;
 pub mod scripts;
 pub mod store;
 
@@ -31,6 +33,11 @@ pub fn start(
     let launch = launch.resolved(&catalog);
     let tools = launch::discover_installed()?;
     let repository_key = launch::verify_repository(&launch.repository, &tools)?;
+    launch::verify_github_origin(
+        &launch.repository,
+        &tools,
+        crate::crew::project::resolve_ssh_host,
+    )?;
     let base = if launch.script.uses_cycles() && launch.cycles > 1 {
         // Origin is asked as the account the run will work as.
         let token = match &launch.account {

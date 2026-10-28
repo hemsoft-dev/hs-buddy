@@ -26,6 +26,7 @@ pub(super) const BUNDLED: &[(&str, &str)] = bundled![
     "config/models.json",
     "config/providers.json",
     "lib/config.ps1",
+    "lib/repository.ps1",
     "ralph.ps1",
     "ralph-issues.ps1",
     "ralph-pr.ps1",
