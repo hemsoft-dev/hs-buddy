@@ -53,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1551] - 2026-10-27
 
+### Fixed
+
+- Bound dpkg recovery and fit apt retries inside each job
+
+## [0.1.1550] - 2026-10-27
+
+### Fixed
+
+- Expand the empty privilege array safely in bash 3.2
+
 ### Changed
 
 - Wait for the first host to release its lock
@@ -68,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Port bookmark management to GPUI
+
+- Bound and retry apt installs so a slow mirror fails fast
 
 - Set the upstream when ralph.ps1 pushes its branch
 
