@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Open no more tabs than a restart restores
 
+## [0.1.1562] - 2026-10-28
+
+### Fixed
+
+- Check the bookmark tree's root where it isn't selected
+
 ## [0.1.1561] - 2026-10-28
 
 ### Fixed

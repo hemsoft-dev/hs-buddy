@@ -123,10 +123,12 @@ def add_and_delete(driver, theme, victim):
         ("click", "Add"), ("wait_text", "New bookmark"), ("capture", f"compact-editor-{theme}"),
         ("click", "Cancel"), ("wait_text", "Rust Book"),
     ], record=True)
-    github.check(flow / f"list-{theme}.png", "Bookmarks", "All bookmarks", "Development", "News",
+    # The tree's root is checked where it isn't the selected row: Tesseract skipped
+    # "All bookmarks" inside its light-theme focus ring on macOS (run 40643311321).
+    github.check(flow / f"list-{theme}.png", "Bookmarks", "Development", "News",
         "Rust Book", "Morning news", "Open externally")
-    github.check(flow / f"category-{theme}.png", "In Development", "Rust", "Web", "GPUI guide", "MDN reference",
-        absent=("Morning news",))
+    github.check(flow / f"category-{theme}.png", "All bookmarks", "In Development", "Rust", "Web", "GPUI guide",
+        "MDN reference", absent=("Morning news",))
     github.check(flow / f"editor-{theme}.png", "New bookmark", "URL", "Title", "Category", "Tags", "Add Bookmark")
     github.check(flow / f"added-{theme}.png", "Bookmark added.", new["title"], "Reading")
     github.check(flow / f"delete-confirm-{theme}.png", "Confirm delete", "permanently removed")
