@@ -21,15 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Expand the empty privilege array safely in bash 3.2
 
+### Changed
+
+- Wait for the first host to release its lock
+
 ## [0.1.1549] - 2026-10-27
 
 ### Fixed
 
 - Bound and retry apt installs so a slow mirror fails fast
 
+- Set the upstream when ralph.ps1 pushes its branch
+
 ## [0.1.1548] - 2026-10-27
 
 ### Fixed
+
+- Require a GitHub origin, validate reused PR worktrees, rebase onto the PR base
 
 - Disarm pending confirms on other actions and word failures for the Crew
 
