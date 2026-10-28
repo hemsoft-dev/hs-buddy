@@ -472,11 +472,10 @@ fn the_editor_validates_then_creates_and_updates(cx: &mut gpui_kit::TestAppConte
     });
     visual.run_until_parked();
     assert_eq!(notice(&mut visual), None);
-    type_in(&search, "", &mut visual);
-    view.update(&mut visual, |view, cx| {
-        view.select_category(None, cx);
-        view.select_tag(None, cx)
-    });
+    // Clear filters too, whose emptied search emits no Change.
+    set(&mut visual);
+    visual.update(|window, cx| view.update(cx, |view, cx| view.clear_filters(window, cx)));
+    assert_eq!(notice(&mut visual), None);
     assert!(
         fake.loads.load(Ordering::SeqCst) > loads,
         "the list is read again"

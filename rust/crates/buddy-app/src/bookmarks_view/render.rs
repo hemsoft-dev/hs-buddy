@@ -47,6 +47,12 @@ fn muted(text: impl Into<SharedString>, cx: &App) -> gpui_kit::Div {
         .child(text.into())
 }
 
+/// The chosen tree row: a clear primary tint and no ring. The theme's list fill
+/// was about 5 levels off the pane, and a blue ring matched input focus.
+fn selected_row(cx: &App) -> gpui_kit::Hsla {
+    cx.theme().primary.opacity(0.15)
+}
+
 /// A field under its label; installed qualification finds fields by their labels.
 fn labeled(label: impl Into<SharedString>, field: impl IntoElement) -> gpui_kit::Div {
     v_flex()
@@ -73,8 +79,7 @@ pub(super) const TAG_AREA_HEIGHT: f32 = 76.0;
 impl BookmarksView {
     fn render_tree(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let (border, list_active, list_active_border) =
-            (theme.border, theme.list_active, theme.list_active_border);
+        let (border, selected_fill) = (theme.border, selected_row(cx));
         let total = self.bookmarks().len();
         let mut tree = v_flex()
             .gap_1()
@@ -97,12 +102,8 @@ impl BookmarksView {
                         .px_1()
                         .rounded_md()
                         .border_1()
-                        .border_color(if all {
-                            list_active_border
-                        } else {
-                            gpui_kit::transparent_black()
-                        })
-                        .when(all, |row| row.bg(list_active))
+                        .border_color(gpui_kit::transparent_black())
+                        .when(all, |row| row.bg(selected_fill))
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _, _, cx| this.select_category(None, cx)))
                         .child(Icon::new(IconName::Globe).size(zpx(14.)))
@@ -139,8 +140,7 @@ impl BookmarksView {
     }
 
     fn render_node(&self, node: &CategoryNode, depth: usize, cx: &mut Context<Self>) -> AnyElement {
-        let (list_active, list_active_border) =
-            (cx.theme().list_active, cx.theme().list_active_border);
+        let selected_fill = selected_row(cx);
         let path = node.full_path.clone();
         let direct = bookmarks::in_order(self.bookmarks(), &node.full_path);
         let has_children = !node.children.is_empty() || !direct.is_empty();
@@ -157,14 +157,8 @@ impl BookmarksView {
             .pr_1()
             .rounded_md()
             .border_1()
-            // A selected fill, so the chosen category doesn't read as keyboard
-            // focus (an outline alone matched a focused input).
-            .border_color(if selected {
-                list_active_border
-            } else {
-                gpui_kit::transparent_black()
-            })
-            .when(selected, |row| row.bg(list_active))
+            .border_color(gpui_kit::transparent_black())
+            .when(selected, |row| row.bg(selected_fill))
             .child(if has_children {
                 Button::new(id("bookmark-toggle", &path))
                     .ghost()
@@ -773,8 +767,8 @@ impl BookmarksView {
                 labeled(tags_label, Input::new(&editor.tags).disabled(saving)),
             ))
             .child(muted(
-                "URL, title and category are required. A / nests a category, as in \
-                 Development/Rust. Tags are comma-separated.",
+                "URL, title and category are required. Type / between levels to nest \
+                 a category. Tags are comma-separated.",
                 cx,
             ))
             .when(has_categories, |column| {

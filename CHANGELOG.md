@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1571] - 2026-10-28
 
+## [0.1.1565] - 2026-10-28
+
+### Fixed
+
+- Finish the review: clear on Clear filters, a visible selection
+
 ## [0.1.1564] - 2026-10-28
 
 ### Fixed
