@@ -9,7 +9,7 @@ application shell, [account and application settings](NATIVE-SETTINGS.md),
 [Tempo timesheets and worklogs](NATIVE-TEMPO.md),
 [automation jobs, schedules and run history](NATIVE-AUTOMATION.md),
 [Ralph loops](NATIVE-RALPH.md), [the Crew](NATIVE-CREW.md), and
-[bookmark management](NATIVE-BOOKMARKS.md) (the embedded browser is not ported yet).
+[bookmarks](NATIVE-BOOKMARKS.md) with an [embedded browser](NATIVE-BROWSER.md).
 The Electron app remains the full application while
 issues #822 and #823 track the remaining feature migration and parity qualification.
 

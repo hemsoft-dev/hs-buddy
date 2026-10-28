@@ -828,6 +828,32 @@ class WindowsScrollAnchors(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["timeout"], 180 + 31)
             self.assertIn("sleep:30000", run.call_args.args[run.call_args.args.index("-Actions") + 1].split(","))
 
+    def test_visible_text_markers_survive_a_dropped_word_gap_but_not_other_letters(self):
+        # Windows run 40641589474: the inactive tab "Buddy Probe" beside its
+        # globe icon read as "@buddyprobe".
+        merged = "bookmarks @buddyprobe x\nprobe page open externally\n"
+        with tempfile.TemporaryDirectory(prefix="buddy-ocr-gap-") as root:
+            image = Path(root) / "tabs.png"
+            with patch.object(desktop, "run", return_value=merged):
+                desktop.verify_text(image, "Buddy Probe", "Probe page")
+                for marker in ("Buddy Prob3", "Probe Buddy", "Fixture page"):
+                    with self.assertRaises(desktop.MissingVisibleText):
+                        desktop.verify_text(image, marker)
+
+    def test_only_a_driver_that_asks_runs_on_the_interactive_windows_desktop(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-input-desktop-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("hidden", [("click", "Refresh")])
+                self.assertNotIn("-InputDesktop", run.call_args.args)
+                driver.input_desktop = True
+                driver.drive("input", [("click", "Refresh")])
+                self.assertIn("-InputDesktop", run.call_args.args)
+
     @staticmethod
     def wait_block():
         lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()

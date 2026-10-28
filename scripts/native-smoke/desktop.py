@@ -285,6 +285,12 @@ class UnixWindow:
                        f'key code {dict(Tab=48, Return=36, Escape=53)[key]}')
             run("osascript", "-e", self.apple(f'set frontmost to true\n{command}'))
         elif self.session == "x11":
+            if control:
+                # X11 sends a key to the deepest window under the pointer, which
+                # is a web page's own window when the pointer rests over one, so
+                # an app shortcut then never reaches Buddy (docs/NATIVE-BROWSER.md).
+                # Park the pointer on the title bar, as a user would have to.
+                run("xdotool", "mousemove", "--window", self.window, 600, 15)
             run("xdotool", "windowactivate", "--sync", self.window)
             run("xdotool", "key", "--clearmodifiers", f"ctrl+{key}" if control else key)
         else:

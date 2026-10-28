@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1572] - 2026-10-28
+
+### Fixed
+
+- Start a WebKitGTK page after its tab's first layout
+
+## [0.1.1571] - 2026-10-28
+
 ## [0.1.1565] - 2026-10-28
 
 ### Fixed
@@ -20,6 +28,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Act on the finish review of the installed captures
+
+## [0.1.1569] - 2026-10-28
+
+### Fixed
+
+- Prove the browser page by its content, not the URL bar
+
+## [0.1.1567] - 2026-10-28
+
+### Fixed
+
+- Render, attribute and qualify pages on Linux, Windows and macOS
+
+## [0.1.1559] - 2026-10-27
+
+### Fixed
+
+- Check WebView2 frames; end loads that never finish
+
+## [0.1.1557] - 2026-10-27
+
+### Fixed
+
+- Follow route changes that load no new document
+
+## [0.1.1556] - 2026-10-27
+
+### Fixed
+
+- One page per tab; the toolbar always opens the page
+
+## [0.1.1555] - 2026-10-27
+
+### Fixed
+
+- Open no more tabs than a restart restores
 
 ## [0.1.1562] - 2026-10-28
 
@@ -61,6 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Save the selection among the saved tabs
+
+## [0.1.1551] - 2026-10-27
+
+### Fixed
+
+- Check DNS before any request, keep the list selection, tab keys
+
 - Read light text on colored buttons from an inverted copy
 
 ## [0.1.1552] - 2026-10-27
@@ -98,6 +150,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wait for the first host to release its lock
 
 ## [0.1.1549] - 2026-10-27
+
+### Added
+
+- Embed web pages in Bookmarks tabs on each OS's engine
 
 ### Fixed
 

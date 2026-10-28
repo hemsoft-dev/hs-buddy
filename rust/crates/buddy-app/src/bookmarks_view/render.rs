@@ -265,7 +265,7 @@ impl BookmarksView {
                 };
                 menu.item(action("Open", |this, id, _, cx| this.open(id, cx)))
                     .item(action("Open externally", |this, id, _, cx| {
-                        this.open(id, cx)
+                        this.open_externally(id, cx)
                     }))
                     .item(action("Edit", |this, id, window, cx| {
                         this.edit(id, window, cx)
@@ -441,7 +441,8 @@ impl BookmarksView {
         let (border, danger, link, link_hover) =
             (theme.border, theme.danger, theme.link, theme.link_hover);
         let confirming = self.confirm.as_deref() == Some(bookmark.id.as_str());
-        let (open, external, edit, delete) = (
+        let (open, open_tab, external, edit, delete) = (
+            bookmark.id.clone(),
             bookmark.id.clone(),
             bookmark.id.clone(),
             bookmark.id.clone(),
@@ -506,14 +507,24 @@ impl BookmarksView {
                         h_flex()
                             .flex_wrap()
                             .gap_1()
+                            // The card opens in a Buddy tab too; this says so.
+                            .child(
+                                Button::new(("bookmark-open-tab", index))
+                                    .small()
+                                    .icon(IconName::Globe)
+                                    .label("Open in tab")
+                                    .on_click(
+                                        cx.listener(move |this, _, _, cx| this.open(&open_tab, cx)),
+                                    ),
+                            )
                             .child(
                                 Button::new(("bookmark-external", index))
                                     .small()
                                     .icon(IconName::ExternalLink)
                                     .label("Open externally")
-                                    .on_click(
-                                        cx.listener(move |this, _, _, cx| this.open(&external, cx)),
-                                    ),
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_externally(&external, cx)
+                                    })),
                             )
                             .child(
                                 Button::new(("bookmark-edit", index))

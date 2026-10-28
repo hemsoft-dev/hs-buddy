@@ -201,6 +201,11 @@ def windows_large_size():
 
 
 class Driver:
+    # Windows only: run on the interactive desktop instead of a fresh hidden
+    # one. WebView2 refuses to create pages on a CreateDesktopW desktop
+    # (0x80070578, invalid window handle), so the browser qualification sets it.
+    input_desktop = False
+
     def __init__(self, executable, profile, session, backend, checkout):
         self.executable, self.profile, self.session = executable, profile, session
         self.backend, self.checkout = backend, checkout
@@ -264,6 +269,8 @@ class Driver:
                 "-OutDir", directory, "-ConfigPath", self.config, "-ConvexUrl", self.backend.url, "-Actions", ",".join(commands)]
             if concurrent:
                 arguments += ["-CompanionExe", self.electron, "-CompanionScript", self.profile]
+            if self.input_desktop:
+                arguments.append("-InputDesktop")
             # Preserve the ordinary action budget around the separate cold-model
             # wait and around explicit sleeps for paced service work.
             extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] == "wait_models")
@@ -621,8 +628,13 @@ def verify_text(path, *markers, mode=11):
     path.with_suffix(f".ocr-{mode}.txt").write_text(text, encoding="utf-8")
     # OCR wraps one paragraph onto several lines; compare words, not breaks.
     words = " ".join(text.split())
+    # It also drops the gap between tightly set words beside an icon (a Windows
+    # tab titled "Buddy Probe" read as "@buddyprobe"), so a marker may match
+    # with its spaces removed. Its letters and their order must still agree.
+    compact = "".join(text.split())
     for marker in markers:
-        if " ".join(marker.casefold().split()) not in words:
+        wanted = " ".join(marker.casefold().split())
+        if wanted not in words and wanted.replace(" ", "") not in compact:
             raise MissingVisibleText(f"Settings screenshot is missing {marker!r}")
 
 

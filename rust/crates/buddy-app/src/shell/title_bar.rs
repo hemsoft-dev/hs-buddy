@@ -74,34 +74,40 @@ pub fn render(
                 .gap(zpx(2.0))
                 .child(
                     menu_button("menu-file", "File")
-                        .dropdown_menu(|menu, _, _| menu.menu("Exit", Box::new(Quit))),
+                        .dropdown_menu(|menu, _, _| menu.menu("Exit", Box::new(Quit)))
+                        .on_open_change(menu_overlay),
                 )
                 .child(
-                    menu_button("menu-edit", "Edit").dropdown_menu(|menu, _, _| {
-                        menu.menu("Undo", Box::new(Undo))
-                            .menu("Redo", Box::new(Redo))
-                            .separator()
-                            .menu("Cut", Box::new(Cut))
-                            .menu("Copy", Box::new(Copy))
-                            .menu("Paste", Box::new(Paste))
-                            .separator()
-                            .menu("Select All", Box::new(SelectAll))
-                    }),
+                    menu_button("menu-edit", "Edit")
+                        .dropdown_menu(|menu, _, _| {
+                            menu.menu("Undo", Box::new(Undo))
+                                .menu("Redo", Box::new(Redo))
+                                .separator()
+                                .menu("Cut", Box::new(Cut))
+                                .menu("Copy", Box::new(Copy))
+                                .menu("Paste", Box::new(Paste))
+                                .separator()
+                                .menu("Select All", Box::new(SelectAll))
+                        })
+                        .on_open_change(menu_overlay),
                 )
                 .child(
-                    menu_button("menu-view", "View").dropdown_menu(|menu, _, _| {
-                        menu.menu("Zoom In", Box::new(ZoomIn))
-                            .menu("Zoom Out", Box::new(ZoomOut))
-                            .menu("Reset Zoom", Box::new(ResetZoom))
-                            .separator()
-                            .menu("Reload Configuration", Box::new(Reload))
-                            .separator()
-                            .menu("Full Screen", Box::new(ToggleFullScreen))
-                    }),
+                    menu_button("menu-view", "View")
+                        .dropdown_menu(|menu, _, _| {
+                            menu.menu("Zoom In", Box::new(ZoomIn))
+                                .menu("Zoom Out", Box::new(ZoomOut))
+                                .menu("Reset Zoom", Box::new(ResetZoom))
+                                .separator()
+                                .menu("Reload Configuration", Box::new(Reload))
+                                .separator()
+                                .menu("Full Screen", Box::new(ToggleFullScreen))
+                        })
+                        .on_open_change(menu_overlay),
                 )
                 .child(
                     menu_button("menu-help", "Help")
-                        .dropdown_menu(|menu, _, _| menu.menu("About Buddy", Box::new(About))),
+                        .dropdown_menu(|menu, _, _| menu.menu("About Buddy", Box::new(About)))
+                        .on_open_change(menu_overlay),
                 ),
         )
         .child(div().flex_1())
@@ -158,4 +164,9 @@ pub fn render(
             .bg(title_bar_bg)
             .child(zoom::zoomed(cx, content)),
     )
+}
+
+/// An open menu drops over the content area, where a web page would hide it.
+fn menu_overlay(open: &bool, _: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
+    crate::browser_view::Overlays::set(*open, cx);
 }

@@ -29,13 +29,20 @@ tokio.workspace = true
 reqwest.workspace = true
 futures.workspace = true
 raw-window-handle = "0.6"
+# Pages inside the window (`browser_view`), on each OS's own engine.
+wry = "0.57"
 rodio = { version = "=0.22.2", default-features = false, features = ["playback", "symphonia-all"] }
 
 [target.'cfg(windows)'.dependencies]
+# Child-frame navigation checks wry doesn't wire on WebView2 (`browser_view/wry_host.rs`).
+webview2-com = "0.39"
+windows = "0.62"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "0.13"
+# Records GTK as initialized for webkit2gtk (`browser_view/linux.rs`).
+tao = { version = "0.37", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

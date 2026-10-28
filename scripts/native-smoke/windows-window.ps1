@@ -1,5 +1,8 @@
 #requires -Version 7
 # One owned process on a never-shown desktop. No global input or user windows.
+# -InputDesktop runs it on the runner's interactive desktop instead: WebView2
+# refuses to create pages on a CreateDesktopW desktop (0x80070578). Input still
+# goes only to the owned window through posted messages.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Exe,
@@ -8,7 +11,8 @@ param(
     [Parameter(Mandatory)] [string] $Actions,
     [string] $ConvexUrl = 'http://127.0.0.1:9',
     [string] $CompanionExe,
-    [string] $CompanionScript
+    [string] $CompanionScript,
+    [switch] $InputDesktop
 )
 $ErrorActionPreference = 'Stop'
 $backend = [Uri]$ConvexUrl
@@ -24,6 +28,8 @@ using System.Text;
 public static class HiddenDesktop {
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern IntPtr CreateDesktopW(string name, IntPtr device, IntPtr devmode, int flags, uint access, IntPtr sa);
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr OpenDesktopW(string name, int flags, bool inherit, uint access);
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool CloseDesktop(IntPtr desk);
     public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lparam);
@@ -112,9 +118,17 @@ $OutDir = [IO.Path]::GetFullPath($OutDir)
 $Exe = (Resolve-Path -LiteralPath $Exe).Path
 $ConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
 New-Item -ItemType Directory -Force $OutDir | Out-Null
-$desktopName = "buddy-package-smoke-$PID-$([Guid]::NewGuid().ToString('N'))"
-$desk = [HiddenDesktop]::CreateDesktopW($desktopName, 0, 0, 0, 0x10000000, 0)
-if ($desk -eq [IntPtr]::Zero) { throw 'CreateDesktop failed' }
+if ($InputDesktop) {
+    # Only on a disposable runner: the window is visible on its desktop.
+    if ($env:GITHUB_ACTIONS -ne 'true') { throw 'The interactive desktop is used only on a disposable runner' }
+    $desktopName = 'WinSta0\Default'
+    $desk = [HiddenDesktop]::OpenDesktopW('Default', 0, $false, 0x10000000)
+    if ($desk -eq [IntPtr]::Zero) { throw 'OpenDesktop failed' }
+} else {
+    $desktopName = "buddy-package-smoke-$PID-$([Guid]::NewGuid().ToString('N'))"
+    $desk = [HiddenDesktop]::CreateDesktopW($desktopName, 0, 0, 0, 0x10000000, 0)
+    if ($desk -eq [IntPtr]::Zero) { throw 'CreateDesktop failed' }
+}
 $app = $null
 $helper = $null
 $companion = $null

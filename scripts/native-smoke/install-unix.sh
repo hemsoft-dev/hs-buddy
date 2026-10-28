@@ -66,6 +66,7 @@ if [[ "$(uname -s)" == Linux && "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" != 1 ]]; t
     BUDDY_SETTINGS_FIXTURE=1 python3 "$1/ralph-desktop.py" --executable "$(command -v buddy-native)" --output "$2/ralph" --session x11 --version "$3"
     BUDDY_SETTINGS_FIXTURE=1 python3 "$1/crew-desktop.py" --executable "$(command -v buddy-native)" --output "$2/crew" --session x11 --version "$3"
     BUDDY_SETTINGS_FIXTURE=1 python3 "$1/bookmarks-desktop.py" --executable "$(command -v buddy-native)" --output "$2/bookmarks" --session x11 --version "$3"
+    BUDDY_SETTINGS_FIXTURE=1 python3 "$1/browser-desktop.py" --executable "$(command -v buddy-native)" --output "$2/browser" --session x11 --version "$3"
   ' bash "$script_directory" "$output" "$version" "$source_sha"
   exit
 fi
@@ -117,6 +118,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/ralph-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/ralph" --session macos --version "$version"
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/crew-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/crew" --session macos --version "$version"
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/bookmarks-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/bookmarks" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/browser-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/browser" --session macos --version "$version"
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]

@@ -96,7 +96,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 sudo apt install -y build-essential cmake clang pkg-config mold \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
   libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
-  libssl-dev libdbus-1-dev vulkan-tools
+  libssl-dev libdbus-1-dev libwebkit2gtk-4.1-dev libgtk-3-dev vulkan-tools
 vulkaninfo --summary   # GPUI on Linux renders through Vulkan
 ```
 
