@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1561] - 2026-10-28
+
+### Changed
+
+- Try a visible-at-creation page and a post-load toggle
+
 ## [0.1.1560] - 2026-10-28
 
 ### Changed

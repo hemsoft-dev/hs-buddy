@@ -1,0 +1,30 @@
+diff --git a/rust/crates/buddy-app/src/browser_view/mod.rs b/rust/crates/buddy-app/src/browser_view/mod.rs
+index 06cb933d..88943170 100644
+--- a/rust/crates/buddy-app/src/browser_view/mod.rs
++++ b/rust/crates/buddy-app/src/browser_view/mod.rs
+@@ -563,6 +563,12 @@ impl BrowserView {
+             PageEvent::Loaded(raw) => {
+                 let tab = &mut self.tabs[index];
+                 tab.loading = false;
++                if std::env::var_os("SPIKE_TOGGLE").is_some() && tab.visible {
++                    if let Some(page) = &tab.page {
++                        page.set_visible(false);
++                        page.set_visible(true);
++                    }
++                }
+                 if tab
+                     .notice
+                     .as_ref()
+diff --git a/rust/crates/buddy-app/src/browser_view/wry_host.rs b/rust/crates/buddy-app/src/browser_view/wry_host.rs
+index fe405654..5d28fff0 100644
+--- a/rust/crates/buddy-app/src/browser_view/wry_host.rs
++++ b/rust/crates/buddy-app/src/browser_view/wry_host.rs
+@@ -105,7 +105,7 @@ impl Host for WryHost {
+         let builder = WebViewBuilder::new_with_web_context(context)
+             .with_url(url.as_str())
+             .with_bounds(rect(bounds))
+-            .with_visible(false)
++            .with_visible(std::env::var_os("SPIKE_VISIBLE").is_some())
+             .with_focused(false)
+             .with_clipboard(false)
+             .with_devtools(false)
