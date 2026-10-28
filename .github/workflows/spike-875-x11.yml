@@ -1,10 +1,8 @@
 # Throwaway reproduction for hs-buddy#875; runs only on its own spike branch.
-# Rounds 1-3 (a minimal wry + tao program) never reproduced the black second
-# page. Round 4 ran #875's real package: the page stayed black in 2 of 3 runs,
-# always after a GDK frame-clock freeze that no thaw followed. Round 5 builds
-# #875 with GDK frame sync turned off for page windows and repeats the run, and
-# separately parks the pointer before the final Ctrl+Q (the passing round-4 run
-# then never quit: X11 delivers keys to the page window under the pointer).
+# Rounds 1-5 chased the Linux black second page (round 5 tests the GDK
+# frame-sync fix). Round 6: on Windows the same run showed "The web engine
+# couldn't start" for the first page; its app log wasn't kept. Run #875's real
+# Windows package through only the browser qualification with the log captured.
 name: spike-875-x11
 
 on:
@@ -15,47 +13,33 @@ permissions:
   contents: read
 
 jobs:
-  app:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 75
+  windows-app:
+    runs-on: windows-2025
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: c02febd22ed613aaed06b7d1b251128e42b24ce9
           persist-credentials: false
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: spike-source
-          persist-credentials: false
-
-      - name: Apply the frame-sync change
-        run: git apply --verbose spike-source/spike/875-x11/frame-sync.patch
-
-      - name: Install Linux build dependencies
+      - name: Install Windows OCR
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake clang pkg-config mold \
-            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
-            libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
-            libssl-dev libdbus-1-dev dbus-x11 gnome-keyring libglib2.0-bin \
-            libwebkit2gtk-4.1-dev libgtk-3-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable, 2026-10-07
-        with:
-          toolchain: stable
-          components: clippy
-
-      - name: Build and lint the app
-        working-directory: rust
-        run: |
-          cargo clippy --locked -p buddy-app --bin buddy -- -D warnings
-          cargo build --locked --release --bin buddy
+          $tesseractDirectory = 'C:\Program Files\Tesseract-OCR'
+          $env:PATH = "$tesseractDirectory;$env:PATH"
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install tesseract ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -eq 0 -and (Get-Command tesseract -ErrorAction SilentlyContinue) -and (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { break }
+            if ($attempt -eq 3) { throw 'OCR tools missing' }
+            Start-Sleep -Seconds 30
+          }
+          tesseract --version
+          $tesseractDirectory | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup package driver Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -67,47 +51,38 @@ jobs:
       - name: Install the checkout's dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install #875's package for its runtime dependencies (run 40629646121)
+      - name: Fetch #875's Windows package (run 40629646121)
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 40629646121 -R "$GITHUB_REPOSITORY" -n buddy-native-ubuntu-24.04 -D "$RUNNER_TEMP/artifact"
-          deb="$(find "$RUNNER_TEMP/artifact" -name '*.deb' | head -n 1)"
-          sudo apt-get install -y --no-install-recommends "$deb"
-          source scripts/native-smoke/linux-desktop-tools.sh
-          buddy_install_linux_desktop_tools sudo apt-get
-          electron_executable="$(bun -e "console.log(require('electron'))" | tail -n 1)"
-          sandbox="$(realpath "$(dirname "$electron_executable")/chrome-sandbox")"
-          sudo chown root:root "$sandbox"
-          sudo chmod 4755 "$sandbox"
+          gh run download 40629646121 -R $env:GITHUB_REPOSITORY -n buddy-native-windows-2025 -D "$env:RUNNER_TEMP\artifact"
+          Get-ChildItem "$env:RUNNER_TEMP\artifact" -Recurse -Filter build.json | Select-Object -First 3 FullName
 
-      - name: Browser qualification, repeated
+      - name: Install and run the browser qualification with the app log
+        shell: pwsh
         run: |
-          binary="$PWD/rust/target/release/buddy"
-          version="$(node -p "require('./package.json').version")"
-          "$binary" --version
-          variant() {
-            name="$1"
-            echo "== $name"
-            if xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
-              openbox >/dev/null 2>&1 &
-              BUDDY_SETTINGS_FIXTURE=1 python3 scripts/native-smoke/browser-desktop.py --executable "$1" \
-                --output "$RUNNER_TEMP/ev/$0" --session x11 --version "$2"
-            ' "$name" "$binary" "$version" > "$RUNNER_TEMP/$name.log" 2>&1; then
-              echo "RESULT $name passed"
-            else
-              echo "RESULT $name failed"
-              tail -n 6 "$RUNNER_TEMP/$name.log"
-            fi
-            grep -c 'Gdk-CRITICAL' "$RUNNER_TEMP/ev/$name/browser-dark/app.log" 2>/dev/null || true
+          $manifest = Get-ChildItem "$env:RUNNER_TEMP\artifact" -Recurse -Filter build.json | Select-Object -First 1
+          $metadata = Get-Content $manifest.FullName -Raw | ConvertFrom-Json
+          $installer = Join-Path $manifest.DirectoryName $metadata.package.file
+          $install = Join-Path $env:RUNNER_TEMP 'buddy-native-installed'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$install") -WindowStyle Hidden -PassThru
+          if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'Installer failed' }
+          $exe = Join-Path $install 'buddy-native.exe'
+          Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue | Select-Object pv
+          $env:BUDDY_SETTINGS_FIXTURE = '1'
+          # Only so windows-window.ps1 keeps the app's output in app.log.
+          $env:BUDDY_COPILOT_FIXTURE = '1'
+          $env:RUST_LOG = 'info,wry=debug,buddy=debug'
+          & python scripts/native-smoke/browser-desktop.py --executable $exe --output "$env:RUNNER_TEMP\ev\browser" --session windows --version $metadata.version
+          "browser qualification exit $LASTEXITCODE"
+          Get-ChildItem "$env:RUNNER_TEMP\ev" -Recurse -Filter app.log | ForEach-Object {
+            "== $($_.FullName)"
+            Get-Content $_.FullName | Select-String -Pattern 'browser|webview|WebView|wry|panicked|error|ERROR|WARN' | Select-Object -Last 40
           }
-          mkdir -p "$RUNNER_TEMP/ev"
-          for run in 1 2 3 4; do variant "fixed-$run"; done
-          python3 spike-source/spike/875-x11/park_pointer.py .
-          for run in 1 2; do variant "fixed-parked-$run"; done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: spike-875-app
+          name: spike-875-windows
           path: ${{ runner.temp }}/ev/
