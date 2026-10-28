@@ -846,6 +846,30 @@ class WindowsScrollAnchors(unittest.TestCase):
         return result.stdout.strip().split("|")
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_windows_field_targets_match_the_unix_geometry(self):
+        # Native run 40605735878: Windows `field` clicked 20 px past the Search
+        # label, on the magnifier prefix, so the typed filter never reached the
+        # editor and four Delete buttons stayed visible. Unix aims at the middle.
+        lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
+        start = next(index for index, line in enumerate(lines) if line.startswith("function Get-OwnedLabelTarget"))
+        depth, block = 0, []
+        for line in lines[start:]:
+            block.append(line)
+            depth += line.count("{") - line.count("}")
+            if depth == 0:
+                break
+        calls = "\n".join(
+            f"$t = Get-OwnedLabelTarget @{{ left=332; top=224; width=42; height=14 }} '{mode}' 1044 2 20; "
+            "'{0},{1}' -f $t.X, $t.Y"
+            for mode in ("field", "input", "leftfield", "rightfield", "save", "button"))
+        with tempfile.TemporaryDirectory(prefix="buddy-field-target-") as root:
+            script = Path(root) / "target.ps1"
+            script.write_text("\n".join(block) + "\n" + calls + "\n", encoding="utf-8")
+            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
+                encoding="utf-8", timeout=60, check=True)
+        self.assertEqual(result.stdout.split(), ["522,278", "372,278", "261,278", "783,278", "946,278", "353,231"])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
     def test_visible_target_never_requires_its_scroll_anchor(self):
         # Native run 39128144643: an explicit wheel revealed Next rows and
         # moved Load date range above the viewport. The eager anchor lookup
