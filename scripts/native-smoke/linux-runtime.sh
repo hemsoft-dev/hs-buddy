@@ -24,8 +24,10 @@ runtime_package=/tmp/buddy-runtime-package
 install -d -m 755 "$runtime_package"
 cp /package/build.json /package/*.deb "$runtime_package/"
 chmod 644 "$runtime_package/"*
-apt-get update
-apt-get install -y --no-install-recommends "$runtime_package/"*.deb
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$script_directory/linux-desktop-tools.sh"
+buddy_apt update
+buddy_apt install -y --no-install-recommends "$runtime_package/"*.deb
 executable="$(command -v buddy-native)"
 # Check ELF dependencies before GUI/OCR tools can supply an undeclared library.
 ldd "$executable" > /evidence/runtime-before-test-tools.txt
@@ -35,11 +37,9 @@ if grep -q 'not found' /evidence/runtime-before-test-tools.txt; then
 fi
 cp /etc/os-release /evidence/runtime-os-release.txt
 dpkg-query -W > /evidence/runtime-packages-before-test-tools.txt
-script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$script_directory/linux-desktop-tools.sh"
-buddy_install_linux_desktop_tools apt-get
+buddy_install_linux_desktop_tools
 # Ralph loops need PowerShell 7, Git and the GitHub CLI; qualification runs a stub loop.
-apt-get install -y --no-install-recommends git gh curl ca-certificates libicu74
+buddy_apt install -y --no-install-recommends git gh curl ca-certificates libicu74
 pwsh_archive=/tmp/powershell-linux-x64.tar.gz
 curl -fsSL -o "$pwsh_archive" https://github.com/PowerShell/PowerShell/releases/download/v7.6.7/powershell-7.6.7-linux-x64.tar.gz
 echo "6896f9e3a6b0a354bf470835a96da76d2f801cd50dcf047ad7c4563bf93bf431  $pwsh_archive" | sha256sum -c -
