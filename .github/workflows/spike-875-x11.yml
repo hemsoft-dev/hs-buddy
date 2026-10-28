@@ -1,7 +1,8 @@
 # Throwaway reproduction for hs-buddy#875; runs only on its own spike branch.
-# Round 8: #875's own Windows package (run 40647223188, head 043b914f) through
-# only the browser qualification, with the next driver change applied, to see
-# the whole Windows flow (restart and light passes) before a 90-minute CI round.
+# Round 9: 4d9d8966 creates a page visible only when its tab's area is known,
+# but a new tab has none before its first layout, so its page was still created
+# hidden and stayed black (run 40659326315). Build 4d9d8966 with the start gated
+# on the tab's first layout and repeat the Linux browser qualification.
 name: spike-875-x11
 
 on:
@@ -12,18 +13,16 @@ permissions:
   contents: read
 
 jobs:
-  windows-app:
-    runs-on: windows-2025
-    timeout-minutes: 60
+  app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     permissions:
       contents: read
       actions: read
-    env:
-      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 043b914fea3cca23e15a52b1f09459b41b96f3a6
+          ref: 4d9d8966729f3a01086bc1d0e140ad79cdae0236
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,29 +30,27 @@ jobs:
           path: spike-source
           persist-credentials: false
 
-      - name: Apply the next driver change
-        # The runner checks out CRLF, the patch file included. Re-check out the
-        # app as LF and strip the patch's CRs before applying it.
-        shell: bash
-        run: |
-          git config core.autocrlf false
-          git rm -r -q --cached .
-          git reset -q --hard
-          sed 's/\r$//' spike-source/spike/875-x11/driver-checks.patch | git apply --verbose -
+      - name: Apply the start gate
+        run: git apply --verbose spike-source/spike/875-x11/bounds-gate.patch
 
-      - name: Install Windows OCR
-        shell: pwsh
+      - name: Install Linux build dependencies
         run: |
-          $tesseractDirectory = 'C:\Program Files\Tesseract-OCR'
-          $env:PATH = "$tesseractDirectory;$env:PATH"
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            choco install tesseract ffmpeg --yes --no-progress
-            if ($LASTEXITCODE -eq 0 -and (Get-Command tesseract -ErrorAction SilentlyContinue) -and (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { break }
-            if ($attempt -eq 3) { throw 'OCR tools missing' }
-            Start-Sleep -Seconds 30
-          }
-          tesseract --version
-          $tesseractDirectory | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang pkg-config mold \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libxcb1-dev libxcb-xkb-dev libfontconfig1-dev libasound2-dev \
+            libssl-dev libdbus-1-dev dbus-x11 gnome-keyring libglib2.0-bin \
+            libwebkit2gtk-4.1-dev libgtk-3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable, 2026-10-07
+        with:
+          toolchain: stable
+
+      - name: Build the app
+        working-directory: rust
+        run: cargo build --locked --release --bin buddy
 
       - name: Setup package driver Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -65,32 +62,42 @@ jobs:
       - name: Install the checkout's dependencies
         run: bun install --frozen-lockfile
 
-      - name: Fetch #875's Windows package (run 40647223188)
-        shell: pwsh
+      - name: Install #875's package for its runtime dependencies (run 40659326315)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 40647223188 -R $env:GITHUB_REPOSITORY -n buddy-native-windows-2025 -D "$env:RUNNER_TEMP\artifact"
+          gh run download 40659326315 -R "$GITHUB_REPOSITORY" -n buddy-native-ubuntu-24.04 -D "$RUNNER_TEMP/artifact"
+          deb="$(find "$RUNNER_TEMP/artifact" -name '*.deb' | head -n 1)"
+          sudo apt-get install -y --no-install-recommends "$deb"
+          source scripts/native-smoke/linux-desktop-tools.sh
+          buddy_install_linux_desktop_tools sudo apt-get
+          electron_executable="$(bun -e "console.log(require('electron'))" | tail -n 1)"
+          sandbox="$(realpath "$(dirname "$electron_executable")/chrome-sandbox")"
+          sudo chown root:root "$sandbox"
+          sudo chmod 4755 "$sandbox"
 
-      - name: Install and run the browser qualification
-        shell: pwsh
+      - name: Browser qualification, repeated
         run: |
-          $manifest = Get-ChildItem "$env:RUNNER_TEMP\artifact" -Recurse -Filter build.json | Select-Object -First 1
-          $metadata = Get-Content $manifest.FullName -Raw | ConvertFrom-Json
-          $installer = Join-Path $manifest.DirectoryName $metadata.package.file
-          $install = Join-Path $env:RUNNER_TEMP 'buddy-native-installed'
-          $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$install") -WindowStyle Hidden -PassThru
-          if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'Installer failed' }
-          $exe = Join-Path $install 'buddy-native.exe'
-          $env:BUDDY_SETTINGS_FIXTURE = '1'
-          # Only so windows-window.ps1 keeps the app's output in app.log.
-          $env:BUDDY_COPILOT_FIXTURE = '1'
-          $env:RUST_LOG = 'info'
-          & python scripts/native-smoke/browser-desktop.py --executable $exe --output "$env:RUNNER_TEMP\ev\browser" --session windows --version $metadata.version
-          "browser qualification exit $LASTEXITCODE"
+          binary="$PWD/rust/target/release/buddy"
+          version="$(node -p "require('./package.json').version")"
+          for run in 1 2 3 4; do
+            name="gated-$run"
+            echo "== $name"
+            if xvfb-run -a -s '-screen 0 1600x1000x24' bash -c '
+              openbox >/dev/null 2>&1 &
+              BUDDY_SETTINGS_FIXTURE=1 python3 scripts/native-smoke/browser-desktop.py --executable "$1" \
+                --output "$RUNNER_TEMP/ev/$0" --session x11 --version "$2"
+            ' "$name" "$binary" "$version" > "$RUNNER_TEMP/$name.log" 2>&1; then
+              echo "RESULT $name passed"
+            else
+              echo "RESULT $name failed"
+              tail -n 4 "$RUNNER_TEMP/$name.log"
+            fi
+          done
+          mkdir -p "$RUNNER_TEMP/ev"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: spike-875-windows
+          name: spike-875-app
           path: ${{ runner.temp }}/ev/

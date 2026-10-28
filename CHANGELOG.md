@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1565] - 2026-10-28
+
+### Changed
+
+- Gate the page start on the tab's first layout, repeat on Linux
+
 ## [0.1.1564] - 2026-10-28
 
 ### Changed
