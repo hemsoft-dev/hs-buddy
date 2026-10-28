@@ -2,7 +2,8 @@
 # Rounds 1-5 chased the Linux black second page (round 5 tests the GDK
 # frame-sync fix). Round 6: on Windows the same run showed "The web engine
 # couldn't start" for the first page; its app log wasn't kept. Run #875's real
-# Windows package through only the browser qualification with the log captured.
+# Windows package through only the browser qualification with the log captured:
+# "Invalid window handle" from WebView2 on the hidden desktop; then the Default one.
 name: spike-875-x11
 
 on:
@@ -25,6 +26,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: c02febd22ed613aaed06b7d1b251128e42b24ce9
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: spike-source
           persist-credentials: false
 
       - name: Install Windows OCR
@@ -75,7 +81,10 @@ jobs:
           $env:BUDDY_COPILOT_FIXTURE = '1'
           $env:RUST_LOG = 'info,wry=debug,buddy=debug'
           & python scripts/native-smoke/browser-desktop.py --executable $exe --output "$env:RUNNER_TEMP\ev\browser" --session windows --version $metadata.version
-          "browser qualification exit $LASTEXITCODE"
+          "browser qualification (hidden desktop) exit $LASTEXITCODE"
+          & python spike-source/spike/875-x11/default_desktop.py .
+          & python scripts/native-smoke/browser-desktop.py --executable $exe --output "$env:RUNNER_TEMP\ev\browser-default" --session windows --version $metadata.version
+          "browser qualification (Default desktop) exit $LASTEXITCODE"
           Get-ChildItem "$env:RUNNER_TEMP\ev" -Recurse -Filter app.log | ForEach-Object {
             "== $($_.FullName)"
             Get-Content $_.FullName | Select-String -Pattern 'browser|webview|WebView|wry|panicked|error|ERROR|WARN' | Select-Object -Last 40
