@@ -9,13 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1576] - 2026-10-28
+
+### Fixed
+
+- Frame destructive confirmations in the danger tone
+
 ## [0.1.1572] - 2026-10-28
 
 ### Fixed
 
 - Start a WebKitGTK page after its tab's first layout
-
-## [0.1.1571] - 2026-10-28
 
 ## [0.1.1565] - 2026-10-28
 

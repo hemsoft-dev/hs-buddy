@@ -770,7 +770,7 @@ impl Render for TempoView {
             actions.push(row.into_any_element());
         }
         if self.discard_confirm {
-            lines.push((Tone::Warning, if ready {"Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."} else {"This removes only local recovery. It does not undo a Tempo worklog, and another save could duplicate work already recorded."}.to_owned()));
+            lines.push(discard_prompt(ready));
             actions.push(
                 h_flex()
                     .gap_2()
@@ -796,14 +796,7 @@ impl Render for TempoView {
         }
         // The delete confirmation shares the status region with discard.
         if let Some(target) = &self.delete_target {
-            lines.push((
-                Tone::Warning,
-                format!(
-                    "Delete the {} worklog on {}? This removes recorded work from Tempo.",
-                    duration(target.seconds),
-                    target.date
-                ),
-            ));
+            lines.push(delete_prompt(target.seconds, target.date));
             if let Some(description) = target.description.clone().filter(|text| !text.is_empty()) {
                 lines.push((Tone::Info, description));
             }
@@ -963,7 +956,7 @@ fn status_block(
             Tone::Info => theme.info,
             Tone::Success => theme.success,
             Tone::Warning => theme.warning,
-            Tone::Error => theme.danger,
+            Tone::Danger | Tone::Error => theme.danger,
         }
     };
     let worst = lines
@@ -973,7 +966,8 @@ fn status_block(
             Tone::Info => 0,
             Tone::Success => 1,
             Tone::Warning => 2,
-            Tone::Error => 3,
+            Tone::Danger => 3,
+            Tone::Error => 4,
         })
         .unwrap_or(Tone::Info);
     let mut block = v_flex()
@@ -986,7 +980,7 @@ fn status_block(
         let icon = match tone {
             Tone::Info => IconName::Info,
             Tone::Success => IconName::CircleCheck,
-            Tone::Warning => IconName::TriangleAlert,
+            Tone::Warning | Tone::Danger => IconName::TriangleAlert,
             Tone::Error => IconName::CircleX,
         };
         block = block.child(
@@ -998,6 +992,27 @@ fn status_block(
         );
     }
     block.children(actions).into_any_element()
+}
+
+/// The worklog deletion prompt; it sits beside the danger "Confirm deletion" button.
+fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone, String) {
+    (
+        Tone::Danger,
+        format!(
+            "Delete the {} worklog on {date}? This removes recorded work from Tempo.",
+            duration(seconds)
+        ),
+    )
+}
+
+/// The recovery discard prompt; it sits beside the danger "Confirm discard" button.
+fn discard_prompt(ready: bool) -> (Tone, String) {
+    let text = if ready {
+        "Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."
+    } else {
+        "This removes only local recovery. It does not undo a Tempo worklog, and another save could duplicate work already recorded."
+    };
+    (Tone::Danger, text.to_owned())
 }
 
 fn page_summary(count: usize, page: usize) -> String {
@@ -1068,6 +1083,21 @@ mod recovery_policy_tests {
         assert!(!pager_needed(0, 20));
         assert!(!pager_needed(20, 20));
         assert!(pager_needed(21, 20));
+    }
+    #[test]
+    fn destructive_confirmations_use_the_danger_tone_of_their_button() {
+        // #879: both prompts sat in a warning-orange frame beside a red button.
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        let (tone, text) = delete_prompt(3661, date);
+        assert!(tone == Tone::Danger);
+        assert_eq!(
+            text,
+            "Delete the 1:01:01 worklog on 2026-11-05? This removes recorded work from Tempo."
+        );
+        for ready in [true, false] {
+            assert!(discard_prompt(ready).0 == Tone::Danger);
+        }
+        assert!(discard_prompt(true).1 != discard_prompt(false).1);
     }
     #[test]
     fn pager_summary_counts_one_row_in_the_singular() {
