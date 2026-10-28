@@ -26,6 +26,9 @@ pub struct PageConfig {
     pub bounds: Bounds<Pixels>,
     pub checker: Arc<Checker>,
     pub events: UnboundedSender<PageEvent>,
+    /// Create the page already on screen. Set only when the engine asks for
+    /// it (`Host::shows_at_creation`) and the tab is showing right then.
+    pub visible: bool,
 }
 
 /// One live engine view. Every call is best effort: an engine error is
@@ -68,6 +71,12 @@ pub trait Host {
     fn pump(&self) {}
 
     fn needs_pump(&self) -> bool {
+        false
+    }
+
+    /// Engines whose pages misbehave when created hidden and shown later
+    /// get them created visible when their tab is already showing.
+    fn shows_at_creation(&self) -> bool {
         false
     }
 }

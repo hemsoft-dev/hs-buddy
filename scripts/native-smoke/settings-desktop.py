@@ -201,6 +201,11 @@ def windows_large_size():
 
 
 class Driver:
+    # Windows only: run on the interactive desktop instead of a fresh hidden
+    # one. WebView2 refuses to create pages on a CreateDesktopW desktop
+    # (0x80070578, invalid window handle), so the browser qualification sets it.
+    input_desktop = False
+
     def __init__(self, executable, profile, session, backend, checkout):
         self.executable, self.profile, self.session = executable, profile, session
         self.backend, self.checkout = backend, checkout
@@ -224,11 +229,12 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
-                    command = kind + "64:" + ":".join(map(b64, encoded))
+                    # Windows aims every field at the window middle; a box is one.
+                    command = ("field" if kind == "box" else kind) + "64:" + ":".join(map(b64, encoded))
                     if kind == "input" and len(values) > 2 and isinstance(values[2], dict):
                         hint = values[2]
                         if set(hint) != {"labelBottomOffset"} or type(hint["labelBottomOffset"]) is not int or not 20 <= hint["labelBottomOffset"] <= 40:
@@ -263,6 +269,8 @@ class Driver:
                 "-OutDir", directory, "-ConfigPath", self.config, "-ConvexUrl", self.backend.url, "-Actions", ",".join(commands)]
             if concurrent:
                 arguments += ["-CompanionExe", self.electron, "-CompanionScript", self.profile]
+            if self.input_desktop:
+                arguments.append("-InputDesktop")
             # Preserve the ordinary action budget around the separate cold-model
             # wait and around explicit sleeps for paced service work.
             extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] == "wait_models")
@@ -315,7 +323,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "input", "field", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -431,7 +439,7 @@ class Driver:
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
             options = dict(navigation=kind == "nav",
-                field=kind in ("input", "field", "leftfield", "rightfield", "save"),
+                field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
             if row_control is not None:
                 options["row_control"] = row_control
@@ -518,6 +526,11 @@ class Driver:
             label = self.locate(window, image, kind, values[0])
         else:
             label = self.locate(window, image, kind, values[0], row_control=row_control)
+        if kind == "box":
+            # A text box with no Save button in its row (Bookmarks' search):
+            # located without the Mac Save-row anchor, then aimed and typed
+            # like a field, at the middle of the window width under its label.
+            kind = "field"
         import struct
         width, height = struct.unpack(">II", image.read_bytes()[16:24])
         scale, origin = 1, (0, 0)
@@ -615,8 +628,13 @@ def verify_text(path, *markers, mode=11):
     path.with_suffix(f".ocr-{mode}.txt").write_text(text, encoding="utf-8")
     # OCR wraps one paragraph onto several lines; compare words, not breaks.
     words = " ".join(text.split())
+    # It also drops the gap between tightly set words beside an icon (a Windows
+    # tab titled "Buddy Probe" read as "@buddyprobe"), so a marker may match
+    # with its spaces removed. Its letters and their order must still agree.
+    compact = "".join(text.split())
     for marker in markers:
-        if " ".join(marker.casefold().split()) not in words:
+        wanted = " ".join(marker.casefold().split())
+        if wanted not in words and wanted.replace(" ", "") not in compact:
             raise MissingVisibleText(f"Settings screenshot is missing {marker!r}")
 
 

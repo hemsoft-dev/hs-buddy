@@ -3,10 +3,12 @@
 //! engine lets an app intercept goes through `buddy_core::browser`.
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use buddy_core::browser::{Blocked, Step, Url};
+use futures::channel::mpsc::UnboundedSender;
 use gpui_kit::{Bounds, Pixels};
 use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle, WindowHandle};
 use wry::{
@@ -23,6 +25,7 @@ pub struct WryHost {
     // One context per process: WebView2 requires every page to share one
     // environment, and WebKitGTK registers its handlers on it.
     context: RefCell<Option<WebContext>>,
+    requests: Rc<Requests>,
 }
 
 impl WryHost {
@@ -30,7 +33,39 @@ impl WryHost {
         Self {
             profile,
             context: RefCell::default(),
+            requests: Rc::default(),
         }
+    }
+}
+
+/// Which page last asked for each address, newest last. WebKitGTK reports
+/// downloads on the shared context, where only the first page's handler runs,
+/// so a refused download is credited to the page whose navigation requested
+/// it (#875: the notice landed on another tab). Other engines report each
+/// download on its own page, which is also the one that requested it.
+#[derive(Default)]
+struct Requests(RefCell<VecDeque<(String, UnboundedSender<PageEvent>)>>);
+
+impl Requests {
+    const KEPT: usize = 32;
+
+    fn record(&self, raw: &str, page: &UnboundedSender<PageEvent>) {
+        let mut requests = self.0.borrow_mut();
+        requests.retain(|(requested, _)| requested != raw);
+        requests.push_back((raw.to_owned(), page.clone()));
+        if requests.len() > Self::KEPT {
+            requests.pop_front();
+        }
+    }
+
+    /// The live page that last requested `raw`, if any.
+    fn requester(&self, raw: &str) -> Option<UnboundedSender<PageEvent>> {
+        self.0
+            .borrow()
+            .iter()
+            .rev()
+            .find(|(requested, page)| requested == raw && !page.is_closed())
+            .map(|(_, page)| page.clone())
     }
 }
 
@@ -88,6 +123,7 @@ impl Host for WryHost {
             bounds,
             checker,
             events,
+            visible,
         } = config;
         let send = |events: &futures::channel::mpsc::UnboundedSender<PageEvent>, event| {
             // A closed channel means the tab is gone; nothing to report to.
@@ -97,6 +133,8 @@ impl Host for WryHost {
         #[cfg(windows)]
         let frames = (checker.clone(), events.clone());
         let nav = events.clone();
+        let requests = self.requests.clone();
+        let requesters = self.requests.clone();
         let popups = events.clone();
         let downloads = events.clone();
         let permissions = events.clone();
@@ -105,7 +143,7 @@ impl Host for WryHost {
         let builder = WebViewBuilder::new_with_web_context(context)
             .with_url(url.as_str())
             .with_bounds(rect(bounds))
-            .with_visible(false)
+            .with_visible(visible)
             .with_focused(false)
             .with_clipboard(false)
             .with_devtools(false)
@@ -113,7 +151,10 @@ impl Host for WryHost {
             .with_navigation_handler(move |raw| {
                 let step = checker.navigation(&raw);
                 match step {
-                    Step::Allow => true,
+                    Step::Allow => {
+                        requests.record(&raw, &nav);
+                        true
+                    }
                     Step::Block(reason) => {
                         send(&nav, PageEvent::Blocked { raw, reason });
                         false
@@ -135,8 +176,9 @@ impl Host for WryHost {
                 NewWindowResponse::Deny
             })
             .with_download_started_handler(move |raw, _| {
+                let page = requesters.requester(&raw);
                 send(
-                    &downloads,
+                    page.as_ref().unwrap_or(&downloads),
                     PageEvent::Blocked {
                         raw,
                         reason: Blocked::Download,
@@ -199,6 +241,13 @@ impl Host for WryHost {
     }
 
     fn needs_pump(&self) -> bool {
+        cfg!(target_os = "linux")
+    }
+
+    /// A WebKitGTK page created hidden and shown later stayed black in 6 of 7
+    /// qualification runs on #875 (wry warns that such pages need several
+    /// show/hide calls); created visible, 3 of 3 rendered.
+    fn shows_at_creation(&self) -> bool {
         cfg!(target_os = "linux")
     }
 }
@@ -289,5 +338,45 @@ impl Page for WryPage {
 
     fn url(&self) -> Option<String> {
         self.0.url().ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::channel::mpsc;
+
+    use super::{PageEvent, Requests};
+
+    #[test]
+    fn a_download_is_credited_to_the_live_page_that_last_requested_it() {
+        let requests = Requests::default();
+        let (first, mut first_events) = mpsc::unbounded::<PageEvent>();
+        let (second, mut second_events) = mpsc::unbounded::<PageEvent>();
+        requests.record("https://example.com/file", &first);
+        requests.record("https://example.com/other", &first);
+        requests.record("https://example.com/file", &second);
+        let found = requests.requester("https://example.com/file").unwrap();
+        found.unbounded_send(PageEvent::Title("x".into())).unwrap();
+        assert!(second_events.try_recv().is_ok());
+        assert!(first_events.try_recv().is_err());
+        assert!(requests.requester("https://example.com/missing").is_none());
+        // A closed tab's page is never credited.
+        drop(second_events);
+        assert!(requests.requester("https://example.com/file").is_none());
+    }
+
+    #[test]
+    fn only_the_newest_requests_are_kept() {
+        let requests = Requests::default();
+        let (page, _events) = mpsc::unbounded::<PageEvent>();
+        for index in 0..=Requests::KEPT {
+            requests.record(&format!("https://example.com/{index}"), &page);
+        }
+        assert!(requests.requester("https://example.com/0").is_none());
+        assert!(
+            requests
+                .requester(&format!("https://example.com/{}", Requests::KEPT))
+                .is_some()
+        );
     }
 }

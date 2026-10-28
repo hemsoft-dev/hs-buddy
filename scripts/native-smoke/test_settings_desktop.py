@@ -793,6 +793,29 @@ class WindowsScrollAnchors(unittest.TestCase):
                     desktop.verify_text(image, "2 worklogs were not attempted")
             self.assertEqual(image.with_suffix(".ocr.txt").read_text(encoding="utf-8"), wrapped.casefold())
 
+    def test_a_box_is_a_field_without_the_mac_save_row_anchor(self):
+        # macOS run 40629646121: Bookmarks' search has no Save button in its
+        # row, so `field` failed with "The field's aligned Save button is not visible".
+        with tempfile.TemporaryDirectory(prefix="buddy-box-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("search", [("box", "Search", "Old dark link")])
+            commands = run.call_args.args[run.call_args.args.index("-Actions") + 1].split(",")
+            encoded = ":".join(base64.b64encode(value.encode()).decode() for value in ("Search", "Old dark link"))
+            self.assertIn("field64:" + encoded, commands)
+            driver.session = "macos"
+            label = dict(left=10, top=20, width=40, height=12)
+            for kind, save_row in (("box", False), ("field", True)):
+                with patch.object(desktop.ocr, "locate_image", return_value=dict(label)) as locate, \
+                        patch.object(desktop, "record_measurement"):
+                    driver.locate(Mock(), directory / "locator.png", kind, "Search")
+                self.assertTrue(locate.call_args.kwargs["field"])
+                self.assertIs(locate.call_args.kwargs["save_row"], save_row)
+
     def test_explicit_sleeps_extend_the_windows_stage_deadline(self):
         with tempfile.TemporaryDirectory(prefix="buddy-sleep-budget-") as root:
             directory = Path(root)
@@ -804,6 +827,32 @@ class WindowsScrollAnchors(unittest.TestCase):
                 driver.drive("paced", [("click", "Create copies"), ("sleep", 30), ("sleep", 1)])
             self.assertEqual(run.call_args.kwargs["timeout"], 180 + 31)
             self.assertIn("sleep:30000", run.call_args.args[run.call_args.args.index("-Actions") + 1].split(","))
+
+    def test_visible_text_markers_survive_a_dropped_word_gap_but_not_other_letters(self):
+        # Windows run 40641589474: the inactive tab "Buddy Probe" beside its
+        # globe icon read as "@buddyprobe".
+        merged = "bookmarks @buddyprobe x\nprobe page open externally\n"
+        with tempfile.TemporaryDirectory(prefix="buddy-ocr-gap-") as root:
+            image = Path(root) / "tabs.png"
+            with patch.object(desktop, "run", return_value=merged):
+                desktop.verify_text(image, "Buddy Probe", "Probe page")
+                for marker in ("Buddy Prob3", "Probe Buddy", "Fixture page"):
+                    with self.assertRaises(desktop.MissingVisibleText):
+                        desktop.verify_text(image, marker)
+
+    def test_only_a_driver_that_asks_runs_on_the_interactive_windows_desktop(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-input-desktop-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("hidden", [("click", "Refresh")])
+                self.assertNotIn("-InputDesktop", run.call_args.args)
+                driver.input_desktop = True
+                driver.drive("input", [("click", "Refresh")])
+                self.assertIn("-InputDesktop", run.call_args.args)
 
     @staticmethod
     def wait_block():

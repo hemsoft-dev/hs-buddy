@@ -14,6 +14,22 @@ BODY = "Your Universal Productivity Companion Customize Command Center Configure
 
 
 class DashboardGate(unittest.TestCase):
+    def test_an_x11_shortcut_parks_the_pointer_off_any_page_first(self):
+        # #875 browser run: Ctrl+Q went to the web page under the pointer and
+        # Buddy never quit. Plain keys still go to the focused control.
+        import desktop
+        window = desktop.UnixWindow(None, "x11")
+        window.window = "42"
+        with patch.object(desktop, "run") as run_command, patch.object(desktop.time, "sleep"):
+            window.key("q")
+            shortcut = [call.args for call in run_command.call_args_list]
+            run_command.reset_mock()
+            window.key("Tab", control=False)
+            plain = [call.args for call in run_command.call_args_list]
+        self.assertEqual(shortcut[0], ("xdotool", "mousemove", "--window", "42", 600, 15))
+        self.assertEqual(shortcut[-1], ("xdotool", "key", "--clearmodifiers", "ctrl+q"))
+        self.assertFalse(any("mousemove" in args for args in plain))
+
     def test_seat_keyboard_lives_through_actions_and_is_reaped_on_failure(self):
         spawn = subprocess.Popen
         children = []

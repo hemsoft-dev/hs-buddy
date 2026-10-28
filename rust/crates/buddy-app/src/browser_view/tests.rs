@@ -33,6 +33,8 @@ struct FakeHost {
     pumps: Option<Cell<usize>>,
     /// What every page reports as its current address.
     url: Rc<RefCell<Option<String>>>,
+    /// Asks for pages created on screen, like WebKitGTK.
+    shows_at_creation: bool,
 }
 
 /// Records calls; `url` is the address the page reports, shared with its host.
@@ -82,6 +84,9 @@ impl Host for FakeHost {
             return Err(reason.clone());
         }
         self.log.push(format!("create {}", config.url));
+        if config.visible {
+            self.log.push("created visible".into());
+        }
         self.events.borrow_mut().push(config.events);
         self.checkers.borrow_mut().push(config.checker);
         Ok(Rc::new(FakePage(self.log.clone(), self.url.clone())))
@@ -95,6 +100,10 @@ impl Host for FakeHost {
 
     fn needs_pump(&self) -> bool {
         self.pumps.is_some()
+    }
+
+    fn shows_at_creation(&self) -> bool {
+        self.shows_at_creation
     }
 }
 
@@ -224,6 +233,42 @@ fn a_page_starts_after_its_check_and_shows_only_in_its_tab(cx: &mut gpui_kit::Te
     harness.update(|view, cx| view.set_active(false, cx));
     assert_eq!(host.log.take(), ["focus parent", "visible false"]);
     harness.update(|view, cx| view.set_active(true, cx));
+    assert_eq!(host.log.take(), ["visible true"]);
+}
+
+#[gpui_kit::test]
+fn an_engine_that_asks_gets_its_showing_page_created_visible(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost {
+        shows_at_creation: true,
+        ..FakeHost::default()
+    });
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "Example", cx));
+    let log = host.log.take();
+    assert!(
+        log.iter().any(|entry| entry == "created visible"),
+        "{log:?}"
+    );
+    // Already on screen, so it isn't shown a second time.
+    assert!(!log.iter().any(|entry| entry == "visible true"), "{log:?}");
+    harness.update(|view, cx| view.select(None, cx));
+    assert_eq!(host.log.take(), ["focus parent", "visible false"]);
+
+    // A tab that isn't showing while its page starts gets it hidden.
+    harness.visual.update(|_, cx| Overlays::set(true, cx));
+    harness.update(|view, cx| view.open(OTHER, "Other", cx));
+    let log = host.log.take();
+    assert!(
+        log.iter().any(|entry| entry == &format!("create {OTHER}")),
+        "{log:?}"
+    );
+    assert!(
+        !log.iter().any(|entry| entry == "created visible"),
+        "{log:?}"
+    );
+    harness.visual.update(|_, cx| Overlays::set(false, cx));
+    harness.visual.run_until_parked();
     assert_eq!(host.log.take(), ["visible true"]);
 }
 

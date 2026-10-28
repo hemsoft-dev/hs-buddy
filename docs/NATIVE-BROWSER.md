@@ -68,14 +68,21 @@ window. They live in `rust/crates/buddy-core/src/browser.rs`:
   windows, so Buddy Native starts GPUI without it
   (`GPUI_DISABLE_DIRECT_COMPOSITION=1`, unless already set). Pages need the
   Microsoft Edge WebView2 Runtime, which Windows 11 includes. Without it a tab
-  explains that and offers the system browser.
+  explains that and offers the system browser. WebView2 won't create pages on a
+  secondary desktop made with `CreateDesktop` (`0x80070578`, invalid window
+  handle), so the browser qualification runs on the runner's own desktop.
 - **macOS.** The page draws above the GPUI content. Website data is kept in a
   persistent store keyed from the profile folder.
 - **Linux.** Pages are embedded only under X11. Buddy initializes GTK itself and
-  drives its event loop from the app. On Wayland a tab explains that pages can't
-  be embedded yet and offers the system browser. The `.deb` depends on
-  `libwebkit2gtk-4.1-0`, `libjavascriptcoregtk-4.1-0`, `libsoup-3.0-0` and
-  `libgtk-3-0t64`; building needs `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`.
+  drives its event loop from the app. A page is created already visible when
+  its tab is showing: WebKitGTK pages created hidden and shown later could stay
+  black. On Wayland a tab explains that pages can't be embedded yet and offers
+  the system browser. The `.deb` depends on `libwebkit2gtk-4.1-0`,
+  `libjavascriptcoregtk-4.1-0`, `libsoup-3.0-0` and `libgtk-3-0t64`; building
+  needs `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`.
+  Known limit: X11 sends keys to the window under the pointer, so while the
+  pointer rests over a page, Buddy's shortcuts (such as Ctrl+Q) go to the page
+  instead. Move the pointer off the page to use them.
 
 A page is a native view above the window, so Buddy hides it whenever something
 drawn by Buddy would sit under it: another tab, another section, an open menu or a

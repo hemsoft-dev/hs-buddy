@@ -245,6 +245,8 @@ def qualify(executable, output, session, version, backend, site):
     os.environ["BUDDY_BROWSER_AUDIT_FILE"] = str(audit)
     seed(backend, site.origin)
     driver = settings.Driver(executable, output, session, backend, CHECKOUT)
+    # WebView2 can't create pages on the driver's hidden Windows desktop.
+    driver.input_desktop = True
     first_pass(driver, "dark")
     restart_pass(driver, "dark", 2)
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())

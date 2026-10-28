@@ -389,30 +389,42 @@ impl BrowserView {
                 })
                 .ok()
                 .flatten();
-            let Ok(Some(config)) = this.update(cx, |this, _| this.page_config(id, url)) else {
+            let Ok(Some(config)) = this.update(cx, |this, cx| this.page_config(id, url, cx)) else {
                 return;
             };
+            let visible = config.visible;
             let result = host.create(parent, config);
-            let _ = this.update(cx, |this, cx| this.page_started(id, result, cx));
+            let _ = this.update(cx, |this, cx| this.page_started(id, result, visible, cx));
         })
         .detach();
     }
 
-    fn page_config(&self, id: u64, url: Url) -> Option<PageConfig> {
-        let tab = &self.tabs[self.index_of(id)?];
+    fn page_config(&self, id: u64, url: Url, cx: &App) -> Option<PageConfig> {
+        let index = self.index_of(id)?;
+        let tab = &self.tabs[index];
+        // The same test `sync` applies, before the page exists.
+        let visible = self.host.shows_at_creation()
+            && self.shown
+            && !Overlays::any(cx)
+            && self.active == Some(index)
+            && tab.bounds.get().is_some();
         Some(PageConfig {
             url,
             zoom: self.zoom,
             bounds: tab.bounds.get().unwrap_or_default(),
             checker: self.checker.clone(),
             events: tab.events.clone(),
+            visible,
         })
     }
 
+    /// `visible` is whether the page was created on screen; `sync` then
+    /// hides it if its tab stopped showing while the engine started.
     fn page_started(
         &mut self,
         id: u64,
         result: Result<Rc<dyn Page>, Unavailable>,
+        visible: bool,
         cx: &mut Context<Self>,
     ) {
         let Some(index) = self.index_of(id) else {
@@ -428,6 +440,7 @@ impl BrowserView {
                 if let Some(bounds) = tab.bounds.get() {
                     page.set_bounds(bounds);
                 }
+                tab.visible = visible;
                 tab.page = Some(page);
                 self.start_pump(cx);
                 self.start_following(cx);
