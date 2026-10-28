@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1566] - 2026-10-28
+
+### Changed
+
+- Call the bounded desktop-tools installer as #878 changed it
+
 ## [0.1.1565] - 2026-10-28
 
 ### Changed
