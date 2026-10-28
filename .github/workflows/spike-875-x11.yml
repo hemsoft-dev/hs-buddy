@@ -31,16 +31,25 @@ jobs:
           mkdir -p out
           bin="$PWD/spike/875-x11/target/release/spike-875-x11"
           run() {
-            xvfb-run -a -s '-screen 0 1600x1000x24' bash -c "openbox >/dev/null 2>&1 & sleep 1; $* || echo 'exit '\$?" 2>&1 | tail -n 25
+            xvfb-run -a -s '-screen 0 1600x1000x24' bash -c "openbox >/dev/null 2>&1 & sleep 1; $* || echo 'exit '\$?" 2>&1 | tail -n 40
           }
-          for variant in first second second-nohide second-delay second-toggle second-visible; do
-            echo "== $variant"
-            run timeout 60 "$bin" "$variant" out
+          # Round 1 (inline pages, every switching variant) rendered the second page.
+          # Round 2: the qualification's real pages over HTTP with the app's handlers.
+          python3 spike/875-x11/site.py 42069 &
+          sleep 1
+          base=http://127.0.0.1:42069
+          for probe in all popup geo camera notification iframe private download plain; do
+            case "$probe" in
+              all) first="$base/probe" ;;
+              plain) first="$base/ok?first" ;;
+              *) first="$base/probe?only=$probe" ;;
+            esac
+            for handlers in 1 0; do
+              tag="url-$probe-h$handlers"
+              echo "== $tag ($first)"
+              run env SPIKE_TAG="$tag" SPIKE_A="$first" SPIKE_B="$base/ok" SPIKE_HANDLERS="$handlers" timeout 90 "$bin" second out
+            done
           done
-          echo "== second, DMA-BUF renderer off"
-          run env SPIKE_TAG=second-nodmabuf WEBKIT_DISABLE_DMABUF_RENDERER=1 timeout 60 "$bin" second out
-          echo "== second, compositing off"
-          run env SPIKE_TAG=second-nocompositing WEBKIT_DISABLE_COMPOSITING_MODE=1 timeout 60 "$bin" second out
           ls -la out
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

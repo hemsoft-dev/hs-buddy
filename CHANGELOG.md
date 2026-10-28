@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1555] - 2026-10-28
+
+### Changed
+
+- Load the qualification's real pages with the app's handlers
+
 ## [0.1.1554] - 2026-10-28
 
 ### Changed

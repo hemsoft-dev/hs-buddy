@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use raw_window_handle::{HandleError, HasWindowHandle, RawWindowHandle, WindowHandle, XlibWindowHandle};
 use wry::dpi::{LogicalPosition, LogicalSize};
-use wry::{Rect, WebContext, WebView, WebViewBuilder};
+use wry::{NewWindowResponse, PermissionResponse, Rect, WebContext, WebView, WebViewBuilder};
 use x11_dl::xlib;
 
 #[link(name = "gdk-3")]
@@ -65,17 +65,55 @@ fn area() -> Rect {
     }
 }
 
+/// `text` is inline HTML text, or a URL. With SPIKE_HANDLERS=1 the page gets the
+/// app's handlers (wry_host.rs): private hosts refused, popups/downloads/permissions denied.
 fn page(context: &mut WebContext, parent: &Parent, text: &str, visible: bool) -> WebView {
-    let html = format!(
-        "<html><body style='background:#fff;color:#000;font:48px sans-serif'><h1>{text}</h1></body></html>"
-    );
-    WebViewBuilder::new_with_web_context(context)
-        .with_html(html)
+    let builder = WebViewBuilder::new_with_web_context(context);
+    let builder = if text.starts_with("http") {
+        builder.with_url(text)
+    } else {
+        builder.with_html(format!(
+            "<html><body style='background:#fff;color:#000;font:48px sans-serif'><h1>{text}</h1></body></html>"
+        ))
+    };
+    let builder = builder
         .with_bounds(area())
         .with_visible(visible)
-        .with_focused(false)
-        .build_as_child(parent)
-        .expect("page")
+        .with_focused(false);
+    let builder = if std::env::var("SPIKE_HANDLERS").as_deref() == Ok("1") {
+        builder
+            .with_clipboard(false)
+            .with_devtools(false)
+            .with_back_forward_navigation_gestures(false)
+            .with_navigation_handler(|url| {
+                let refused = url.contains("127.0.0.2") || url.contains("127.0.0.3");
+                println!("navigation {url} refused={refused}");
+                !refused
+            })
+            .with_new_window_req_handler(|url, _| {
+                println!("popup {url} denied");
+                NewWindowResponse::Deny
+            })
+            .with_download_started_handler(|url, _| {
+                println!("download {url} denied");
+                false
+            })
+            .with_permission_handler(|kind| {
+                println!("permission {kind} denied");
+                PermissionResponse::Deny
+            })
+            .with_document_title_changed_handler(|title| println!("title {title}"))
+            .with_on_page_load_handler(|event, url| {
+                let stage = match event {
+                    wry::PageLoadEvent::Started => "started",
+                    wry::PageLoadEvent::Finished => "finished",
+                };
+                println!("load {stage} {url}");
+            })
+    } else {
+        builder
+    };
+    builder.build_as_child(parent).expect("page")
 }
 
 fn hide(page: &WebView) {
@@ -111,10 +149,12 @@ fn main() {
     let start_visible = variant == "second-visible";
     pump(500);
 
-    let a = page(&mut context, &parent, "PAGE A", start_visible);
+    let first = std::env::var("SPIKE_A").unwrap_or_else(|_| "PAGE A".to_owned());
+    let second = std::env::var("SPIKE_B").unwrap_or_else(|_| "PAGE B".to_owned());
+    let a = page(&mut context, &parent, &first, start_visible);
     a.set_bounds(area()).unwrap();
     a.set_visible(true).unwrap();
-    pump(4000);
+    pump(7000);
     capture(dir, &format!("{tag}-1-a"));
     if variant == "first" {
         return;
@@ -124,7 +164,7 @@ fn main() {
         hide(&a);
     }
     pump(1500);
-    let b = page(&mut context, &parent, "PAGE B", start_visible);
+    let b = page(&mut context, &parent, &second, start_visible);
     b.set_bounds(area()).unwrap();
     if variant == "second-delay" {
         pump(2000);
