@@ -232,9 +232,83 @@ fn apply_user_overrides(config: &AppConfig, palette: &mut BuddyPalette, cx: &mut
     });
 }
 
+/// WCAG 2 contrast helpers shared by the color tests.
+#[cfg(test)]
+pub(crate) mod wcag {
+    use gpui_kit::{Hsla, Rgba};
+
+    /// Relative luminance, not HSL lightness.
+    pub fn luminance(color: Hsla) -> f32 {
+        let rgb = color.to_rgb();
+        let linear = |channel: f32| {
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
+    }
+
+    /// Composite a translucent `top` over an opaque `base`.
+    pub fn over(top: Hsla, base: Hsla) -> Hsla {
+        let (top, base) = (top.to_rgb(), base.to_rgb());
+        let mix = |a: f32, b: f32| a * top.a + b * (1. - top.a);
+        Rgba {
+            r: mix(top.r, base.r),
+            g: mix(top.g, base.g),
+            b: mix(top.b, base.b),
+            a: 1.,
+        }
+        .into()
+    }
+
+    pub fn contrast(text: Hsla, background: Hsla) -> f32 {
+        let (a, b) = (luminance(text), luminance(background));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::wcag::{contrast, over};
     use super::*;
+    use buddy_core::application_settings::LocalEdit;
+
+    #[gpui_kit::test]
+    fn danger_button_labels_meet_text_contrast(cx: &mut gpui_kit::TestAppContext) {
+        // Issue #854: the stock danger button drew `danger` on a 20% `danger`
+        // tint, 3.6:1 in light. These mirror gpui-component 0.7.1's
+        // `ButtonVariant::Danger` styles, which are private to the crate.
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut failures = Vec::new();
+            for mode in [ThemeName::Dark, ThemeName::Light] {
+                // Selecting a theme applies its incumbent color preset.
+                let mut config = AppConfig::default();
+                LocalEdit::Theme(mode).apply(&mut config).unwrap();
+                install(&config, cx);
+                let theme = Theme::global(cx);
+                let (label, outline) = (theme.button_danger_foreground, theme.danger);
+                let states = [
+                    // `.danger()`: label and background per state.
+                    ("normal", label, theme.button_danger),
+                    ("hover", label, theme.button_danger_hover),
+                    ("pressed", label, theme.button_danger_active),
+                    // `.danger().outline()` ("Close shell"): `danger` on a faint tint.
+                    ("outline", outline, theme.danger.opacity(0.1)),
+                    ("outline hover", outline, theme.danger_hover.opacity(0.2)),
+                ];
+                for (state, text, background) in states {
+                    let ratio = contrast(text, over(background, theme.background));
+                    if ratio < 4.5 {
+                        failures.push(format!("{mode:?} {state} {ratio:.2}:1"));
+                    }
+                }
+            }
+            assert!(failures.is_empty(), "below 4.5:1: {failures:?}");
+        });
+    }
 
     #[gpui_kit::test]
     fn unavailable_code_font_uses_resolved_platform_default(cx: &mut gpui_kit::TestAppContext) {
@@ -257,18 +331,8 @@ mod tests {
     #[test]
     fn light_palette_gold_meets_small_text_contrast() {
         // The 13px dashboard subtitle uses this color on the light preset's
-        // white background. WCAG relative luminance, not HSL lightness.
-        let color = BuddyPalette::light().gold.to_rgb();
-        let linear = |channel: f32| {
-            if channel <= 0.04045 {
-                channel / 12.92
-            } else {
-                ((channel + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        let luminance =
-            0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b);
-        let contrast = 1.05 / (luminance + 0.05);
+        // white background.
+        let contrast = contrast(BuddyPalette::light().gold, hex("#ffffff"));
         assert!(contrast >= 4.5, "light subtitle contrast is {contrast}:1");
     }
 }
