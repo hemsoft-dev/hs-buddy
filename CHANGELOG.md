@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1559] - 2026-10-28
+
+### Fixed
+
+- Give each theme pass's added bookmark its own title
+
 ## [0.1.1557] - 2026-10-28
 
 ### Fixed
