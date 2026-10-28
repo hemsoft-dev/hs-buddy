@@ -31,6 +31,7 @@ if ($Agents) { $Agents = @($Agents | ForEach-Object { $_ -split ',' } | ForEach-
 
 # --- Config: load shared model/agent configuration ---
 . (Join-Path $PSScriptRoot 'lib' 'config.ps1')
+. (Join-Path $PSScriptRoot 'lib' 'repository.ps1')
 
 # Resolve provider first (model default may depend on provider)
 if (-not $Provider) { $Provider = Get-RalphDefaultProvider }
@@ -324,6 +325,16 @@ if ($LASTEXITCODE -ne 0) {
 $repoName = Split-Path $repoRoot -Leaf
 $repoParent = Split-Path $repoRoot -Parent
 $subPrefix = (git rev-parse --show-prefix 2>$null).Trim().TrimEnd('/')
+
+# --- GitHub origin: the pull request is opened there, so check it before any work ---
+if (-not $NoPR) {
+    $originRepo = Get-RalphOriginRemote
+    if ($originRepo.Error) {
+        Write-Host $originRepo.Error -ForegroundColor Red
+        Write-Host "  Use -NoPR to run the loop without opening a pull request." -ForegroundColor DarkGray
+        exit 1
+    }
+}
 
 # --- Repo audio identification ---
 $script:RepoAudioFile = Join-Path $repoRoot "assets" "ralph-loop" "$repoName.mp3"
@@ -765,36 +776,30 @@ finally {
 # --- PR creation and handoff to ralph-pr ---
 $handedOff = $false
 if (-not $NoPR) {
-    # Ensure branch is pushed
+    # Ensure branch is pushed, tracking origin: ralph-pr.ps1 refuses a worktree without an upstream
     Write-Host ""
     Write-Host "Pushing branch '$Branch' to origin..." -ForegroundColor Cyan
-    git -C $worktreeDir push origin $Branch 2>&1
+    git -C $worktreeDir push -u origin $Branch 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Push failed or nothing to push. Skipping PR creation." -ForegroundColor Yellow
     }
     else {
-        # Resolve repo slug
-        $repoSlug = gh repo view --json nameWithOwner -q '.nameWithOwner' 2>$null
-        if (-not $repoSlug) {
-            $remoteUrl = git --no-pager remote get-url origin 2>$null
-            if ($remoteUrl -match '[:/]([^/]+/[^/]+?)(?:\.git)?$') {
-                $repoSlug = $Matches[1]
+        # Match gh account to repo owner (same fix as ralph-pr.ps1)
+        $rsOwner = ($originRepo.Slug -split '/')[0]
+        # Buddy Native's chosen account (RALPH_GH_ACCOUNT, token in GH_TOKEN) is kept.
+        $rsActiveUser = gh api user --jq '.login' 2>$null
+        if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwner) {
+            $rsToken = gh auth token --user $rsOwner 2>$null
+            if ($rsToken) {
+                $env:GH_TOKEN = $rsToken
+                Write-Host "  Using gh token for $rsOwner (repo owner)" -ForegroundColor DarkGray
             }
         }
 
-        if ($repoSlug) {
-            # Match gh account to repo owner (same fix as ralph-pr.ps1)
-            $rsOwner = ($repoSlug -split '/')[0]
-            # Buddy Native's chosen account (RALPH_GH_ACCOUNT, token in GH_TOKEN) is kept.
-            $rsActiveUser = gh api user --jq '.login' 2>$null
-            if (-not $env:RALPH_GH_ACCOUNT -and $rsActiveUser -and $rsActiveUser -ne $rsOwner) {
-                $rsToken = gh auth token --user $rsOwner 2>$null
-                if ($rsToken) {
-                    $env:GH_TOKEN = $rsToken
-                    Write-Host "  Using gh token for $rsOwner (repo owner)" -ForegroundColor DarkGray
-                }
-            }
+        # The repository origin names, as gh resolves it
+        $repoSlug = Confirm-RalphGitHubRepo -Slug $originRepo.Slug
 
+        if ($repoSlug) {
             # Check for existing PR on this branch
             $existingPRNum = gh pr view $Branch --repo $repoSlug --json number -q '.number' 2>$null
             $newPRNumber = $null
@@ -856,7 +861,7 @@ if (-not $NoPR) {
             }
         }
         else {
-            Write-Host "Could not resolve repo slug. Skipping PR creation." -ForegroundColor Yellow
+            Write-Host "gh repo view could not resolve origin as the GitHub repository $($originRepo.Slug). Skipping PR creation." -ForegroundColor Yellow
         }
     }
 }
