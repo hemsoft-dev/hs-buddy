@@ -119,6 +119,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Never replace an open editor
 
+## [0.1.1554] - 2026-10-28
+
+### Fixed
+
+- Keep the product version ahead of main
+
 ## [0.1.1551] - 2026-10-27
 
 ### Fixed
@@ -158,6 +164,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.1548] - 2026-10-27
 
 ### Fixed
+
+- Raise danger button text contrast to 4.5:1 (#854)
 
 - Require a GitHub origin, validate reused PR worktrees, rebase onto the PR base
 

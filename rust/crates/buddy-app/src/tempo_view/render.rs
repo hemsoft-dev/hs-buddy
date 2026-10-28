@@ -1142,38 +1142,10 @@ mod scroll_area_tests {
 #[cfg(test)]
 mod heading_contrast_tests {
     use super::*;
+    use crate::theme::wcag::{contrast, over};
     use buddy_core::application_settings::LocalEdit;
     use buddy_core::config::{AppConfig, ThemeName};
     use gpui_kit::component::theme::Theme;
-
-    fn luminance(color: Hsla) -> f32 {
-        let rgb = color.to_rgb();
-        let linear = |channel: f32| {
-            if channel <= 0.04045 {
-                channel / 12.92
-            } else {
-                ((channel + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
-    }
-
-    fn over(top: Hsla, base: Hsla) -> Hsla {
-        let (top, base) = (top.to_rgb(), base.to_rgb());
-        let mix = |a: f32, b: f32| a * top.a + b * (1. - top.a);
-        gpui_kit::Rgba {
-            r: mix(top.r, base.r),
-            g: mix(top.g, base.g),
-            b: mix(top.b, base.b),
-            a: 1.,
-        }
-        .into()
-    }
-
-    fn contrast(text: Hsla, background: Hsla) -> f32 {
-        let (a, b) = (luminance(text), luminance(background));
-        (a.max(b) + 0.05) / (a.min(b) + 0.05)
-    }
 
     #[gpui_kit::test]
     fn finish_review_tinted_day_headings_meet_text_contrast(cx: &mut gpui_kit::TestAppContext) {
