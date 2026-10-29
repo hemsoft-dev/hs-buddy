@@ -37,14 +37,30 @@ class BrowserDesktopTests(unittest.TestCase):
         moves = [kind for kind in kinds[:first] if kind in ("hover", "click")]
         self.assertEqual(moves[-1], "hover")
         self.assertNotIn("click", kinds[first:])
-        # The tab's tooltip repeats its title, so the pointer leaves the tab
-        # before the tab is read (run 40777272142: two "Buddy Probe" matches),
-        # over Buddy's title bar, since over the page GPUI sees no move and
-        # kept the tooltip (run 40837170885).
-        self.assertEqual(moves[0], "hover")
-        self.assertEqual(driver.actions[kinds.index("hover")][1:], ("title",))
-        page = [action[1:] for action in driver.actions[:first] if action[0] == "hover"][-1]
-        self.assertEqual(page, ("page",))
+        self.assertEqual(driver.actions[kinds.index("hover")][1:], ("page",))
+        self.assertIn(("tooltip_leave",), driver.actions[:first])
+        self.assertNotIn(("hover", "title"), driver.actions)
+
+    def test_tooltip_leave_requires_visible_tooltip_then_unique_tab_title(self):
+        from unittest.mock import Mock
+        driver = object.__new__(desktop.BrowserDriver)
+        driver.locate = Mock(return_value=dict(left=10, top=20, width=80, height=20))
+        window = Mock(window="42")
+        for results, succeeds in [
+                ([desktop.settings.ocr.AmbiguousLabel("two titles"), {}], True),
+                ([{}], False),
+                ([desktop.settings.ocr.AmbiguousLabel("two titles"),
+                  desktop.settings.ocr.AmbiguousLabel("still two titles")], False)]:
+            with patch.object(desktop.settings, "run"), patch.object(desktop.time, "sleep"), \
+                    patch.object(desktop.settings.ocr, "locate_image", side_effect=results):
+                if succeeds:
+                    driver.interact(window, Path("flow"), "tooltip_leave", [])
+                    window.hover.assert_called_with("page")
+                    window.screenshot.assert_any_call(Path("flow/tooltip-on-tab-light.png"))
+                    window.screenshot.assert_any_call(Path("flow/tooltip-over-page-light.png"))
+                else:
+                    with self.assertRaises(RuntimeError):
+                        driver.interact(window, Path("flow"), "tooltip_leave", [])
 
     def test_non_runner_is_refused_before_argument_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \

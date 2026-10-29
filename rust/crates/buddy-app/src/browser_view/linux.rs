@@ -10,7 +10,8 @@ use std::collections::HashSet;
 use std::ffi::{CStr, c_void};
 use std::os::raw::{c_char, c_int, c_uint, c_ulong};
 
-use gpui_kit::Keystroke;
+use gpui_kit::{App, Keystroke, MouseMoveEvent, Pixels, PlatformInput, Point, Window, point, px};
+use raw_window_handle::HasWindowHandle as _;
 use raw_window_handle::{RawWindowHandle, XlibWindowHandle};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::{
@@ -33,6 +34,7 @@ unsafe extern "C" {
     fn gtk_init_check(argc: *mut c_int, argv: *mut *mut *mut c_char) -> c_int;
     fn gtk_events_pending() -> c_int;
     fn gtk_main_iteration_do(blocking: c_int) -> c_int;
+    fn gtk_widget_add_events(widget: *mut c_void, events: c_int);
     fn gtk_window_list_toplevels() -> *mut GList;
 }
 
@@ -89,6 +91,7 @@ const PARENT: &CStr = c"buddy-key-parent";
 
 thread_local! {
     static READY: Cell<Option<bool>> = const { Cell::new(None) };
+    static ENTERED: RefCell<HashSet<u32>> = RefCell::new(HashSet::new());
     static CLAIMED: RefCell<Vec<Keystroke>> = const { RefCell::new(Vec::new()) };
     /// Key codes whose press went to Buddy, so their release follows it.
     static HANDED: RefCell<HashSet<u16>> = RefCell::new(HashSet::new());
@@ -155,6 +158,17 @@ pub fn hand_back(parent: RawWindowHandle, shortcuts: Vec<Keystroke>) {
                     window,
                     PARENT.as_ptr(),
                     std::ptr::without_provenance_mut(handle.window as usize),
+                );
+                // GDK_ENTER_NOTIFY_MASK. The page receives crossings even
+                // though GPUI gets no motion over its native child.
+                gtk_widget_add_events(window, 1 << 12);
+                g_signal_connect_data(
+                    window,
+                    c"enter-notify-event".as_ptr(),
+                    on_enter as *const c_void,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    0,
                 );
                 for signal in [c"key-press-event", c"key-release-event"] {
                     g_signal_connect_data(
@@ -263,4 +277,63 @@ pub fn pump() {
             gtk_main_iteration_do(0);
         }
     }
+}
+
+/// Queue the leave for after GTK's pump, outside its callback and any GPUI
+/// update. Do not consume the crossing: the page still needs its own input.
+unsafe extern "C" fn on_enter(window: *mut c_void, _: *const c_void, _: *mut c_void) -> c_int {
+    // SAFETY: the signal belongs to a live GTK window tagged by `hand_back`.
+    let parent = unsafe { g_object_get_data(window, PARENT.as_ptr()) }.addr() as u32;
+    ENTERED.with_borrow_mut(|entered| entered.insert(parent));
+    0
+}
+
+pub fn dispatch_page_leave(window: &mut Window, cx: &mut App) {
+    let Ok(raw) = window.window_handle() else {
+        return;
+    };
+    let parent = match raw.as_raw() {
+        RawWindowHandle::Xcb(handle) => handle.window.get(),
+        RawWindowHandle::Xlib(handle) => handle.window as u32,
+        _ => return,
+    };
+    if ENTERED.with_borrow_mut(|entered| entered.remove(&parent)) {
+        // Query at dispatch time: the pointer may have returned to Buddy
+        // since GTK queued the crossing. X coordinates are physical pixels.
+        X.with(|x| {
+            let Some((connection, _)) = x.get_or_init(|| {
+                x11rb::connect(None).ok().map(|(connection, screen)| {
+                    let root = connection.setup().roots[screen].root;
+                    (connection, root)
+                })
+            }) else {
+                return;
+            };
+            if let Ok(cookie) = connection.query_pointer(parent)
+                && let Ok(pointer) = cookie.reply()
+            {
+                let scale = window.scale_factor();
+                page_pointer(
+                    window,
+                    point(
+                        px(f32::from(pointer.win_x) / scale),
+                        px(f32::from(pointer.win_y) / scale),
+                    ),
+                    cx,
+                );
+            }
+        });
+    }
+}
+
+/// Use GPUI's ordinary motion lifecycle to cancel hover and pending tooltips.
+pub(super) fn page_pointer(window: &mut Window, position: Point<Pixels>, cx: &mut App) {
+    window.dispatch_event(
+        PlatformInput::MouseMove(MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: window.modifiers(),
+        }),
+        cx,
+    );
 }

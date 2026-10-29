@@ -934,3 +934,42 @@ fn a_load_that_finishes_in_time_leaves_no_notice(cx: &mut gpui_kit::TestAppConte
     harness.visual.run_until_parked();
     assert_eq!(harness.read(|view| view.tabs[0].notice.clone()), None);
 }
+
+#[cfg(target_os = "linux")]
+#[gpui_kit::test]
+fn page_entry_clears_the_tooltip_trigger_hover_without_parent_motion(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use gpui_kit::{
+        InteractiveElement as _, IntoElement, Render, StatefulInteractiveElement as _, Styled as _,
+        Window, div, point,
+    };
+    struct Trigger(Rc<RefCell<Vec<bool>>>);
+    impl Render for Trigger {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let transitions = self.0.clone();
+            div()
+                .id("tab-tooltip-trigger")
+                .size(px(40.))
+                .on_hover(move |hovered, _, _| transitions.borrow_mut().push(*hovered))
+        }
+    }
+    let transitions = Rc::new(RefCell::new(Vec::new()));
+    let window = cx.add_window(|_, _| Trigger(transitions.clone()));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.draw(cx).clear(cx);
+        window.simulate_mouse_move(point(px(10.), px(10.)), cx);
+        window.draw(cx).clear(cx);
+        assert_eq!(*transitions.borrow(), [true]);
+        // GTK supplies the move to the page, so GPUI itself saw no move.
+        linux::page_pointer(window, point(px(100.), px(100.)), cx);
+        window.draw(cx).clear(cx);
+        assert_eq!(*transitions.borrow(), [true, false]);
+        // A redraw must not revive the old tooltip trigger.
+        window.draw(cx).clear(cx);
+        assert_eq!(*transitions.borrow(), [true, false]);
+        window.simulate_mouse_move(point(px(10.), px(10.)), cx);
+        assert_eq!(*transitions.borrow(), [true, false, true]);
+    })
+    .unwrap();
+}
