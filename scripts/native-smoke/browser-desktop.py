@@ -243,7 +243,9 @@ def shortcut_pass(driver):
     over a page, Buddy's shortcuts still act on Buddy (#880): the tab shortcuts
     here, and Ctrl+Q, which ends the drive."""
     flow = driver.drive("shortcuts-light", [
-        ("wait_text", PROBE_TEXT),
+        # The pointer starts where the light pass left it, on the probe's tab,
+        # whose tooltip repeats the title; move it off before reading the tab.
+        ("hover",), ("wait_text", PROBE_TEXT),
         # Clicking a tab gives the browser the keyboard.
         ("click", "Buddy Probe"), ("hover",),
         ("shortcut", "Tab"), ("wait_text", PAGE_TEXT), ("capture", "next-tab-light"),

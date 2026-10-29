@@ -30,11 +30,16 @@ class BrowserDesktopTests(unittest.TestCase):
         with patch.object(desktop.github, "check"):
             desktop.shortcut_pass(driver)
         kinds = [action[0] for action in driver.actions]
-        hovered = kinds.index("hover")
+        first = kinds.index("shortcut")
         shortcuts = [action[1] for action in driver.actions if action[0] == "shortcut"]
         self.assertEqual(shortcuts, ["Tab", "shift+Tab", "F4"])
-        self.assertLess(hovered, kinds.index("shortcut"))
-        self.assertNotIn("click", kinds[hovered:])
+        # The last thing before the first shortcut that moves the pointer is a hover.
+        moves = [kind for kind in kinds[:first] if kind in ("hover", "click")]
+        self.assertEqual(moves[-1], "hover")
+        self.assertNotIn("click", kinds[first:])
+        # The tab's tooltip repeats its title, so the pointer leaves the tab
+        # before the tab is read (run 40777272142: two "Buddy Probe" matches).
+        self.assertEqual(moves[0], "hover")
 
     def test_non_runner_is_refused_before_argument_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \
