@@ -22,6 +22,8 @@ enum Tone {
     Info,
     Success,
     Warning,
+    /// A destructive confirmation; its frame matches the danger button it holds.
+    Danger,
     Error,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]

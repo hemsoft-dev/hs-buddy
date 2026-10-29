@@ -183,11 +183,12 @@ def evidence_inventory(output):
         'grid-navigation-dark/compact-grid-keyboard-dark.png',
         'grid-navigation-dark/filtered-cell-dark.png', 'grid-navigation-dark/second-page-dark.png',
         'template-dark/template-new-draft-dark.png', 'template-dark/template-created-dark.png',
-        'template-dark/unsent-captured-change-dark.png',
+        'template-dark/unsent-captured-change-dark.png', 'template-dark/discard-confirmation-dark.png',
         'denied-write-dark/invalid-duration-dark.png', 'denied-write-dark/permission-denied-dark.png',
         'denied-write-dark/denied-hours-retained-dark.png', 'denied-write-dark/denied-description-retained-dark.png',
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
         'move-dark/exact-original-editor-dark.png', 'move-dark/moved-worklog-dark.png',
+        'move-dark/delete-confirmation-dark.png',
         'reauth-draft-dark/expired-open-draft-dark.png', 'reauth-draft-dark/draft-needs-fresh-lookup-dark.png',
         'reauth-draft-dark/retained-draft-after-lookup-dark.png',
         'reauth-draft-dark/retained-hours-after-lookup-dark.png',
@@ -301,7 +302,10 @@ def qualify(executable, output, session, version, source, backend):
                     ('capture', 'template-new-draft-dark'),
                     ('wait_scroll_text', 'Create worklog', 'Description'), ('click', 'Create worklog'),
                     ('wait_scroll_up', 'This captured change has not been sent'),
-                    ('capture', 'unsent-captured-change-dark'), ('click', 'Retry captured change'),
+                    ('capture', 'unsent-captured-change-dark'),
+                    ('click', 'Discard local recovery'), ('wait_text', 'Keep recovery'),
+                    ('capture', 'discard-confirmation-dark'), ('click', 'Keep recovery'),
+                    ('click', 'Retry captured change'),
                     ('wait_scroll_up', 'Tempo confirmed the worklog change'), ('capture', 'template-created-dark'),
                 ])
                 state = require_writes(api, 1)
@@ -314,6 +318,7 @@ def qualify(executable, output, session, version, source, backend):
                 if state['writes'][0]['method'] != 'POST' or body != expected_template:
                     raise RuntimeError('The template did not create one hour with explicit no billing')
                 github.check(templates / 'template-new-draft-dark.png', 'Create worklog', 'No billing account', 'Synthetic prior month template')
+                github.check(templates / 'discard-confirmation-dark.png', 'Discard this unsent captured change', 'Keep recovery')
                 before_denied = state['records']
                 with api.lock:
                     api.deny_next_create = True
@@ -376,12 +381,17 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_up', '2026-11-01 to 2026-11-30'), ('click', 'Timeline'),
                     ('wait_scroll_text', 'Synthetic worklog', 'Load date range'),
                     ('capture', 'moved-worklog-dark'),
+                    # Shown and kept: the light pass deletes this worklog later.
+                    ('wait_scroll_text', 'Delete worklog', 'Load date range'),
+                    ('click', 'Delete worklog'), ('wait_scroll_up', 'Confirm deletion'),
+                    ('capture', 'delete-confirmation-dark'), ('click', 'Keep worklog'),
                 ])
                 state = require_writes(api, 3, rejected=1)
                 moved = state['records'][tempo.FIRST_ID]
                 if moved != {**original, 'startDate': '2026-11-05'}:
                     raise RuntimeError('Moving the work date did not preserve every original worklog field')
                 github.check(edited / 'moved-worklog-dark.png', '05 Nov 2026', '1:01:01', 'Synthetic worklog')
+                github.check(edited / 'delete-confirmation-dark.png', 'Delete the 1:01:01 worklog', 'Keep worklog')
                 with api.lock:
                     api.expire_after_lookup = True
                 rechecked = driver.drive('reauth-draft-dark', [
