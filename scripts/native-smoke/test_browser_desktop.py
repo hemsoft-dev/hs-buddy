@@ -38,8 +38,13 @@ class BrowserDesktopTests(unittest.TestCase):
         self.assertEqual(moves[-1], "hover")
         self.assertNotIn("click", kinds[first:])
         # The tab's tooltip repeats its title, so the pointer leaves the tab
-        # before the tab is read (run 40777272142: two "Buddy Probe" matches).
+        # before the tab is read (run 40777272142: two "Buddy Probe" matches),
+        # over Buddy's title bar, since over the page GPUI sees no move and
+        # kept the tooltip (run 40837170885).
         self.assertEqual(moves[0], "hover")
+        self.assertEqual(driver.actions[kinds.index("hover")][1:], ("title",))
+        page = [action[1:] for action in driver.actions[:first] if action[0] == "hover"][-1]
+        self.assertEqual(page, ("page",))
 
     def test_non_runner_is_refused_before_argument_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \

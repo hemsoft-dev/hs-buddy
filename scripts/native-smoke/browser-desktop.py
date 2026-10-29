@@ -244,10 +244,12 @@ def shortcut_pass(driver):
     here, and Ctrl+Q, which ends the drive."""
     flow = driver.drive("shortcuts-light", [
         # The pointer starts where the light pass left it, on the probe's tab,
-        # whose tooltip repeats the title; move it off before reading the tab.
-        ("hover",), ("wait_text", PROBE_TEXT),
+        # whose tooltip repeats the title (run 40777272142). Over the page GPUI
+        # sees no pointer moves, so that tooltip stayed (run 40837170885); a
+        # move over the title bar clears it before the tab is read.
+        ("hover", "title"), ("wait_text", PROBE_TEXT),
         # Clicking a tab gives the browser the keyboard.
-        ("click", "Buddy Probe"), ("hover",),
+        ("click", "Buddy Probe"), ("hover", "page"),
         ("shortcut", "Tab"), ("wait_text", PAGE_TEXT), ("capture", "next-tab-light"),
         ("shortcut", "shift+Tab"), ("wait_text", PROBE_TEXT),
         ("shortcut", "F4"), ("wait_text", PAGE_TEXT), ("capture", "closed-tab-light"),

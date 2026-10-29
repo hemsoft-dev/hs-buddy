@@ -258,13 +258,20 @@ class UnixWindow:
         return (f'tell application "System Events" to tell first application process '
                 f'whose unix id is {self.process.pid}\n{command}\nend tell')
 
-    def hover(self):
-        """Rests the pointer in the middle of the window: over the page when a
-        browser tab shows one."""
+    def hover(self, where="page"):
+        """Rests the pointer in the middle of the window, over the page when a
+        browser tab shows one, or on the title bar's empty middle. Only a move
+        over Buddy's own window reaches GPUI, so only "title" clears a tooltip
+        left from where the pointer was."""
         if self.session != "x11":
             raise RuntimeError("Only the X11 driver rests the pointer over a page")
         properties = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", self.window).splitlines())
-        run("xdotool", "mousemove", "--window", self.window, int(properties["WIDTH"]) // 2, int(properties["HEIGHT"]) // 2)
+        x, y = int(properties["WIDTH"]) // 2, int(properties["HEIGHT"]) // 2
+        if where == "title":
+            y = 15
+        elif where != "page":
+            raise RuntimeError(f"Unknown pointer rest: {where}")
+        run("xdotool", "mousemove", "--window", self.window, x, y)
         time.sleep(0.3)
 
     def resize(self, width, height):

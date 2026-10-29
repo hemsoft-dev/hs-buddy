@@ -34,6 +34,11 @@ class DashboardGate(unittest.TestCase):
         with patch.object(desktop, "run", return_value=geometry) as run_command, patch.object(desktop.time, "sleep"):
             window.hover()
         self.assertEqual(run_command.call_args_list[-1].args, ("xdotool", "mousemove", "--window", "42", 600, 410))
+        with patch.object(desktop, "run", return_value=geometry) as run_command, patch.object(desktop.time, "sleep"):
+            window.hover("title")
+        self.assertEqual(run_command.call_args_list[-1].args, ("xdotool", "mousemove", "--window", "42", 600, 15))
+        with patch.object(desktop, "run", return_value=geometry), self.assertRaises(RuntimeError):
+            window.hover("sidebar")
         with self.assertRaises(RuntimeError):
             desktop.UnixWindow(None, "wayland").hover()
 
