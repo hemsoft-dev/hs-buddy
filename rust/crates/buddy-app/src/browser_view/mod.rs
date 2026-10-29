@@ -472,10 +472,14 @@ impl BrowserView {
             return;
         }
         self.pumping = true;
+        #[cfg(target_os = "linux")]
+        let window = self.window;
         let host = self.host.clone();
         cx.spawn(async move |this, cx| {
             loop {
                 host.pump();
+                #[cfg(target_os = "linux")]
+                let _ = window.update(cx, |_, window, cx| linux::dispatch_page_leave(window, cx));
                 cx.background_executor().timer(PUMP).await;
                 // Stop once no page is left; the next page restarts it.
                 let pages = this.update(cx, |this, _| {

@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import threading
+import time
 from urllib.parse import parse_qs, urlparse
 
 from desktop import fixture
@@ -238,22 +239,46 @@ def light_pass(driver, visit):
     github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT)
 
 
+class BrowserDriver(settings.Driver):
+    def interact(self, window, directory, kind, values):
+        if kind != "tooltip_leave":
+            return super().interact(window, directory, kind, values)
+        # Locate the tab while the pointer is on the page, then deliberately
+        # show its tooltip. OCR must see both copies before we test the leave.
+        image = directory / "tooltip-target.png"
+        label = self.locate(window, image, "click", "Buddy Probe")
+        settings.run("xdotool", "mousemove", "--window", window.window,
+            int(label["left"] + label["width"] / 2), int(label["top"] + label["height"] / 2))
+        time.sleep(2)
+        before = directory / "tooltip-on-tab-light.png"
+        window.screenshot(before)
+        try:
+            settings.ocr.locate_image(before, "Buddy Probe")
+        except settings.ocr.AmbiguousLabel:
+            pass
+        else:
+            raise RuntimeError("The tab tooltip did not appear before testing page entry")
+        window.hover("page")
+        time.sleep(1)
+        after = directory / "tooltip-over-page-light.png"
+        window.screenshot(after)
+        # A stale tooltip leaves two visible titles and fails this lookup.
+        settings.ocr.locate_image(after, "Buddy Probe")
+
+
 def shortcut_pass(driver):
     """X11 sends a key to the window under the pointer. With the pointer resting
     over a page, Buddy's shortcuts still act on Buddy (#880): the tab shortcuts
     here, and Ctrl+Q, which ends the drive."""
     flow = driver.drive("shortcuts-light", [
-        # The pointer starts where the light pass left it, on the probe's tab,
-        # whose tooltip repeats the title (run 40777272142). Over the page GPUI
-        # sees no pointer moves, so that tooltip stayed (run 40837170885); a
-        # move over the title bar clears it before the tab is read.
-        ("hover", "title"), ("wait_text", PROBE_TEXT),
+        ("hover", "page"), ("wait_text", PROBE_TEXT),
+        ("tooltip_leave",),
         # Clicking a tab gives the browser the keyboard.
         ("click", "Buddy Probe"), ("hover", "page"),
         ("shortcut", "Tab"), ("wait_text", PAGE_TEXT), ("capture", "next-tab-light"),
         ("shortcut", "shift+Tab"), ("wait_text", PROBE_TEXT),
         ("shortcut", "F4"), ("wait_text", PAGE_TEXT), ("capture", "closed-tab-light"),
-    ], record=False)
+    ], record=True)
     github.check(flow / "next-tab-light.png", PAGE_TEXT, "Buddy Probe", "Buddy Fixture OK")
     github.check(flow / "closed-tab-light.png", PAGE_TEXT, "Buddy Fixture OK")
 
@@ -270,7 +295,7 @@ def qualify(executable, output, session, version, backend, site):
     os.environ["BUDDY_BROWSER_TEST_ORIGIN"] = site.origin
     os.environ["BUDDY_BROWSER_AUDIT_FILE"] = str(audit)
     seed(backend, site.origin)
-    driver = settings.Driver(executable, output, session, backend, CHECKOUT)
+    driver = BrowserDriver(executable, output, session, backend, CHECKOUT)
     # WebView2 can't create pages on the driver's hidden Windows desktop.
     driver.input_desktop = True
     first_pass(driver, "dark")
