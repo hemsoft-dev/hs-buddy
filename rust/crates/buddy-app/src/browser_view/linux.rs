@@ -33,7 +33,8 @@ unsafe extern "C" {
     fn gtk_init_check(argc: *mut c_int, argv: *mut *mut *mut c_char) -> c_int;
     fn gtk_events_pending() -> c_int;
     fn gtk_main_iteration_do(blocking: c_int) -> c_int;
-    fn gtk_widget_add_events(widget: *mut c_void, events: c_int);
+    fn gtk_event_controller_motion_new(widget: *mut c_void) -> *mut c_void;
+    fn gtk_event_controller_set_propagation_phase(controller: *mut c_void, phase: c_int);
     fn gtk_window_list_toplevels() -> *mut GList;
 }
 
@@ -44,6 +45,13 @@ unsafe extern "C" {
 
 #[link(name = "gobject-2.0")]
 unsafe extern "C" {
+    fn g_object_unref(object: *mut c_void);
+    fn g_object_set_data_full(
+        object: *mut c_void,
+        key: *const c_char,
+        data: *mut c_void,
+        destroy: unsafe extern "C" fn(*mut c_void),
+    );
     fn g_object_get_data(object: *mut c_void, key: *const c_char) -> *mut c_void;
     fn g_object_set_data(object: *mut c_void, key: *const c_char, data: *mut c_void);
     fn g_signal_connect_data(
@@ -158,16 +166,27 @@ pub fn hand_back(parent: RawWindowHandle, shortcuts: Vec<Keystroke>) {
                     PARENT.as_ptr(),
                     std::ptr::without_provenance_mut(handle.window as usize),
                 );
-                // GDK_ENTER_NOTIFY_MASK. The page receives crossings even
-                // though GPUI gets no motion over its native child.
-                gtk_widget_add_events(window, 1 << 12);
-                g_signal_connect_data(
+                // WebKit consumes legacy crossing events before they reach
+                // the foreign GTK parent. Observe its descendants in capture
+                // phase, before the page handles the input.
+                let motion = gtk_event_controller_motion_new(window);
+                gtk_event_controller_set_propagation_phase(motion, 1); // GTK_PHASE_CAPTURE
+                for signal in [c"enter", c"motion"] {
+                    g_signal_connect_data(
+                        motion,
+                        signal.as_ptr(),
+                        on_page_pointer as *const c_void,
+                        std::ptr::without_provenance_mut(handle.window as usize),
+                        std::ptr::null(),
+                        0,
+                    );
+                }
+                // The controller's full reference belongs to this page window.
+                g_object_set_data_full(
                     window,
-                    c"enter-notify-event".as_ptr(),
-                    on_enter as *const c_void,
-                    std::ptr::null_mut(),
-                    std::ptr::null(),
-                    0,
+                    c"buddy-pointer-controller".as_ptr(),
+                    motion,
+                    g_object_unref,
                 );
                 for signal in [c"key-press-event", c"key-release-event"] {
                     g_signal_connect_data(
@@ -278,13 +297,10 @@ pub fn pump() {
     }
 }
 
-/// Queue the leave for after GTK's pump, outside its callback and any GPUI
-/// update. Do not consume the crossing: the page still needs its own input.
-unsafe extern "C" fn on_enter(window: *mut c_void, _: *const c_void, _: *mut c_void) -> c_int {
-    // SAFETY: the signal belongs to a live GTK window tagged by `hand_back`.
-    let parent = unsafe { g_object_get_data(window, PARENT.as_ptr()) }.addr() as u32;
-    ENTERED.with_borrow_mut(|entered| entered.insert(parent));
-    0
+/// Queue the pointer update outside GTK's callback and any GPUI update.
+/// Capture observes the page's input without consuming it.
+unsafe extern "C" fn on_page_pointer(_: *mut c_void, _: f64, _: f64, parent: *mut c_void) {
+    ENTERED.with_borrow_mut(|entered| entered.insert(parent.addr() as u32));
 }
 
 pub fn dispatch_page_leave(window: &mut Window, cx: &mut App) {

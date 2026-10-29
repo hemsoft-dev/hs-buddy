@@ -83,7 +83,7 @@ window. They live in `rust/crates/buddy-core/src/browser.rs`:
   the system browser. The `.deb` depends on `libwebkit2gtk-4.1-0`,
   `libjavascriptcoregtk-4.1-0`, `libsoup-3.0-0` and `libgtk-3-0t64`; building
   needs `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`.
-  When the pointer enters a page, its GTK window queues a GPUI pointer update
+  When the pointer enters a page, a capture-phase GTK motion controller queues a GPUI pointer update
   after the GTK pump using the current X11 pointer position. This clears Buddy hover and cancels visible or pending
   tooltips without taking pointer input away from the page.
   X11 sends keys to the window under the pointer, so while the pointer rests
