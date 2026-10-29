@@ -494,8 +494,7 @@ class LabeledInputs(unittest.TestCase):
                     driver.interact(window, directory, "input", ["Filter loaded items", "First private"])
                 self.assertEqual(locate.call_count, 2 if session == "macos" else 1)
                 locate.assert_called_with(image, "Filter loaded items", navigation=False,
-                    field=True, save_row=False, tab=False,
-                    **({"block_first": True} if session == "macos" else {}))
+                    field=True, save_row=False, tab=False)
                 if session == "macos":
                     helper.click.assert_called_once_with(920, 184)
                     helper.replace_text.assert_called_once_with("First private")
@@ -566,8 +565,7 @@ class SessionInputRows(unittest.TestCase):
                         patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
                     driver.interact(window, directory, "input", ["VS Code User directory", "synthetic path", "Scan folder"])
                 locate.assert_called_with(image, "VS Code User directory", navigation=False,
-                    field=True, save_row=False, tab=False, row_control="Scan folder",
-                    **({"block_first": True} if session == "macos" else {}))
+                    field=True, save_row=False, tab=False, row_control="Scan folder")
                 if session == "macos":
                     helper.click.assert_called_once_with(185, 270)
                     helper.replace_text.assert_called_once_with("synthetic path")
@@ -986,6 +984,34 @@ class MacStabilityTests(unittest.TestCase):
             self.assertEqual(label, readings[1])
             lines = (Path(root) / "stability.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual([json.loads(line)["measurement"] for line in lines], readings)
+
+    def test_tempo_hours_does_not_use_the_block_box_that_clicks_the_sidebar(self):
+        # Both #888 Mac artifacts measured this block box and clicked x=40,
+        # opening Chat. The following Work date lookup then failed there.
+        block = dict(left=20, top=488, width=153, height=18)
+        sparse = dict(left=65, top=493, width=108, height=10)
+        for session in ("macos", "x11"):
+            with self.subTest(session=session), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                image = directory / "locator.png"
+                image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", 1200, 820))
+                image.with_suffix(".window.json").write_text(json.dumps(dict(
+                    capturePixelsPerWindowPoint=1, kCGWindowBounds=dict(X=80, Y=80))))
+                driver, helper, window = self.driver(), Mock(), Mock()
+                driver.session = session
+                driver.input_receipt = Mock()
+                def recognize(image, mode):
+                    box = block if mode == 6 else sparse
+                    return [dict(box, text="Hours or H:MM:SS", line="hours")]
+                with patch.object(desktop.ocr.shutil, "which", return_value="tesseract"), \
+                        patch.object(desktop.ocr, "recognize", side_effect=recognize) as read, \
+                        patch.object(desktop, "OwnedMacInput", return_value=helper), \
+                        patch.object(desktop, "run"), patch.object(desktop.time, "sleep"):
+                    driver.interact(window, directory, "input", ["Hours or H:MM:SS", "0", {"labelBottomOffset": 30}])
+                if session == "macos":
+                    helper.click.assert_called_once_with(165, 613)
+                    helper.replace_text.assert_called_once_with("0")
+                self.assertTrue(all(call.args[1] == 11 for call in read.call_args_list))
 
     def test_tempo_token_uses_block_segmentation_before_sparse_border_boxes(self):
         # All three #886 failures alternate these boxes at the same layout.

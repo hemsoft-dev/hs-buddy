@@ -445,7 +445,10 @@ class Driver:
             options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
-            if self.session == "macos" and kind == "input":
+            # Only this label needs block segmentation (#886). On the Tempo
+            # hours row, block mode absorbs a sidebar glyph into the label and
+            # moves the input click into the navigation rail (#888 artifacts).
+            if self.session == "macos" and kind == "input" and text == "Jira API token":
                 options["block_first"] = True
             if row_control is not None:
                 options["row_control"] = row_control
