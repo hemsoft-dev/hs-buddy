@@ -225,7 +225,7 @@ The Crew, Tempo, Bookmarks, Copilot, Settings.
 | ---------- | -------------------------------------------------- |
 | Desktop    | Electron 44                                        |
 | UI         | React 19, TypeScript 6, Vite 8                     |
-| Backend    | Convex 1.46.0 (serverless DB + real-time)          |
+| Backend    | Convex 1.48.0 (serverless DB + real-time)          |
 | AI         | `@github/copilot-sdk` 1.0.14                       |
 | GitHub API | `@octokit/rest` 22, `@octokit/graphql` 9           |
 | Telemetry  | OpenTelemetry SDK (traces, metrics, logs → Aspire) |

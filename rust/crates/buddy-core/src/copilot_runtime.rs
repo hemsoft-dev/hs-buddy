@@ -226,7 +226,7 @@ fn hash_file(path: &Path) -> Result<String, InstallError> {
     if total == 0 {
         return Err(InstallError::Unavailable);
     }
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(crate::sha256::hex(&digest.finalize()))
 }
 
 fn verify_receipt(root: &Path, receipt: Receipt) -> Result<VerifiedRuntime, InstallError> {

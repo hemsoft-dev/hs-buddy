@@ -11,21 +11,23 @@ interface StrykerConfig {
 
 const runnerSource = resolve('node_modules/@stryker-mutator/vitest-runner/dist/src')
 
-const runtimeCopies = ['test-helpers.js', 'stryker-setup.js']
-
+// Since 10.1 the runner joins nested test names the way Vitest 5 matches them,
+// which the repository used to patch in (#685). These tests keep that true.
 describe('Stryker Vitest 5 compatibility', () => {
-  it('patches both runtime copies of the nested test-name collector', () => {
-    for (const file of runtimeCopies) {
-      expect(readFileSync(resolve(runnerSource, file), 'utf8')).toContain(
-        "return nameParts.join(' > ').trim();"
-      )
+  it('selects the Vitest 5 test-name separator for the installed Vitest', () => {
+    const runner = readFileSync(resolve(runnerSource, 'vitest-test-runner.js'), 'utf8')
+    expect(runner).toContain("semver.gte(vitestWrapper.version, '5.0.0-0')")
+    const vitest = JSON.parse(readFileSync('node_modules/vitest/package.json', 'utf8')) as {
+      version: string
     }
+    expect(Number(vitest.version.split('.')[0])).toBeGreaterThanOrEqual(5)
   })
 
-  it('uses Vitest 5 nested test names in the patched helper', async () => {
+  it('joins nested test names with the Vitest 5 separator', async () => {
     const helperUrl = pathToFileURL(resolve(runnerSource, 'test-helpers.js')).href
-    const { collectTestName } = (await import(helperUrl)) as {
-      collectTestName: (test: unknown) => string
+    const { collectTestName, VITEST_MODERN_TEST_NAME_SEPARATOR } = (await import(helperUrl)) as {
+      collectTestName: (test: unknown, separator: string) => string
+      VITEST_MODERN_TEST_NAME_SEPARATOR: string
     }
 
     const test = {
@@ -33,7 +35,10 @@ describe('Stryker Vitest 5 compatibility', () => {
       suite: { name: 'inner suite', suite: { name: 'outer suite' } },
     }
 
-    expect(collectTestName(test)).toBe('outer suite > inner suite > kills the mutant')
+    expect(VITEST_MODERN_TEST_NAME_SEPARATOR).toBe(' > ')
+    expect(collectTestName(test, VITEST_MODERN_TEST_NAME_SEPARATOR)).toBe(
+      'outer suite > inner suite > kills the mutant'
+    )
   })
 
   it('keeps per-test analysis and the existing break threshold enabled', () => {

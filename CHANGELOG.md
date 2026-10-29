@@ -9,15 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1581] - 2026-10-29
+
+### Changed
+
+- Match the link notice without its closing period
+
 ## [0.1.1579] - 2026-10-29
 
 ### Changed
+
+- Accept the Windows audio device API in the package guard
+
+## [0.1.1578] - 2026-10-29
+
+### Changed
+
+- Match commitlint's conventional config and document Convex 1.48
 
 - Clear the probe tab's tooltip over the title bar
 
 ## [0.1.1577] - 2026-10-29
 
 ### Changed
+
+- Apply the open Dependabot updates together
 
 - Move the pointer off the probe tab before reading it
 

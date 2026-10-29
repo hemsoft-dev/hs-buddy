@@ -4,7 +4,6 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::*;
@@ -61,7 +60,7 @@ fn record(bytes: &[u8]) -> Result<(Checkpoint, Option<Acknowledgement>), Error> 
 
 fn fingerprint(saved: &Checkpoint) -> Result<String, Error> {
     let bytes = serde_json::to_vec(saved).map_err(|_| Error::InvalidRecovery)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(crate::sha256::hex_digest(bytes))
 }
 
 impl Acknowledgement {

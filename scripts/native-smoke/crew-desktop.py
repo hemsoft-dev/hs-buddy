@@ -211,8 +211,10 @@ def qualify(executable, output, session, version):
         linked = driver.drive("outside-dark", [
             ("click", "alpha"), ("wait_text", "Undo is unavailable"), ("capture", "outside-dark"),
         ], record=True)
+        # Without the closing period: at 3x OCR dropped it on macOS Intel, the
+        # one layout that read "outside-link" (run 40855157455).
         github.check(linked / "outside-dark.png", "README.md", "outside-link", "Added",
-            "Undo is unavailable for links, folders and submodules.")
+            "Undo is unavailable for links, folders and submodules")
         if (outside / "keep.txt").read_text(encoding="utf-8") != "outside\n":
             raise RuntimeError("A file outside the project changed")
         # A directory link is removed as a directory entry on Windows.

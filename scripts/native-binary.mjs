@@ -90,6 +90,8 @@ const windowsSystemLibraries = new Set([
   'd3d11.dll',
   'dwrite.dll',
   'winmm.dll',
+  // Windows' audio device API; rodio 0.23's WASAPI output imports it directly.
+  'mmdevapi.dll',
   'ntdll.dll',
   'uiautomationcore.dll',
   'oleaut32.dll',

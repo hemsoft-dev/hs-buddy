@@ -5,7 +5,6 @@
 use std::path::{Component, Path, PathBuf};
 
 use keyring::Entry;
-use sha2::{Digest, Sha256};
 
 use crate::config::{AppConfig, save_config_body_at};
 use crate::config_lock::{ConfigLock, DEFAULT_TIMEOUT};
@@ -60,7 +59,7 @@ fn account_for_normalized_path(path: &str, windows: bool) -> String {
     } else {
         path.to_owned()
     };
-    format!("pollen-{:x}", Sha256::digest(path.as_bytes()))
+    format!("pollen-{}", crate::sha256::hex_digest(path.as_bytes()))
 }
 
 trait Vault {
