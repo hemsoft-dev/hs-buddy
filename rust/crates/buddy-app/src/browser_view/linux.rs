@@ -11,8 +11,7 @@ use std::ffi::{CStr, c_void};
 use std::os::raw::{c_char, c_int, c_uint, c_ulong};
 
 use gpui_kit::{App, Keystroke, MouseMoveEvent, Pixels, PlatformInput, Point, Window, point, px};
-use raw_window_handle::HasWindowHandle as _;
-use raw_window_handle::{RawWindowHandle, XlibWindowHandle};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle, XlibWindowHandle};
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::{
     ConnectionExt as _, EventMask, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, KeyButMask, KeyPressEvent,
@@ -289,7 +288,7 @@ unsafe extern "C" fn on_enter(window: *mut c_void, _: *const c_void, _: *mut c_v
 }
 
 pub fn dispatch_page_leave(window: &mut Window, cx: &mut App) {
-    let Ok(raw) = window.window_handle() else {
+    let Ok(raw) = <Window as HasWindowHandle>::window_handle(window) else {
         return;
     };
     let parent = match raw.as_raw() {
