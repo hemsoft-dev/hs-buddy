@@ -205,8 +205,12 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None):
-    for mode in ((11, 3, 6) if shutil.which("tesseract") else (11,)):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False):
+    # Compact Mac forms put a focus border just above the next label. Sparse
+    # segmentation can absorb that border into its glyph box (#886). The
+    # original-image block pass reads the label alone in the failed artifacts.
+    modes = (6, 11, 3) if block_first else (11, 3, 6)
+    for mode in (modes if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
             label = locate_label(words, labels, navigation, field, tab)

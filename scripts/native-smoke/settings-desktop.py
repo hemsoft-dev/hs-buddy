@@ -445,6 +445,8 @@ class Driver:
             options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            if self.session == "macos" and kind == "input":
+                options["block_first"] = True
             if row_control is not None:
                 options["row_control"] = row_control
             label = ocr.locate_image(image, text, **options)

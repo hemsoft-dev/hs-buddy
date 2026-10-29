@@ -494,7 +494,8 @@ class LabeledInputs(unittest.TestCase):
                     driver.interact(window, directory, "input", ["Filter loaded items", "First private"])
                 self.assertEqual(locate.call_count, 2 if session == "macos" else 1)
                 locate.assert_called_with(image, "Filter loaded items", navigation=False,
-                    field=True, save_row=False, tab=False)
+                    field=True, save_row=False, tab=False,
+                    **({"block_first": True} if session == "macos" else {}))
                 if session == "macos":
                     helper.click.assert_called_once_with(920, 184)
                     helper.replace_text.assert_called_once_with("First private")
@@ -565,7 +566,8 @@ class SessionInputRows(unittest.TestCase):
                         patch.object(desktop, "run") as run, patch.object(desktop.time, "sleep"):
                     driver.interact(window, directory, "input", ["VS Code User directory", "synthetic path", "Scan folder"])
                 locate.assert_called_with(image, "VS Code User directory", navigation=False,
-                    field=True, save_row=False, tab=False, row_control="Scan folder")
+                    field=True, save_row=False, tab=False, row_control="Scan folder",
+                    **({"block_first": True} if session == "macos" else {}))
                 if session == "macos":
                     helper.click.assert_called_once_with(185, 270)
                     helper.replace_text.assert_called_once_with("synthetic path")
@@ -984,6 +986,38 @@ class MacStabilityTests(unittest.TestCase):
             self.assertEqual(label, readings[1])
             lines = (Path(root) / "stability.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual([json.loads(line)["measurement"] for line in lines], readings)
+
+    def test_tempo_token_uses_block_segmentation_before_sparse_border_boxes(self):
+        # All three #886 failures alternate these boxes at the same layout.
+        sparse = [dict(text="Jira API token", left=60, top=574, width=84, height=22, line="token")]
+        block = [dict(text="Jira", left=64, top=578, width=21, height=10, line="token"),
+            dict(text="API", left=88, top=578, width=20, height=10, line="token"),
+            dict(text="token", left=112, top=578, width=32, height=10, line="token")]
+        for moving in (False, True):
+            with self.subTest(moving=moving), tempfile.TemporaryDirectory() as root:
+                window = Mock()
+                calls = []
+                def recognize(image, mode):
+                    calls.append(mode)
+                    words = block if mode == 6 else sparse
+                    shift = (window.screenshot.call_count - 1) * 20 if moving else 0
+                    # Sparse segmentation alternates its border-inclusive box.
+                    if mode == 11 and window.screenshot.call_count % 2 == 0:
+                        words = block
+                    return [dict(word, top=word["top"] + shift) for word in words]
+                with patch.object(desktop.ocr.shutil, "which", return_value="tesseract"), \
+                        patch.object(desktop.ocr, "recognize", side_effect=recognize), \
+                        patch.object(desktop, "OwnedMacInput") as helper:
+                    if moving:
+                        with self.assertRaisesRegex(RuntimeError, "did not become stable"):
+                            self.driver().interact(window, Path(root), "input", ["Jira API token", "fixture"])
+                        self.assertEqual(window.screenshot.call_count, 4)
+                    else:
+                        label = self.driver().locate(window, Path(root) / "locator.png", "input", "Jira API token")
+                        self.assertEqual(label, dict(left=64, top=578, width=80, height=10))
+                        self.assertEqual(window.screenshot.call_count, 2)
+                    helper.assert_not_called()
+                self.assertTrue(all(mode == 6 for mode in calls))
 
     def test_locate_still_refuses_a_target_that_keeps_moving(self):
         with tempfile.TemporaryDirectory() as root:
