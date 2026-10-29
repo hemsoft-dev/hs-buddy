@@ -25,8 +25,9 @@ app's own profile, `browser-profile` beside the configuration file, so an isolat
 The tabs are buttons, so Tab reaches them and Enter or Space selects one. As in
 Electron, Ctrl+Tab and Ctrl+Shift+Tab move to the next or previous tab (the
 bookmark list included) and Ctrl+F4 closes the selected page. These shortcuts work
-while Buddy has the keyboard; clicking into a page gives the page the keyboard
-until you click Buddy again.
+once the browser has the keyboard: clicking a tab gives it to the browser, as does
+reaching a tab with Tab. Clicking into a page gives the page the keyboard until you
+click Buddy again.
 
 ## What a page may do
 
@@ -82,9 +83,11 @@ window. They live in `rust/crates/buddy-core/src/browser.rs`:
   the system browser. The `.deb` depends on `libwebkit2gtk-4.1-0`,
   `libjavascriptcoregtk-4.1-0`, `libsoup-3.0-0` and `libgtk-3-0t64`; building
   needs `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`.
-  Known limit: X11 sends keys to the window under the pointer, so while the
-  pointer rests over a page, Buddy's shortcuts (such as Ctrl+Q) go to the page
-  instead. Move the pointer off the page to use them.
+  X11 sends keys to the window under the pointer, so while the pointer rests
+  over a page its keys reach the page's GTK window. That window hands Buddy's
+  own shortcuts back to Buddy: every app-wide binding (Ctrl+Q, F11, zoom) and the
+  tab shortcuts. Every other key, such as typing or Ctrl+C, stays with the page,
+  even typing meant for one of Buddy's fields while the pointer rests there.
 
 A page is a native view above the window, so Buddy hides it whenever something
 drawn by Buddy would sit under it: another tab, another section, an open menu or a

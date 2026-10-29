@@ -238,6 +238,30 @@ def light_pass(driver, visit):
     github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT)
 
 
+def shortcut_pass(driver):
+    """X11 sends a key to the window under the pointer. With the pointer resting
+    over a page, Buddy's shortcuts still act on Buddy (#880): the tab shortcuts
+    here, and Ctrl+Q, which ends the drive."""
+    flow = driver.drive("shortcuts-light", [
+        # The pointer starts where the light pass left it, on the probe's tab,
+        # whose tooltip repeats the title (run 40777272142). Over the page GPUI
+        # sees no pointer moves, so that tooltip stayed (run 40837170885); a
+        # move over the title bar clears it before the tab is read.
+        ("hover", "title"), ("wait_text", PROBE_TEXT),
+        # Clicking a tab gives the browser the keyboard.
+        ("click", "Buddy Probe"), ("hover", "page"),
+        ("shortcut", "Tab"), ("wait_text", PAGE_TEXT), ("capture", "next-tab-light"),
+        ("shortcut", "shift+Tab"), ("wait_text", PROBE_TEXT),
+        ("shortcut", "F4"), ("wait_text", PAGE_TEXT), ("capture", "closed-tab-light"),
+    ], record=False)
+    github.check(flow / "next-tab-light.png", PAGE_TEXT, "Buddy Probe", "Buddy Fixture OK")
+    github.check(flow / "closed-tab-light.png", PAGE_TEXT, "Buddy Fixture OK")
+
+
+def saved_tabs(config):
+    return [tab["url"] for tab in json.loads(config.read_text(encoding="utf-8"))["native"].get("browser", {}).get("tabs", [])]
+
+
 def qualify(executable, output, session, version, backend, site):
     binary = github.installed_binary(executable, version)
     config = fixture(output, "dark")
@@ -257,16 +281,23 @@ def qualify(executable, output, session, version, backend, site):
     with site.lock:
         result = evaluate(audit_records(audit), dict(site.beacons), site.downloads,
             frame_origin(site.server.server_port))
-    saved = json.loads(config.read_text(encoding="utf-8"))["native"].get("browser", {})
-    if [tab["url"] for tab in saved.get("tabs", [])] != [item["url"] for item in bookmarks(site.origin)]:
-        raise RuntimeError(f"Unexpected saved tabs: {saved}")
+    pages = [item["url"] for item in bookmarks(site.origin)]
+    if saved_tabs(config) != pages:
+        raise RuntimeError(f"Unexpected saved tabs: {saved_tabs(config)}")
+    checks = []
+    if session == "x11":
+        shortcut_pass(driver)
+        # Ctrl+F4 closed the probe's tab.
+        if saved_tabs(config) != pages[1:]:
+            raise RuntimeError(f"Ctrl+F4 over a page did not close its tab: {saved_tabs(config)}")
+        checks = ["Buddy's shortcuts with the pointer over a page"]
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True, engine=dict(windows="WebView2", macos="WKWebView",
         x11="WebKitGTK")[session], **result,
         dataSource="Installed app; loopback fixture site admitted by exact origin; bookmarks in an isolated anonymous Convex deployment",
         checks=["bookmark opens in a tab", "page renders inside the window", "private address refused",
             "download refused", "private iframe refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
-            "compact window", "light/dark"]), indent=2), encoding="utf-8")
+            "compact window", "light/dark", *checks]), indent=2), encoding="utf-8")
 
 
 def main():

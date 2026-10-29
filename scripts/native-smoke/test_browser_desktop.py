@@ -19,6 +19,33 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_the_x11_shortcuts_are_pressed_with_the_pointer_over_a_page(self):
+        # #880: Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+F4 (and Ctrl+Q ending the
+        # drive) are sent only after the pointer rests over the page.
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions = actions
+                return Path("flow")
+        driver = Driver()
+        with patch.object(desktop.github, "check"):
+            desktop.shortcut_pass(driver)
+        kinds = [action[0] for action in driver.actions]
+        first = kinds.index("shortcut")
+        shortcuts = [action[1] for action in driver.actions if action[0] == "shortcut"]
+        self.assertEqual(shortcuts, ["Tab", "shift+Tab", "F4"])
+        # The last thing before the first shortcut that moves the pointer is a hover.
+        moves = [kind for kind in kinds[:first] if kind in ("hover", "click")]
+        self.assertEqual(moves[-1], "hover")
+        self.assertNotIn("click", kinds[first:])
+        # The tab's tooltip repeats its title, so the pointer leaves the tab
+        # before the tab is read (run 40777272142: two "Buddy Probe" matches),
+        # over Buddy's title bar, since over the page GPUI sees no move and
+        # kept the tooltip (run 40837170885).
+        self.assertEqual(moves[0], "hover")
+        self.assertEqual(driver.actions[kinds.index("hover")][1:], ("title",))
+        page = [action[1:] for action in driver.actions[:first] if action[0] == "hover"][-1]
+        self.assertEqual(page, ("page",))
+
     def test_non_runner_is_refused_before_argument_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.argparse, "ArgumentParser") as parser:

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use buddy_core::browser::{Blocked, Checker, Url};
 use futures::channel::mpsc::UnboundedSender;
-use gpui_kit::{Bounds, Pixels};
+use gpui_kit::{Bounds, Keystroke, Pixels};
 use raw_window_handle::RawWindowHandle;
 
 /// What a page reports back, in engine order.
@@ -29,6 +29,9 @@ pub struct PageConfig {
     /// Create the page already on screen. Set only when the engine asks for
     /// it (`Host::shows_at_creation`) and the tab is showing right then.
     pub visible: bool,
+    /// Buddy's shortcuts. An engine whose page can receive keys meant for
+    /// Buddy (WebKitGTK under X11) hands these back to the window.
+    pub shortcuts: Vec<Keystroke>,
 }
 
 /// One live engine view. Every call is best effort: an engine error is
