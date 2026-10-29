@@ -31,7 +31,7 @@ futures.workspace = true
 raw-window-handle = "0.6"
 # Pages inside the window (`browser_view`), on each OS's own engine.
 wry = "0.57"
-rodio = { version = "=0.22.2", default-features = false, features = ["playback", "symphonia-all"] }
+rodio = { version = "=0.23.0", default-features = false, features = ["playback", "symphonia-all"] }
 
 [target.'cfg(windows)'.dependencies]
 # Child-frame navigation checks wry doesn't wire on WebView2 (`browser_view/wry_host.rs`).

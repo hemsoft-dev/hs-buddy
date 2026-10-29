@@ -172,7 +172,7 @@ impl Side {
 }
 
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::sha256::hex_digest(bytes)
 }
 
 fn storage(error: impl std::fmt::Display) -> String {
@@ -306,8 +306,8 @@ fn entry(root: &Dir, path: &str) -> Result<Side, String> {
     let mode = None;
     if metadata.len() > MAX_FILE {
         let mut hasher = Sha256::new();
-        std::io::copy(&mut file, &mut hasher).map_err(storage)?;
-        let sha = format!("{:x}", hasher.finalize());
+        std::io::copy(&mut file, &mut crate::sha256::Writer(&mut hasher)).map_err(storage)?;
+        let sha = crate::sha256::hex(&hasher.finalize());
         return Ok(Side::Digest { sha, mode });
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
@@ -445,9 +445,9 @@ fn bounded(git: &Path, root: &Path, arguments: &[&str]) -> Option<Result<Vec<u8>
         Ok(_) => {
             let mut hasher = Sha256::new();
             hasher.update(&bytes);
-            std::io::copy(&mut stdout, &mut hasher)
+            std::io::copy(&mut stdout, &mut crate::sha256::Writer(&mut hasher))
                 .ok()
-                .map(|_| Err(format!("{:x}", hasher.finalize())))
+                .map(|_| Err(crate::sha256::hex(&hasher.finalize())))
         }
     };
     // Closing the pipe ends a Git that is still writing.

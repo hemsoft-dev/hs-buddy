@@ -4,7 +4,6 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::{
@@ -127,7 +126,7 @@ pub(super) fn acknowledgement(
     let marker = Acknowledgement {
         version: 1,
         operation: request.operation_id().to_string(),
-        checkpoint_sha256: format!("{:x}", Sha256::digest(checkpoint)),
+        checkpoint_sha256: crate::sha256::hex_digest(checkpoint),
         outcome: Terminal::capture(attempt)?,
     };
     let bytes = serde_json::to_vec(&marker).map_err(|_| Error::InvalidRecovery)?;
@@ -306,7 +305,7 @@ fn decode(bytes: &[u8], context: &Context) -> Result<RecoveredChange, Error> {
             serde_json::from_slice(trailing).map_err(|_| Error::InvalidRecovery)?;
         if marker.version != 1
             || marker.operation != stored.operation
-            || marker.checkpoint_sha256 != format!("{:x}", Sha256::digest(&bytes[..offset]))
+            || marker.checkpoint_sha256 != crate::sha256::hex_digest(&bytes[..offset])
         {
             return Err(Error::InvalidRecovery);
         }
