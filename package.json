@@ -1,7 +1,7 @@
 {
   "name": "@hemsoft/buddy",
   "private": true,
-  "version": "0.1.1577",
+  "version": "0.1.1578",
   "description": "Your universal productivity companion - manage skills, tasks, and workflows",
   "type": "module",
   "main": "dist-electron/main.js",
@@ -122,7 +122,7 @@
   "devDependencies": {
     "@amiceli/vitest-cucumber": "8.0.0",
     "@commitlint/cli": "^21.2.3",
-    "@commitlint/config-conventional": "^21.2.0",
+    "@commitlint/config-conventional": "^21.2.4",
     "@e18e/cli": "0.7.0",
     "@edge-runtime/vm": "^5.0.0",
     "@eslint-react/eslint-plugin": "^5.10.3",

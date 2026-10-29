@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1578] - 2026-10-29
+
+### Changed
+
+- Match commitlint's conventional config and document Convex 1.48
+
 ## [0.1.1577] - 2026-10-29
 
 ### Changed
