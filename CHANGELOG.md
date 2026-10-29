@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Hand Buddy's shortcuts back from X11 pages
 
+- Frame destructive confirmations in the danger tone
+
 ## [0.1.1572] - 2026-10-28
 
 ### Fixed
