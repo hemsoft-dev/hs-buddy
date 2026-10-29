@@ -85,6 +85,11 @@ test('Windows runtime guard checks imports, rejects runtime DLLs, and ignores un
   const standalone = peImports(['KERNEL32.dll'])
   standalone.write('VCRUNTIME140.dll', 1600)
   assert.deepEqual(verifyStandaloneWindows(standalone), ['kernel32.dll'])
+  // System audio APIs ship with Windows; the guard accepts them (rodio 0.23, #884).
+  assert.deepEqual(verifyStandaloneWindows(peImports(['WINMM.dll', 'MMDevAPI.dll'])), [
+    'winmm.dll',
+    'mmdevapi.dll',
+  ])
   assert.throws(
     () => verifyStandaloneWindows(peImports(['KERNEL32.dll', 'VCRUNTIME140.dll'])),
     /undeclared runtime DLLs: vcruntime140.dll/

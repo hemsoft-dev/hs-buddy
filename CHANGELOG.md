@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1579] - 2026-10-29
+
+### Changed
+
+- Accept the Windows audio device API in the package guard
+
 ## [0.1.1578] - 2026-10-29
 
 ### Changed
