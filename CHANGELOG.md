@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1581] - 2026-10-29
+
+### Changed
+
+- Match the link notice without its closing period
+
 ## [0.1.1579] - 2026-10-29
 
 ### Changed
