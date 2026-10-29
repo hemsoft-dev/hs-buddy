@@ -9,9 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1579] - 2026-10-29
+
+### Changed
+
+- Clear the probe tab's tooltip over the title bar
+
+## [0.1.1577] - 2026-10-29
+
+### Changed
+
+- Move the pointer off the probe tab before reading it
+
 ## [0.1.1576] - 2026-10-28
 
 ### Fixed
+
+- Hand Buddy's shortcuts back from X11 pages
 
 - Frame destructive confirmations in the danger tone
 

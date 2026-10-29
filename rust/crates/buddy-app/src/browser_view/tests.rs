@@ -399,6 +399,84 @@ fn the_bookmark_list_selection_survives_a_restart(cx: &mut gpui_kit::TestAppCont
     assert!(restored_host.log.take().is_empty(), "no page may start");
 }
 
+/// The app's root, which holds the keyboard focus until something takes it.
+struct Root {
+    focus: gpui_kit::FocusHandle,
+    browser: Entity<BrowserView>,
+}
+
+impl gpui_kit::Render for Root {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+        use gpui_kit::{InteractiveElement as _, ParentElement as _, Styled as _};
+        gpui_kit::div()
+            .track_focus(&self.focus)
+            .size_full()
+            .child(self.browser.clone())
+    }
+}
+
+#[gpui_kit::test]
+fn clicking_a_tab_lets_the_tab_shortcuts_reach_the_browser(cx: &mut gpui_kit::TestAppContext) {
+    // #880: buttons take no focus on a click, so in the app the root kept it
+    // and Ctrl+Tab never reached the browser's own bindings.
+    use gpui_kit::{Bounds, Modifiers, Point, WindowBounds, WindowOptions, point};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("config.json");
+    let config = buddy_core::config::AppConfig::default();
+    std::fs::write(&file, serde_json::to_string(&config).unwrap()).unwrap();
+    let host: Rc<dyn Host> = Rc::new(FakeHost::default());
+    let (window, root) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&config, cx);
+        cx.set_global(Settings::new(config));
+        init(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Point::default(),
+                    size: size(px(1200.), px(820.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                let browser = cx.new(|cx| {
+                    BrowserView::with_host(host, checker(), Some(file.clone()), window, cx)
+                });
+                cx.new(|cx| {
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    Root { focus, browser }
+                })
+            },
+        )
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    let browser = root.read_with(&visual, |root, _| root.browser.clone());
+    browser.update(&mut visual, |view, cx| {
+        view.set_active(true, cx);
+        view.open(PAGE, "", cx);
+        view.open(OTHER, "", cx);
+    });
+    visual.run_until_parked();
+    let active = |visual: &mut VisualTestContext| browser.read_with(visual, |view, _| view.active);
+    assert_eq!(active(&mut visual), Some(1));
+    visual.simulate_keystrokes("ctrl-tab");
+    assert_eq!(active(&mut visual), Some(1), "the root has the keyboard");
+
+    // The Bookmarks tab, first in the strip.
+    let view = visual.debug_bounds("browser-view").unwrap();
+    visual.simulate_click(view.origin + point(px(40.), px(16.)), Modifiers::default());
+    assert_eq!(active(&mut visual), None);
+    visual.simulate_keystrokes("ctrl-tab");
+    assert_eq!(active(&mut visual), Some(0));
+    visual.simulate_keystrokes("ctrl-shift-tab ctrl-shift-tab");
+    assert_eq!(active(&mut visual), Some(1));
+    visual.simulate_keystrokes("ctrl-f4");
+    assert_eq!(browser.read_with(&visual, |view, _| view.tabs.len()), 1);
+}
+
 #[gpui_kit::test]
 fn tab_shortcuts_cycle_through_the_list_and_close_pages(cx: &mut gpui_kit::TestAppContext) {
     let host = Rc::new(FakeHost::default());

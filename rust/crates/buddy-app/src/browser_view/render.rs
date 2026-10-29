@@ -21,6 +21,7 @@ impl Render for BrowserView {
         v_flex()
             .size_full()
             .key_context(CONTEXT)
+            .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &NextTab, _, cx| this.cycle(true, cx)))
             .on_action(cx.listener(|this, _: &PreviousTab, _, cx| this.cycle(false, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| this.close_active(cx)))
@@ -62,7 +63,10 @@ impl BrowserView {
                         .label("Bookmarks")
                         .ghost()
                         .small()
-                        .on_click(cx.listener(|this, _, _, cx| this.select(None, cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.take_keyboard(window, cx);
+                            this.select(None, cx);
+                        })),
                 ),
             );
         for (index, tab) in self.tabs.iter().enumerate() {
@@ -76,9 +80,10 @@ impl BrowserView {
                             .ghost()
                             .small()
                             .tooltip(full.clone())
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.select(Some(index), cx)),
-                            ),
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.take_keyboard(window, cx);
+                                this.select(Some(index), cx);
+                            })),
                     )
                     .child(
                         Button::new(("browser-close", tab.id))
@@ -313,6 +318,16 @@ impl BrowserView {
 }
 
 /// A tab's frame in the strip; the selected one is marked like the shell's tabs.
+impl BrowserView {
+    /// A clicked tab brings the keyboard into the browser, unless it is
+    /// already there (a tab chosen with Tab and Enter keeps its focus).
+    fn take_keyboard(&self, window: &mut Window, cx: &mut App) {
+        if !self.focus.contains_focused(window, cx) {
+            window.focus(&self.focus, cx);
+        }
+    }
+}
+
 fn tab_frame(selected: bool, cx: &App) -> gpui_kit::Div {
     let theme = cx.theme();
     h_flex()

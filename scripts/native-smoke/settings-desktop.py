@@ -330,6 +330,10 @@ class Driver:
                             window.resize(*(self.large_size if values == [1200, 820] else values))
                         elif kind == "key":
                             window.key(values[0], control=False)
+                        elif kind == "shortcut":
+                            window.key(values[0])
+                        elif kind == "hover":
+                            window.hover(*values)
                         elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
                             if kind in ("wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                                 self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
