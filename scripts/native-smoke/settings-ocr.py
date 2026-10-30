@@ -18,7 +18,7 @@ def normalize(text):
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
-def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False):
+def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
     wanted = normalize(label)
     if not wanted:
         raise RuntimeError("A nonempty visible label is required")
@@ -56,6 +56,14 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
         row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
         row_bottom = max(word["top"] + word["height"] for word in row)
         words = [word for word in words if word["top"] > row_bottom]
+    if between is not None:
+        # A scene may name the two visible field labels bounding a row.
+        # Use their tops: OCR can absorb an input border into a label's height.
+        # Missing/competing anchors or competing controls still fail closed.
+        start, end = (find_label(words, text, field=True) for text in between)
+        if start["top"] >= end["top"]:
+            raise RuntimeError("The visible row boundaries are out of order")
+        words = [word for word in words if start["top"] < word["top"] < end["top"]]
     if field:
         try:
             heading = find_label(words, "Settings", exact_line=True)
@@ -152,10 +160,10 @@ def recognize(image, mode=11):
     raise RuntimeError("Native settings qualification requires Tesseract")
 
 
-def locate_label(words, labels, navigation=False, field=False, tab=False, content=False):
+def locate_label(words, labels, navigation=False, field=False, tab=False, content=False, between=None):
     for label in labels.split("|"):
         try:
-            return find_label(words, label, navigation, field, tab=tab, content=content)
+            return find_label(words, label, navigation, field, tab=tab, content=content, between=between)
         except AmbiguousLabel:
             raise
         except RuntimeError:
@@ -236,7 +244,7 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None):
     # Compact Mac forms put a focus border just above the next label. Sparse
     # segmentation can absorb that border into its glyph box (#886). The
     # original-image block pass reads the label alone in the failed artifacts.
@@ -244,7 +252,7 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
     for mode in (modes if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
-            label = locate_label(words, labels, navigation, field, tab, content=content)
+            label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
             if save_row:
                 label["save"] = aligned_save(words, label)
             if row_control is not None:
@@ -275,7 +283,7 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
                 raw = recognize(analysis, mode)
                 words = [dict(word, **{key: word[key] / 3 for key in ("left", "top", "width", "height")}) for word in raw]
                 try:
-                    label = locate_label(words, labels, navigation, field, tab, content=content)
+                    label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
                     if save_row:
                         label["save"] = aligned_save(words, label)
                     if row_control is not None:
@@ -292,7 +300,7 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
             engine = recognize_windows if sys.platform == "win32" else recognize_macos
             words = engine(image)
             image.with_suffix(f".ocr-{sys.platform}.json").write_text(json.dumps(words), encoding="utf-8")
-            label = locate_label(words, labels, navigation, field, tab, content=content)
+            label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
             if save_row:
                 label["save"] = aligned_save(words, label)
             if row_control is not None:
@@ -309,8 +317,9 @@ def main():
     parser.add_argument("--field", action="store_true")
     parser.add_argument("--tab", action="store_true")
     parser.add_argument("--content", action="store_true")
+    parser.add_argument("--between-labels", nargs=2)
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels)))
 
 
 if __name__ == "__main__":

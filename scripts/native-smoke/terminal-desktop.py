@@ -192,7 +192,7 @@ def qualify(executable, output, session, version, backend):
             ("wait_text", "Paste written. No Enter key was added."), ("key", "Return"),
             ("wait_text", "NATIVEREADY"), ("content", "Hide prompts"),
             ("content", "New workspace"), ("sleep", 1), ("content", "Workspace details"),
-            ("input", "Workspace name", "Scratch workspace"), ("content", "Rename"),
+            ("input", "Workspace name", "Scratch workspace"), ("between", "Rename", "Workspace name", "Selected shell name"),
             ("content", "Hide workspace details"), ("capture", "new-workspace-dark"),
             ("content", "Native terminal"), ("capture", "switched-split-dark"),
             ("content", "Scratch workspace"), ("content", "Workspace details"), ("content", "Close workspace"),
@@ -227,7 +227,7 @@ def qualify(executable, output, session, version, backend):
         nonce = str(uuid.uuid4())
         github.mutate(backend, "terminalPrompts:update", dict(id=prompt, content=command_proof(output, nonce)))
         restored = driver.drive("restart-light", [
-            ("content", "Workspace details"), ("input", "Workspace name", "Native restored"), ("content", "Rename"),
+            ("content", "Workspace details"), ("input", "Workspace name", "Native restored"), ("between", "Rename", "Workspace name", "Selected shell name"),
             ("input", "Selected shell name", "Build shell"), ("content", "Rename shell"),
             ("input", "Working directory", str(workspace)), ("content", "Save directory"),
             ("content", "Hide workspace details"), ("content", "Restart shell"), ("sleep", 3),

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1591] - 2026-10-30
+
+### Fixed
+
+- Scope terminal rename to its workspace row
+
 ## [0.1.1590] - 2026-10-30
 
 ### Fixed

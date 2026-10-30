@@ -229,7 +229,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "content", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -323,7 +323,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -438,7 +438,7 @@ class Driver:
                 precise=(point is not None) if precise is None else precise)
         time.sleep(0.7)
 
-    def locate(self, window, image, kind, text, row_control=None):
+    def locate(self, window, image, kind, text, row_control=None, between=None):
         previous = None
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
@@ -447,6 +447,8 @@ class Driver:
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
             if kind in ("content", "nav"):
                 options["content"] = True
+            if between is not None:
+                options["between"] = between
             # Only this label needs block segmentation (#886). On the Tempo
             # hours row, block mode absorbs a sidebar glyph into the label and
             # moves the input click into the navigation rail (#888 artifacts).
@@ -533,7 +535,9 @@ class Driver:
             row_control = None
         else:
             row_control = hint
-        if row_control is None:
+        if kind == "between":
+            label = self.locate(window, image, kind, values[0], between=values[1:])
+        elif row_control is None:
             label = self.locate(window, image, kind, values[0])
         else:
             label = self.locate(window, image, kind, values[0], row_control=row_control)

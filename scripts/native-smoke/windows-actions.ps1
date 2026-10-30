@@ -101,7 +101,7 @@ function Write-OwnedText([string] $Encoded) {
     }
     Start-Sleep -Milliseconds 400
 }
-function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBottomOffset = 20) {
+function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBottomOffset = 20, [string[]] $BetweenLabels = @()) {
     if ($LabelBottomOffset -lt 20 -or $LabelBottomOffset -gt 40) { throw 'Owned input offset is outside its bounded range' }
     $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'settings-locator.png'
     Save-OwnedImage $image
@@ -110,6 +110,10 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     if ($Mode -eq 'navigation') { $arguments += '--navigation' }
     if ($Mode -in @('content', 'navigation')) { $arguments += '--content' }
     if ($Mode -eq 'tab') { $arguments += '--tab' }
+    if ($BetweenLabels.Count -ne 0) {
+        if ($BetweenLabels.Count -ne 2) { throw 'A row needs two visible boundary labels' }
+        $arguments += @('--between-labels') + $BetweenLabels
+    }
     if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
     $raw = & python @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Owned settings label was not found unambiguously' }
@@ -265,6 +269,12 @@ try {
                 # Fixture text goes only to this owned HWND. No clipboard,
                 # global input, shell expansion, or payload logging.
                 Write-OwnedText $parts[1]
+            }
+            'between64' {
+                if ($parts.Count -ne 4) { throw 'A row action needs a control and two visible labels' }
+                $boundaries = @($parts[2..3] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
+                $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
+                Click-OwnedPoint $point.X $point.Y
             }
             { $_ -in 'nav64', 'tab64', 'click64', 'content64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
                 $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'content64' {'content'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }

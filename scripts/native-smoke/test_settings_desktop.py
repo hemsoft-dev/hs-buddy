@@ -811,6 +811,25 @@ class WindowsScrollAnchors(unittest.TestCase):
                     driver.locate(Mock(), directory / "locator.png", "content", "Jobs")
                 self.assertTrue(locate.call_args.kwargs["content"])
 
+    def test_row_boundaries_reach_windows_and_unix_without_becoming_input_text(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-row-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            values = ["Rename", "Workspace name", "Selected shell name"]
+            with patch.object(desktop, "run") as run:
+                driver.drive("rename", [("between", *values)])
+            commands = run.call_args.args[run.call_args.args.index("-Actions") + 1].split(",")
+            self.assertIn("between64:" + ":".join(map(desktop.b64, values)), commands)
+            for session in ("x11", "macos"):
+                driver.session = session
+                with patch.object(desktop.ocr, "locate_image", return_value=dict(left=830, top=172, width=49, height=10)) as locate, \
+                        patch.object(desktop, "record_measurement"):
+                    driver.locate(Mock(), directory / "locator.png", "between", values[0], between=values[1:])
+                self.assertEqual(locate.call_args.kwargs["between"], values[1:])
+
     def test_a_box_is_a_field_without_the_mac_save_row_anchor(self):
         # macOS run 40629646121: Bookmarks' search has no Save button in its
         # row, so `field` failed with "The field's aligned Save button is not visible".
@@ -885,6 +904,40 @@ class WindowsScrollAnchors(unittest.TestCase):
         # The first line is `{ <case condition> } {`; keep only the action body.
         body = "\n".join([block[0][block[0].rindex("{") + 1:]] + block[1:])
         return body[:body.rindex("}")]
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_windows_row_action_forwards_the_two_decoded_boundaries_to_the_shared_ocr_cli(self):
+        lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
+
+        def block(prefix):
+            start = next(index for index, line in enumerate(lines) if line.strip().startswith(prefix))
+            depth, selected = 0, []
+            for line in lines[start:]:
+                selected.append(line)
+                depth += line.count("{") - line.count("}")
+                if depth == 0:
+                    break
+            return "\n".join(selected)
+
+        action = block("'between64' {")
+        action = action[action.index("{") + 1:action.rindex("}")]
+        values = ["Rename", "Workspace name", "Selected shell name"]
+        encoded = ",".join("'" + desktop.b64(value) + "'" for value in values)
+        script = block("function Find-OwnedLabelPoint") + "\n" + (
+            "$Log = Join-Path $PSScriptRoot 'actions.log'\n"
+            "function Save-OwnedImage($Path) {}\n"
+            "function python { $script:observed = @($args); throw 'captured locator invocation' }\n"
+            "$parts = @('between64'," + encoded + ")\n"
+            "try {\n" + action + "\nthrow 'locator was not invoked'\n} catch {\n"
+            " if ($_.Exception.Message -ne 'captured locator invocation') { throw }\n}\n"
+            "ConvertTo-Json -InputObject $script:observed -Compress\n")
+        with tempfile.TemporaryDirectory(prefix="buddy-row-cli-") as root:
+            path = Path(root) / "row.ps1"
+            path.write_text(script, encoding="utf-8")
+            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(path)], capture_output=True,
+                text=True, encoding="utf-8", timeout=60, check=True)
+        arguments = json.loads(result.stdout)
+        self.assertEqual(arguments[3:], ["--label", "Rename", "--between-labels", *values[1:]])
 
     def run_wait(self, visible_after, anchor_visible):
         """Run the real wait case against stub locators; return its call journal."""

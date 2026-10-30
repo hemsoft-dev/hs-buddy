@@ -50,6 +50,35 @@ class SessionInputRow(unittest.TestCase):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_workspace_rename_is_bounded_by_the_two_visible_field_labels(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('terminal-workspace-rename-words.json').read_text())
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(evidence['block'], 'Rename', content=True)
+        # Sparse OCR sees both row anchors but misreads the File menu. The
+        # explicit field scope needs neither a menu nor a mixed-engine result.
+        with self.assertRaisesRegex(RuntimeError, 'menu row'):
+            ocr.find_label(evidence['sparse'], 'Rename', content=True)
+        self.assertEqual(ocr.find_label(evidence['sparse'], 'Rename', between=('Workspace name', 'Selected shell name')),
+            dict(left=830, top=172, width=49, height=10))
+        with self.assertRaises(RuntimeError):
+            ocr.find_label(evidence['block'], 'Rename', between=('Workspace name', 'Selected shell name'))
+
+    def test_bounded_row_never_falls_back_to_a_neighbor_or_hides_a_duplicate(self):
+        words = [word('Workspace name', 60, 140, 'start'), word('Rename', 830, 172, 'workspace'),
+            word('Selected shell name', 60, 208, 'end'), word('Rename', 932, 233, 'shell')]
+        for missing in ('Workspace name', 'Selected shell name', 'Rename'):
+            kept = [w for w in words if not (w['text'] == missing and (missing != 'Rename' or w['top'] == 172))]
+            with self.subTest(missing=missing), self.assertRaises(RuntimeError):
+                ocr.find_label(kept, 'Rename', between=('Workspace name', 'Selected shell name'))
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words + [word('Rename', 500, 172, 'duplicate')], 'Rename',
+                between=('Workspace name', 'Selected shell name'))
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words + [word('Workspace name', 400, 140, 'duplicate-anchor')], 'Rename',
+                between=('Workspace name', 'Selected shell name'))
+        with self.assertRaisesRegex(RuntimeError, 'out of order'):
+            ocr.find_label(words, 'Rename', between=('Selected shell name', 'Workspace name'))
+
     def test_border_punctuation_does_not_create_two_matches_for_one_interrupt_button(self):
         words = [dict(text="Interrupt", left=499, top=151, width=61, height=30, line="16/1/1"),
             dict(text="(", left=584, top=155, width=4, height=30, line="16/1/1"),
