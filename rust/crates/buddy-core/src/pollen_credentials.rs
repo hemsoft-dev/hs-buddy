@@ -254,6 +254,34 @@ mod tests {
     }
 
     #[test]
+    fn cutover_fixture_migration_is_restart_safe_and_changes_only_the_legacy_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let mut original: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/electron-config.json")).unwrap();
+        original["ui"]["pollenApiKey"] = serde_json::json!("synthetic-pollen-key");
+        std::fs::write(&path, original.to_string()).unwrap();
+        let vault = FakeVault::default();
+        assert!(read_with(&path, &vault).unwrap().as_deref() == Some("synthetic-pollen-key"));
+        original["ui"]["pollenApiKey"] = serde_json::json!("");
+        let saved = AppConfig::load_from(&path).unwrap();
+        assert_eq!(saved, AppConfig::from_json(&original.to_string()).unwrap());
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(read_with(&path, &vault).unwrap().as_deref() == Some("synthetic-pollen-key"));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn fresh_profile_without_a_legacy_key_does_not_write_config_or_vault() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let vault = FakeVault::default();
+        assert_eq!(read_with(&path, &vault), Ok(None));
+        assert!(!path.exists());
+        assert!(vault.value.borrow().is_none());
+    }
+
+    #[test]
     fn migration_verifies_vault_then_removes_only_legacy_key_and_preserves_unknowns() {
         let path = fixture(
             "migrate",

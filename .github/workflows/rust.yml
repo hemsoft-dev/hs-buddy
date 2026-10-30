@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'rust/**'
+      - 'src/types/config.ts'
+      - 'src/constants*'
+      - 'bun.lock'
       - '.github/workflows/rust.yml'
       # build.rs embeds the version from package.json; a release bump must
       # produce native binaries too.
@@ -20,6 +23,9 @@ on:
   pull_request:
     paths:
       - 'rust/**'
+      - 'src/types/config.ts'
+      - 'src/constants*'
+      - 'bun.lock'
       - '.github/workflows/rust.yml'
       - 'package.json'
       - 'Package.swift'
@@ -159,6 +165,14 @@ jobs:
       - name: Install the shared credential adapter
         working-directory: .
         run: bun install --frozen-lockfile
+
+      - name: Qualify Electron config rollback
+        shell: bash
+        run: |
+          cargo build --locked --workspace --example config-migration-probe
+          probe="target/debug/examples/config-migration-probe"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then probe="$probe.exe"; fi
+          bun crates/buddy-core/tests/electron-rollback.ts "$probe"
 
       - name: Build the credential interop probe
         run: cargo build -p buddy-core --example pollen-credential-probe
