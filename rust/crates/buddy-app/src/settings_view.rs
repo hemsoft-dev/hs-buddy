@@ -1286,3 +1286,67 @@ mod tests {
         });
     }
 }
+
+impl SettingsView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let panel = self.panel;
+        let _ = cx;
+        crate::shell::navigation::Destination {
+            key: format!("settings:{}", panel as usize),
+            label: format!(
+                "Settings: {}",
+                PANELS.iter().find(|(p, _)| *p == panel).unwrap().1
+            ),
+            section: Some(crate::app::Section::Settings),
+            badge: None,
+            close: std::rc::Rc::new(|_| {}),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| {
+                    view.select_panel(panel);
+                    cx.notify();
+                });
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod global_tab_tests {
+    use super::*;
+    #[gpui_kit::test]
+    fn selecting_a_global_tab_restores_the_panel_and_keeps_unsaved_fields(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let view = cx.new(|cx| SettingsView::new(window, cx));
+                let accounts = view.read(cx).destination(view.clone(), cx);
+                view.update(cx, |view, cx| {
+                    view.select_panel(Panel::Appearance);
+                    view.fields
+                        .get("font")
+                        .unwrap()
+                        .update(cx, |input, cx| input.set_value("Unsaved font", window, cx));
+                });
+                let appearance = view.read(cx).destination(view.clone(), cx);
+                assert_ne!(accounts.key, appearance.key);
+                (accounts.restore)(window, cx);
+                assert!(view.read(cx).panel == Panel::Accounts);
+                (appearance.restore)(window, cx);
+                assert!(view.read(cx).panel == Panel::Appearance);
+                assert_eq!(view.read(cx).value("font", cx), "Unsaved font");
+                view
+            })
+            .unwrap();
+        });
+    }
+}

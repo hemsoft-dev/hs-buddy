@@ -401,14 +401,27 @@ fn the_bookmark_list_selection_survives_a_restart(cx: &mut gpui_kit::TestAppCont
 
 /// The app's root, which holds the keyboard focus until something takes it.
 struct Root {
+    global_actions: usize,
     focus: gpui_kit::FocusHandle,
     browser: Entity<BrowserView>,
 }
 
 impl gpui_kit::Render for Root {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
         use gpui_kit::{InteractiveElement as _, ParentElement as _, Styled as _};
         gpui_kit::div()
+            .key_context("BuddyApp")
+            .on_action(
+                cx.listener(|this, _: &crate::app::NextGlobalTab, _, _| this.global_actions += 1),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::app::PreviousGlobalTab, _, _| {
+                    this.global_actions += 1
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::app::CloseGlobalTab, _, _| this.global_actions += 1),
+            )
             .track_focus(&self.focus)
             .size_full()
             .child(self.browser.clone())
@@ -416,9 +429,8 @@ impl gpui_kit::Render for Root {
 }
 
 #[gpui_kit::test]
-fn clicking_a_tab_lets_the_tab_shortcuts_reach_the_browser(cx: &mut gpui_kit::TestAppContext) {
-    // #880: buttons take no focus on a click, so in the app the root kept it
-    // and Ctrl+Tab never reached the browser's own bindings.
+fn browser_focus_does_not_shadow_global_tab_accelerators(cx: &mut gpui_kit::TestAppContext) {
+    // Both root focus and hosted-browser controls must route tab keys to the shell.
     use gpui_kit::{Bounds, Modifiers, Point, WindowBounds, WindowOptions, point};
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("config.json");
@@ -429,7 +441,7 @@ fn clicking_a_tab_lets_the_tab_shortcuts_reach_the_browser(cx: &mut gpui_kit::Te
         gpui_kit::init(cx);
         crate::theme::install(&config, cx);
         cx.set_global(Settings::new(config));
-        init(cx);
+        crate::app::init_navigation(cx);
         gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -446,7 +458,11 @@ fn clicking_a_tab_lets_the_tab_shortcuts_reach_the_browser(cx: &mut gpui_kit::Te
                 cx.new(|cx| {
                     let focus = cx.focus_handle();
                     window.focus(&focus, cx);
-                    Root { focus, browser }
+                    Root {
+                        focus,
+                        browser,
+                        global_actions: 0,
+                    }
                 })
             },
         )
@@ -462,23 +478,24 @@ fn clicking_a_tab_lets_the_tab_shortcuts_reach_the_browser(cx: &mut gpui_kit::Te
     visual.run_until_parked();
     let active = |visual: &mut VisualTestContext| browser.read_with(visual, |view, _| view.active);
     assert_eq!(active(&mut visual), Some(1));
-    visual.simulate_keystrokes("ctrl-tab");
-    assert_eq!(active(&mut visual), Some(1), "the root has the keyboard");
-
-    // The Bookmarks tab, first in the strip.
+    visual.simulate_keystrokes("secondary-tab");
+    assert_eq!(
+        active(&mut visual),
+        Some(1),
+        "global cycling must not mutate browser-only selection"
+    );
+    assert_eq!(root.read_with(&visual, |root, _| root.global_actions), 1);
     let view = visual.debug_bounds("browser-view").unwrap();
     visual.simulate_click(view.origin + point(px(40.), px(16.)), Modifiers::default());
     assert_eq!(active(&mut visual), None);
-    visual.simulate_keystrokes("ctrl-tab");
-    assert_eq!(active(&mut visual), Some(0));
-    visual.simulate_keystrokes("ctrl-shift-tab ctrl-shift-tab");
-    assert_eq!(active(&mut visual), Some(1));
-    visual.simulate_keystrokes("ctrl-f4");
-    assert_eq!(browser.read_with(&visual, |view, _| view.tabs.len()), 1);
+    visual.simulate_keystrokes("secondary-tab secondary-shift-tab secondary-f4");
+    assert_eq!(active(&mut visual), None);
+    assert_eq!(browser.read_with(&visual, |view, _| view.tabs.len()), 2);
+    assert_eq!(root.read_with(&visual, |root, _| root.global_actions), 4);
 }
 
 #[gpui_kit::test]
-fn tab_shortcuts_cycle_through_the_list_and_close_pages(cx: &mut gpui_kit::TestAppContext) {
+fn browser_commands_cycle_through_the_list_and_close_pages(cx: &mut gpui_kit::TestAppContext) {
     let host = Rc::new(FakeHost::default());
     let mut harness = open(cx, &host);
     shown(&mut harness);
@@ -972,4 +989,24 @@ fn page_entry_clears_the_tooltip_trigger_hover_without_parent_motion(
         assert_eq!(*transitions.borrow(), [true, false, true]);
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn global_destination_restores_its_page_and_close_disposes_it(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = open(cx, &host);
+    shown(&mut h);
+    h.update(|view, cx| view.open(PAGE, "First", cx));
+    let first = h
+        .view
+        .read_with(&h.visual, |view, cx| view.destination(h.view.clone(), cx));
+    h.update(|view, cx| view.open(OTHER, "Second", cx));
+    h.visual.update(|window, cx| (first.restore)(window, cx));
+    assert_eq!(h.read(|view| view.active_tab().unwrap().url.clone()), PAGE);
+    h.update(|view, cx| view.open(PAGE, "Renamed", cx));
+    assert_eq!(h.read(|view| view.tabs.len()), 2);
+    h.visual.update(|_, cx| (first.close)(cx));
+    assert_eq!(h.read(|view| view.tabs.len()), 1);
+    assert_eq!(h.saved().tabs.len(), 1);
+    assert!(host.log.has("visible false"));
 }

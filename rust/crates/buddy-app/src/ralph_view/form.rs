@@ -141,6 +141,7 @@ pub(super) fn script_name(script: &Script, templates: &[Template]) -> String {
 
 type Picker = Entity<SelectState<Vec<Choice>>>;
 
+#[derive(Clone)]
 pub(super) struct Form {
     pub script: Script,
     pub fields: BTreeMap<&'static str, Entity<InputState>>,

@@ -18,6 +18,7 @@ pub(super) enum FormKind {
     Job,
     Schedule,
 }
+#[derive(Clone)]
 pub(super) struct Form {
     pub kind: FormKind,
     pub target: Option<String>,

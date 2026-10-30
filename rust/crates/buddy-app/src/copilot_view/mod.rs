@@ -38,11 +38,15 @@ impl CopilotView {
                 .update(cx, |results, cx| results.inspect(id.clone(), cx));
         })
         .detach();
+        let results = cx.new(|cx| results::ResultsView::new(window, cx));
+        let sessions = cx.new(|cx| sessions::SessionsView::new(window, cx));
+        cx.observe(&results, |_, _, cx| cx.notify()).detach();
+        cx.observe(&sessions, |_, _, cx| cx.notify()).detach();
         Self {
             pane: Pane::Chat,
             chat,
-            results: cx.new(|cx| results::ResultsView::new(window, cx)),
-            sessions: cx.new(|cx| sessions::SessionsView::new(window, cx)),
+            results,
+            sessions,
             usage: cx.new(|cx| usage::UsageView::new(window, cx)),
         }
     }
@@ -104,5 +108,40 @@ impl Render for CopilotView {
             Pane::Usage => body.child(self.usage.clone()),
         };
         v_flex().size_full().p_4().gap_3().child(tabs).child(body)
+    }
+}
+
+impl CopilotView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let pane = self.pane;
+        let child = match pane {
+            Pane::Results => Some(self.results.read(cx).destination(self.results.clone())),
+            Pane::Sessions => Some(self.sessions.read(cx).destination(self.sessions.clone())),
+            _ => None,
+        };
+        let mut destination =
+            crate::shell::navigation::Destination::section(Some(crate::app::Section::Copilot));
+        destination.key = child
+            .as_ref()
+            .map(|d| d.key.clone())
+            .unwrap_or_else(|| format!("copilot:{}", pane as usize));
+        destination.label = child.as_ref().map(|d| d.label.clone()).unwrap_or_else(|| {
+            match pane {
+                Pane::Chat => "Copilot: Prompt",
+                _ => "Copilot: Usage",
+            }
+            .into()
+        });
+        destination.restore = std::rc::Rc::new(move |window, cx| {
+            entity.update(cx, |view, cx| view.select(pane, cx));
+            if let Some(child) = &child {
+                (child.restore)(window, cx);
+            }
+        });
+        destination
     }
 }

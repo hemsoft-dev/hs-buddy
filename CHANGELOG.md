@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1586] - 2026-10-30
+
+### Added
+
+- Add global tabs and navigation shortcuts (#823)
+
 ## [0.1.1585] - 2026-10-30
 
 ### Added

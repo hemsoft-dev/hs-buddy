@@ -734,3 +734,26 @@ impl BookmarksView {
         cx.notify();
     }
 }
+
+impl BookmarksView {
+    pub(crate) fn destination(
+        &self,
+        entity: Entity<Self>,
+    ) -> crate::shell::navigation::Destination {
+        let category = self.filter.category.clone();
+        let mut d =
+            crate::shell::navigation::Destination::section(Some(crate::app::Section::Bookmarks));
+        d.key = format!("bookmarks:{category}");
+        d.label = if category.is_empty() {
+            "Bookmarks: All".into()
+        } else {
+            format!("Bookmarks: {category}")
+        };
+        d.restore = std::rc::Rc::new(move |_, cx| {
+            entity.update(cx, |view, cx| {
+                view.select_category(Some(category.clone()), cx)
+            })
+        });
+        d
+    }
+}

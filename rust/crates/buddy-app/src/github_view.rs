@@ -79,6 +79,8 @@ pub struct GitHubView {
     account: Option<AccountScope>,
     route: Route,
     history: Vec<Route>,
+    pub(crate) shell_navigation: bool,
+    mode_badges: BTreeMap<String, (usize, Instant)>,
     selection: SelectionState,
     read_abort: Option<AbortHandle>,
     data: Option<PageData>,
@@ -183,6 +185,8 @@ impl GitHubView {
             account: None,
             route: Route::Pulls(PrMode::MyPrs),
             history: Vec::new(),
+            shell_navigation: false,
+            mode_badges: BTreeMap::new(),
             selection: SelectionState::default(),
             read_abort: None,
             data: None,
@@ -334,6 +338,7 @@ impl GitHubView {
         self.cancel_read();
         self.account = account;
         self.history.clear();
+        self.mode_badges.clear();
         self.route = Route::Pulls(PrMode::MyPrs);
         self.data = None;
         self.pending = None;
@@ -453,6 +458,12 @@ impl GitHubView {
                     previous.warnings.extend(data.warnings);
                 } else {
                     self.data = Some(data);
+                }
+                if let Route::Pulls(mode) = self.route
+                    && let Some(data) = &self.data
+                {
+                    self.mode_badges
+                        .insert(mode.key().into(), (data.rows.len(), Instant::now()));
                 }
                 if request.force
                     && request.can_unlock
@@ -651,33 +662,54 @@ impl GitHubView {
             (Route::Members, "People"),
             (Route::Teams, "Teams"),
         ];
-        top =
-            top.child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .children(PrMode::ALL.into_iter().map(|mode| {
-                        Button::new(format!("github-mode-{}", mode.key()))
-                            .label(mode.label())
-                            .selected(self.route == Route::Pulls(mode))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.navigate(Route::Pulls(mode), cx)
-                            }))
-                    }))
-                    .children(
-                        routes
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, (route, label))| {
-                                Button::new(format!("github-route-{index}"))
-                                    .label(label)
-                                    .selected(self.route == route)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.navigate(route.clone(), cx)
-                                    }))
-                            }),
-                    ),
-            );
+        top = top.child(
+            h_flex()
+                .flex_wrap()
+                .gap_2()
+                .children(
+                    PrMode::ALL
+                        .into_iter()
+                        .filter(|_| !self.shell_navigation)
+                        .map(|mode| {
+                            Button::new(format!("github-mode-{}", mode.key()))
+                                .label(
+                                    self.mode_badges
+                                        .get(mode.key())
+                                        .map(|(count, _)| format!("{} ({count})", mode.label()))
+                                        .unwrap_or_else(|| mode.label().into()),
+                                )
+                                .tooltip(
+                                    self.mode_badges
+                                        .get(mode.key())
+                                        .map(|(_, at)| {
+                                            format!(
+                                                "Loaded {}m ago; refresh interval {}m",
+                                                at.elapsed().as_secs() / 60,
+                                                Settings::global(cx).config.pr.refresh_interval
+                                            )
+                                        })
+                                        .unwrap_or_else(|| "Not loaded".into()),
+                                )
+                                .selected(self.route == Route::Pulls(mode))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.navigate(Route::Pulls(mode), cx)
+                                }))
+                        }),
+                )
+                .children(
+                    routes
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (route, label))| {
+                            Button::new(format!("github-route-{index}"))
+                                .label(label)
+                                .selected(self.route == route)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.navigate(route.clone(), cx)
+                                }))
+                        }),
+                ),
+        );
         top.child(
             h_flex()
                 .flex_wrap()
@@ -964,5 +996,87 @@ impl GitHubView {
             summary,
             details,
         }
+    }
+}
+
+impl GitHubView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let route = self.route.clone();
+        let account = self.account.clone();
+        let _ = cx;
+        crate::shell::navigation::Destination {
+            key: format!("github:{account:?}:{}", route.key()),
+            label: format!(
+                "GitHub: {}",
+                self.data
+                    .as_ref()
+                    .map(|d| d.title.as_str())
+                    .unwrap_or("View")
+            ),
+            section: Some(crate::app::Section::GitHub),
+            badge: None,
+            close: std::rc::Rc::new(|_| {}),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| {
+                    if view.account != account {
+                        view.change_account(account.clone(), cx);
+                    }
+                    view.navigate(route.clone(), cx);
+                });
+            }),
+        }
+    }
+}
+
+impl GitHubView {
+    pub(crate) fn sidebar(
+        &self,
+        entity: Entity<Self>,
+        cx: &App,
+    ) -> Vec<crate::shell::navigation::Destination> {
+        PrMode::ALL
+            .into_iter()
+            .map(|mode| {
+                let account = self.account.clone();
+                let entity = entity.clone();
+                let mut d = crate::shell::navigation::Destination::section(Some(
+                    crate::app::Section::GitHub,
+                ));
+                d.key = format!("github:{account:?}:{}", Route::Pulls(mode).key());
+                d.label = mode.label().into();
+                d.badge = self.mode_badges.get(mode.key()).map(|(count, at)| {
+                    let interval = Settings::global(cx)
+                        .config
+                        .pr
+                        .refresh_interval
+                        .clamp(1.0, 1440.0)
+                        * 60.0;
+                    let elapsed = at.elapsed().as_secs_f64();
+                    crate::shell::navigation::Badge {
+                        count: *count,
+                        progress: Some((elapsed / interval * 100.0).clamp(0.0, 100.0) as f32),
+                        tooltip: format!(
+                            "Updated {}m ago · Next in {}m",
+                            (elapsed / 60.0).floor(),
+                            ((interval - elapsed).max(0.0) / 60.0).ceil()
+                        ),
+                    }
+                });
+                d.restore = std::rc::Rc::new(move |_, cx| {
+                    entity.update(cx, |view, cx| {
+                        if view.account != account {
+                            view.change_account(account.clone(), cx);
+                        }
+                        view.navigate(Route::Pulls(mode), cx);
+                    })
+                });
+                d
+            })
+            .collect()
     }
 }

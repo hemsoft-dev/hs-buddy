@@ -7,7 +7,7 @@
 //! (menu, dialog) would sit under it.
 
 mod host;
-mod keys;
+pub(crate) mod keys;
 #[cfg(target_os = "linux")]
 mod linux;
 mod render;
@@ -28,8 +28,8 @@ use buddy_core::browser::{
 use futures::StreamExt as _;
 use futures::channel::mpsc;
 use gpui_kit::{
-    AnyView, AnyWindowHandle, App, Bounds, Context, FocusHandle, Global, KeyBinding, Pixels,
-    Window, actions,
+    AnyView, AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, Global, Pixels, Window,
+    actions,
 };
 use raw_window_handle::HasWindowHandle;
 
@@ -53,16 +53,6 @@ pub(super) const ZOOM_DELTA: f64 = 0.1;
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
 actions!(browser, [NextTab, PreviousTab, CloseTab]);
-
-/// Electron's tab shortcuts. They work while Buddy has the keyboard focus; a
-/// page that has it keeps its keys.
-pub fn init(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("ctrl-tab", NextTab, Some(CONTEXT)),
-        KeyBinding::new("ctrl-shift-tab", PreviousTab, Some(CONTEXT)),
-        KeyBinding::new("ctrl-f4", CloseTab, Some(CONTEXT)),
-    ]);
-}
 
 /// Open GPUI overlays (menus, dialogs) that a native page would cover.
 /// Whoever opens one counts it here while it is open.
@@ -127,6 +117,7 @@ pub struct BrowserView {
     pub(super) active: Option<usize>,
     pub(super) home: Option<AnyView>,
     shown: bool,
+    pub(crate) global_tabs: bool,
     pub(super) zoom: f64,
     fixture: Option<FixtureOrigin>,
     audit: Option<PathBuf>,
@@ -177,6 +168,7 @@ impl BrowserView {
             active: None,
             home: None,
             shown: false,
+            global_tabs: false,
             zoom: session.zoom,
             fixture,
             audit: isolated
@@ -212,6 +204,15 @@ impl BrowserView {
     /// Opens `raw` in a new tab, or hands a `mailto:` link to the system.
     pub fn open(&mut self, raw: &str, title: &str, cx: &mut Context<Self>) {
         let target = browser::classify(raw, self.fixture.as_ref());
+        if let Ok(Target::Web(url)) = &target
+            && let Some(index) = self.tabs.iter().position(|tab| tab.url == url.as_str())
+        {
+            if !title.trim().is_empty() {
+                self.tabs[index].title = title.to_owned();
+            }
+            self.select(Some(index), cx);
+            return;
+        }
         // Only `MAX_TABS` tabs are restored, so no more may be opened.
         self.full = !matches!(target, Ok(Target::External(_) | Target::Blank))
             && self.tabs.len() >= browser::MAX_TABS;
@@ -812,5 +813,67 @@ impl BrowserView {
         if Session::load(&Settings::global(cx).config, self.fixture.as_ref()) != session {
             Settings::update_at(cx, path, |config| session.store(config));
         }
+    }
+}
+
+impl BrowserView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        self.destination_at(self.active, entity, cx)
+    }
+    fn destination_at(
+        &self,
+        index: Option<usize>,
+        entity: Entity<Self>,
+        cx: &App,
+    ) -> crate::shell::navigation::Destination {
+        let id = index.and_then(|i| self.tabs.get(i)).map(|t| t.id);
+        let _ = cx;
+        let closing = entity.clone();
+        crate::shell::navigation::Destination {
+            key: format!("browser:{id:?}"),
+            label: index
+                .and_then(|i| self.tabs.get(i))
+                .map(|t| format!("Browser: {}", t.label()))
+                .unwrap_or_else(|| "Bookmarks".into()),
+            section: Some(crate::app::Section::Bookmarks),
+            badge: None,
+            close: std::rc::Rc::new(move |cx| {
+                closing.update(cx, |view, cx| {
+                    if let Some(index) = id.and_then(|id| view.tabs.iter().position(|t| t.id == id))
+                    {
+                        view.close(index, cx);
+                    }
+                });
+            }),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| {
+                    let index = id.and_then(|id| view.tabs.iter().position(|t| t.id == id));
+                    view.select(index, cx);
+                });
+            }),
+        }
+    }
+}
+
+impl BrowserView {
+    pub(crate) fn is_home(&self) -> bool {
+        self.active.is_none()
+    }
+}
+
+impl BrowserView {
+    pub(crate) fn destinations(
+        &self,
+        entity: Entity<Self>,
+        cx: &App,
+    ) -> Vec<crate::shell::navigation::Destination> {
+        (0..self.tabs.len())
+            .map(|i| self.destination_at(Some(i), entity.clone(), cx))
+            .collect()
     }
 }

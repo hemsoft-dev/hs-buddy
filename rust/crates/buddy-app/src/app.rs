@@ -39,9 +39,24 @@ gpui_kit::actions!(
         ZoomOut,
         ResetZoom,
         ToggleAssistant,
-        ToggleTerminal
+        ToggleTerminal,
+        NextGlobalTab,
+        PreviousGlobalTab,
+        CloseGlobalTab,
+        NavigationBack,
+        NavigationForward
     ]
 );
+
+pub fn init_navigation(cx: &mut App) {
+    cx.bind_keys([
+        gpui_kit::KeyBinding::new("secondary-tab", NextGlobalTab, Some("BuddyApp")),
+        gpui_kit::KeyBinding::new("secondary-shift-tab", PreviousGlobalTab, Some("BuddyApp")),
+        gpui_kit::KeyBinding::new("secondary-f4", CloseGlobalTab, Some("BuddyApp")),
+        gpui_kit::KeyBinding::new("alt-left", NavigationBack, Some("BuddyApp")),
+        gpui_kit::KeyBinding::new("alt-right", NavigationForward, Some("BuddyApp")),
+    ]);
+}
 
 /// Activity-bar sections, mirroring the ids in `ActivityBar.tsx`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +150,7 @@ pub struct BuddyApp {
     folder_open: bool,
     window_state: WindowPersistence,
     focus: FocusHandle,
+    pub(crate) tabs: crate::shell::navigation::Tabs,
 }
 
 impl BuddyApp {
@@ -189,7 +205,89 @@ impl BuddyApp {
             cx.notify();
             return;
         }
+        if section == Some(Section::Bookmarks) {
+            self.browser_view
+                .update(cx, |view, cx| view.select(None, cx));
+        }
+        let destination = self.destination(section, cx);
+        self.tabs.open(destination);
         self.show_section(section, cx);
+    }
+
+    fn destination(
+        &self,
+        section: Option<Section>,
+        cx: &App,
+    ) -> crate::shell::navigation::Destination {
+        match section {
+            Some(Section::GitHub) => self
+                .github_view
+                .read(cx)
+                .destination(self.github_view.clone(), cx),
+            Some(Section::Settings) => self
+                .settings_view
+                .read(cx)
+                .destination(self.settings_view.clone(), cx),
+            Some(Section::Copilot) => self
+                .copilot_view
+                .read(cx)
+                .destination(self.copilot_view.clone(), cx),
+            Some(Section::Automation) => self
+                .automation_view
+                .read(cx)
+                .destination(self.automation_view.clone(), cx),
+            Some(Section::Tasks) => self
+                .todoist_view
+                .read(cx)
+                .destination(self.todoist_view.clone(), cx),
+            Some(Section::Ralph) => self
+                .ralph_view
+                .read(cx)
+                .destination(self.ralph_view.clone(), cx),
+            Some(Section::Crew) => self
+                .crew_view
+                .read(cx)
+                .destination(self.crew_view.clone(), cx),
+            Some(Section::Bookmarks) if self.browser_view.read(cx).is_home() => self
+                .bookmarks_view
+                .read(cx)
+                .destination(self.bookmarks_view.clone()),
+            Some(Section::Bookmarks) => self
+                .browser_view
+                .read(cx)
+                .destination(self.browser_view.clone(), cx),
+            _ => crate::shell::navigation::Destination::section(section),
+        }
+    }
+    pub(crate) fn restore_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for closed in std::mem::take(&mut self.tabs.closed) {
+            (closed.close)(cx);
+        }
+        if let Some(destination) = self.tabs.current() {
+            let section = destination.section;
+            let saved = section.map(|s| s.id().to_owned());
+            if Settings::global(cx).config.native.active_section != saved {
+                Settings::update(cx, |config| config.native.active_section = saved.clone());
+            }
+            self.show_section(section, cx);
+            if destination.key.starts_with("bookmarks:") {
+                self.browser_view
+                    .update(cx, |view, cx| view.select(None, cx));
+            }
+            (destination.restore)(window, cx);
+            if destination.key.starts_with("folder:") {
+                self.show_explorer(cx);
+            }
+        } else {
+            if Settings::global(cx).config.native.active_section.is_some() {
+                Settings::update(cx, |config| config.native.active_section = None);
+            }
+            self.show_section(None, cx);
+            self.dashboard
+                .update(cx, |view, cx| view.set_active(false, cx));
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
     }
 
     fn show_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
@@ -305,6 +403,7 @@ impl BuddyApp {
             let saved = &Settings::global(cx).config.native.active_section;
             let section = saved.as_deref().and_then(Section::from_id);
             if this.active_section != section {
+                this.tabs.open(this.destination(section, cx));
                 this.show_section(section, cx);
             }
             cx.notify();
@@ -394,6 +493,7 @@ impl BuddyApp {
 
         let settings_view = cx.new(|cx| SettingsView::new(window, cx));
         let github_view = cx.new(|cx| GitHubView::new(window, cx));
+        github_view.update(cx, |view, _| view.shell_navigation = true);
         cx.observe(&github_view, |_, _, cx| cx.notify()).detach();
         let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
         let copilot_view = cx.new(|cx| CopilotView::new(window, cx));
@@ -404,6 +504,7 @@ impl BuddyApp {
         let tempo_view = cx.new(|cx| TempoView::new(window, cx));
         // The dispatcher claims queued runs whichever section is visible.
         let automation_view = cx.new(|cx| AutomationView::new(window, cx));
+        automation_view.update(cx, |view, _| view.shell_navigation = true);
         automation_view.update(cx, |view, cx| view.start(cx));
         let ralph_view = cx.new(|cx| RalphView::new(window, cx));
         ralph_view.update(cx, |view, cx| view.start(cx));
@@ -455,6 +556,7 @@ impl BuddyApp {
         });
         // Bookmarks open as tabs of the browser, whose first tab is the list.
         let browser_view = cx.new(|cx| BrowserView::new(window, cx));
+        browser_view.update(cx, |view, _| view.global_tabs = true);
         browser_view.update(cx, |view, cx| {
             view.set_home(bookmarks_view.clone().into(), cx);
             view.set_active(section == Some(Section::Bookmarks), cx)
@@ -489,10 +591,14 @@ impl BuddyApp {
             },
         )
         .detach();
-        cx.subscribe(
+        cx.subscribe_in(
             &explorer_view,
-            |this, _, _: &crate::explorer_view::Close, cx| {
-                this.show_section(this.active_section, cx);
+            window,
+            |this, _, _: &crate::explorer_view::Close, window, cx| {
+                if let Some(key) = this.tabs.active.clone() {
+                    this.tabs.close(&key);
+                }
+                this.restore_tab(window, cx);
             },
         )
         .detach();
@@ -517,7 +623,26 @@ impl BuddyApp {
             folder_open: false,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
+            tabs: crate::shell::navigation::Tabs::default(),
         };
+        this.tabs
+            .open(crate::shell::navigation::Destination::section(None));
+        let restored = this
+            .browser_view
+            .read(cx)
+            .destinations(this.browser_view.clone(), cx);
+        if !restored.is_empty() {
+            this.tabs.items.push(
+                this.bookmarks_view
+                    .read(cx)
+                    .destination(this.bookmarks_view.clone()),
+            );
+        }
+        this.tabs.items.extend(restored);
+        if section.is_some() {
+            this.tabs.open(this.destination(section, cx));
+        }
+        this.observe_navigation(cx);
         this.window_bounds_changed(window, cx);
         this
     }
@@ -549,6 +674,210 @@ impl BuddyApp {
         self.show_explorer(cx);
         self.explorer_view
             .update(cx, |view, cx| view.choose(window, cx));
+    }
+
+    fn observe_navigation(&self, cx: &mut Context<Self>) {
+        cx.observe(&self.github_view, |this, entity, cx| {
+            if this.active_section == Some(Section::GitHub)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.settings_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Settings)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.copilot_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Copilot)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.automation_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Automation)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.todoist_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Tasks)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.ralph_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Ralph)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.crew_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Crew)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let _ = entity;
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.browser_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Bookmarks)
+                && !this.folder_open
+                && this.tabs.active.is_some()
+            {
+                let live = entity.read(cx).destinations(entity.clone(), cx);
+                let removed: Vec<_> = this
+                    .tabs
+                    .items
+                    .iter()
+                    .filter(|tab| {
+                        tab.key.starts_with("browser:") && !live.iter().any(|d| d.key == tab.key)
+                    })
+                    .map(|d| d.key.clone())
+                    .collect();
+                for key in removed {
+                    this.tabs.close(&key);
+                }
+                for destination in live {
+                    if !this.tabs.items.iter().any(|d| d.key == destination.key) {
+                        this.tabs.items.push(destination);
+                    }
+                }
+                this.tabs.open(this.destination(this.active_section, cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.bookmarks_view, |this, entity, cx| {
+            if this.active_section == Some(Section::Bookmarks)
+                && this.browser_view.read(cx).is_home()
+                && this.tabs.active.is_some()
+            {
+                this.tabs.open(entity.read(cx).destination(entity.clone()));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.observe(&self.explorer_view, |this, entity, cx| {
+            if this.folder_open {
+                let destination = entity.read(cx).destination(entity.clone());
+                if destination.key != "folder:chooser"
+                    && this.tabs.active.as_deref() == Some("folder:chooser")
+                {
+                    this.tabs.close("folder:chooser");
+                }
+                this.tabs.open(destination);
+                cx.notify();
+            }
+        })
+        .detach();
+    }
+
+    fn render_navigation(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        use gpui_kit::component::{
+            Selectable as _,
+            button::{Button, ButtonVariants as _},
+        };
+        let links = match self.active_section {
+            Some(Section::GitHub) => self
+                .github_view
+                .read(cx)
+                .sidebar(self.github_view.clone(), cx),
+            Some(Section::Automation) => self
+                .automation_view
+                .read(cx)
+                .sidebar(self.automation_view.clone()),
+            _ => Vec::new(),
+        };
+        if links.is_empty() || self.folder_open {
+            return div().into_any_element();
+        }
+        v_flex()
+            .w(zpx(210.0))
+            .h_full()
+            .flex_shrink_0()
+            .p_2()
+            .gap_1()
+            .border_r_1()
+            .border_color(cx.theme().border)
+            .children(links.into_iter().enumerate().map(|(i, d)| {
+                let selected = self.tabs.active.as_ref() == Some(&d.key);
+                let badge = d.badge.as_ref().map(|badge| {
+                    if let Some(progress) = badge.progress {
+                        use gpui_kit::component::Sizable as _;
+                        let color = if progress <= 25.0 {
+                            0x4ec9b0
+                        } else if progress <= 50.0 {
+                            0xdcd34a
+                        } else if progress <= 75.0 {
+                            0xe89b3c
+                        } else {
+                            0xe85d5d
+                        };
+                        gpui_kit::component::progress::ProgressCircle::new(("badge", i))
+                            .with_size(zoom::scaled(cx, 40.0))
+                            .text_size(zpx(10.0))
+                            .value(progress)
+                            .color(gpui_kit::rgb(color))
+                            .accessibility_label(badge.tooltip.clone())
+                            .child(badge.count.to_string())
+                            .into_any_element()
+                    } else {
+                        div().child(badge.count.to_string()).into_any_element()
+                    }
+                });
+                Button::new(("navigation-item", i))
+                    .ghost()
+                    .label(d.label.clone())
+                    .accessibility_label(d.label.clone())
+                    .selected(selected)
+                    .tooltip(
+                        d.badge
+                            .as_ref()
+                            .map(|b| b.tooltip.clone())
+                            .unwrap_or_else(|| d.label.clone()),
+                    )
+                    .children(badge)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.tabs.open(d.clone());
+                        this.restore_tab(window, cx);
+                    }))
+            }))
+            .into_any_element()
     }
 
     fn render_workspace(&self, cx: &App) -> gpui_kit::AnyElement {
@@ -640,6 +969,13 @@ impl BuddyApp {
         if self.folder_open {
             return container.child(self.explorer_view.clone());
         }
+        if self.tabs.active.is_none() {
+            return container.child(
+                div()
+                    .p_4()
+                    .child("No open tabs. Choose a section to open a view."),
+            );
+        }
         match self.active_section {
             None => container.child(self.dashboard.clone()),
             Some(Section::Settings) => container.child(self.settings_view.clone()),
@@ -680,6 +1016,28 @@ impl Render for BuddyApp {
 
         v_flex()
             .key_context("BuddyApp")
+            .on_action(cx.listener(|this, _: &NextGlobalTab, window, cx| {
+                this.tabs.cycle(true);
+                this.restore_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PreviousGlobalTab, window, cx| {
+                this.tabs.cycle(false);
+                this.restore_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CloseGlobalTab, window, cx| {
+                if let Some(key) = this.tabs.active.clone() {
+                    this.tabs.close(&key);
+                }
+                this.restore_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &NavigationBack, window, cx| {
+                this.tabs.travel(false);
+                this.restore_tab(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &NavigationForward, window, cx| {
+                this.tabs.travel(true);
+                this.restore_tab(window, cx);
+            }))
             .on_action(cx.listener(Self::open_folder))
             .on_action(
                 cx.listener(|this, _: &ToggleTerminal, window, cx| {
@@ -705,15 +1063,21 @@ impl Render for BuddyApp {
                             .flex_1()
                             .min_w_0()
                             .h_full()
-                            .children((!self.folder_open).then(|| tab_bar::render(cx)))
+                            .child(tab_bar::render(self, window, cx))
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .w_full()
-                                    .child(self.render_workspace(cx)),
+                                div().flex().flex_col().flex_1().min_h_0().w_full().child(
+                                    h_flex()
+                                        .size_full()
+                                        .child(self.render_navigation(cx))
+                                        .child(
+                                            v_flex()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .min_h_0()
+                                                .h_full()
+                                                .child(self.render_workspace(cx)),
+                                        ),
+                                ),
                             ),
                     ),
             )
@@ -773,6 +1137,7 @@ mod tests {
                         folder_open: false,
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
+                        tabs: crate::shell::navigation::Tabs::default(),
                     }
                 });
                 entity = Some(shell.clone());
@@ -843,6 +1208,60 @@ mod tests {
         cx.update(|cx| {
             assert_eq!(shell.read(cx).terminal_panel.entity_id(), panel_id);
             assert_eq!(shell.read(cx).assistant.entity_id(), assistant_id);
+        });
+        // Exercise the actual shell actions without a config write: both
+        // destinations belong to the already-selected Terminal section.
+        cx.update(|cx| {
+            init_navigation(cx);
+            shell.update(cx, |shell, cx| {
+                shell.tabs = crate::shell::navigation::Tabs::default();
+                for name in ["terminal-a", "terminal-b"] {
+                    let mut d =
+                        crate::shell::navigation::Destination::section(Some(Section::Terminal));
+                    d.key = name.into();
+                    shell.tabs.open(d);
+                }
+                cx.notify();
+            });
+            cx.windows()[0]
+                .update(cx, |_, window, cx| {
+                    let focus = shell.read(cx).focus.clone();
+                    window.focus(&focus, cx);
+                    window.dispatch_action(Box::new(NextGlobalTab), cx);
+                })
+                .unwrap();
+        });
+        cx.run_until_parked();
+        cx.update(|cx| assert_eq!(shell.read(cx).tabs.active.as_deref(), Some("terminal-a")));
+        cx.update(|cx| {
+            cx.windows()[0]
+                .update(cx, |_, window, cx| {
+                    window.dispatch_action(Box::new(CloseGlobalTab), cx)
+                })
+                .unwrap();
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(shell.read(cx).tabs.active.as_deref(), Some("terminal-b"));
+            assert_eq!(shell.read(cx).active_section, Some(Section::Terminal));
+            assert_eq!(shell.read(cx).terminal_panel.entity_id(), panel_id);
+        });
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.native.active_section = Some("automation".into());
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            cx.windows()[0]
+                .update(cx, |_, window, cx| {
+                    window.render_frame(cx);
+                    let refresh = window.find("automation-refresh");
+                    assert!(refresh.visible());
+                    assert!(f32::from(refresh.bounds().size.height) >= 20.0);
+                })
+                .unwrap();
         });
     }
 }

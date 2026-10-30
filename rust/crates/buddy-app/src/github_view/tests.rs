@@ -444,3 +444,35 @@ fn terminal_context_follows_repository_routes_without_inventing_list_context(
         .unwrap();
     });
 }
+
+#[gpui_kit::test]
+fn global_tabs_restore_account_and_route_and_badges_never_cross_accounts(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let view = cx.new(|cx| GitHubView::new(window, cx));
+            view.update(cx, |view, cx| {
+                view.change_account(Some(account("First")), cx);
+                view.navigate(Route::Pull(pull(), PullTab::Files), cx);
+                view.mode_badges
+                    .insert(PrMode::MyPrs.key().into(), (3, Instant::now()));
+            });
+            let destination = view.read(cx).destination(view.clone(), cx);
+            let links = view.read(cx).sidebar(view.clone(), cx);
+            assert_eq!(links[0].badge.as_ref().unwrap().count, 3);
+            assert!(links[1].badge.is_none());
+            view.update(cx, |view, cx| {
+                view.change_account(Some(account("Second")), cx);
+                view.navigate(Route::Repositories, cx);
+                assert!(view.mode_badges.is_empty());
+            });
+            (destination.restore)(window, cx);
+            assert_eq!(view.read(cx).account, Some(account("First")));
+            assert_eq!(view.read(cx).route, Route::Pull(pull(), PullTab::Files));
+            view
+        })
+        .unwrap();
+    });
+}

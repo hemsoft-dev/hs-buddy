@@ -326,3 +326,28 @@ fn a_folder_can_be_opened_by_path_and_enter_without_an_os_dialog(
         assert_eq!(view.children[root.path()][0].name, "visible.txt");
     });
 }
+
+#[gpui_kit::test]
+fn closing_a_folder_chooser_tab_restores_the_original_folder_even_at_the_same_root(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let root = tempfile::tempdir().unwrap();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let view = cx.new(|_| ExplorerView::new());
+            view.update(cx, |view, cx| view.open(root.path().into(), cx));
+            let folder = view.read(cx).destination(view.clone());
+            view.update(cx, |view, cx| view.choose(window, cx));
+            let chooser = view.read(cx).destination(view.clone());
+            assert_ne!(folder.key, chooser.key);
+            assert_eq!(chooser.key, "folder:chooser");
+            (folder.restore)(window, cx);
+            assert!(view.read(cx).chooser.is_none());
+            assert_eq!(view.read(cx).root, root.path());
+            view
+        })
+        .unwrap();
+    });
+}

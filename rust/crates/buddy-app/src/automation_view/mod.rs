@@ -35,6 +35,7 @@ pub struct AutomationView {
     handle: Option<Handle>,
     snapshot: Snapshot,
     pane: Pane,
+    pub(crate) shell_navigation: bool,
     filter: Entity<InputState>,
     run_input: Entity<TextareaState>,
     run_target: Option<(String, String)>,
@@ -91,6 +92,7 @@ impl AutomationView {
             handle: None,
             snapshot: Snapshot::default(),
             pane: Pane::Jobs,
+            shell_navigation: false,
             filter,
             run_input,
             run_target: None,
@@ -216,5 +218,94 @@ impl AutomationView {
     fn matches(&self, text: &str, cx: &gpui_kit::App) -> bool {
         text.to_lowercase()
             .contains(&self.filter.read(cx).value().to_lowercase())
+    }
+}
+
+impl AutomationView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let pane = self.pane;
+        let form = self.form.clone();
+        let form_key = form.as_ref().map(|f| (f.kind as usize, f.target.clone()));
+        let run = self.selected_run.clone();
+        let _ = cx;
+        crate::shell::navigation::Destination {
+            key: format!("automation:{}:{run:?}:{form_key:?}", pane as usize),
+            label: if let Some(form) = &form {
+                format!(
+                    "{}: {}",
+                    if form.kind == FormKind::Job {
+                        "Job"
+                    } else {
+                        "Schedule"
+                    },
+                    form.target.as_deref().unwrap_or("New")
+                )
+            } else {
+                match &run {
+                    Some(id) => format!("Run: {id}"),
+                    None => match pane {
+                        Pane::Jobs => "Automation: Jobs",
+                        Pane::Schedules => "Automation: Schedules",
+                        Pane::History => "Automation: Run history",
+                    }
+                    .into(),
+                }
+            },
+            section: Some(crate::app::Section::Automation),
+            badge: None,
+            close: std::rc::Rc::new(|_| {}),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| {
+                    view.form = form.clone();
+                    view.pane = pane;
+                    view.selected_run = run.clone();
+                    cx.notify();
+                });
+            }),
+        }
+    }
+}
+
+impl AutomationView {
+    pub(crate) fn sidebar(
+        &self,
+        entity: Entity<Self>,
+    ) -> Vec<crate::shell::navigation::Destination> {
+        [
+            (Pane::Jobs, "Jobs", self.snapshot.jobs.len()),
+            (Pane::Schedules, "Schedules", self.snapshot.schedules.len()),
+            (Pane::History, "History", self.snapshot.runs.len()),
+        ]
+        .into_iter()
+        .map(|(pane, label, count)| {
+            let entity = entity.clone();
+            let mut d = crate::shell::navigation::Destination::section(Some(
+                crate::app::Section::Automation,
+            ));
+            d.key = format!("automation:{}:None:None", pane as usize);
+            d.label = label.into();
+            if self.snapshot.loaded && count > 0 {
+                d.badge = Some(crate::shell::navigation::Badge {
+                    count,
+                    progress: None,
+                    tooltip: format!("{count} loaded {label}"),
+                });
+            }
+            d.restore = std::rc::Rc::new(move |_, cx| {
+                entity.update(cx, |view, cx| {
+                    view.form = None;
+                    view.selected_run = None;
+                    view.pane = pane;
+                    cx.notify();
+                })
+            });
+            d
+        })
+        .collect()
     }
 }
