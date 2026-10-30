@@ -356,10 +356,10 @@ fn main() {
             terminal_view::init(cx);
             bookmarks_view::init(cx);
             browser_view::init(cx);
+            explorer_view::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
-                KeyBinding::new("secondary-o", explorer_view::OpenFolder, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());

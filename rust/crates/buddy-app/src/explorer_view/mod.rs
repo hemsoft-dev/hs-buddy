@@ -1,6 +1,6 @@
 //! Folder explorer: lazy tree and read-only, highlighted source preview.
 //!
-//! File > Open Folder (Ctrl/Cmd+O), or the selected terminal pane's Folder View,
+//! File > Open Folder (Ctrl/Cmd+O outside terminal input), or a pane's Folder View,
 //! opens a root. Close returns to the preceding section. The tree caches each
 //! expanded directory for this opening, matches Electron's hidden/generated
 //! entry policy, and shows read failures inline. Preview reads are capped at
@@ -30,6 +30,17 @@ use std::{
 };
 
 gpui_kit::actions!(explorer, [OpenFolder]);
+
+pub fn init(cx: &mut gpui_kit::App) {
+    // Terminal control keys belong to the shell. Negated context predicates
+    // inspect the whole focus path, including ancestors of focused children.
+    cx.bind_keys([gpui_kit::KeyBinding::new(
+        "secondary-o",
+        OpenFolder,
+        Some("!BuddyTerminal && !BuddyTerminalPaste"),
+    )]);
+}
+
 pub struct Close;
 pub struct OpenPath(pub PathBuf);
 impl EventEmitter<OpenPath> for crate::terminal_view::TerminalView {}

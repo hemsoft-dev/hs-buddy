@@ -533,6 +533,7 @@ impl Render for BuddyApp {
         let foreground = theme.foreground;
 
         v_flex()
+            .key_context("BuddyApp")
             .on_action(cx.listener(Self::open_folder))
             .track_focus(&self.focus)
             .size_full()

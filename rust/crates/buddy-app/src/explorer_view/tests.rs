@@ -1,6 +1,98 @@
 use super::*;
 use std::fs;
 
+struct ShortcutProbe {
+    focus: gpui_kit::FocusHandle,
+    context: &'static str,
+    opened: usize,
+    terminal_input: usize,
+}
+
+impl Render for ShortcutProbe {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .key_context("BuddyApp")
+            .on_action(cx.listener(|this, _: &OpenFolder, _, _| this.opened += 1))
+            .child(
+                div().key_context(self.context).child(
+                    // A focused child must not let the binding match an ancestor
+                    // outside BuddyTerminal (e.g. a terminal input/IME overlay).
+                    div()
+                        .key_context("Input")
+                        .track_focus(&self.focus)
+                        .on_key_down(cx.listener(|this, event: &gpui_kit::KeyDownEvent, _, cx| {
+                            if event.keystroke.key == "o" && event.keystroke.modifiers.control {
+                                this.terminal_input += 1;
+                                cx.stop_propagation();
+                            }
+                        })),
+                ),
+            )
+    }
+}
+
+#[gpui_kit::test]
+fn open_folder_shortcut_preserves_control_o_in_terminal_contexts(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view) = cx.update(|cx| {
+        init(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let focus = cx.focus_handle();
+                window.focus(&focus, cx);
+                ShortcutProbe {
+                    focus,
+                    context: "Editor",
+                    opened: 0,
+                    terminal_input: 0,
+                }
+            })
+        })
+        .unwrap()
+    });
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.run_until_parked();
+    let shortcut = if cfg!(target_os = "macos") {
+        "cmd-o"
+    } else {
+        "ctrl-o"
+    };
+    visual.simulate_keystrokes(shortcut);
+    view.read_with(&visual, |view, _| assert_eq!(view.opened, 1));
+
+    for context in ["BuddyTerminal", "BuddyTerminalPaste"] {
+        view.update(&mut visual, |view, cx| {
+            view.context = context;
+            cx.notify();
+        });
+        visual.run_until_parked();
+        visual.simulate_keystrokes("ctrl-o");
+        view.read_with(&visual, |view, _| assert_eq!(view.opened, 1, "{context}"));
+    }
+    view.read_with(&visual, |view, _| assert_eq!(view.terminal_input, 2));
+
+    view.update(&mut visual, |view, cx| {
+        view.context = "Editor";
+        cx.notify();
+    });
+    visual.run_until_parked();
+    visual.simulate_keystrokes(shortcut);
+    view.read_with(&visual, |view, _| assert_eq!(view.opened, 2));
+
+    view.update(&mut visual, |view, cx| {
+        view.context = "BuddyTerminal";
+        cx.notify();
+    });
+    visual.run_until_parked();
+
+    // A menu click dispatches the action directly, so terminal focus does not
+    // prevent File > Open Folder from opening the chooser.
+    visual.update(|window, cx| window.dispatch_action(Box::new(OpenFolder), cx));
+    visual.run_until_parked();
+    view.read_with(&visual, |view, _| assert_eq!(view.opened, 3));
+}
+
 #[gpui_kit::test]
 fn syntax_colors_follow_the_active_buddy_theme(cx: &mut gpui_kit::TestAppContext) {
     cx.update(|cx| {
