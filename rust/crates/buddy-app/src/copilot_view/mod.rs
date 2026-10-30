@@ -1,5 +1,5 @@
 //! Native assistant tools retain their own requests and selection state.
-mod chat;
+pub(crate) mod chat;
 mod enterprise;
 pub(crate) mod markdown;
 mod results;
