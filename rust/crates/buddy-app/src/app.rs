@@ -670,7 +670,13 @@ mod tests {
             handle
                 .update(cx, |_, window, cx| {
                     window.render_frame(cx);
-                    let width = f32::from(window.find("assistant-panel").bounds().size.width);
+                    // The container is an identity scope; the scrollable conversation
+                    // is the observed element with measurable bounds inside it.
+                    let conversation = window
+                        .within("assistant-panel")
+                        .find("copilot-conversation");
+                    assert!(conversation.visible());
+                    let width = f32::from(conversation.bounds().size.width) + 24.0;
                     assert!((280.0..=600.0).contains(&width), "Assistant width: {width}");
                 })
                 .unwrap();
