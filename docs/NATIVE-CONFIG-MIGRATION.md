@@ -9,7 +9,7 @@ From `rust/`, run:
 ```powershell
 cargo test --workspace
 cargo build --release -p buddy-app
-cargo build --locked -p buddy-core --example config-migration-probe
+cargo build --locked --workspace --example config-migration-probe
 ```
 
 After `bun install --frozen-lockfile` at the repository root, run from `rust/`:

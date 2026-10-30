@@ -163,7 +163,7 @@ jobs:
       - name: Qualify Electron config rollback
         shell: bash
         run: |
-          cargo build --locked -p buddy-core --example config-migration-probe
+          cargo build --locked --workspace --example config-migration-probe
           probe="target/debug/examples/config-migration-probe"
           if [[ "$RUNNER_OS" == "Windows" ]]; then probe="$probe.exe"; fi
           bun crates/buddy-core/tests/electron-rollback.ts "$probe"

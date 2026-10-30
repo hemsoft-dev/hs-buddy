@@ -27,7 +27,8 @@ try {
   // Validate and write through the same Conf schema used by Electron.
   electron.store = native
   const restarted = new Conf({ cwd: directory, schema: configSchema, defaults: defaultConfig })
-  assert.deepEqual(restarted.store, native)
+  // Conf returns a null-prototype root; compare persisted JSON semantics.
+  assert.deepEqual(JSON.parse(JSON.stringify(restarted.store)), native)
   const expected = structuredClone(before)
   expected.ui.dashboardCards.weather = false
   for (const key of Object.keys(expected)) assert.deepEqual(restarted.get(key), expected[key])
