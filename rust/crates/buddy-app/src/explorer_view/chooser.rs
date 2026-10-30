@@ -71,7 +71,12 @@ impl ExplorerView {
     pub(super) fn chooser_form(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let mut form = v_flex().p(zpx(24.)).gap(zpx(12.)).child("Open Folder");
         if let Some(input) = &self.chooser {
-            form = form.child(Input::new(input).aria_label("Folder path"));
+            form = form.child(
+                Input::new(input)
+                    .id("folder-path")
+                    .role(gpui_kit::Role::TextInput)
+                    .aria_label("Folder path"),
+            );
         }
         if let Some(error) = &self.chooser_error {
             form = form.child(error.clone());

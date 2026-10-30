@@ -1,6 +1,22 @@
 use super::*;
 use std::fs;
 
+#[gpui_kit::test]
+fn syntax_colors_follow_the_active_buddy_theme(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let mut config = buddy_core::config::AppConfig::default();
+        for (mode, dark) in [
+            (buddy_core::config::ThemeName::Dark, true),
+            (buddy_core::config::ThemeName::Light, false),
+        ] {
+            config.ui.theme = mode;
+            crate::theme::install(&config, cx);
+            assert_eq!(cx.theme().highlight_theme.appearance.is_dark(), dark);
+        }
+    });
+}
+
 #[test]
 fn listings_filter_hidden_and_generated_directories_and_sort_folders_first() {
     let root = tempfile::tempdir().unwrap();

@@ -214,16 +214,19 @@ impl Render for ExplorerView {
                 .rounded_none()
                 .pl(zpx(8. + depth as f32 * 16.))
                 .selected(active)
-                .icon(Icon::new(icon).size(zpx(14.)))
-                .label(format!(
-                    "{}{}",
-                    if directory {
-                        if expanded { "⌄ " } else { "› " }
-                    } else {
-                        ""
-                    },
-                    entry.name
-                ))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap(zpx(4.))
+                        .justify_start()
+                        .child(div().w(zpx(12.)).child(if directory {
+                            if expanded { "⌄" } else { "›" }
+                        } else {
+                            ""
+                        }))
+                        .child(Icon::new(icon).size(zpx(14.)))
+                        .child(div().min_w_0().truncate().child(entry.name.clone())),
+                )
                 .accessibility_label(entry.path.to_string_lossy().into_owned())
                 .tooltip(entry.path.to_string_lossy().into_owned())
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -284,6 +287,8 @@ impl Render for ExplorerView {
                     preview = preview.child(
                         div().flex_1().min_h_0().child(
                             Editor::new(editor)
+                                .aria_label("Read-only file preview")
+                                .role(gpui_kit::Role::MultilineTextInput)
                                 .readonly(true)
                                 .h(gpui_kit::relative(1.))
                                 .bordered(false),
