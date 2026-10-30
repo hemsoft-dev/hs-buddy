@@ -164,6 +164,24 @@ def assert_private_content_not_logged(output):
         if any(marker in text for marker in ('BUDDYSTREAM61527', 'BUDDYCANCEL73429', 'Partial synthetic answer', 'fixture-member', 'Review a synthetic change')):
             raise RuntimeError('Private synthetic assistant/session data appeared in app diagnostics')
 
+
+STARTUP_SCENES = ('chat-dark', 'review-dark', 'usage-light', 'codex-auth-error-light', 'sessions-light')
+
+
+def assert_startup_logs_clean(output):
+    """No baseline allowance: either GPUI diagnostic blocks installed qualification."""
+    counts = {}
+    for scene in STARTUP_SCENES:
+        path = output / scene / 'app.log'
+        text = path.read_text(encoding='utf-8', errors='replace')
+        counts[scene] = {marker: text.count(marker) for marker in (
+            'RefCell already borrowed', 'unable to get cursor position')}
+    receipt = dict(result='failed' if any(sum(row.values()) for row in counts.values()) else 'passed', scenes=counts)
+    (output / 'startup-diagnostics.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
+    if receipt['result'] != 'passed':
+        raise RuntimeError('Native startup diagnostics failed; inspect startup-diagnostics.json and original app.log files')
+    return receipt
+
 def headless(executable, output, config, backend):
     env = dict(os.environ, BUDDY_CONFIG_PATH=str(config), BUDDY_CONVEX_URL=backend.url,
         GH_CONFIG_DIR=str(output / 'empty-gh'))
@@ -256,6 +274,9 @@ def qualify(executable, output, session, version, backend, api):
     github.mutate(backend, 'githubAccounts:create', dict(username='synthetic-account', org='fixture-org', usageProvider='copilot'))
     github.mutate(backend, 'githubAccounts:create', dict(username='codex-fixture', org='fixture-org', usageProvider='codex'))
     driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
+    # GetCursorPos requires the input desktop. The driver independently rejects
+    # this mode outside disposable CI; laptop probes must retain hidden desktops.
+    driver.input_desktop = session == 'windows'
     sentinel = terminal.start_sentinel()
     primary = None
     try:
@@ -295,7 +316,9 @@ def qualify(executable, output, session, version, backend, api):
             assert_no_owned_children(output)
             (output / 'requests.json').write_text(json.dumps(api.requests, indent=2))
             assert_private_content_not_logged(output)
+            startup = assert_startup_logs_clean(output)
             qualification = dict(result='passed', version=version, session=session,
+                startupDiagnostics=startup,
                 **binary, largeWindow=driver.large_size, headless=sdk, privateTransportTraceContentAbsent=True, ownedSdkChildrenAbsent=True, unrelatedSentinelAlive=True, readOnlySessionSha256=transcript_sha,
                 sessionRequestPaging=dict(requests=21, compactWindow=[900, 650], nextAndPreviousActivated=True, scrollContentReached=True, sourceErrorRetained=True),
                 dataSource='Synthetic offline SDK provider, scoped loopback GitHub, and isolated anonymous Convex')

@@ -11,6 +11,39 @@ spec = importlib.util.spec_from_file_location('copilot_desktop', Path(__file__).
 copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
+class StartupDiagnostics(unittest.TestCase):
+    def logs(self, output):
+        for scene in copilot.STARTUP_SCENES:
+            (output / scene).mkdir()
+            (output / scene / 'app.log').write_text('', encoding='utf-8')
+
+    def test_clean_complete_logs_pass(self):
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            self.logs(output)
+            self.assertEqual(copilot.assert_startup_logs_clean(output)['result'], 'passed')
+
+    def test_either_warning_in_any_scene_fails_and_preserves_counts(self):
+        for scene in copilot.STARTUP_SCENES:
+            for marker in ('RefCell already borrowed', 'unable to get cursor position'):
+                with self.subTest(scene=scene, marker=marker), TemporaryDirectory() as temporary:
+                    output = Path(temporary)
+                    self.logs(output)
+                    log = output / scene / 'app.log'
+                    original = ('[ERROR] ' + marker + '\n') * 2
+                    log.write_text(original, encoding='utf-8')
+                    with self.assertRaisesRegex(RuntimeError, 'startup diagnostics failed'):
+                        copilot.assert_startup_logs_clean(output)
+                    receipt = json.loads((output / 'startup-diagnostics.json').read_text())
+                    self.assertEqual(receipt['scenes'][scene][marker], 2)
+                    self.assertEqual(log.read_text(), original)
+
+    def test_missing_scene_cannot_qualify(self):
+        with TemporaryDirectory() as temporary:
+            with self.assertRaises(FileNotFoundError):
+                copilot.assert_startup_logs_clean(Path(temporary))
+
+
 class SessionSourceIntegrity(unittest.TestCase):
     def test_session_fixture_contains_two_real_request_pages_with_known_metrics(self):
         with TemporaryDirectory() as temporary:
