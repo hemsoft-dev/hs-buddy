@@ -383,7 +383,8 @@ class LabelGuards(unittest.TestCase):
         for scale in (1, 1.5, 2, 3):
             for label in ("Jobs", "History", "Schedules", "Launch", "New job", "alpha", "Development"):
                 with self.subTest(scale=scale, label=label):
-                    words = [word("File", 100, 20, "menu"), word("Help", 280, 20, "menu"),
+                    words = [word("File", 100, 20, "menu"), word("Edit", 140, 20, "menu"),
+                        word("View", 180, 20, "menu"), word("Help", 280, 20, "menu"),
                         word(label, 100, 55, "global-tab"), word(label, 100, 110, "view")]
                     for item in words:
                         for key in ("left", "top", "width", "height"):
@@ -402,8 +403,22 @@ class LabelGuards(unittest.TestCase):
         self.assertEqual(ocr.find_label(words, "Notifications", navigation=True, content=True),
             dict(left=471, top=159, width=75, height=10))
 
+    def test_content_scope_anchors_the_menu_even_when_file_occurs_in_view_labels(self):
+        words = [word("File", 100, 20, "menu"), word("Edit", 140, 20, "menu"),
+            word("View", 180, 20, "menu"), word("Help", 280, 20, "menu"),
+            word("Settings", 100, 55, "global-tab"), word("Settings", 100, 110, "heading"),
+            word("Weather", 100, 150, "nav"), word("File", 100, 250, "view-file"),
+            word("File", 100, 300, "another-file"), word("Help", 280, 300, "view-help")]
+        self.assertEqual(ocr.find_label(words, "Weather", navigation=True, content=True)["top"], 150)
+        # A second full menu must fail, rather than choose a row by order.
+        words += [word(label, left, 350, "second-menu") for label, left
+            in (("File",100),("Edit",140),("View",180),("Help",280))]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Weather", navigation=True, content=True)
+
     def test_content_scope_still_rejects_competing_view_controls(self):
-        words = [word("File", 100, 20, "menu"), word("Help", 280, 20, "menu"),
+        words = [word("File", 100, 20, "menu"), word("Edit", 140, 20, "menu"),
+                        word("View", 180, 20, "menu"), word("Help", 280, 20, "menu"),
             word("Jobs", 100, 55, "global-tab"), word("Jobs", 100, 110, "view"),
             word("Jobs", 300, 110, "another-control")]
         with self.assertRaises(ocr.AmbiguousLabel):

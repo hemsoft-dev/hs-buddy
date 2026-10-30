@@ -29,10 +29,24 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
         # Explicit scene scope: the menu row and the following workspace-tab
         # row are chrome, not controls in the retained view. Measure both from
         # the untouched capture rather than assuming a DPI or window origin.
-        menu = find_label(words, "File")
-        help_label = find_label(words, "Help")
-        if abs(menu["top"] - help_label["top"]) > max(menu["height"], help_label["height"]):
-            raise RuntimeError("The native menu row is not visible")
+        # View/Help identify the menu context even when field labels also
+        # contain File. Do not require Edit: the captured Windows OCR reads
+        # that menu label as Eat. All candidate rows must still be unique.
+        menus = []
+        for candidate in (word for word in words if normalize(word["text"]) == "file"):
+            row = [word for word in words if abs(word["top"] - candidate["top"])
+                <= max(word["height"], candidate["height"]) / 2]
+            labels = [[word for word in row if normalize(word["text"]) == label]
+                for label in ("file", "view", "help")]
+            if all(len(matches) == 1 for matches in labels):
+                positions = [matches[0]["left"] for matches in labels]
+                if positions == sorted(set(positions)):
+                    menus.append(candidate)
+        if len(menus) > 1:
+            raise AmbiguousLabel("More than one native menu row is visible")
+        if not menus:
+            raise RuntimeError("The native File/Edit/View/Help menu row is not visible")
+        menu = menus[0]
         below_menu = [word for word in words if word["top"] > menu["top"] + menu["height"]]
         if not below_menu:
             raise RuntimeError("The workspace tab row is not visible")

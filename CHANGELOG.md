@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1589] - 2026-10-30
+
+### Changed
+
+- Identify the smoke menu by row context
+
 ## [0.1.1588] - 2026-10-30
 
 ### Changed
