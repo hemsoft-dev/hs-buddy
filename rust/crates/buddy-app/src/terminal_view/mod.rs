@@ -2,6 +2,7 @@
 mod grid;
 mod io;
 mod organization;
+pub mod panel;
 mod prompts;
 mod sessions;
 #[cfg(test)]
@@ -26,6 +27,11 @@ use prompts::{PromptEvent, PromptView};
 
 pub fn init(cx: &mut gpui_kit::App) {
     grid::init(cx);
+    cx.bind_keys([gpui_kit::KeyBinding::new(
+        "secondary-`",
+        crate::app::ToggleTerminal,
+        None,
+    )]);
 }
 
 pub struct TerminalView {

@@ -39,6 +39,7 @@ mod sha256;
 pub mod stats;
 pub mod terminal;
 pub mod terminal_backend;
+pub mod terminal_panel;
 pub mod terminal_prompts;
 pub mod terminal_recovery;
 pub mod terminal_workspaces;

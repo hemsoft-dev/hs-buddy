@@ -38,7 +38,8 @@ gpui_kit::actions!(
         ZoomIn,
         ZoomOut,
         ResetZoom,
-        ToggleAssistant
+        ToggleAssistant,
+        ToggleTerminal
     ]
 );
 
@@ -120,6 +121,7 @@ pub struct BuddyApp {
     settings_view: Entity<SettingsView>,
     github_view: Entity<GitHubView>,
     terminal_view: Entity<TerminalView>,
+    terminal_panel: Entity<crate::terminal_view::panel::TerminalPanel>,
     copilot_view: Entity<CopilotView>,
     assistant: Entity<crate::copilot_view::chat::ChatView>,
     todoist_view: Entity<TodoistView>,
@@ -149,6 +151,25 @@ impl BuddyApp {
         Settings::update(cx, move |config| config.ui.assistant_open = open);
         cx.refresh_windows();
     }
+    pub(crate) fn toggle_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let open = !Settings::global(cx).config.ui.terminal_open;
+        if Settings::update(cx, |config| config.ui.terminal_open = open) {
+            if open && !self.folder_open && self.active_section == Some(Section::GitHub) {
+                let context = self.github_view.read(cx).terminal_context(cx);
+                if let Some(context) = context {
+                    self.terminal_panel
+                        .update(cx, |panel, cx| panel.add(Some(context), cx));
+                }
+            }
+            self.terminal_panel
+                .update(cx, |panel, cx| panel.set_visible(open, cx));
+            if !open {
+                window.focus(&self.focus, cx);
+            }
+        }
+        cx.notify();
+    }
+
     fn initial_focus(window: &mut Window, cx: &mut Context<Self>) -> FocusHandle {
         let focus = cx.focus_handle();
         // Root's Tab binding needs a focused descendant before the first click.
@@ -451,6 +472,15 @@ impl BuddyApp {
             }
         })
         .detach();
+        let terminal_panel =
+            cx.new(|cx| crate::terminal_view::panel::TerminalPanel::new(window, cx));
+        cx.subscribe(
+            &terminal_panel,
+            |this, _, event: &crate::explorer_view::OpenPath, cx| {
+                this.show_folder(event.0.clone(), cx);
+            },
+        )
+        .detach();
         let explorer_view = cx.new(|_| crate::explorer_view::ExplorerView::new());
         cx.subscribe(
             &terminal_view,
@@ -473,6 +503,7 @@ impl BuddyApp {
             settings_view,
             github_view,
             terminal_view,
+            terminal_panel,
             copilot_view,
             assistant,
             todoist_view,
@@ -523,7 +554,7 @@ impl BuddyApp {
     fn render_workspace(&self, cx: &App) -> gpui_kit::AnyElement {
         use gpui_kit::component::resizable::{h_resizable, resizable_panel};
         if !Settings::global(cx).config.ui.assistant_open {
-            return self.render_content(cx).into_any_element();
+            return self.render_terminal_split(cx);
         }
         let width = Settings::global(cx)
             .config
@@ -538,7 +569,7 @@ impl BuddyApp {
             .child(
                 resizable_panel()
                     .size_range(zoom::scaled(cx, 250.0)..gpui_kit::Pixels::MAX)
-                    .child(self.render_content(cx)),
+                    .child(self.render_terminal_split(cx)),
             )
             .child(
                 resizable_panel()
@@ -564,6 +595,41 @@ impl BuddyApp {
                     }
                     config.ui.pane_sizes[2] = width;
                 });
+            })
+            .into_any_element()
+    }
+
+    fn render_terminal_split(&self, cx: &App) -> gpui_kit::AnyElement {
+        use gpui_kit::component::resizable::{resizable_panel, v_resizable};
+        if !Settings::global(cx).config.ui.terminal_open {
+            return self.render_content(cx).into_any_element();
+        }
+        let height = buddy_core::terminal_panel::panel_height(
+            Settings::global(cx).config.ui.terminal_panel_height,
+        );
+        let panel = self.terminal_panel.downgrade();
+        v_resizable("workspace-terminal-split")
+            .child(
+                resizable_panel()
+                    .size_range(zoom::scaled(cx, 100.0)..gpui_kit::Pixels::MAX)
+                    .child(self.render_content(cx)),
+            )
+            .child(
+                resizable_panel()
+                    .size(zoom::scaled(cx, height as f32))
+                    .fixed()
+                    .size_range(zoom::scaled(cx, 100.0)..zoom::scaled(cx, 1200.0))
+                    .child(self.terminal_panel.clone()),
+            )
+            .on_resize(move |state, _, cx| {
+                if let Some(height) = state.read(cx).sizes().get(1).copied() {
+                    let height = buddy_core::terminal_panel::panel_height(f64::from(
+                        f32::from(height) / f32::from(zoom::scaled(cx, 1.0)),
+                    ));
+                    if Settings::update(cx, |config| config.ui.terminal_panel_height = height) {
+                        panel.update(cx, |panel, cx| panel.height_changed(cx)).ok();
+                    }
+                }
             })
             .into_any_element()
     }
@@ -598,6 +664,9 @@ impl BuddyApp {
 
 impl Render for BuddyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let terminal_open = Settings::global(cx).config.ui.terminal_open;
+        self.terminal_panel
+            .update(cx, |panel, cx| panel.set_visible(terminal_open, cx));
         let assistant_open = Settings::global(cx).config.ui.assistant_open;
         if assistant_open {
             let context = self.assistant_context(cx);
@@ -612,6 +681,11 @@ impl Render for BuddyApp {
         v_flex()
             .key_context("BuddyApp")
             .on_action(cx.listener(Self::open_folder))
+            .on_action(
+                cx.listener(|this, _: &ToggleTerminal, window, cx| {
+                    this.toggle_terminal(window, cx)
+                }),
+            )
             .on_action(|_: &ToggleAssistant, _, cx| Self::toggle_assistant(cx))
             .track_focus(&self.focus)
             .size_full()
@@ -683,6 +757,8 @@ mod tests {
                         settings_view: cx.new(|cx| SettingsView::new(window, cx)),
                         github_view: cx.new(|cx| GitHubView::new(window, cx)),
                         terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
+                        terminal_panel: cx
+                            .new(|cx| crate::terminal_view::panel::TerminalPanel::new(window, cx)),
                         copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
                         assistant: cx
                             .new(|cx| crate::copilot_view::chat::ChatView::new(window, cx)),
@@ -738,6 +814,35 @@ mod tests {
                 .unwrap();
             assert_eq!(shell.read(cx).assistant.entity_id(), assistant_id);
             assert_eq!(shell.read(cx).active_section, Some(Section::Terminal));
+        });
+        let panel_id = cx.update(|cx| shell.read(cx).terminal_panel.entity_id());
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.ui.terminal_open = true;
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            cx.windows()[0]
+                .update(cx, |_, window, cx| {
+                    window.render_frame(cx);
+                    assert!(window.find("panel-new").visible());
+                    assert!(window.find("panel-hide").visible());
+                })
+                .unwrap();
+            assert_eq!(shell.read(cx).terminal_panel.entity_id(), panel_id);
+            assert_eq!(shell.read(cx).active_section, Some(Section::Terminal));
+        });
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.ui.terminal_open = false;
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(shell.read(cx).terminal_panel.entity_id(), panel_id);
+            assert_eq!(shell.read(cx).assistant.entity_id(), assistant_id);
         });
     }
 }
