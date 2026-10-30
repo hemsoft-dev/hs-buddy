@@ -1,5 +1,6 @@
 //! The dashboard (`WelcomePanel.tsx`): header, card grid, quick actions, footer.
 
+mod active_prs;
 mod cards;
 mod header;
 pub mod primitives;
@@ -147,6 +148,7 @@ pub struct DashboardView {
     pollen_detail_open: bool,
     session_start: Instant,
     stats: Option<BuddyStats>,
+    active_prs: active_prs::ActivePrs,
     repo_bookmark_count: usize,
     convex_connection_error: Option<String>,
     convex_stats_error: Option<String>,
@@ -244,6 +246,7 @@ impl DashboardView {
             pollen_detail_open: false,
             session_start: Instant::now(),
             stats: None,
+            active_prs: Default::default(),
             repo_bookmark_count: 0,
             convex_connection_error: None,
             convex_stats_error: None,
@@ -310,6 +313,7 @@ impl DashboardView {
         if self.card_visible(CardId::CommandCenter, cx) {
             self.load_copilot(cx);
         }
+        self.refresh_active_prs(false, cx);
         self.start_convex(cx);
     }
 
@@ -368,6 +372,7 @@ impl DashboardView {
             cx.notify();
             return;
         }
+        self.refresh_active_prs(false, cx);
         let weather_visible = config.is_dashboard_card_visible(CardId::Weather.key());
         let finance_visible = config.is_dashboard_card_visible(CardId::Finance.key());
         if finance_visible
@@ -411,6 +416,7 @@ impl DashboardView {
         if !self.active {
             return;
         }
+        self.refresh_active_prs(false, cx);
         if self.weather_refresh.is_due() && self.card_visible(CardId::Weather, cx) {
             self.refresh_weather(cx);
         }
@@ -863,8 +869,11 @@ impl DashboardView {
 
     pub fn pulse(&self) -> WorkspacePulse {
         let stats = self.stats.clone().unwrap_or_default();
-        // Active PR counts need the pull-request views, which are not ported yet.
-        WorkspacePulse::from_stats(&stats, None, self.repo_bookmark_count as u64)
+        WorkspacePulse::from_stats(
+            &stats,
+            self.active_prs.total,
+            self.repo_bookmark_count as u64,
+        )
     }
 
     /// Connection error, or a reachability hint once the first load is overdue.
@@ -984,6 +993,7 @@ impl DashboardView {
     /// Drop only this native view's cached provider results. Generation bumps
     /// prevent already-running requests from putting stale data back.
     pub fn clear_cached_data(&mut self, cx: &mut Context<Self>) {
+        self.active_prs.clear();
         self.weather_generation = self.weather_generation.wrapping_add(1);
         self.pollen_generation = self.pollen_generation.wrapping_add(1);
         self.pollen_key_generation = self.pollen_key_generation.wrapping_add(1);
