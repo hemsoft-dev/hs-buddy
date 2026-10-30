@@ -517,6 +517,7 @@ impl RalphView {
             },
             section: Some(crate::app::Section::Ralph),
             badge: None,
+            available: std::rc::Rc::new(|_| true),
             close: std::rc::Rc::new(|_| {}),
             restore: std::rc::Rc::new(move |window, cx| {
                 let _ = window;

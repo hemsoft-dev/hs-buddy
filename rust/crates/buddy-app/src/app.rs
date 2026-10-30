@@ -53,8 +53,16 @@ pub fn init_navigation(cx: &mut App) {
         gpui_kit::KeyBinding::new("secondary-tab", NextGlobalTab, Some("BuddyApp")),
         gpui_kit::KeyBinding::new("secondary-shift-tab", PreviousGlobalTab, Some("BuddyApp")),
         gpui_kit::KeyBinding::new("secondary-f4", CloseGlobalTab, Some("BuddyApp")),
-        gpui_kit::KeyBinding::new("alt-left", NavigationBack, Some("BuddyApp")),
-        gpui_kit::KeyBinding::new("alt-right", NavigationForward, Some("BuddyApp")),
+        gpui_kit::KeyBinding::new(
+            "alt-left",
+            NavigationBack,
+            Some("BuddyApp && !BuddyTerminal && !BuddyTerminalPaste"),
+        ),
+        gpui_kit::KeyBinding::new(
+            "alt-right",
+            NavigationForward,
+            Some("BuddyApp && !BuddyTerminal && !BuddyTerminalPaste"),
+        ),
     ]);
 }
 
@@ -260,6 +268,8 @@ impl BuddyApp {
         }
     }
     pub(crate) fn restore_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.github_view.update(cx, |view, cx| view.reconcile(cx));
+        self.tabs.prune_unavailable(cx);
         for closed in std::mem::take(&mut self.tabs.closed) {
             (closed.close)(cx);
         }
@@ -398,13 +408,18 @@ impl BuddyApp {
         });
     }
 
-    fn observe_settings(cx: &mut Context<Self>) {
-        cx.observe_global::<Settings>(|this, cx| {
+    fn observe_settings(window: &Window, cx: &mut Context<Self>) {
+        cx.observe_global_in::<Settings>(window, |this, window, cx| {
+            this.github_view.update(cx, |view, cx| view.reconcile(cx));
+            let pruned = this.tabs.prune_unavailable(cx);
             let saved = &Settings::global(cx).config.native.active_section;
             let section = saved.as_deref().and_then(Section::from_id);
             if this.active_section != section {
                 this.tabs.open(this.destination(section, cx));
                 this.show_section(section, cx);
+            }
+            if pruned {
+                this.restore_tab(window, cx);
             }
             cx.notify();
         })
@@ -421,7 +436,7 @@ impl BuddyApp {
         })
         .detach();
 
-        Self::observe_settings(cx);
+        Self::observe_settings(window, cx);
 
         cx.observe_window_bounds(window, |this, window, cx| {
             this.window_bounds_changed(window, cx)
@@ -1090,6 +1105,77 @@ impl Render for BuddyApp {
 mod tests {
     use super::*;
 
+    struct HistoryShortcutProbe {
+        focus: gpui_kit::FocusHandle,
+        context: &'static str,
+        history: usize,
+        terminal_keys: usize,
+    }
+    impl Render for HistoryShortcutProbe {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .key_context("BuddyApp")
+                .on_action(cx.listener(|this, _: &NavigationBack, _, _| this.history += 1))
+                .on_action(cx.listener(|this, _: &NavigationForward, _, _| this.history += 1))
+                .child(
+                    div().key_context(self.context).child(
+                        div()
+                            .key_context("Input")
+                            .track_focus(&self.focus)
+                            .on_key_down(cx.listener(
+                                |this, event: &gpui_kit::KeyDownEvent, _, cx| {
+                                    if this.context.starts_with("BuddyTerminal")
+                                        && event.keystroke.modifiers.alt
+                                        && ["left", "right"].contains(&event.keystroke.key.as_str())
+                                        && !crate::browser_view::keys::claimed(cx)
+                                            .contains(&event.keystroke)
+                                    {
+                                        this.terminal_keys += 1;
+                                        cx.stop_propagation();
+                                    }
+                                },
+                            )),
+                    ),
+                )
+        }
+    }
+
+    #[gpui_kit::test]
+    fn history_shortcuts_leave_alt_arrows_with_terminal_and_paste_contexts(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (window, view) = cx.update(|cx| {
+            init_navigation(cx);
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| {
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    HistoryShortcutProbe {
+                        focus,
+                        context: "Workspace",
+                        history: 0,
+                        terminal_keys: 0,
+                    }
+                })
+            })
+            .unwrap()
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.run_until_parked();
+        visual.simulate_keystrokes("alt-left alt-right");
+        view.read_with(&visual, |view, _| assert_eq!(view.history, 2));
+        for context in ["BuddyTerminal", "BuddyTerminalPaste"] {
+            view.update(&mut visual, |view, cx| {
+                view.context = context;
+                cx.notify();
+            });
+            visual.run_until_parked();
+            visual.simulate_keystrokes("alt-left alt-right");
+            view.read_with(&visual, |view, _| assert_eq!(view.history, 2, "{context}"));
+        }
+        view.read_with(&visual, |view, _| assert_eq!(view.terminal_keys, 4));
+    }
+
     #[test]
     fn every_section_id_maps_back_to_its_section() {
         for section in Section::ALL {
@@ -1113,7 +1199,7 @@ mod tests {
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
                 let shell = cx.new(|cx| {
-                    BuddyApp::observe_settings(cx);
+                    BuddyApp::observe_settings(window, cx);
                     BuddyApp {
                         active_section: Some(Section::GitHub),
                         active_account: None,
@@ -1262,6 +1348,46 @@ mod tests {
                     assert!(f32::from(refresh.bounds().size.height) >= 20.0);
                 })
                 .unwrap();
+        });
+        // Settings notifications remove unavailable destinations immediately,
+        // including inactive tabs, without waiting for the user to select one.
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.github.accounts = serde_json::from_value(serde_json::json!([
+                {"username":"First", "org":"team"}
+            ]))
+            .unwrap();
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        let removed_key = cx.update(|cx| {
+            shell.update(cx, |shell, cx| {
+                let destination = shell.destination(Some(Section::GitHub), cx);
+                let key = destination.key.clone();
+                shell.tabs.open(destination);
+                shell.tabs.select("terminal-b");
+                key
+            })
+        });
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.github.accounts.clear();
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(
+                shell
+                    .read(cx)
+                    .tabs
+                    .items
+                    .iter()
+                    .all(|tab| tab.key != removed_key)
+            );
+            assert!(
+                shell.read(cx).tabs.closed.is_empty(),
+                "pruned destinations must complete the close path"
+            );
         });
     }
 }

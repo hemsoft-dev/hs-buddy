@@ -290,7 +290,7 @@ impl GitHubView {
         }).ok();}}).detach();
     }
 
-    fn reconcile(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reconcile(&mut self, cx: &mut Context<Self>) {
         let merged_days = Settings::global(cx)
             .config
             .pr
@@ -940,6 +940,19 @@ impl Render for GitHubView {
 }
 
 impl GitHubView {
+    fn account_available(account: &Option<AccountScope>, cx: &App) -> bool {
+        let mut configured = Settings::global(cx)
+            .config
+            .github
+            .accounts
+            .iter()
+            .filter_map(|account| AccountScope::from_account(account).ok());
+        match account {
+            Some(account) => configured.any(|scope| &scope == account),
+            None => configured.next().is_none(),
+        }
+    }
+
     pub(crate) fn assistant_context(&self) -> crate::assistant_context::AssistantContext {
         use crate::assistant_context::AssistantContext;
         let (kind, summary) = match &self.route {
@@ -1007,6 +1020,7 @@ impl GitHubView {
     ) -> crate::shell::navigation::Destination {
         let route = self.route.clone();
         let account = self.account.clone();
+        let available_account = account.clone();
         let _ = cx;
         crate::shell::navigation::Destination {
             key: format!("github:{account:?}:{}", route.key()),
@@ -1019,10 +1033,15 @@ impl GitHubView {
             ),
             section: Some(crate::app::Section::GitHub),
             badge: None,
+            available: std::rc::Rc::new(move |cx| Self::account_available(&available_account, cx)),
             close: std::rc::Rc::new(|_| {}),
             restore: std::rc::Rc::new(move |window, cx| {
                 let _ = window;
                 entity.update(cx, |view, cx| {
+                    if !Self::account_available(&account, cx) {
+                        view.reconcile(cx);
+                        return;
+                    }
                     if view.account != account {
                         view.change_account(account.clone(), cx);
                     }
@@ -1049,6 +1068,9 @@ impl GitHubView {
                 ));
                 d.key = format!("github:{account:?}:{}", Route::Pulls(mode).key());
                 d.label = mode.label().into();
+                let available_account = account.clone();
+                d.available =
+                    std::rc::Rc::new(move |cx| Self::account_available(&available_account, cx));
                 d.badge = self.mode_badges.get(mode.key()).map(|(count, at)| {
                     let interval = Settings::global(cx)
                         .config
@@ -1069,6 +1091,10 @@ impl GitHubView {
                 });
                 d.restore = std::rc::Rc::new(move |_, cx| {
                     entity.update(cx, |view, cx| {
+                        if !Self::account_available(&account, cx) {
+                            view.reconcile(cx);
+                            return;
+                        }
                         if view.account != account {
                             view.change_account(account.clone(), cx);
                         }

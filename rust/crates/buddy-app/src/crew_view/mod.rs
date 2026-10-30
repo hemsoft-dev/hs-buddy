@@ -1095,6 +1095,7 @@ impl CrewView {
                 .unwrap_or_else(|| "The Crew".into()),
             section: Some(crate::app::Section::Crew),
             badge: None,
+            available: std::rc::Rc::new(|_| true),
             close: std::rc::Rc::new(|_| {}),
             restore: std::rc::Rc::new(move |window, cx| {
                 let _ = window;

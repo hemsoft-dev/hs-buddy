@@ -476,3 +476,59 @@ fn global_tabs_restore_account_and_route_and_badges_never_cross_accounts(
         .unwrap();
     });
 }
+
+#[gpui_kit::test]
+fn removing_an_account_invalidates_tabs_history_and_retained_sidebar_callbacks(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let view = cx.new(|cx| GitHubView::new(window, cx));
+            view.update(cx, |view, cx| {
+                view.change_account(Some(account("First")), cx);
+                view.navigate(Route::Pull(pull(), PullTab::Files), cx);
+            });
+            let stale = view.read(cx).destination(view.clone(), cx);
+            let sidebar = view.read(cx).sidebar(view.clone(), cx);
+            let mut tabs = crate::shell::navigation::Tabs::default();
+            tabs.open(crate::shell::navigation::Destination::section(None));
+            tabs.open(stale.clone());
+            tabs.open(crate::shell::navigation::Destination::section(Some(
+                crate::app::Section::Settings,
+            )));
+            tabs.travel(false); // Removed account is active, and also occurs in Back/Forward history.
+            let mut config = Settings::global(cx).config.clone();
+            config
+                .github
+                .accounts
+                .retain(|account| account.username == "Second");
+            Settings::replace(cx, config);
+            view.update(cx, |view, cx| {
+                view.reconcile(cx);
+                view.navigate(Route::Repositories, cx);
+            });
+            assert!(!(stale.available)(cx));
+            assert!(tabs.prune_unavailable(cx));
+            assert!(tabs.items.iter().all(|tab| tab.key != stale.key));
+            let ticket = view.update(cx, |view, _| view.selection.begin().unwrap());
+            (stale.restore)(window, cx);
+            for link in sidebar {
+                assert!(!(link.available)(cx));
+                (link.restore)(window, cx);
+            }
+            assert_eq!(view.read(cx).account, Some(account("Second")));
+            assert_eq!(view.read(cx).route, Route::Repositories);
+            assert!(
+                view.read(cx).selection.accepts(&ticket),
+                "stale callbacks must not start a new selection/read"
+            );
+            tabs.travel(false);
+            assert_eq!(tabs.active.as_deref(), Some("dashboard"));
+            tabs.travel(true);
+            assert_ne!(tabs.active.as_deref(), Some(stale.key.as_str()));
+            view
+        })
+        .unwrap();
+    });
+}

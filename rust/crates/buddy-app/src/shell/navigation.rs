@@ -18,6 +18,8 @@ pub struct Destination {
     pub label: String,
     pub section: Option<Section>,
     pub badge: Option<Badge>,
+    /// Rechecked against live configuration before restoring retained state.
+    pub available: Rc<dyn Fn(&App) -> bool>,
     pub restore: Restore,
     pub close: Rc<dyn Fn(&mut App)>,
 }
@@ -28,6 +30,7 @@ impl Destination {
             label: section.map_or("Dashboard", Section::label).into(),
             section,
             badge: None,
+            available: Rc::new(|_| true),
             restore: Rc::new(|_, _| {}),
             close: Rc::new(|_| {}),
         }
@@ -42,6 +45,18 @@ pub struct Tabs {
     forward: Vec<String>,
 }
 impl Tabs {
+    pub fn prune_unavailable(&mut self, cx: &App) -> bool {
+        let removed: Vec<_> = self
+            .items
+            .iter()
+            .filter(|tab| !(tab.available)(cx))
+            .map(|tab| tab.key.clone())
+            .collect();
+        for key in &removed {
+            self.close(key);
+        }
+        !removed.is_empty()
+    }
     pub fn open(&mut self, destination: Destination) {
         let key = destination.key.clone();
         if let Some(existing) = self.items.iter_mut().find(|tab| tab.key == key) {

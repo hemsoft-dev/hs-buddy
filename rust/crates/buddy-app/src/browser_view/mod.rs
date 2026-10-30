@@ -841,6 +841,7 @@ impl BrowserView {
                 .unwrap_or_else(|| "Bookmarks".into()),
             section: Some(crate::app::Section::Bookmarks),
             badge: None,
+            available: std::rc::Rc::new(|_| true),
             close: std::rc::Rc::new(move |cx| {
                 closing.update(cx, |view, cx| {
                     if let Some(index) = id.and_then(|id| view.tabs.iter().position(|t| t.id == id))

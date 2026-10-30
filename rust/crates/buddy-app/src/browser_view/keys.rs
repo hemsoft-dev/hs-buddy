@@ -4,21 +4,13 @@
 
 use gpui_kit::{Action, App, Keystroke};
 
-use crate::app::{
-    CloseGlobalTab, NavigationBack, NavigationForward, NextGlobalTab, PreviousGlobalTab,
-};
+use crate::app::{CloseGlobalTab, NextGlobalTab, PreviousGlobalTab};
 
 /// Every app-wide binding (quit, full screen, zoom) and the tab bindings:
 /// keys no page needs. Bindings tied to one view's context, such as Paste in
 /// Bookmarks, stay with the page.
 pub fn claimed(cx: &App) -> Vec<Keystroke> {
-    let tabs: [&dyn Action; 5] = [
-        &NextGlobalTab,
-        &PreviousGlobalTab,
-        &CloseGlobalTab,
-        &NavigationBack,
-        &NavigationForward,
-    ];
+    let tabs: [&dyn Action; 3] = [&NextGlobalTab, &PreviousGlobalTab, &CloseGlobalTab];
     cx.key_bindings()
         .borrow()
         .bindings()
@@ -150,13 +142,16 @@ mod tests {
                 "secondary-tab",
                 "secondary-shift-tab",
                 "secondary-f4",
-                "alt-left",
-                "alt-right",
             ] {
                 let stroke = Keystroke::parse(spec).unwrap();
                 assert!(claimed.contains(&stroke), "{spec} in {claimed:?}");
             }
-            assert!(!claimed.contains(&Keystroke::parse("ctrl-v").unwrap()));
+            for spec in ["ctrl-v", "alt-left", "alt-right"] {
+                assert!(
+                    !claimed.contains(&Keystroke::parse(spec).unwrap()),
+                    "{spec}"
+                );
+            }
         });
     }
 

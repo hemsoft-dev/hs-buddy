@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1587] - 2026-10-30
+
+### Fixed
+
+- Guard tab account scopes and preserve terminal history keys
+
 ## [0.1.1586] - 2026-10-30
 
 ### Added
