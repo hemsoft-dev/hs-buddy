@@ -985,6 +985,66 @@ class MacStabilityTests(unittest.TestCase):
             lines = (Path(root) / "stability.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual([json.loads(line)["measurement"] for line in lines], readings)
 
+    def test_tempo_hours_does_not_use_the_block_box_that_clicks_the_sidebar(self):
+        # Both #888 Mac artifacts measured this block box and clicked x=40,
+        # opening Chat. The following Work date lookup then failed there.
+        block = dict(left=20, top=488, width=153, height=18)
+        sparse = dict(left=65, top=493, width=108, height=10)
+        for session in ("macos", "x11"):
+            with self.subTest(session=session), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                image = directory / "locator.png"
+                image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", 1200, 820))
+                image.with_suffix(".window.json").write_text(json.dumps(dict(
+                    capturePixelsPerWindowPoint=1, kCGWindowBounds=dict(X=80, Y=80))))
+                driver, helper, window = self.driver(), Mock(), Mock()
+                driver.session = session
+                driver.input_receipt = Mock()
+                def recognize(image, mode):
+                    box = block if mode == 6 else sparse
+                    return [dict(box, text="Hours or H:MM:SS", line="hours")]
+                with patch.object(desktop.ocr.shutil, "which", return_value="tesseract"), \
+                        patch.object(desktop.ocr, "recognize", side_effect=recognize) as read, \
+                        patch.object(desktop, "OwnedMacInput", return_value=helper), \
+                        patch.object(desktop, "run"), patch.object(desktop.time, "sleep"):
+                    driver.interact(window, directory, "input", ["Hours or H:MM:SS", "0", {"labelBottomOffset": 30}])
+                if session == "macos":
+                    helper.click.assert_called_once_with(165, 613)
+                    helper.replace_text.assert_called_once_with("0")
+                self.assertTrue(all(call.args[1] == 11 for call in read.call_args_list))
+
+    def test_tempo_token_uses_block_segmentation_before_sparse_border_boxes(self):
+        # All three #886 failures alternate these boxes at the same layout.
+        sparse = [dict(text="Jira API token", left=60, top=574, width=84, height=22, line="token")]
+        block = [dict(text="Jira", left=64, top=578, width=21, height=10, line="token"),
+            dict(text="API", left=88, top=578, width=20, height=10, line="token"),
+            dict(text="token", left=112, top=578, width=32, height=10, line="token")]
+        for moving in (False, True):
+            with self.subTest(moving=moving), tempfile.TemporaryDirectory() as root:
+                window = Mock()
+                calls = []
+                def recognize(image, mode):
+                    calls.append(mode)
+                    words = block if mode == 6 else sparse
+                    shift = (window.screenshot.call_count - 1) * 20 if moving else 0
+                    # Sparse segmentation alternates its border-inclusive box.
+                    if mode == 11 and window.screenshot.call_count % 2 == 0:
+                        words = block
+                    return [dict(word, top=word["top"] + shift) for word in words]
+                with patch.object(desktop.ocr.shutil, "which", return_value="tesseract"), \
+                        patch.object(desktop.ocr, "recognize", side_effect=recognize), \
+                        patch.object(desktop, "OwnedMacInput") as helper:
+                    if moving:
+                        with self.assertRaisesRegex(RuntimeError, "did not become stable"):
+                            self.driver().interact(window, Path(root), "input", ["Jira API token", "fixture"])
+                        self.assertEqual(window.screenshot.call_count, 4)
+                    else:
+                        label = self.driver().locate(window, Path(root) / "locator.png", "input", "Jira API token")
+                        self.assertEqual(label, dict(left=64, top=578, width=80, height=10))
+                        self.assertEqual(window.screenshot.call_count, 2)
+                    helper.assert_not_called()
+                self.assertTrue(all(mode == 6 for mode in calls))
+
     def test_locate_still_refuses_a_target_that_keeps_moving(self):
         with tempfile.TemporaryDirectory() as root:
             image = Path(root) / "locator.png"
