@@ -206,7 +206,7 @@ def first_pass(driver, theme):
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
-        ("content", "Bookmarks"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
+        ("click", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),

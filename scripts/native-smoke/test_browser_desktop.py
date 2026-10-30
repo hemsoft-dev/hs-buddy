@@ -19,6 +19,22 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_recorded_mac_browser_returns_through_the_global_bookmarks_tab(self):
+        words = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-global-bookmarks-words.json').read_text())
+
+        class Driver:
+            def drive(self, name, actions, record=False):
+                for kind, *values in actions:
+                    if values and 'Bookmarks' in str(values[0]):
+                        target = desktop.settings.ocr.locate_label(words, values[0], content=kind == 'content')
+                        self.target = target
+                return Path('flow')
+
+        driver = Driver()
+        with patch.object(desktop.github, 'check'):
+            desktop.first_pass(driver, 'dark')
+        self.assertEqual(driver.target, dict(left=182, top=44, width=78, height=9))
+
     def test_the_x11_shortcuts_are_pressed_with_the_pointer_over_a_page(self):
         # #880: Ctrl+Tab, Ctrl+Shift+Tab and Ctrl+F4 (and Ctrl+Q ending the
         # drive) are sent only after the pointer rests over the page.
