@@ -72,7 +72,7 @@ impl BuddyStats {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WorkspacePulse {
     pub total_prs_viewed: u64,
-    /// `None` until the native app can count open pull requests.
+    /// Sum of the four PR list counts, or `None` before a complete load.
     pub active_prs: Option<u64>,
     pub copilot_pr_reviews: u64,
     pub repos_browsed: u64,

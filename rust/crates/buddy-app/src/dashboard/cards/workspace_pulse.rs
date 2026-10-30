@@ -7,7 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, Styled, div};
 
 use crate::dashboard::DashboardView;
-use crate::dashboard::primitives::{StatCard, section, section_heading, stat_grid};
+use crate::dashboard::primitives::{Pill, StatCard, section, section_heading, stat_grid};
 use crate::theme::{BuddyPalette, hex};
 use crate::zoom::zpx;
 
@@ -58,11 +58,15 @@ pub fn render(view: &DashboardView, cx: &mut Context<DashboardView>) -> AnyEleme
             format!("{} session{plural}", count(pulse.app_launches))
         })),
     ];
-    if let Some(active) = pulse.active_prs {
+    {
         cards.insert(
             1,
-            StatCard::new(IconName::Activity, count(active), "Active PRs")
-                .icon_colors(palette.accent_success, hex("#4ec9b0").opacity(0.12)),
+            StatCard::new(
+                IconName::Activity,
+                pulse.active_prs.map(count).unwrap_or_else(|| "...".into()),
+                "Active PRs",
+            )
+            .icon_colors(palette.accent_success, hex("#4ec9b0").opacity(0.12)),
         );
     }
 
@@ -83,6 +87,31 @@ pub fn render(view: &DashboardView, cx: &mut Context<DashboardView>) -> AnyEleme
                     .text_size(zpx(11.0))
                     .text_color(palette.text_muted)
                     .child(status),
+            )
+        })
+        .child(
+            Pill::new("pulse-refresh-prs", "Refresh PR totals")
+                .icon(IconName::RefreshCw)
+                .disabled(view.active_prs.loading)
+                .build(
+                    cx.listener(|this, _, _, cx| this.refresh_active_prs(true, cx)),
+                    cx,
+                ),
+        )
+        .when_some(view.active_prs.error.clone(), |this, error| {
+            this.child(
+                div()
+                    .text_size(zpx(11.0))
+                    .text_color(palette.text_muted)
+                    .child(format!("PR totals: {error}")),
+            )
+        })
+        .when(view.active_prs.loading, |this| {
+            this.child(
+                div()
+                    .text_size(zpx(11.0))
+                    .text_color(palette.text_muted)
+                    .child("Loading PR totals..."),
             )
         })
         .child(stat_grid(cards, columns, cx))
