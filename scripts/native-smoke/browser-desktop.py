@@ -204,10 +204,10 @@ def evaluate(records, beacons, downloads, frame):
 def first_pass(driver, theme):
     """A fresh session: the probe's refusals, then a page, at both sizes."""
     flow = driver.drive(f"browser-{theme}", [
-        ("wait_text", "Probe page"), ("click", "Probe page"),
+        ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
-        ("click", "Bookmarks"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
-        ("click", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
+        ("content", "Bookmarks"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
+        ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
     ], record=True)

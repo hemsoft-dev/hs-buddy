@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1588] - 2026-10-30
+
+### Changed
+
+- Scope smoke clicks below global tabs
+
 ## [0.1.1587] - 2026-10-30
 
 ### Fixed

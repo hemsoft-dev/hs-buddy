@@ -793,6 +793,24 @@ class WindowsScrollAnchors(unittest.TestCase):
                     desktop.verify_text(image, "2 worklogs were not attempted")
             self.assertEqual(image.with_suffix(".ocr.txt").read_text(encoding="utf-8"), wrapped.casefold())
 
+    def test_content_scope_reaches_windows_and_unix_locators(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-content-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("sidebar", [("content", "Jobs")])
+            commands = run.call_args.args[run.call_args.args.index("-Actions") + 1].split(",")
+            self.assertIn("content64:" + base64.b64encode(b"Jobs").decode(), commands)
+            for session in ("x11", "macos"):
+                driver.session = session
+                with patch.object(desktop.ocr, "locate_image", return_value=dict(left=100, top=100, width=30, height=12)) as locate, \
+                        patch.object(desktop, "record_measurement"):
+                    driver.locate(Mock(), directory / "locator.png", "content", "Jobs")
+                self.assertTrue(locate.call_args.kwargs["content"])
+
     def test_a_box_is_a_field_without_the_mac_save_row_anchor(self):
         # macOS run 40629646121: Bookmarks' search has no Save button in its
         # row, so `field` failed with "The field's aligned Save button is not visible".

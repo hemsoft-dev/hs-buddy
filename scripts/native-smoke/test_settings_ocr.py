@@ -379,5 +379,38 @@ class LabelGuards(unittest.TestCase):
         self.assertEqual(ocr.find_label(words, "Accounts", navigation=True)["top"], 150)
 
 
+    def test_content_scope_excludes_global_tab_titles_at_each_capture_scale(self):
+        for scale in (1, 1.5, 2, 3):
+            for label in ("Jobs", "History", "Schedules", "Launch", "New job", "alpha", "Development"):
+                with self.subTest(scale=scale, label=label):
+                    words = [word("File", 100, 20, "menu"), word("Help", 280, 20, "menu"),
+                        word(label, 100, 55, "global-tab"), word(label, 100, 110, "view")]
+                    for item in words:
+                        for key in ("left", "top", "width", "height"):
+                            item[key] *= scale
+                    with self.assertRaises(ocr.AmbiguousLabel):
+                        ocr.find_label(words, label)
+                    self.assertEqual(ocr.find_label(words, label, content=True)["top"], 110 * scale)
+                    with self.assertRaises(RuntimeError):
+                        ocr.find_label(words[:-1], label, content=True)
+
+    def test_settings_navigation_ignores_the_clipped_global_tab_heading(self):
+        # Windows job 124177959929, settings/retained-drafts original OCR.
+        words = json.loads(Path(__file__).with_name("fixtures").joinpath("settings-global-tab-words.json").read_text())
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Notifications", navigation=True)
+        self.assertEqual(ocr.find_label(words, "Notifications", navigation=True, content=True),
+            dict(left=471, top=159, width=75, height=10))
+
+    def test_content_scope_still_rejects_competing_view_controls(self):
+        words = [word("File", 100, 20, "menu"), word("Help", 280, 20, "menu"),
+            word("Jobs", 100, 55, "global-tab"), word("Jobs", 100, 110, "view"),
+            word("Jobs", 300, 110, "another-control")]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Jobs", content=True)
+        with self.assertRaises(RuntimeError):
+            ocr.find_label(words[2:], "Jobs", content=True)
+
+
 if __name__ == "__main__":
     unittest.main()

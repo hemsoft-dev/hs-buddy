@@ -150,18 +150,18 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
     long = github.mutate(backend, "jobs:create", job_arguments("Long job", long_command(children, long_nonce), workspace))
     runs = driver.drive("runs-dark", [
         ("input", "Filter", "Echo job"), ("sleep", 1), ("capture", "jobs-dark"),
-        ("click", "Run now"), ("capture", "run-input-dark"), ("click", "Queue run"), ("sleep", 1),
+        ("content", "Run now"), ("capture", "run-input-dark"), ("content", "Queue run"), ("sleep", 1),
         # The queued notice clears when the run settles and the list moves up a
         # line. History can show Completed one dispatcher tick before that, while
         # the run is still being reported; the notice clears with "Dispatcher idle".
-        ("click", "History"), ("wait_text", "Completed"), ("wait_text", "Dispatcher idle"), ("sleep", 1),
-        ("click", "Show output"),
+        ("content", "History"), ("wait_text", "Completed"), ("wait_text", "Dispatcher idle"), ("sleep", 1),
+        ("content", "Show output"),
         ("wait_text", "NATIVEAUTOMATIONREADY"), ("capture", "output-dark"),
-        ("input", "Filter", "Long job"), ("click", "Jobs"), ("sleep", 1),
-        ("click", "Run now"), ("click", "Queue run"), ("sleep", 1),
-        ("click", "History"), ("sleep", 1), ("click", "Show output"),
+        ("input", "Filter", "Long job"), ("content", "Jobs"), ("sleep", 1),
+        ("content", "Run now"), ("content", "Queue run"), ("sleep", 1),
+        ("content", "History"), ("sleep", 1), ("content", "Show output"),
         ("wait_text", "NATIVESTARTED"), ("capture", "running-dark"),
-        ("click", "Cancel run"), ("wait_text", "Cancelled"), ("sleep", 2), ("capture", "cancelled-dark"),
+        ("content", "Cancel run"), ("wait_text", "Cancelled"), ("sleep", 2), ("capture", "cancelled-dark"),
     ], record=True)
     github.check(runs / "jobs-dark.png", "Echo job", "Run now", "Edit", "Duplicate", absent=("Long job",))
     github.check(runs / "run-input-dark.png", "Run Echo job now", "Queue run")
@@ -179,15 +179,15 @@ def qualify_editing(driver, backend, config, echo, long):
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
     terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
     restarted = driver.drive("restart-light", [
-        ("click", "History"), ("sleep", 2), ("capture", "history-after-restart-light"),
-        ("click", "Jobs"), ("click", "New job"), ("sleep", 1), ("capture", "new-job-light"),
+        ("content", "History"), ("sleep", 2), ("capture", "history-after-restart-light"),
+        ("content", "Jobs"), ("content", "New job"), ("sleep", 1), ("capture", "new-job-light"),
         ("input", "Name", "Native created job"), ("input", "Command", "echo native_created"),
-        ("click", "Save"), ("sleep", 3),
+        ("content", "Save"), ("sleep", 3),
         ("input", "Filter", "Native created"), ("sleep", 1), ("capture", "job-created-light"),
-        ("click", "Schedule"), ("sleep", 1), ("input", "Name", "Native weekdays"),
-        ("click", "Run the latest missed"), ("capture", "schedule-editor-light"), ("click", "Save"), ("sleep", 3),
-        ("click", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
-        ("click", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
+        ("content", "Schedule"), ("sleep", 1), ("input", "Name", "Native weekdays"),
+        ("content", "Run the latest missed"), ("capture", "schedule-editor-light"), ("content", "Save"), ("sleep", 3),
+        ("content", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
+        ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
     ])
     github.check(restarted / "history-after-restart-light.png", "Completed", "Cancelled", "Echo job", "Long job")
     github.check(restarted / "new-job-light.png", "New job", "Shell command", "Command", "Save")
@@ -210,10 +210,10 @@ def qualify_editing(driver, backend, config, echo, long):
 
     # Echo and Long job commands contain NATIVE markers; filter on the full name.
     changed = driver.drive("change-light", [
-        ("input", "Filter", "Native created"), ("click", "Schedules"), ("sleep", 1),
-        ("click", "Delete"), ("capture", "schedule-delete-light"), ("click", "Delete schedule"), ("sleep", 3),
-        ("click", "Jobs"), ("sleep", 1), ("click", "Edit"), ("sleep", 1), ("capture", "edit-job-light"),
-        ("input", "Command", "echo native_updated"), ("click", "Save"), ("sleep", 3),
+        ("input", "Filter", "Native created"), ("content", "Schedules"), ("sleep", 1),
+        ("content", "Delete"), ("capture", "schedule-delete-light"), ("content", "Delete schedule"), ("sleep", 3),
+        ("content", "Jobs"), ("sleep", 1), ("content", "Edit"), ("sleep", 1), ("capture", "edit-job-light"),
+        ("input", "Command", "echo native_updated"), ("content", "Save"), ("sleep", 3),
         ("resize", 900, 650), ("sleep", 1), ("capture", "compact-light"),
     ])
     github.check(changed / "schedule-delete-light.png", "Native weekdays will be removed.", "Delete schedule", "Keep")
@@ -227,7 +227,7 @@ def qualify_editing(driver, backend, config, echo, long):
         raise RuntimeError("The native job edit did not update the same job")
     deleted = driver.drive("delete-light", [
         ("input", "Filter", "Native created"), ("sleep", 1),
-        ("click", "Delete"), ("capture", "job-delete-light"), ("click", "Delete job"), ("sleep", 3),
+        ("content", "Delete"), ("capture", "job-delete-light"), ("content", "Delete job"), ("sleep", 3),
         ("capture", "job-deleted-light"),
     ])
     github.check(deleted / "job-delete-light.png", "and its schedules will be removed.", "Delete job", "Keep")

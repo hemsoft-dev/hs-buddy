@@ -165,12 +165,12 @@ def qualify(executable, output, session, version, backend):
     primary = None
     try:
         dark = driver.drive("interactive-dark", [
-            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+            ("content", "Prompt library"), ("sleep", 1), ("content", "Insert + copy"),
             ("wait_text", "Paste written. No Enter key was added."),
             ("capture", "prompt-before-enter-dark"), ("key", "Return"), ("wait_text", "NATIVEREADY"),
-            ("capture", "unicode-color-dark"), ("click", "Hide prompts"), ("click", "Interrupt"),
-            ("wait_text", "NATIVEINTERRUPTED"), ("capture", "interrupted-dark"), ("click", "Split right"),
-            ("sleep", 2), ("click", "More space"), ("capture", "split-dark"), ("resize", 900, 650), ("capture", "compact-dark"),
+            ("capture", "unicode-color-dark"), ("content", "Hide prompts"), ("content", "Interrupt"),
+            ("wait_text", "NATIVEINTERRUPTED"), ("capture", "interrupted-dark"), ("content", "Split right"),
+            ("sleep", 2), ("content", "More space"), ("capture", "split-dark"), ("resize", 900, 650), ("capture", "compact-dark"),
         ], record=True)
         github.check(dark / "prompt-before-enter-dark.png", "Prompt library", absent=("NATIVEREADY",))
         github.check(dark / "unicode-color-dark.png", "NATIVEREADY", "NATIVECOLOR")
@@ -188,15 +188,15 @@ def qualify(executable, output, session, version, backend):
         nonce = str(uuid.uuid4())
         github.mutate(backend, "terminalPrompts:update", dict(id=prompt, content=command_proof(output, nonce)))
         management = driver.drive("workspace-management-dark", [
-            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+            ("content", "Prompt library"), ("sleep", 1), ("content", "Insert + copy"),
             ("wait_text", "Paste written. No Enter key was added."), ("key", "Return"),
-            ("wait_text", "NATIVEREADY"), ("click", "Hide prompts"),
-            ("click", "New workspace"), ("sleep", 1), ("click", "Workspace details"),
-            ("input", "Workspace name", "Scratch workspace"), ("click", "Rename"),
-            ("click", "Hide workspace details"), ("capture", "new-workspace-dark"),
-            ("click", "Native terminal"), ("capture", "switched-split-dark"),
-            ("click", "Scratch workspace"), ("click", "Workspace details"), ("click", "Close workspace"),
-            ("click", "Close workspace and children"), ("sleep", 1),
+            ("wait_text", "NATIVEREADY"), ("content", "Hide prompts"),
+            ("content", "New workspace"), ("sleep", 1), ("content", "Workspace details"),
+            ("input", "Workspace name", "Scratch workspace"), ("content", "Rename"),
+            ("content", "Hide workspace details"), ("capture", "new-workspace-dark"),
+            ("content", "Native terminal"), ("capture", "switched-split-dark"),
+            ("content", "Scratch workspace"), ("content", "Workspace details"), ("content", "Close workspace"),
+            ("content", "Close workspace and children"), ("sleep", 1),
         ])
         github.check(management / "new-workspace-dark.png", "Scratch workspace", "Shell 1")
         github.check(management / "switched-split-dark.png", "Native terminal", "Shell 1", "Shell 2", "NATIVEREADY")
@@ -215,9 +215,9 @@ def qualify(executable, output, session, version, backend):
         write_config(config, invalid)
         errors = driver.drive("shell-errors-light", [
             ("resize", 900, 650), ("sleep", 1), ("capture", "invalid-shell-light"),
-            ("click", "Close shell"), ("click", "Show launch details"),
-            ("click", "Copy launch details"), ("wait_text", "Launch details copied."), ("capture", "launch-details-light"),
-            ("click", "Hide launch details"), ("click", "Close shell"), ("capture", "closed-shell-light"),
+            ("content", "Close shell"), ("content", "Show launch details"),
+            ("content", "Copy launch details"), ("wait_text", "Launch details copied."), ("capture", "launch-details-light"),
+            ("content", "Hide launch details"), ("content", "Close shell"), ("capture", "closed-shell-light"),
         ])
         github.check(errors / "invalid-shell-light.png", "Shell unavailable", "Restart this shell", "Show launch details",
                      absent=("CreateProcessW", "ENOENT", "missing shell executable"))
@@ -227,11 +227,11 @@ def qualify(executable, output, session, version, backend):
         nonce = str(uuid.uuid4())
         github.mutate(backend, "terminalPrompts:update", dict(id=prompt, content=command_proof(output, nonce)))
         restored = driver.drive("restart-light", [
-            ("click", "Workspace details"), ("input", "Workspace name", "Native restored"), ("click", "Rename"),
-            ("input", "Selected shell name", "Build shell"), ("click", "Rename shell"),
-            ("input", "Working directory", str(workspace)), ("click", "Save directory"),
-            ("click", "Hide workspace details"), ("click", "Restart shell"), ("sleep", 3),
-            ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+            ("content", "Workspace details"), ("input", "Workspace name", "Native restored"), ("content", "Rename"),
+            ("input", "Selected shell name", "Build shell"), ("content", "Rename shell"),
+            ("input", "Working directory", str(workspace)), ("content", "Save directory"),
+            ("content", "Hide workspace details"), ("content", "Restart shell"), ("sleep", 3),
+            ("content", "Prompt library"), ("sleep", 1), ("content", "Insert + copy"),
             ("wait_text", "Paste written. No Enter key was added."), ("key", "Return"),
             ("wait_text", "NATIVEREADY"), ("capture", "restarted-unicode-light"),
         ])
@@ -269,7 +269,7 @@ def qualify_multiline_cancel(driver, backend, prompt, config):
     github.mutate(backend, "terminalPrompts:update", dict(id=prompt, content="echo NATIVE_UNCONFIRMED_ONE\necho NATIVE_UNCONFIRMED_TWO"))
     before = backend.query("terminalPrompts:list")[0].get("lastUsedAt")
     result = driver.drive("multiline-cancel-light", [
-        ("click", "Prompt library"), ("sleep", 1), ("click", "Insert + copy"),
+        ("content", "Prompt library"), ("sleep", 1), ("content", "Insert + copy"),
         ("wait_text", "Paste 2 lines"),
         ("capture", "multiline-confirm-light"), ("key", "Escape"), ("sleep", 1),
         ("capture", "multiline-cancel-light"),
@@ -283,24 +283,24 @@ def qualify_multiline_cancel(driver, backend, prompt, config):
 
 def qualify_prompt_crud(driver, backend):
     created = driver.drive("prompt-create-light", [
-        ("click", "Prompt library"), ("sleep", 1), ("click", "New prompt"),
+        ("content", "Prompt library"), ("sleep", 1), ("content", "New prompt"),
         ("input", "Prompt name", "Native saved prompt"), ("input", "Prompt text", "echo native_saved_prompt"),
-        ("click", "Save prompt"), ("sleep", 1), ("capture", "prompt-created-light"),
+        ("content", "Save prompt"), ("sleep", 1), ("capture", "prompt-created-light"),
     ])
     github.check(created / "prompt-created-light.png", "Native saved prompt", "Insert + copy")
     prompts = backend.query("terminalPrompts:list")
     if len(prompts) != 1 or prompts[0]["content"] != "echo native_saved_prompt":
         raise RuntimeError("The native prompt create did not reach the backend")
     driver.drive("prompt-update-light", [
-        ("click", "Prompt library"), ("sleep", 1), ("click", "Edit prompt"),
-        ("input", "Prompt text", "echo native_updated_prompt"), ("click", "Save prompt"), ("sleep", 1),
+        ("content", "Prompt library"), ("sleep", 1), ("content", "Edit prompt"),
+        ("input", "Prompt text", "echo native_updated_prompt"), ("content", "Save prompt"), ("sleep", 1),
     ])
     prompts = backend.query("terminalPrompts:list")
     if len(prompts) != 1 or prompts[0]["content"] != "echo native_updated_prompt" or prompts[0].get("revision") != 2:
         raise RuntimeError("The captured native prompt edit did not update exactly one revision")
     driver.drive("prompt-delete-light", [
-        ("click", "Prompt library"), ("sleep", 1), ("click", "Edit prompt"), ("click", "Delete prompt"),
-        ("click", "Delete saved prompt"), ("sleep", 1),
+        ("content", "Prompt library"), ("sleep", 1), ("content", "Edit prompt"), ("content", "Delete prompt"),
+        ("content", "Delete saved prompt"), ("sleep", 1),
     ])
     if backend.query("terminalPrompts:list") != []:
         raise RuntimeError("The confirmed native prompt delete did not reach the backend")

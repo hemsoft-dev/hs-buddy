@@ -108,6 +108,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     $label = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
     $arguments = @((Join-Path $PSScriptRoot 'settings-ocr.py'), '--image', $image, '--label', $label)
     if ($Mode -eq 'navigation') { $arguments += '--navigation' }
+    if ($Mode -in @('content', 'navigation')) { $arguments += '--content' }
     if ($Mode -eq 'tab') { $arguments += '--tab' }
     if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
     $raw = & python @arguments
@@ -265,8 +266,8 @@ try {
                 # global input, shell expansion, or payload logging.
                 Write-OwnedText $parts[1]
             }
-            { $_ -in 'nav64', 'tab64', 'click64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
-                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
+            { $_ -in 'nav64', 'tab64', 'click64', 'content64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
+                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'content64' {'content'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
                 $offset = 20
                 if ($mode -eq 'input' -and $parts.Count -gt 3) {
                     if ($parts.Count -ne 4 -or -not [int]::TryParse($parts[3], [ref]$offset)) { throw 'Owned input offset is invalid' }

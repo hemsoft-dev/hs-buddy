@@ -149,16 +149,16 @@ def qualify(executable, output, session, version, backend, api):
     driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
     review = driver.drive("review-dark", [
         ("capture", "list-dark"), ("input", "Filter loaded items", "First private"),
-        ("click", "List"), ("capture", "filter-list-dark"),
-        ("click", "Needs Review"), ("click", "Recently Merged"), ("click", "Needs a nudge"),
-        ("click", "My PRs"), ("input", "Filter loaded items", "First private"),
-        ("click", "#7 First private navigation review"), ("tab", "Reviews"),
+        ("content", "List"), ("capture", "filter-list-dark"),
+        ("content", "Needs Review"), ("content", "Recently Merged"), ("content", "Needs a nudge"),
+        ("content", "My PRs"), ("input", "Filter loaded items", "First private"),
+        ("content", "#7 First private navigation review"), ("tab", "Reviews"),
         ("tab", "Commits"), ("tab", "Checks"), ("tab", "Files"), ("wheel", -360), ("capture", "diff-dark"),
-        ("tab", "History"), ("tab", "Review threads"), ("click", "src/navigation.rs"),
-        ("click", "Back"), ("tab", "Conversation"), ("wheel", -480),
-        ("input", "PR comment", "Installed native fixture comment"), ("click", "Review comment"),
-        ("capture", "confirmation-dark"), ("click", "Confirm action"), ("sleep", 1),
-        ("capture", "write-ack-dark"), ("click", "Refresh"),
+        ("tab", "History"), ("tab", "Review threads"), ("content", "src/navigation.rs"),
+        ("content", "Back"), ("tab", "Conversation"), ("wheel", -480),
+        ("input", "PR comment", "Installed native fixture comment"), ("content", "Review comment"),
+        ("capture", "confirmation-dark"), ("content", "Confirm action"), ("sleep", 1),
+        ("capture", "write-ack-dark"), ("content", "Refresh"),
     ], record=True)
     check(review / "filter-list-dark.png", "First private", "List")
     check(review / "diff-dark.png", "navigation.rs", "native navigation", "Patch unavailable")
@@ -175,15 +175,15 @@ def qualify(executable, output, session, version, backend, api):
         raise RuntimeError("The native list preference did not reach Convex")
 
     navigation = driver.drive("navigation-dark", [
-        ("click", "Repositories"), ("click", "fixture-org/native-demo"), ("tab", "Commits"),
-        ("click", "Improve native navigation"), ("click", "Back"), ("tab", "Open issues"),
-        ("click", "#11 Fixture keyboard follow-up"), ("click", "Back"), ("tab", "Closed issues"),
+        ("content", "Repositories"), ("content", "fixture-org/native-demo"), ("tab", "Commits"),
+        ("content", "Improve native navigation"), ("content", "Back"), ("tab", "Open issues"),
+        ("content", "#11 Fixture keyboard follow-up"), ("content", "Back"), ("tab", "Closed issues"),
         ("tab", "Open PRs"), ("tab", "Closed PRs"), ("tab", "Overview"), ("capture", "repository-dark"),
-        ("click", "Bookmark repository"), ("sleep", 1),
-        ("click", "People"), ("click", "fixture-author"), ("capture", "profile-dark"),
-        ("click", "Favorite user"), ("tab", "Authored PRs"), ("tab", "Reviewed PRs"),
-        ("tab", "Activity"), ("tab", "Team memberships"), ("click", "Native Team"),
-        ("click", "Organization"),
+        ("content", "Bookmark repository"), ("sleep", 1),
+        ("content", "People"), ("content", "fixture-author"), ("capture", "profile-dark"),
+        ("content", "Favorite user"), ("tab", "Authored PRs"), ("tab", "Reviewed PRs"),
+        ("tab", "Activity"), ("tab", "Team memberships"), ("content", "Native Team"),
+        ("content", "Organization"),
     ])
     check(navigation / "repository-dark.png", "native-demo", "Languages", "Rust")
     check(navigation / "profile-dark.png", "Demo Contributor", "Contribution calendar")
@@ -201,9 +201,9 @@ def qualify(executable, output, session, version, backend, api):
     light = driver.drive("accounts-light", [
         ("resize", 900, 650), ("input", "Filter loaded items", "First private"),
         ("key", "Tab"), ("key", "Return"), ("sleep", 1), ("capture", "compact-keyboard-light"),
-        ("resize", 1200, 820), ("click", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "second-account-light"),
-        ("click", "Repositories"), ("click", "fixture-org/limited"), ("capture", "rate-limit-light"),
-        ("click", "Repositories"), ("click", "fixture-org/denied"), ("capture", "denied-light"),
+        ("resize", 1200, 820), ("content", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "second-account-light"),
+        ("content", "Repositories"), ("content", "fixture-org/limited"), ("capture", "rate-limit-light"),
+        ("content", "Repositories"), ("content", "fixture-org/denied"), ("capture", "denied-light"),
     ])
     check(light / "second-account-light.png", "Second private", absent=("First private", "Installed native fixture comment"))
     check(light / "rate-limit-light.png", "GitHub is limiting requests")
@@ -214,7 +214,7 @@ def qualify(executable, output, session, version, backend, api):
 
     api.scenario = "auth"
     reset_section(config)
-    missing = driver.drive("missing-auth", [("click", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "missing-auth-light")])
+    missing = driver.drive("missing-auth", [("content", "fixture-org / fixture-two"), ("sleep", 1), ("capture", "missing-auth-light")])
     check(missing / "missing-auth-light.png", "Sign in to GitHub CLI", absent=("First private", "Second private"))
     api.scenario = "empty"
     reset_section(config)
