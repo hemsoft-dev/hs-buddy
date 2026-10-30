@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'rust/**'
+      - 'src/types/config.ts'
+      - 'src/constants*'
+      - 'bun.lock'
       - '.github/workflows/rust.yml'
       # build.rs embeds the version from package.json; a release bump must
       # produce native binaries too.
@@ -20,6 +23,9 @@ on:
   pull_request:
     paths:
       - 'rust/**'
+      - 'src/types/config.ts'
+      - 'src/constants*'
+      - 'bun.lock'
       - '.github/workflows/rust.yml'
       - 'package.json'
       - 'Package.swift'
