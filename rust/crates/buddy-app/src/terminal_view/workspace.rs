@@ -156,6 +156,22 @@ impl TerminalView {
             .gap_2()
             .child(self.workspace_tabs(cx))
             .child(
+                Button::new("terminal-folder-view")
+                    .label("Folder View")
+                    .disabled(!self.visible_panes().iter().any(|(id, cwd)| {
+                        Some(id) == self.selected_pane.as_ref() && !cwd.is_empty()
+                    }))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some((_, cwd)) =
+                            this.visible_panes().into_iter().find(|(id, cwd)| {
+                                Some(id) == this.selected_pane.as_ref() && !cwd.is_empty()
+                            })
+                        {
+                            cx.emit(crate::explorer_view::OpenPath(cwd.into()));
+                        }
+                    })),
+            )
+            .child(
                 Button::new("terminal-properties-toggle")
                     .label(if self.show_properties {
                         "Hide workspace details"

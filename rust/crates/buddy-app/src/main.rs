@@ -12,6 +12,7 @@ mod command_line;
 mod copilot_view;
 mod crew_view;
 mod dashboard;
+mod explorer_view;
 mod github_view;
 mod logging;
 mod notification_audio;
@@ -356,6 +357,7 @@ fn main() {
             terminal_view::init(cx);
             bookmarks_view::init(cx);
             browser_view::init(cx);
+            explorer_view::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),

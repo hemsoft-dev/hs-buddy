@@ -198,6 +198,13 @@ fn apply_user_overrides(config: &AppConfig, palette: &mut BuddyPalette, cx: &mut
     }
 
     Theme::update(cx, |theme| {
+        // Buddy's custom palettes omit syntax colors. Match the editor's
+        // fallback to the active mode, including after a theme change.
+        theme.highlight_theme = if theme.mode.is_dark() {
+            gpui_kit::component::highlighter::HighlightTheme::default_dark()
+        } else {
+            gpui_kit::component::highlighter::HighlightTheme::default_light()
+        };
         if let Some(accent) = accent {
             theme.colors.primary = accent;
             theme.colors.primary_hover = lighten(accent, 15.0);

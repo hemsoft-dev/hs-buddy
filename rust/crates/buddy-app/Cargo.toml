@@ -21,7 +21,7 @@ embed-resource = "3.0"
 buddy-core = { path = "../buddy-core" }
 serde_json.workspace = true
 uuid = { version = "1", features = ["v4"] }
-gpui-kit.workspace = true
+gpui-kit = { workspace = true, features = ["syntect"] }
 chrono.workspace = true
 env_logger = "0.11"
 log.workspace = true
