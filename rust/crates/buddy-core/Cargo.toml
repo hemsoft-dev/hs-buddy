@@ -7,6 +7,10 @@ publish.workspace = true
 description = "Buddy domain models, configuration, and data providers (no UI)"
 
 [dependencies]
+opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs", "http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
+
 github-copilot-sdk = "=1.0.23-preview.2"
 cap-std = "=4.0.3"
 cap-fs-ext = "=4.0.3"
@@ -20,7 +24,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
 tokio = { workspace = true, features = ["net"] }
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
 convex.workspace = true
 keyring.workspace = true
 futures.workspace = true
@@ -42,6 +46,8 @@ icu_time = "2"
 
 [dev-dependencies]
 env_logger = "0.11"
+prost = "0.14"
+opentelemetry-proto = { version = "0.31", default-features = false, features = ["gen-tonic-messages", "trace", "metrics", "logs"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

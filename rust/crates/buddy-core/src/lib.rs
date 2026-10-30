@@ -52,3 +52,5 @@ pub mod tempo;
 mod pending_file;
 
 mod account_zone;
+
+pub mod telemetry;
