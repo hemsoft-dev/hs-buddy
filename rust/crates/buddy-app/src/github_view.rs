@@ -883,3 +883,63 @@ impl Render for GitHubView {
         content
     }
 }
+
+impl GitHubView {
+    pub(crate) fn assistant_context(&self) -> crate::assistant_context::AssistantContext {
+        use crate::assistant_context::AssistantContext;
+        let (kind, summary) = match &self.route {
+            Route::Pull(pull, tab) => (
+                "pr-detail",
+                format!(
+                    "Pull Request #{} in {} ({tab:?})",
+                    pull.number,
+                    pull.repository.full_name()
+                ),
+            ),
+            Route::Thread(thread) => (
+                "pr-detail",
+                format!(
+                    "Review thread on Pull Request #{} in {}",
+                    thread.0.pull().number,
+                    thread.0.pull().repository.full_name()
+                ),
+            ),
+            Route::Repository(repo, tab) => (
+                "repo-detail",
+                format!("Repository {} ({tab:?})", repo.full_name()),
+            ),
+            Route::Issue(repo, number) => {
+                ("other", format!("Issue #{number} in {}", repo.full_name()))
+            }
+            Route::Commit(repo, sha) => ("other", format!("Commit {sha} in {}", repo.full_name())),
+            Route::Pulls(mode) => ("pr-list", format!("Pull Requests: {mode:?}")),
+            route => ("other", format!("GitHub: {route:?}")),
+        };
+        // Stream into a bounded snapshot rather than copying a whole large diff.
+        let details = self
+            .data
+            .as_ref()
+            .map(|page| {
+                std::iter::once(page.title.as_str())
+                    .chain(page.description.as_deref())
+                    .chain(page.rows.iter().flat_map(|row| {
+                        [
+                            Some(row.title.as_str()),
+                            Some(row.detail.as_str()),
+                            row.body.as_deref(),
+                        ]
+                        .into_iter()
+                        .flatten()
+                    }))
+                    .flat_map(|text| text.chars().chain(std::iter::once('\n')))
+                    .take(32_000)
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        AssistantContext {
+            kind,
+            summary,
+            details,
+        }
+    }
+}

@@ -375,3 +375,41 @@ fn stale_results_and_failed_reload_cannot_replace_another_account_or_unlock_an_u
         .unwrap();
     });
 }
+
+#[gpui_kit::test]
+fn assistant_context_tracks_current_route_without_fetching_hidden_details(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let transport = Arc::new(WriteFixture::default());
+    let view = write_fixture_view(cx, transport);
+    cx.update(|cx| {
+        view.update(cx, |view, _| {
+            view.data = Some(PageData {
+                title: "Synthetic pull request".into(),
+                rows: vec![data::Row {
+                    body: Some("Visible PR discussion".into()),
+                    ..data::Row::text("Comment", "By fixture-member")
+                }],
+                ..Default::default()
+            });
+            let context = view.assistant_context();
+            assert!(context.preamble().contains("Visible PR discussion"));
+            assert_eq!(context.kind, "pr-detail");
+            assert!(context.summary.contains(&pull().repository.full_name()));
+            assert!(context.summary.contains(&format!("#{}", pull().number)));
+            assert_eq!(context.suggestions()[0], "Summarize this PR");
+            view.route = Route::Repository(pull().repository.clone(), RepoTab::Issues);
+            let repo = view.assistant_context();
+            assert_eq!(repo.kind, "repo-detail");
+            assert!(repo.summary.contains("Issues"));
+            assert!(!repo.summary.contains("Pull Request #"));
+            view.route = Route::Pulls(PrMode::NeedsReview);
+            assert_eq!(
+                view.assistant_context().suggestions()[1],
+                "What needs my review?"
+            );
+            view.data.as_mut().unwrap().rows[0].body = Some("界".repeat(40_000));
+            assert_eq!(view.assistant_context().details.chars().count(), 32_000);
+        })
+    });
+}
