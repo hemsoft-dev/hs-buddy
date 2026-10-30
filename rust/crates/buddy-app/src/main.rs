@@ -11,6 +11,7 @@ mod command_line;
 mod copilot_view;
 mod crew_view;
 mod dashboard;
+mod explorer_view;
 mod github_view;
 mod logging;
 mod notification_audio;
@@ -358,6 +359,7 @@ fn main() {
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
+                KeyBinding::new("secondary-o", explorer_view::OpenFolder, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());

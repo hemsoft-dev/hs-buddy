@@ -74,7 +74,11 @@ pub fn render(
                 .gap(zpx(2.0))
                 .child(
                     menu_button("menu-file", "File")
-                        .dropdown_menu(|menu, _, _| menu.menu("Exit", Box::new(Quit)))
+                        .dropdown_menu(|menu, _, _| {
+                            menu.menu("Open Folder...", Box::new(crate::explorer_view::OpenFolder))
+                                .separator()
+                                .menu("Exit", Box::new(Quit))
+                        })
                         .on_open_change(menu_overlay),
                 )
                 .child(

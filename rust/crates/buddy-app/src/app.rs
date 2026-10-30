@@ -127,6 +127,8 @@ pub struct BuddyApp {
     crew_view: Entity<CrewView>,
     bookmarks_view: Entity<BookmarksView>,
     browser_view: Entity<BrowserView>,
+    explorer_view: Entity<crate::explorer_view::ExplorerView>,
+    folder_open: bool,
     window_state: WindowPersistence,
     focus: FocusHandle,
 }
@@ -190,6 +192,7 @@ impl BuddyApp {
             self.settings_view
                 .update(cx, |settings, _| settings.deactivate());
         }
+        self.folder_open = false;
         self.active_section = section;
         self.dashboard.update(cx, |dashboard, cx| {
             dashboard.set_active(section.is_none(), cx)
@@ -426,6 +429,21 @@ impl BuddyApp {
             }
         })
         .detach();
+        let explorer_view = cx.new(|_| crate::explorer_view::ExplorerView::new());
+        cx.subscribe(
+            &terminal_view,
+            |this, _, event: &crate::explorer_view::OpenPath, cx| {
+                this.show_folder(event.0.clone(), cx);
+            },
+        )
+        .detach();
+        cx.subscribe(
+            &explorer_view,
+            |this, _, _: &crate::explorer_view::Close, cx| {
+                this.show_section(this.active_section, cx);
+            },
+        )
+        .detach();
         let mut this = Self {
             active_section: section,
             active_account: None,
@@ -441,6 +459,8 @@ impl BuddyApp {
             crew_view,
             bookmarks_view,
             browser_view,
+            explorer_view,
+            folder_open: false,
             window_state: WindowPersistence::new(),
             focus: Self::initial_focus(window, cx),
         };
@@ -448,9 +468,41 @@ impl BuddyApp {
         this
     }
 
+    fn show_explorer(&mut self, cx: &mut Context<Self>) {
+        // Hide OS-hosted browser content and pause hidden dashboard/terminal work.
+        self.browser_view
+            .update(cx, |view, cx| view.set_active(false, cx));
+        self.dashboard
+            .update(cx, |view, cx| view.set_active(false, cx));
+        self.terminal_view
+            .update(cx, |view, cx| view.set_active(false, cx));
+        self.folder_open = true;
+        cx.notify();
+    }
+
+    fn show_folder(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        self.show_explorer(cx);
+        self.explorer_view
+            .update(cx, |view, cx| view.open(path, cx));
+    }
+
+    fn open_folder(
+        &mut self,
+        _: &crate::explorer_view::OpenFolder,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_explorer(cx);
+        self.explorer_view
+            .update(cx, |view, cx| view.choose(window, cx));
+    }
+
     fn render_content(&self, cx: &App) -> impl IntoElement + use<> {
         let theme = cx.theme();
         let container = div().flex_1().min_h_0().w_full().bg(theme.background);
+        if self.folder_open {
+            return container.child(self.explorer_view.clone());
+        }
         match self.active_section {
             None => container.child(self.dashboard.clone()),
             Some(Section::Settings) => container.child(self.settings_view.clone()),
@@ -481,6 +533,7 @@ impl Render for BuddyApp {
         let foreground = theme.foreground;
 
         v_flex()
+            .on_action(cx.listener(Self::open_folder))
             .track_focus(&self.focus)
             .size_full()
             .font_family(font_family)
@@ -499,7 +552,7 @@ impl Render for BuddyApp {
                             .flex_1()
                             .min_w_0()
                             .h_full()
-                            .child(tab_bar::render(cx))
+                            .children((!self.folder_open).then(|| tab_bar::render(cx)))
                             .child(self.render_content(cx)),
                     ),
             )
@@ -551,6 +604,8 @@ mod tests {
                         crew_view: cx.new(|cx| CrewView::new(window, cx)),
                         bookmarks_view: cx.new(|cx| BookmarksView::new(window, cx)),
                         browser_view: cx.new(|cx| BrowserView::new(window, cx)),
+                        explorer_view: cx.new(|_| crate::explorer_view::ExplorerView::new()),
+                        folder_open: false,
                         window_state: WindowPersistence::new(),
                         focus: BuddyApp::initial_focus(window, cx),
                     }
