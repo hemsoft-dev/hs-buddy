@@ -551,9 +551,28 @@ mod windows {
             right: physical.x.round() as i32 + physical.width.round() as i32,
             bottom: physical.y.round() as i32 + physical.height.round() as i32,
         };
-        // SAFETY: live HWND, initialized placement and no retained pointers.
+        let maximized = window.is_maximized();
+        let handle = window.window_handle();
+        let mut async_cx = cx.to_async();
+        // Placement sends synchronous WM_MOVE/WM_SIZE callbacks which borrow
+        // App again. Run the OS call after the startup App borrow has ended.
+        cx.foreground_executor()
+            .spawn(async move {
+                if handle.update(&mut async_cx, |_, _, _| ()).is_err() {
+                    return;
+                }
+                if let Err(err) = set_restore_bounds(hwnd, rect, maximized) {
+                    log::warn!("could not restore outer window rectangle: {err}");
+                }
+            })
+            .detach();
+        Ok(())
+    }
+
+    fn set_restore_bounds(hwnd: HWND, rect: RECT, maximized: bool) -> std::io::Result<()> {
+        // SAFETY: live HWND on its owning thread, initialized placement and no retained pointers.
         let success = unsafe {
-            if window.is_maximized() {
+            if maximized {
                 let mut placement = WINDOWPLACEMENT {
                     length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
                     ..std::mem::zeroed()

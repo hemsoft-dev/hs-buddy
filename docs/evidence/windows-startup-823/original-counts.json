@@ -1,0 +1,25 @@
+{
+  "result": "failed",
+  "scenes": {
+    "chat-dark": {
+      "RefCell already borrowed": 1,
+      "unable to get cursor position": 5
+    },
+    "review-dark": {
+      "RefCell already borrowed": 1,
+      "unable to get cursor position": 3
+    },
+    "usage-light": {
+      "RefCell already borrowed": 1,
+      "unable to get cursor position": 4
+    },
+    "codex-auth-error-light": {
+      "RefCell already borrowed": 1,
+      "unable to get cursor position": 4
+    },
+    "sessions-light": {
+      "RefCell already borrowed": 1,
+      "unable to get cursor position": 5
+    }
+  }
+}

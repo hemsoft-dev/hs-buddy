@@ -1,0 +1,15 @@
+{
+  "inputBefore": {
+    "success": true,
+    "error": 0
+  },
+  "hidden": {
+    "success": false,
+    "error": 5
+  },
+  "inputAfter": {
+    "success": true,
+    "error": 0
+  },
+  "visibleDesktopSwitched": false
+}

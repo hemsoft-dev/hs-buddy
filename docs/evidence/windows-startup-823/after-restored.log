@@ -1,0 +1,8 @@
+[2026-10-30T13:11:23Z INFO  gpui_windows::direct_write] Use Segoe UI as UI font.
+[2026-10-30T13:11:24Z INFO  gpui_windows::directx_devices] Using GPU: Intel(R) Iris(R) Xe Graphics
+[2026-10-30T13:11:24Z INFO  gpui_windows::directx_devices] Created device with Direct3D 11.1 feature level.
+[2026-10-30T13:11:24Z INFO  gpui_windows::directx_renderer] Direct Composition is disabled.
+[2026-10-30T13:11:24Z ERROR] unable to get cursor position: Access is denied. (0x80070005)
+[2026-10-30T13:11:24Z ERROR] unable to get cursor position: Access is denied. (0x80070005)
+[2026-10-30T13:11:24Z ERROR] unable to get cursor position: Access is denied. (0x80070005)
+[2026-10-30T13:11:24Z ERROR] unable to get cursor position: Access is denied. (0x80070005)
