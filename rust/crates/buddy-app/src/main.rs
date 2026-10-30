@@ -4,6 +4,7 @@
 
 mod app;
 mod assets;
+mod assistant_context;
 mod automation_view;
 mod bookmarks_view;
 mod browser_view;
@@ -360,6 +361,7 @@ fn main() {
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
+                KeyBinding::new("secondary-shift-a", app::ToggleAssistant, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());

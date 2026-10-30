@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1584] - 2026-10-30
+
+### Changed
+
+- Measure observed assistant controls
+
+## [0.1.1583] - 2026-10-30
+
+### Changed
+
+- Scope assistant panel layout observation
+
+## [0.1.1582] - 2026-10-30
+
+### Added
+
+- Add native Copilot Assistant side panel (#823)
+
 ## [0.1.1581] - 2026-10-29
 
 ### Changed

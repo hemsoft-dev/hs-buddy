@@ -126,16 +126,14 @@ pub fn render(
                         .compact()
                         .icon(Icon::new(IconName::Sparkles).size(zpx(14.0)))
                         .accessibility_label("Toggle Copilot Assistant")
-                        .tooltip("Toggle Copilot Assistant (panel not ported yet)")
+                        .tooltip(if cfg!(target_os = "macos") {
+                            "Toggle Copilot Assistant (Cmd+Shift+A)"
+                        } else {
+                            "Toggle Copilot Assistant (Ctrl+Shift+A)"
+                        })
                         .selected(assistant_open)
                         .on_click(cx.listener(|_, _, _, cx| {
-                            // The state this click asks for, decided
-                            // once: a retried save must not toggle a
-                            // value Electron changed meanwhile.
-                            let open = !Settings::global(cx).config.ui.assistant_open;
-                            Settings::update(cx, move |config| {
-                                config.ui.assistant_open = open;
-                            });
+                            BuddyApp::toggle_assistant(cx);
                             cx.notify();
                         })),
                 )

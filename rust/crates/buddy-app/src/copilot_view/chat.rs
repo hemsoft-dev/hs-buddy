@@ -40,7 +40,10 @@ pub(super) enum ChatEvent {
     OpenResult(String),
 }
 impl EventEmitter<ChatEvent> for ChatView {}
-pub(super) struct ChatView {
+pub(crate) struct ChatView {
+    sidebar_context: Option<crate::assistant_context::AssistantContext>,
+    sidebar_source: Option<gpui_kit::WeakEntity<crate::app::BuddyApp>>,
+    conversation_scroll: gpui_kit::ScrollHandle,
     account: Entity<InputState>,
     model: Entity<InputState>,
     prompt: Entity<TextareaState>,
@@ -104,6 +107,9 @@ impl ChatView {
         )
         .detach();
         Self {
+            sidebar_context: None,
+            sidebar_source: None,
+            conversation_scroll: gpui_kit::ScrollHandle::new(),
             account,
             model,
             prompt,
@@ -133,6 +139,63 @@ impl ChatView {
         cx.notify();
     }
 
+    pub(crate) fn set_sidebar_context(
+        &mut self,
+        context: crate::assistant_context::AssistantContext,
+        cx: &mut Context<Self>,
+    ) {
+        if self.sidebar_context.as_ref() != Some(&context) {
+            self.sidebar_context = Some(context);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_sidebar_source(
+        &mut self,
+        source: gpui_kit::WeakEntity<crate::app::BuddyApp>,
+    ) {
+        self.sidebar_source = Some(source);
+    }
+
+    fn refresh_sidebar_context(&mut self, cx: &gpui_kit::App) {
+        if let Some(source) = self
+            .sidebar_source
+            .as_ref()
+            .and_then(|source| source.upgrade())
+        {
+            self.sidebar_context = Some(source.read(cx).assistant_context(cx));
+        }
+    }
+
+    fn conversation_prompt(&self, text: &str) -> String {
+        let mut full = self
+            .review
+            .as_ref()
+            .map(|review| review.prompt.clone())
+            .unwrap_or_else(|| {
+                self.sidebar_context
+                    .as_ref()
+                    .map(|context| context.preamble())
+                    .unwrap_or_else(|| {
+                        "Answer using the supplied conversation. Format the response as Markdown.\n"
+                            .into()
+                    })
+            });
+        for message in &self.messages {
+            full.push_str(if message.user {
+                "\nUser: "
+            } else if message.partial {
+                "\nAssistant (partial response): "
+            } else {
+                "\nAssistant: "
+            });
+            full.push_str(&message.text);
+        }
+        full.push_str("\nUser: ");
+        full.push_str(text);
+        full
+    }
+
     fn send(&mut self, saved: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.models_loading
             || self.review_loading
@@ -151,28 +214,9 @@ impl ChatView {
         if text.is_empty() && self.review.is_none() {
             return;
         }
+        self.refresh_sidebar_context(cx);
         self.retain_answer(false);
-        let mut full = self
-            .review
-            .as_ref()
-            .map(|review| review.prompt.clone())
-            .unwrap_or_else(|| {
-                String::from(
-                    "Answer using the supplied conversation. Format the response as Markdown.\n",
-                )
-            });
-        for message in &self.messages {
-            full.push_str(if message.user {
-                "\nUser: "
-            } else if message.partial {
-                "\nAssistant (partial response): "
-            } else {
-                "\nAssistant: "
-            });
-            full.push_str(&message.text);
-        }
-        full.push_str("\nUser: ");
-        full.push_str(&text);
+        let full = self.conversation_prompt(&text);
         if full.len() > 256 * 1024 {
             self.error = Some(
                 "This conversation is too large for another turn. Start a new conversation.".into(),
@@ -232,6 +276,9 @@ impl ChatView {
         self.error = None;
         self.notice = None;
         self.generation = uuid::Uuid::new_v4();
+        if self.sidebar_context.is_some() {
+            self.conversation_scroll.scroll_to_bottom();
+        }
         let generation = self.generation;
         self.prompt
             .update(cx, |prompt, cx| prompt.set_value("", window, cx));
@@ -241,6 +288,9 @@ impl ChatView {
                 if this
                     .update(cx, |this, cx| {
                         if this.generation == generation {
+                            if this.sidebar_context.is_some() {
+                                this.conversation_scroll.scroll_to_bottom();
+                            }
                             cx.notify();
                         }
                     })
@@ -257,7 +307,11 @@ impl ChatView {
         if self.review_loading {
             return;
         }
-        if self.run.as_ref().is_some_and(|run| {
+        if self.sidebar_context.is_some() {
+            if let Some(run) = &self.run {
+                run.cancel();
+            }
+        } else if self.run.as_ref().is_some_and(|run| {
             let state = run.snapshot();
             state.busy || state.save == SaveState::Unconfirmed
         }) {
@@ -453,14 +507,38 @@ impl Render for ChatView {
         }
         let mut body = v_flex()
             .id("copilot-conversation")
+            .track_scroll(&self.conversation_scroll)
             .flex_1()
             .min_h_0()
             .gap_4()
             .overflow_y_scroll();
-        if self.messages.is_empty() {
+        if self.messages.is_empty() && self.sidebar_context.is_none() {
             body = body.child(div().text_color(muted).child(
                 "Ask a question, run a saved prompt, or review a pull request from GitHub.",
             ));
+        }
+        if self.messages.is_empty()
+            && let Some(context) = &self.sidebar_context
+        {
+            body = body.child(
+                div()
+                    .text_color(muted)
+                    .child("Ask me anything about what you're viewing, or about Buddy itself."),
+            );
+            for (index, suggestion) in context.suggestions().iter().enumerate() {
+                let prompt = suggestion.to_string();
+                body = body.child(
+                    Button::new(("assistant-suggestion", index))
+                        .label(prompt.clone())
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.prompt.update(cx, |state, cx| {
+                                state.set_value(prompt.clone(), window, cx)
+                            });
+                            this.send(false, window, cx);
+                        })),
+                );
+            }
         }
         for (index, message) in self.messages.iter().enumerate() {
             body = body.child(
@@ -573,11 +651,22 @@ impl Render for ChatView {
             .child(
                 h_flex()
                     .justify_between()
-                    .child(div().text_lg().child("Conversation"))
+                    .child(div().text_lg().child(if self.sidebar_context.is_some() {
+                        "Copilot Assistant"
+                    } else {
+                        "Conversation"
+                    }))
                     .child(
                         Button::new("copilot-new-conversation")
-                            .label("New conversation")
-                            .disabled(busy || uncertain || self.review_loading)
+                            .label(if self.sidebar_context.is_some() {
+                                "Clear"
+                            } else {
+                                "New conversation"
+                            })
+                            .disabled(
+                                self.sidebar_context.is_none()
+                                    && (busy || uncertain || self.review_loading),
+                            )
                             .on_click(cx.listener(|this, _, _, cx| this.new_conversation(cx))),
                     ),
             )
@@ -588,7 +677,11 @@ impl Render for ChatView {
                     .child(
                         v_flex()
                             .gap_1()
-                            .w(zpx(220.0))
+                            .w(zpx(if self.sidebar_context.is_some() {
+                                130.0
+                            } else {
+                                220.0
+                            }))
                             .child("GitHub account")
                             .child(Input::new(&self.account).disabled(
                                 busy || self.models_loading
@@ -601,13 +694,22 @@ impl Render for ChatView {
                         v_flex()
                             .gap_1()
                             .flex_1()
-                            .min_w(zpx(160.0))
+                            .min_w(zpx(if self.sidebar_context.is_some() {
+                                100.0
+                            } else {
+                                160.0
+                            }))
                             .child("Model")
                             .child(Input::new(&self.model).disabled(busy)),
                     ),
             )
-            .child(models)
+            .children(self.sidebar_context.is_none().then_some(models))
             .child(body)
+            .children(
+                self.sidebar_context
+                    .as_ref()
+                    .map(|context| div().text_color(muted).child(context.summary.clone())),
+            )
             .child(div().text_color(muted).child(if self.review.is_some() {
                 "Optional review instructions"
             } else {
@@ -615,7 +717,11 @@ impl Render for ChatView {
             }))
             .child(
                 div()
-                    .h(zpx(110.0))
+                    .h(zpx(if self.sidebar_context.is_some() {
+                        72.0
+                    } else {
+                        110.0
+                    }))
                     .child(Textarea::new(&self.prompt).disabled(busy || self.review_loading)),
             )
             .child(div().text_color(muted).child(if self.review.is_some() {
@@ -642,7 +748,7 @@ impl Render for ChatView {
                                 cx.listener(|this, _, window, cx| this.send(false, window, cx)),
                             ),
                     )
-                    .child(
+                    .children(self.sidebar_context.is_none().then(|| {
                         Button::new("copilot-run-save")
                             .label("Run and save")
                             .disabled(
@@ -653,8 +759,8 @@ impl Render for ChatView {
                             )
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.send(true, window, cx)),
-                            ),
-                    )
+                            )
+                    }))
                     .child(
                         Button::new("copilot-cancel")
                             .label("Cancel response")
@@ -726,5 +832,106 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         cx.update(|cx| assert_eq!(prompt.read(cx).value(), "synthetic message\n"));
+    }
+}
+
+#[cfg(test)]
+mod sidebar_tests {
+    use super::*;
+    use gpui_kit::test::TestWindowExt as _;
+    #[gpui_kit::test]
+    fn sidebar_clear_cancels_pending_turn_and_preserves_current_context(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (window, sidebar) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| {
+                    let mut view = ChatView::new(window, cx);
+                    view.set_sidebar_context(
+                        crate::assistant_context::AssistantContext::section(None),
+                        cx,
+                    );
+                    view
+                })
+            })
+            .unwrap()
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            sidebar.update(cx, |view, cx| {
+                view.messages.push(Message {
+                    user: true,
+                    partial: false,
+                    unconfirmed: false,
+                    text: "Previous question".into(),
+                });
+                view.set_sidebar_context(
+                    crate::assistant_context::AssistantContext {
+                        summary: "Pull Request #823 in hemsoft-dev/hs-buddy".into(),
+                        kind: "pr-detail",
+                        details: "Visible synthetic PR description".into(),
+                    },
+                    cx,
+                );
+                let prompt = view.conversation_prompt("Summarize this PR");
+                assert!(prompt.contains("#823 in hemsoft-dev/hs-buddy"));
+                assert!(prompt.contains("Visible synthetic PR description"));
+                assert!(prompt.contains("User: Previous question"));
+                assert!(prompt.ends_with("User: Summarize this PR"));
+                assert!(!prompt.contains("Dashboard screen"));
+            })
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let (run, future) = buddy_core::copilot_assistant::start(RunOptions {
+            context: RunContext {
+                account: "synthetic-account".into(),
+                model: "gpt-4.1".into(),
+                review: None,
+            },
+            prompt: "Synthetic test".into(),
+            saved: false,
+            review: None,
+            backend: None,
+            executable: temp.path().join("never-start.exe"),
+            owned_directory: temp.path().join("must-remain-absent"),
+        })
+        .unwrap();
+        let observer = run.subscribe();
+        cx.update(|cx| {
+            sidebar.update(cx, |view, cx| {
+                view.run = Some(run);
+                cx.notify();
+            })
+        });
+        cx.run_until_parked();
+        cx.update_window(window, |_, window, cx| {
+            window.click("copilot-new-conversation", cx)
+        })
+        .unwrap();
+        cx.run_until_parked();
+        tokio::runtime::Runtime::new().unwrap().block_on(future);
+        assert!(observer.has_changed().unwrap_or(true));
+        assert!(!temp.path().join("must-remain-absent").exists());
+        cx.update(|cx| {
+            let view = sidebar.read(cx);
+            assert!(view.messages.is_empty());
+            assert!(view.run.is_none());
+            assert!(
+                !view
+                    .conversation_prompt("New question")
+                    .contains("Previous question")
+            );
+            assert!(
+                view.sidebar_context
+                    .as_ref()
+                    .unwrap()
+                    .summary
+                    .contains("#823")
+            );
+        });
     }
 }

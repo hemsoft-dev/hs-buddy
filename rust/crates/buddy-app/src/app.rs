@@ -37,7 +37,8 @@ gpui_kit::actions!(
         ToggleFullScreen,
         ZoomIn,
         ZoomOut,
-        ResetZoom
+        ResetZoom,
+        ToggleAssistant
     ]
 );
 
@@ -120,6 +121,7 @@ pub struct BuddyApp {
     github_view: Entity<GitHubView>,
     terminal_view: Entity<TerminalView>,
     copilot_view: Entity<CopilotView>,
+    assistant: Entity<crate::copilot_view::chat::ChatView>,
     todoist_view: Entity<TodoistView>,
     tempo_view: Entity<TempoView>,
     automation_view: Entity<AutomationView>,
@@ -134,6 +136,19 @@ pub struct BuddyApp {
 }
 
 impl BuddyApp {
+    pub(crate) fn assistant_context(&self, cx: &App) -> crate::assistant_context::AssistantContext {
+        if self.active_section == Some(Section::GitHub) {
+            self.github_view.read(cx).assistant_context()
+        } else {
+            crate::assistant_context::AssistantContext::section(self.active_section)
+        }
+    }
+
+    pub(crate) fn toggle_assistant(cx: &mut App) {
+        let open = !Settings::global(cx).config.ui.assistant_open;
+        Settings::update(cx, move |config| config.ui.assistant_open = open);
+        cx.refresh_windows();
+    }
     fn initial_focus(window: &mut Window, cx: &mut Context<Self>) -> FocusHandle {
         let focus = cx.focus_handle();
         // Root's Tab binding needs a focused descendant before the first click.
@@ -338,6 +353,9 @@ impl BuddyApp {
                                 this.bookmarks_view.update(cx, |view, _| {
                                     view.set_default_account(account.clone())
                                 });
+                                this.assistant.update(cx, |view, cx| {
+                                    view.set_default_account(account.clone(), cx)
+                                });
                                 this.active_account = account;
                                 cx.notify();
                             }
@@ -355,8 +373,12 @@ impl BuddyApp {
 
         let settings_view = cx.new(|cx| SettingsView::new(window, cx));
         let github_view = cx.new(|cx| GitHubView::new(window, cx));
+        cx.observe(&github_view, |_, _, cx| cx.notify()).detach();
         let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
         let copilot_view = cx.new(|cx| CopilotView::new(window, cx));
+        let assistant = cx.new(|cx| crate::copilot_view::chat::ChatView::new(window, cx));
+        let assistant_source = cx.weak_entity();
+        assistant.update(cx, |view, _| view.set_sidebar_source(assistant_source));
         let todoist_view = cx.new(|cx| TodoistView::new(window, cx));
         let tempo_view = cx.new(|cx| TempoView::new(window, cx));
         // The dispatcher claims queued runs whichever section is visible.
@@ -452,6 +474,7 @@ impl BuddyApp {
             github_view,
             terminal_view,
             copilot_view,
+            assistant,
             todoist_view,
             tempo_view,
             automation_view,
@@ -497,6 +520,54 @@ impl BuddyApp {
             .update(cx, |view, cx| view.choose(window, cx));
     }
 
+    fn render_workspace(&self, cx: &App) -> gpui_kit::AnyElement {
+        use gpui_kit::component::resizable::{h_resizable, resizable_panel};
+        if !Settings::global(cx).config.ui.assistant_open {
+            return self.render_content(cx).into_any_element();
+        }
+        let width = Settings::global(cx)
+            .config
+            .ui
+            .pane_sizes
+            .get(2)
+            .copied()
+            .filter(|width| width.is_finite() && *width > 0.0)
+            .unwrap_or(350.0)
+            .clamp(280.0, 600.0);
+        h_resizable("workspace-assistant-split")
+            .child(
+                resizable_panel()
+                    .size_range(zoom::scaled(cx, 250.0)..gpui_kit::Pixels::MAX)
+                    .child(self.render_content(cx)),
+            )
+            .child(
+                resizable_panel()
+                    .size(zoom::scaled(cx, width as f32))
+                    .fixed()
+                    .size_range(zoom::scaled(cx, 280.0)..zoom::scaled(cx, 600.0))
+                    .child(
+                        div()
+                            .id("assistant-panel")
+                            .size_full()
+                            .p_3()
+                            .child(self.assistant.clone()),
+                    ),
+            )
+            .on_resize(|state, _, cx| {
+                let Some(width) = state.read(cx).sizes().get(1).copied() else {
+                    return;
+                };
+                let width = f64::from(f32::from(width) / f32::from(zoom::scaled(cx, 1.0)));
+                Settings::update(cx, move |config| {
+                    while config.ui.pane_sizes.len() < 3 {
+                        config.ui.pane_sizes.push(350.0);
+                    }
+                    config.ui.pane_sizes[2] = width;
+                });
+            })
+            .into_any_element()
+    }
+
     fn render_content(&self, cx: &App) -> impl IntoElement + use<> {
         let theme = cx.theme();
         let container = div().flex_1().min_h_0().w_full().bg(theme.background);
@@ -527,6 +598,12 @@ impl BuddyApp {
 
 impl Render for BuddyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let assistant_open = Settings::global(cx).config.ui.assistant_open;
+        if assistant_open {
+            let context = self.assistant_context(cx);
+            self.assistant
+                .update(cx, |view, cx| view.set_sidebar_context(context, cx));
+        }
         let theme = cx.theme();
         let font_family = theme.font_family.clone();
         let background = theme.background;
@@ -535,6 +612,7 @@ impl Render for BuddyApp {
         v_flex()
             .key_context("BuddyApp")
             .on_action(cx.listener(Self::open_folder))
+            .on_action(|_: &ToggleAssistant, _, cx| Self::toggle_assistant(cx))
             .track_focus(&self.focus)
             .size_full()
             .font_family(font_family)
@@ -554,7 +632,15 @@ impl Render for BuddyApp {
                             .min_w_0()
                             .h_full()
                             .children((!self.folder_open).then(|| tab_bar::render(cx)))
-                            .child(self.render_content(cx)),
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .w_full()
+                                    .child(self.render_workspace(cx)),
+                            ),
                     ),
             )
             .child(status_bar::render(self, cx))
@@ -598,6 +684,8 @@ mod tests {
                         github_view: cx.new(|cx| GitHubView::new(window, cx)),
                         terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
                         copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
+                        assistant: cx
+                            .new(|cx| crate::copilot_view::chat::ChatView::new(window, cx)),
                         todoist_view: cx.new(|cx| TodoistView::new(window, cx)),
                         tempo_view: cx.new(|cx| TempoView::new(window, cx)),
                         automation_view: cx.new(|cx| AutomationView::new(window, cx)),
@@ -625,5 +713,31 @@ mod tests {
         });
         cx.run_until_parked();
         cx.update(|cx| assert_eq!(shell.read(cx).active_section, Some(Section::Terminal)));
+        let assistant_id = cx.update(|cx| shell.read(cx).assistant.entity_id());
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.ui.assistant_open = true;
+            Settings::replace(cx, config);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            let handle = cx.windows()[0];
+            handle
+                .update(cx, |_, window, cx| {
+                    window.render_frame(cx);
+                    // Buttons are observed by GPUI Kit; plain layout containers
+                    // provide identity scopes but do not register their own bounds.
+                    let suggestion = window
+                        .within("assistant-panel")
+                        .find(("assistant-suggestion", 0usize));
+                    assert!(suggestion.visible());
+                    let width = f32::from(suggestion.bounds().size.width) + 24.0;
+                    assert!((280.0..=600.0).contains(&width), "Assistant width: {width}");
+                })
+                .unwrap();
+            assert_eq!(shell.read(cx).assistant.entity_id(), assistant_id);
+            assert_eq!(shell.read(cx).active_section, Some(Section::Terminal));
+        });
     }
 }
