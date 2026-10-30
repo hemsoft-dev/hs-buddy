@@ -8,8 +8,8 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::{ActiveTheme, Icon, Selectable as _, Sizable as _, TitleBar, h_flex};
 use gpui_kit::{
-    Context, FontWeight, IntoElement, ParentElement, Styled, Window, div, linear_color_stop,
-    linear_gradient,
+    Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    Window, div, linear_color_stop, linear_gradient,
 };
 
 use crate::app::{About, BuddyApp, Quit, Reload, ResetZoom, ToggleFullScreen, ZoomIn, ZoomOut};
@@ -138,21 +138,22 @@ pub fn render(
                         })),
                 )
                 .child(
-                    Button::new("toggle-terminal")
-                        .ghost()
-                        .xsmall()
-                        .compact()
-                        .icon(Icon::new(IconName::SquareTerminal).size(zpx(14.0)))
-                        .accessibility_label("Toggle Terminal")
-                        .tooltip("Toggle Terminal (panel not ported yet)")
-                        .selected(terminal_open)
-                        .on_click(cx.listener(|_, _, _, cx| {
-                            let open = !Settings::global(cx).config.ui.terminal_open;
-                            Settings::update(cx, move |config| {
-                                config.ui.terminal_open = open;
-                            });
-                            cx.notify();
-                        })),
+                    // Keep this button's press out of TitleBar's window-drag handler.
+                    div()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            Button::new("toggle-terminal")
+                                .ghost()
+                                .xsmall()
+                                .compact()
+                                .icon(Icon::new(IconName::SquareTerminal).size(zpx(14.0)))
+                                .accessibility_label("Toggle Terminal")
+                                .tooltip("Toggle Terminal (Ctrl+`)")
+                                .selected(terminal_open)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_terminal(window, cx);
+                                })),
+                        ),
                 ),
         );
 

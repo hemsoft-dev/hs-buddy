@@ -35,6 +35,29 @@ pub enum GitHubEvent {
 }
 impl gpui_kit::EventEmitter<GitHubEvent> for GitHubView {}
 impl GitHubView {
+    pub(crate) fn terminal_context(
+        &self,
+        cx: &App,
+    ) -> Option<buddy_core::terminal_panel::PanelTab> {
+        let repo = match &self.route {
+            Route::Repository(repo, _) | Route::Issue(repo, _) | Route::Commit(repo, _) => repo,
+            Route::Pull(pull, _) => &pull.repository,
+            Route::Thread(thread) => &thread.0.pull().repository,
+            _ => return None,
+        };
+        let slug = repo.full_name();
+        let (owner, name) = slug.split_once('/')?;
+        Some(buddy_core::terminal_panel::PanelTab {
+            title: name.into(),
+            cwd: self
+                .local_repository(owner, name, cx)
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            repo_slug: Some(slug),
+            color: None,
+        })
+    }
+
     /// The account this view shows, so a Ralph loop started from it works as that account.
     fn ralph_account(&self) -> Option<String> {
         self.account

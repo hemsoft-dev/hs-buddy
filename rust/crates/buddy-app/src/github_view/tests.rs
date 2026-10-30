@@ -413,3 +413,34 @@ fn assistant_context_tracks_current_route_without_fetching_hidden_details(
         })
     });
 }
+
+#[gpui_kit::test]
+fn terminal_context_follows_repository_routes_without_inventing_list_context(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = GitHubView::new(window, cx);
+                let repo = RepositoryRef::parse("team/private").unwrap();
+                for route in [
+                    Route::Pull(pull(), PullTab::Files),
+                    Route::Repository(repo.clone(), RepoTab::Commits),
+                    Route::Issue(repo.clone(), 3),
+                    Route::Commit(repo, "abc".into()),
+                ] {
+                    view.route = route;
+                    let context = view.terminal_context(cx).unwrap();
+                    assert_eq!(context.repo_slug.as_deref(), Some("team/private"));
+                    assert_eq!(context.title, "private");
+                    assert_eq!(context.cwd, "");
+                }
+                view.route = Route::Pulls(PrMode::MyPrs);
+                assert!(view.terminal_context(cx).is_none());
+                view
+            })
+        })
+        .unwrap();
+    });
+}

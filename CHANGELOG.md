@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1585] - 2026-10-30
+
+### Added
+
+- Add persistent bottom terminal panel
+
 ## [0.1.1584] - 2026-10-30
 
 ### Changed
