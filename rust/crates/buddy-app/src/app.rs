@@ -670,13 +670,13 @@ mod tests {
             handle
                 .update(cx, |_, window, cx| {
                     window.render_frame(cx);
-                    // The container is an identity scope; the scrollable conversation
-                    // is the observed element with measurable bounds inside it.
-                    let conversation = window
+                    // Buttons are observed by GPUI Kit; plain layout containers
+                    // provide identity scopes but do not register their own bounds.
+                    let suggestion = window
                         .within("assistant-panel")
-                        .find("copilot-conversation");
-                    assert!(conversation.visible());
-                    let width = f32::from(conversation.bounds().size.width) + 24.0;
+                        .find(("assistant-suggestion", 0usize));
+                    assert!(suggestion.visible());
+                    let width = f32::from(suggestion.bounds().size.width) + 24.0;
                     assert!((280.0..=600.0).contains(&width), "Assistant width: {width}");
                 })
                 .unwrap();
