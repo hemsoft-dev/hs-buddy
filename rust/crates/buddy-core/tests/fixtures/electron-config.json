@@ -1,0 +1,45 @@
+{
+  "weatherLocationCiphertext": "synthetic-nonportable-ciphertext",
+  "github": {
+    "accounts": [
+      {
+        "username": "fixture-user",
+        "org": "fixture-org",
+        "repoRoot": "/fixture/repos",
+        "usageProvider": "copilot",
+        "futureAccount": { "enabled": true }
+      }
+    ],
+    "usageProviderOverrides": { "fixture-org/fixture-user": "copilot" },
+    "futureGithub": [1, 2]
+  },
+  "ui": {
+    "theme": "light",
+    "zoomLevel": 110,
+    "sidebarWidth": 320,
+    "paneSizes": [320, 880],
+    "assistantOpen": true,
+    "terminalOpen": true,
+    "weatherLocation": null,
+    "pollenApiKey": "",
+    "dashboardCards": { "weather": true, "finance": false },
+    "favoriteUsers": ["fixture-org/fixture-user"],
+    "futureUi": { "nested": [null, true, "城市"] }
+  },
+  "pr": { "refreshInterval": 30, "autoRefresh": false, "recentlyMergedDays": 14, "futurePr": 7 },
+  "copilot": {
+    "ghAccount": "fixture-user",
+    "model": "fixture-model",
+    "premiumModel": "fixture-premium",
+    "prReviewPromptTemplate": "Review {{prUrl}}",
+    "futureCopilot": true
+  },
+  "notifications": {
+    "playSoundOnReviewComplete": false,
+    "reviewCompleteSoundPath": "",
+    "futureNotification": 1
+  },
+  "finance": { "watchlist": ["MSFT", "^GSPC"], "futureFinance": { "currency": "USD" } },
+  "automation": { "scheduleForecastDays": 14, "futureAutomation": true },
+  "futureTop": { "version": 2, "items": [1, "two", null] }
+}

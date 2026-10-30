@@ -160,6 +160,14 @@ jobs:
         working-directory: .
         run: bun install --frozen-lockfile
 
+      - name: Qualify Electron config rollback
+        shell: bash
+        run: |
+          cargo build --locked -p buddy-core --example config-migration-probe
+          probe="target/debug/examples/config-migration-probe"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then probe="$probe.exe"; fi
+          bun crates/buddy-core/tests/electron-rollback.ts "$probe"
+
       - name: Build the credential interop probe
         run: cargo build -p buddy-core --example pollen-credential-probe
 
