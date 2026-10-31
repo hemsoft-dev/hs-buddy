@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import os
+import struct
 from pathlib import Path
 import shutil
 import subprocess
@@ -40,10 +41,79 @@ def status_footer(words):
         positions = [matches[0]["left"] for matches in labels]
         height = max(word["height"] for word in row)
         if positions == sorted(set(positions)) and candidate["top"] >= bottom - 2 * height:
-            footers.append(dict(top=min(word["top"] for word in row), height=height))
+            footers.append(dict(top=min(word["top"] for word in row), height=height,
+                left=min(matches[0]["left"] for matches in labels),
+                right=max(matches[0]["left"] + matches[0]["width"] for matches in labels)))
     if len(footers) > 1:
         raise AmbiguousLabel("More than one native status footer is visible")
     return footers[0] if footers else None
+
+
+def analysis_images(path, run):
+    yield path
+    # Analysis copy only; the original window capture is never edited.
+    image = path.with_suffix(".ocr-scale3.png")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
+    yield image
+    # Mixed dark shell chrome and a light hosted page can segment separately.
+    # Keep one-layout matching, but offer the same contrast analysis as locators.
+    image = path.with_suffix(".ocr-scale3-inverted.png")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate", "-frames:v", "1", image)
+    yield image
+
+
+def crop_content_image(path, bottom, run, suffix=".content-ocr.png"):
+    height = struct.unpack(">II", path.read_bytes()[16:24])[1]
+    if not 0 < bottom < height:
+        raise RuntimeError("The status footer leaves invalid content bounds")
+    image = path.with_suffix(suffix)
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", f"crop=iw:{bottom}:0:0:exact=1", "-frames:v", "1", image)
+    return image
+
+
+def footer_border(path, footer, scale, run):
+    """Find the painted separator above the measured labels, across their span."""
+    left = math.floor(footer["left"] / scale)
+    right = math.ceil(footer["right"] / scale)
+    top = math.floor((footer["top"] - 2 * footer["height"]) / scale)
+    end = math.floor(footer["top"] / scale)
+    width, height = struct.unpack(">II", path.read_bytes()[16:24])
+    if not (0 <= left < right <= width and 0 <= top < end <= height):
+        raise RuntimeError("The status footer has invalid capture bounds")
+    raw = path.with_suffix(".footer-rgb")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", f"crop={right-left}:{end-top}:{left}:{top}:exact=1,format=rgb24",
+        "-f", "rawvideo", "-frames:v", "1", raw)
+    pixels = raw.read_bytes()
+    stride = (right - left) * 3
+    if len(pixels) != stride * (end - top):
+        raise RuntimeError("The footer analysis has invalid pixel dimensions")
+    previous_uniform = True
+    for offset in range(end - top):
+        row = pixels[offset * stride:(offset + 1) * stride]
+        uniform = row == row[:3] * (right - left)
+        if uniform and not previous_uniform:
+            return top + offset
+        previous_uniform = uniform
+    raise RuntimeError("The measured native status footer has no visible separator")
+
+
+def status_content_image(path, run, suffix=".content-ocr.png", border=False):
+    """Measure and exclude the shared footer from an untouched capture."""
+    width = struct.unpack(">II", path.read_bytes()[16:24])[0]
+    for analysis in analysis_images(path, run):
+        scale = struct.unpack(">II", analysis.read_bytes()[16:24])[0] / width
+        for mode in (11, 3, 6):
+            words = recognize(analysis, mode=mode)
+            footer = status_footer(words)
+            if footer:
+                bottom = (footer_border(path, footer, scale, run) if border else
+                    int((footer["top"] - footer["height"] / 2) / scale))
+                return crop_content_image(path, bottom, run, suffix)
+    raise RuntimeError("The content screenshot has no unique native status footer")
 
 
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):

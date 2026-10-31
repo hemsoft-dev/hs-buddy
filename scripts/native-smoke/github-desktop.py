@@ -4,7 +4,6 @@ from contextlib import contextmanager
 import hashlib
 import json
 import os
-import struct
 from pathlib import Path
 import urllib.request
 
@@ -63,40 +62,12 @@ def installed_binary(executable, version):
 
 
 def analysis_images(path):
-    yield path
-    # Analysis copy only; the original window capture is never edited.
-    image = path.with_suffix(".ocr-scale3.png")
-    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-        "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
-    yield image
-    # Mixed dark shell chrome and a light hosted page can segment separately.
-    # Keep one-layout matching, but offer the same contrast analysis as locators.
-    image = path.with_suffix(".ocr-scale3-inverted.png")
-    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-        "-vf", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate", "-frames:v", "1", image)
-    yield image
+    yield from settings.ocr.analysis_images(path, settings.run)
 
 
 def browser_analysis(path):
-    # Retain tabs and the page together, excluding only the shared status bar.
-    # Infer its boundary from ordered visible labels, never a fixed DPI/height.
-    width = struct.unpack(">II", path.read_bytes()[16:24])[0]
-    for analysis in analysis_images(path):
-        scale = struct.unpack(">II", analysis.read_bytes()[16:24])[0] / width
-        for mode in (11, 3, 6):
-            words = settings.ocr.recognize(analysis, mode=mode)
-            footer = settings.ocr.status_footer(words)
-            if not footer:
-                continue
-            bottom = int((footer["top"] - footer["height"] / 2) / scale)
-            if bottom <= 0:
-                raise RuntimeError("The status footer leaves no browser content")
-            image = path.with_suffix(".browser-ocr.png")
-            settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-                "-vf", f"crop=iw:{bottom}:0:0:exact=1", "-frames:v", "1", image)
-            yield from analysis_images(image)
-            return
-    raise RuntimeError("The browser screenshot has no unique native status footer")
+    image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png")
+    yield from analysis_images(image)
 
 
 def check(path, *markers, absent=(), browser=False):

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1600] - 2026-10-31
+
+### Fixed
+
+- Stabilize Mac OCR above the measured status footer
+
 ## [0.1.1599] - 2026-10-31
 
 ### Fixed

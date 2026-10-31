@@ -1,0 +1,129 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41226860072/artifacts/13054126911",
+  "frames": [
+    {
+      "name": "frame-0110.png",
+      "sha256": "2eee9ef6297d024db2847e62f441deb69152d0318912aec9a2e771f18c770041"
+    },
+    {
+      "name": "frame-0111.png",
+      "sha256": "7aeb52bc70027b071ab5c5f25a6468334723361da92c69e8633fbea5526482ae"
+    }
+  ],
+  "width": 1200,
+  "height": 820,
+  "observed": [
+    {
+      "left": 996.0,
+      "top": 162.0,
+      "width": 91.0,
+      "height": 12.0
+    },
+    {
+      "left": 995,
+      "top": 150,
+      "width": 104,
+      "height": 40
+    },
+    {
+      "left": 996.0,
+      "top": 162.0,
+      "width": 91.0,
+      "height": 12.0
+    },
+    {
+      "left": 995,
+      "top": 150,
+      "width": 104,
+      "height": 40
+    }
+  ],
+  "footerLayouts": [
+    {
+      "image": "locator.png",
+      "mode": 11,
+      "words": [
+        {
+          "text": "_OPRs",
+          "left": 0,
+          "top": 804,
+          "width": 44,
+          "height": 16,
+          "line": "36/1/1"
+        },
+        {
+          "text": "Oschedules",
+          "left": 61,
+          "top": 804,
+          "width": 64,
+          "height": 9,
+          "line": "37/1/1"
+        },
+        {
+          "text": "0",
+          "left": 142,
+          "top": 804,
+          "width": 6,
+          "height": 9,
+          "line": "37/1/1"
+        },
+        {
+          "text": "jobs",
+          "left": 152,
+          "top": 804,
+          "width": 22,
+          "height": 12,
+          "line": "37/1/1"
+        },
+        {
+          "text": "No",
+          "left": 196,
+          "top": 804,
+          "width": 29,
+          "height": 9,
+          "line": "38/1/1"
+        },
+        {
+          "text": "gh",
+          "left": 229,
+          "top": 804,
+          "width": 11,
+          "height": 10,
+          "line": "38/1/1"
+        },
+        {
+          "text": "account",
+          "left": 245,
+          "top": 805,
+          "width": 38,
+          "height": 7,
+          "line": "38/1/1"
+        },
+        {
+          "text": "\u00a9",
+          "left": 1107,
+          "top": 804,
+          "width": 10,
+          "height": 10,
+          "line": "39/1/1"
+        },
+        {
+          "text": "07:08:28PM",
+          "left": 1123,
+          "top": 804,
+          "width": 60,
+          "height": 8,
+          "line": "39/1/1"
+        }
+      ]
+    }
+  ],
+  "footerPixelsZlibBase64": "eJzt0LEJA1EMBNE2LPi4iUmv/7oMzpz5gmMWVi8XaAeyvJeEMHaPXoSxe/QijN2jF2HsHr0IY/foRRi7Ry/C2D16Ecbu0Yswdo9ehLF79CKM3aMXYewevQhj9+hFGLtHL8LYPXoRxu7RizB2j16EsXv0Iozdoxdh7B69CGP36EUYu0cvwtg9ehHG7tGLMHaPXtdaX6+11lprrfVrZs45d6/OOTPzzEcP+mfpB1r02UM=",
+  "contentHeight": 798,
+  "scopedTarget": {
+    "left": 995,
+    "top": 150,
+    "width": 104,
+    "height": 40
+  }
+}
