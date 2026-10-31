@@ -102,6 +102,7 @@ import { TerminalPane } from './TerminalPane'
 describe('TerminalPane', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockOn.mockImplementation((channel, listener) => () => mockOff(channel, listener))
     vi.useFakeTimers()
     mockResizeObserverCallback = null
     Object.defineProperty(window, 'ipcRenderer', {
@@ -318,6 +319,17 @@ describe('TerminalPane', () => {
     expect(mockSpawn).toHaveBeenCalledTimes(1)
     unmount()
     expect(mockOff).toHaveBeenCalledWith('terminal:cwd-changed', handler)
+  })
+
+  it('uses the subscription disposers instead of passing callbacks across the bridge again', async () => {
+    const dispose = vi.fn()
+    mockOn.mockReturnValue(dispose)
+    const { unmount } = render(<TerminalPane viewKey="disposer-ownership" />)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mockOn).toHaveBeenCalledTimes(3)
+    unmount()
+    expect(dispose).toHaveBeenCalledTimes(3)
+    expect(mockOff).not.toHaveBeenCalled()
   })
 
   it('removes IPC listeners on unmount', async () => {

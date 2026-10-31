@@ -175,7 +175,9 @@ def qualify(executable, output, session, version):
 
         stopped = driver.drive("stop-dark", [
             ("content", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
-            ("content", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "long-running-dark"),
+            # Output can render before the host's separately persisted phase arrives.
+            ("content", "Launch"), ("wait_text", "RALPH STUB RUNNING"),
+            ("wait_text", "Iterating"), ("capture", "long-running-dark"),
             ("content", "Stop loop"), ("capture", "stop-confirm-dark"),
             ("content", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "stopped-dark"),
         ], record=True)

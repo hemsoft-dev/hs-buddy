@@ -167,6 +167,56 @@ test.describe('real Electron renderer-to-main journeys', () => {
   })
 })
 
+test('subscription disposers remove only their captured callback across the real context bridge', async ({
+  electronHarness,
+}) => {
+  const { app, page } = electronHarness
+  const channel = 'buddy:test:subscription-disposal'
+  await page.evaluate(channel => {
+    const probe = { removedHits: 0, liveHits: 0, remove: () => {}, keep: () => {} }
+    probe.remove = window.ipcRenderer.on(channel, () => {
+      probe.removedHits += 1
+    })
+    probe.keep = window.ipcRenderer.on(channel, () => {
+      probe.liveHits += 1
+    })
+    Object.assign(window, { __buddySubscriptionProbe: probe })
+  }, channel)
+  const hits = () =>
+    page.evaluate(() => {
+      const probe = (
+        window as Window & { __buddySubscriptionProbe: { removedHits: number; liveHits: number } }
+      ).__buddySubscriptionProbe
+      return [probe.removedHits, probe.liveHits]
+    })
+  const send = () =>
+    app.evaluate(({ BrowserWindow }, channel) => {
+      BrowserWindow.getAllWindows()[0].webContents.send(channel)
+    }, channel)
+  try {
+    await send()
+    await expect.poll(hits).toEqual([1, 1])
+    await page.evaluate(() => {
+      const probe = (window as Window & { __buddySubscriptionProbe: { remove: () => void } })
+        .__buddySubscriptionProbe
+      probe.remove()
+      probe.remove()
+    })
+    await send()
+    // The live callback acknowledges delivery, so an asynchronous no-op cannot pass.
+    await expect.poll(hits).toEqual([1, 2])
+  } finally {
+    await page.evaluate(() => {
+      const target = window as Window & {
+        __buddySubscriptionProbe?: { remove: () => void; keep: () => void }
+      }
+      target.__buddySubscriptionProbe?.remove()
+      target.__buddySubscriptionProbe?.keep()
+      delete target.__buddySubscriptionProbe
+    })
+  }
+})
+
 test.describe('real Electron window zoom', () => {
   test('zooms the window from Ctrl+=, Ctrl+mouse wheel and the menu channels', async ({
     electronHarness,

@@ -344,18 +344,20 @@ export async function validateLaunch(
   runtime: LaunchedRuntime,
   profilePath: string
 ): Promise<Pick<LaunchedRuntime, 'electronVersion' | 'appVersion'>> {
-  const configPath = path.join(profilePath, 'config.json')
+  // Fixture config is preseeded. Require the main window's Electron-created
+  // persistent session directory to prove it initialized this isolated profile.
+  const partitionPath = path.join(profilePath, 'Partitions', 'buddy')
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
     try {
-      await access(configPath)
+      await access(partitionPath)
       break
     } catch (_: unknown) {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
   }
   try {
-    await access(configPath)
+    await access(partitionPath)
   } catch (error: unknown) {
     throw new Error(`Electron did not initialize the isolated profile at ${profilePath}`, {
       cause: error,

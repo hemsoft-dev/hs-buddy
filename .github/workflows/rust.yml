@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'rust/**'
+      - 'perf/**'
       - 'src/types/config.ts'
       - 'src/constants*'
       - 'bun.lock'
@@ -23,6 +24,7 @@ on:
   pull_request:
     paths:
       - 'rust/**'
+      - 'perf/**'
       - 'src/types/config.ts'
       - 'src/constants*'
       - 'bun.lock'
@@ -249,6 +251,15 @@ jobs:
         working-directory: .
         run: node scripts/package-native.mjs
 
+      - name: Upload native measurement binary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: buddy-performance-binary-${{ matrix.os }}
+          path: |
+            rust/target/release/buddy
+            rust/target/release/buddy.exe
+          if-no-files-found: error
+
       - name: Install and qualify Windows package
         if: runner.os == 'Windows'
         working-directory: .
@@ -278,4 +289,107 @@ jobs:
             release/native/**/*.dmg
             ${{ runner.temp }}/native-evidence/**
             ${{ runner.temp }}/buddy-settings-backend-*/backend.log
+          if-no-files-found: error
+
+  matching-fixture-performance:
+    name: Performance / ${{ matrix.os }}
+    needs: check
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15-intel, macos-15]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: buddy-performance-binary-${{ matrix.os }}
+          path: rust/target/release
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.12.0
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Install performance dependencies
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            source scripts/lib/bounded-apt.sh
+            buddy_apt sudo update
+            buddy_apt sudo install -y --no-install-recommends \
+              libwebkit2gtk-4.1-dev libgtk-3-dev libxkbcommon-x11-0 \
+              libvulkan1 mesa-vulkan-drivers libasound2t64 xvfb openbox
+          fi
+          if [[ "$RUNNER_OS" != Windows ]]; then chmod +x rust/target/release/buddy; fi
+
+      - name: Prepare matching-fixture performance control
+        working-directory: .
+        shell: bash
+        env:
+          VITE_CONVEX_URL: http://127.0.0.1:9
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          python -m pip install --break-system-packages psutil==7.2.2 websocket-client==1.9.2
+          python -m unittest discover -s perf -p 'test_*.py'
+          node node_modules/electron/install.js
+          bun x vite build
+          arch="$(node -p 'process.arch')"
+          case "$RUNNER_OS" in
+            Windows) platform=win ;;
+            macOS) platform=mac ;;
+            Linux) platform=linux ;;
+          esac
+          bun x electron-builder --dir "--$platform" "--$arch" -c.npmRebuild=false
+
+      - name: Compare native and Electron matching fixtures
+        working-directory: .
+        shell: bash
+        timeout-minutes: 65
+        run: |
+          native="rust/target/release/buddy"
+          version="$(node -p "require('./package.json').version")"
+          case "$RUNNER_OS" in
+            Windows) native="$native.exe"; electron="release/$version/win-unpacked/Buddy.exe" ;;
+            Linux) electron="release/$version/linux-unpacked/Buddy" ;;
+            macOS)
+              folder=mac
+              if [[ "$(node -p 'process.arch')" == arm64 ]]; then folder=mac-arm64; fi
+              electron="release/$version/$folder/Buddy.app/Contents/MacOS/Buddy"
+              ;;
+          esac
+          args=(python perf/native-comparison.py --native "$native" --electron "$electron"
+                --output "$RUNNER_TEMP/native-evidence/performance/comparison.json")
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sandbox="$(dirname "$electron")/chrome-sandbox"
+            sudo chown root:root "$sandbox"
+            sudo chmod 4755 "$sandbox"
+            xvfb-run -a -s '-screen 0 1600x1000x24' dbus-run-session -- bash -c '
+              openbox >"$RUNNER_TEMP/performance-openbox.log" 2>&1 &
+              wm=$!
+              trap "kill $wm" EXIT
+              "$@"
+            ' bash "${args[@]}"
+          else
+            "${args[@]}"
+          fi
+
+      - name: Upload paired performance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: buddy-performance-${{ matrix.os }}
+          path: ${{ runner.temp }}/native-evidence/performance/**
           if-no-files-found: error

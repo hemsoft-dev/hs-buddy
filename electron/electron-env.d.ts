@@ -37,7 +37,9 @@ interface CopilotQuotaSnapshot {
 
 interface Window {
   __buddyPreloadReady: true
-  ipcRenderer: import('electron').IpcRenderer
+  ipcRenderer: Omit<import('electron').IpcRenderer, 'on'> & {
+    on: (...args: Parameters<import('electron').IpcRenderer['on']>) => () => void
+  }
   shell: {
     openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
     openInAppBrowser: (url: string, title?: string) => Promise<{ success: boolean; error?: string }>

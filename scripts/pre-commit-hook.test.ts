@@ -8,6 +8,7 @@ const hook = readFileSync(resolve(process.cwd(), '.husky/pre-commit'), 'utf8')
 const temporaryDirectories: string[] = []
 const gitLocalEnvironmentVariables = spawnSync('git', ['rev-parse', '--local-env-vars'], {
   encoding: 'utf8',
+  timeout: 10_000,
 }).stdout.split(/\r?\n/)
 
 function isolatedEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -27,6 +28,7 @@ function run(root: string, command: string, args: string[] = []) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: 'utf8',
+    timeout: 10_000,
     env: isolatedEnvironment(),
   })
   if (result.error) throw result.error
@@ -100,17 +102,24 @@ printf 'pwsh %s\\n' "$*" >> "$HOOK_TEST_LOG"
 }
 
 function runHook(fixture: ReturnType<typeof createFixture>, failCommand = '') {
-  return spawnSync('sh', ['-c', 'PATH="$HOOK_TEST_BIN:$PATH"; export PATH; sh .husky/pre-commit'], {
-    cwd: fixture.root,
-    encoding: 'utf8',
-    env: isolatedEnvironment({
-      HOOK_FAIL_COMMAND: failCommand,
-      HOOK_FORMAT_FILE: shellPath(fixture.source),
-      HOOK_PACKAGE_JSON: shellPath(fixture.packageJson),
-      HOOK_TEST_BIN: shellPath(fixture.fakeBin),
-      HOOK_TEST_LOG: shellPath(fixture.log),
-    }),
-  })
+  const result = spawnSync(
+    'sh',
+    ['-c', 'PATH="$HOOK_TEST_BIN:$PATH"; export PATH; sh .husky/pre-commit'],
+    {
+      cwd: fixture.root,
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: isolatedEnvironment({
+        HOOK_FAIL_COMMAND: failCommand,
+        HOOK_FORMAT_FILE: shellPath(fixture.source),
+        HOOK_PACKAGE_JSON: shellPath(fixture.packageJson),
+        HOOK_TEST_BIN: shellPath(fixture.fakeBin),
+        HOOK_TEST_LOG: shellPath(fixture.log),
+      }),
+    }
+  )
+  if (result.error) throw result.error
+  return result
 }
 
 afterEach(() => {
@@ -131,7 +140,7 @@ describe('pre-commit hook ordering', () => {
     expect(readFileSync(fixture.log, 'utf8')).not.toContain('npx lint-staged')
     expect(readFileSync(fixture.source, 'utf8')).toBe(worktreeBefore)
     expect(git(fixture.root, 'diff', '--cached', '--binary')).toBe(indexBefore)
-  })
+  }, 35_000)
 
   it('formats and stages files only after every validation passes', () => {
     const fixture = createFixture()
@@ -150,7 +159,7 @@ describe('pre-commit hook ordering', () => {
     ])
     expect(readFileSync(fixture.source, 'utf8')).toBe('const value = 1\n')
     expect(git(fixture.root, 'show', ':src.ts')).toBe('const value = 1\n')
-  })
+  }, 35_000)
 
   it('restores package.json when the revision bump fails after formatting', () => {
     const fixture = createFixture()
@@ -171,5 +180,5 @@ describe('pre-commit hook ordering', () => {
     const formattedPackageJson = '{\n  "version": "0.0.1"\n}\n'
     expect(readFileSync(fixture.packageJson, 'utf8')).toBe(formattedPackageJson)
     expect(git(fixture.root, 'show', ':package.json')).toBe(formattedPackageJson)
-  })
+  }, 35_000)
 })

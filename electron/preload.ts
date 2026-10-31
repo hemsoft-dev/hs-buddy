@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_INVOKE, IPC_SEND, IPC_PUSH } from '../src/ipc/contracts'
 
-// Map renderer-side listener references to the wrapper registered with ipcRenderer
-// so that off() can remove the correct function.
+// Legacy off() is retained for compatibility, but callback identity is not stable
+// across contextBridge. Renderer callers must use the disposer returned by on().
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IpcListener = (event: Electron.IpcRendererEvent, ...args: any[]) => void
 const ipcListenerWrappers = new Map<string, Map<IpcListener, IpcListener>>()
@@ -42,7 +42,18 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
       listener(event, ...rest)
     if (!ipcListenerWrappers.has(channel)) ipcListenerWrappers.set(channel, new Map())
     ipcListenerWrappers.get(channel)!.set(listener, wrapper)
-    return ipcRenderer.on(channel, wrapper)
+    ipcRenderer.on(channel, wrapper)
+    let active = true
+    return () => {
+      if (!active) return
+      active = false
+      const channelMap = ipcListenerWrappers.get(channel)
+      if (channelMap?.get(listener) === wrapper) {
+        channelMap.delete(listener)
+        if (channelMap.size === 0) ipcListenerWrappers.delete(channel)
+      }
+      ipcRenderer.off(channel, wrapper)
+    }
   },
   off(...args: Parameters<typeof ipcRenderer.off>) {
     const [channel, listener] = args

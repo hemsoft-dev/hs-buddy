@@ -81,7 +81,9 @@ function createIpcRendererMock() {
     on(channel: string, listener: IpcListener) {
       if (!listeners[channel]) listeners[channel] = []
       listeners[channel].push(listener)
-      return mock
+      return () => {
+        mock.off(channel, listener)
+      }
     },
     off(channel: string, listener: IpcListener) {
       const arr = listeners[channel]
