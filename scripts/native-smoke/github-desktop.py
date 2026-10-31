@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import os
+import struct
 from pathlib import Path
 import urllib.request
 
@@ -76,9 +77,31 @@ def analysis_images(path):
     yield image
 
 
-def check(path, *markers, absent=()):
+def browser_analysis(path):
+    # Retain tabs and the page together, excluding only the shared status bar.
+    # Infer its boundary from ordered visible labels, never a fixed DPI/height.
+    width = struct.unpack(">II", path.read_bytes()[16:24])[0]
+    for analysis in analysis_images(path):
+        scale = struct.unpack(">II", analysis.read_bytes()[16:24])[0] / width
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(analysis, mode=mode)
+            footer = settings.ocr.status_footer(words)
+            if not footer:
+                continue
+            bottom = int((footer["top"] - footer["height"] / 2) / scale)
+            if bottom <= 0:
+                raise RuntimeError("The status footer leaves no browser content")
+            image = path.with_suffix(".browser-ocr.png")
+            settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+                "-vf", f"crop=iw:{bottom}:0:0:exact=1", "-frames:v", "1", image)
+            yield from analysis_images(image)
+            return
+    raise RuntimeError("The browser screenshot has no unique native status footer")
+
+
+def check(path, *markers, absent=(), browser=False):
     missing = None
-    for image in analysis_images(path):
+    for image in (browser_analysis(path) if browser else analysis_images(path)):
         for mode in (11, 3, 6):
             complete = True
             try:

@@ -1,3 +1,4 @@
+import fixture from './matching-fixture.json'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, writeFile } from 'node:fs/promises'
@@ -250,6 +251,8 @@ async function runFreshProfile(
     profilePath,
     async () => {
       if (!executablePath) throw new Error('No Electron executable was prepared')
+      await writeJson(path.join(profilePath, 'config.json'), fixture.config)
+      await writeJson(path.join(profilePath, 'window-state.json'), fixture.windowState)
       runtime = await launchRuntime(options.mode, executablePath, profilePath)
       const page = runtime.page
       await page.waitForSelector('.activity-bar', { visible: true, timeout: 60_000 })

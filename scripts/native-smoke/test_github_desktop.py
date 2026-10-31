@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import struct
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -51,6 +52,67 @@ class InstalledEvidence(unittest.TestCase):
             return fixture['original'][offset + (11, 3, 6).index(mode)]
         with TemporaryDirectory() as temporary, patch.object(desktop.settings, 'run', side_effect=recognize):
             desktop.check(Path(temporary) / 'page.png', 'FIXTURE PAGE', 'Visit 1', 'Buddy Fixture OK')
+
+    def browser_footer_fixture(self):
+        return json.loads(Path(__file__).with_name('fixtures').joinpath('browser-status-footer.json').read_text(encoding='utf-8'))
+
+    def replay_browser_footer(self, temporary, *, missing_page=False, missing_footer=False):
+        fixture = self.browser_footer_fixture()
+        image = Path(temporary) / 'blocked-dark.png'
+        image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', fixture['width'], fixture['height']))
+        crops = []
+        def run(*args, **kwargs):
+            if args[0] == 'ffmpeg':
+                source = Path(args[args.index('-i') + 1])
+                width, height = struct.unpack('>II', source.read_bytes()[16:24])
+                filters = args[args.index('-vf') + 1]
+                if filters.startswith('crop='):
+                    crops.append(filters)
+                    height = int(filters.split(':')[1])
+                else:
+                    width *= 3; height *= 3
+                Path(args[-1]).write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', width, height))
+                return ''
+            name, mode = Path(args[1]).name, int(args[args.index('--psm') + 1])
+            if '.browser-ocr' in name:
+                text = next((attempt['text'] for attempt in fixture['scoped'] if attempt['image'] == name and attempt['mode'] == mode), '')
+                return text.replace('PROBE PAGE', '') if missing_page else text
+            offset = 6 if 'inverted' in name else 3 if 'scale3' in name else 0
+            return fixture['original'][offset + (11, 3, 6).index(mode)]
+        def recognize(path, mode):
+            if missing_footer: return []
+            return next((layout['words'] for layout in fixture['footerLayouts'] if layout['image'] == path.name and layout['mode'] == mode), [])
+        return image, crops, run, recognize
+
+    def test_real_windows_browser_capture_needs_footer_excluded_from_one_layout(self):
+        with TemporaryDirectory() as temporary:
+            image, crops, run, recognize = self.replay_browser_footer(temporary)
+            original = image.read_bytes()
+            with patch.object(desktop.settings, 'run', side_effect=run), patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
+                    desktop.check(image, 'PROBE PAGE', 'Downloads are blocked', 'Bookmarks', 'Buddy Probe')
+                desktop.check(image, 'PROBE PAGE', 'Downloads are blocked', 'Bookmarks', 'Buddy Probe', browser=True)
+            self.assertEqual(crops, ['crop=iw:759:0:0:exact=1'])
+            self.assertEqual(image.read_bytes(), original)
+            self.assertNotIn('schedules', image.with_suffix('.ocr.txt').read_text())
+
+    def test_browser_footer_scope_cannot_supply_missing_page_text(self):
+        with TemporaryDirectory() as temporary:
+            image, _, run, recognize = self.replay_browser_footer(temporary, missing_page=True)
+            with patch.object(desktop.settings, 'run', side_effect=run), patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
+                    desktop.check(image, 'PROBE PAGE', 'Downloads are blocked', 'Bookmarks', 'Buddy Probe', browser=True)
+
+    def test_browser_scope_requires_a_visible_footer_and_propagates_ambiguity(self):
+        with TemporaryDirectory() as temporary:
+            image, _, run, recognize = self.replay_browser_footer(temporary, missing_footer=True)
+            with patch.object(desktop.settings, 'run', side_effect=run), patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                with self.assertRaisesRegex(RuntimeError, 'no unique native status footer'):
+                    desktop.check(image, 'PROBE PAGE', browser=True)
+            with patch.object(desktop.settings.ocr, 'recognize', side_effect=desktop.settings.ocr.AmbiguousLabel('competing footer')) as recognize:
+                with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
+                    desktop.check(image, 'PROBE PAGE', browser=True)
+                self.assertEqual(recognize.call_count, 1)
 
     def review_fixture(self):
         return json.loads(Path(__file__).with_name('fixtures').joinpath('review-result-wrapped-words.json').read_text(encoding='utf-8'))

@@ -175,14 +175,14 @@ function subscribeToTerminalEvents({
   onExit,
   onCwdChanged,
 }: TerminalEventHandlers): () => void {
-  window.ipcRenderer.on(IPC_PUSH.TERMINAL_DATA, onData)
-  window.ipcRenderer.on(IPC_PUSH.TERMINAL_EXIT, onExit)
-  window.ipcRenderer.on(IPC_PUSH.TERMINAL_CWD_CHANGED, onCwdChanged)
+  const removeData = window.ipcRenderer.on(IPC_PUSH.TERMINAL_DATA, onData)
+  const removeExit = window.ipcRenderer.on(IPC_PUSH.TERMINAL_EXIT, onExit)
+  const removeCwd = window.ipcRenderer.on(IPC_PUSH.TERMINAL_CWD_CHANGED, onCwdChanged)
 
   return () => {
-    window.ipcRenderer.off(IPC_PUSH.TERMINAL_DATA, onData)
-    window.ipcRenderer.off(IPC_PUSH.TERMINAL_EXIT, onExit)
-    window.ipcRenderer.off(IPC_PUSH.TERMINAL_CWD_CHANGED, onCwdChanged)
+    removeData()
+    removeExit()
+    removeCwd()
   }
 }
 

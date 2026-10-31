@@ -18,6 +18,34 @@ def normalize(text):
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
+def status_footer(words):
+    """Measure the unique ordered totals row at the bottom of an OCR layout."""
+    bottom = max((word["top"] + word["height"] for word in words), default=0)
+    def status_label(word, label):
+        text = normalize(word["text"])
+        if text == label:
+            return True
+        # The captured Windows OCR joins zero and jobs as "Ojobs".
+        prefix = text[:-len(label)] if text.endswith(label) else ""
+        return bool(prefix) and all(c.isdecimal() or c == "o" for c in prefix)
+
+    footers = []
+    for candidate in (word for word in words if status_label(word, "prs")):
+        row = [word for word in words if abs(word["top"] - candidate["top"])
+            <= max(word["height"], candidate["height"]) / 2]
+        labels = [[word for word in row if status_label(word, label)]
+            for label in ("prs", "schedules", "jobs")]
+        if not all(len(matches) == 1 for matches in labels):
+            continue
+        positions = [matches[0]["left"] for matches in labels]
+        height = max(word["height"] for word in row)
+        if positions == sorted(set(positions)) and candidate["top"] >= bottom - 2 * height:
+            footers.append(dict(top=min(word["top"] for word in row), height=height))
+    if len(footers) > 1:
+        raise AmbiguousLabel("More than one native status footer is visible")
+    return footers[0] if footers else None
+
+
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
     wanted = normalize(label)
     if not wanted:
@@ -59,31 +87,9 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
         # The shared totals footer is chrome too. Identify its three ordered
         # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
         # Older captures without totals retain the existing upper-bound scope.
-        bottom = max((word["top"] + word["height"] for word in words), default=0)
-        def status_label(word, label):
-            text = normalize(word["text"])
-            if text == label:
-                return True
-            # The captured Windows OCR joins zero and jobs as "Ojobs".
-            prefix = text[:-len(label)] if text.endswith(label) else ""
-            return bool(prefix) and all(c.isdecimal() or c == "o" for c in prefix)
-
-        footers = []
-        for candidate in (word for word in words if status_label(word, "prs")):
-            row = [word for word in words if abs(word["top"] - candidate["top"])
-                <= max(word["height"], candidate["height"]) / 2]
-            labels = [[word for word in row if status_label(word, label)]
-                for label in ("prs", "schedules", "jobs")]
-            if not all(len(matches) == 1 for matches in labels):
-                continue
-            positions = [matches[0]["left"] for matches in labels]
-            height = max(word["height"] for word in row)
-            if positions == sorted(set(positions)) and candidate["top"] >= bottom - 2 * height:
-                footers.append(min(word["top"] for word in row))
-        if len(footers) > 1:
-            raise AmbiguousLabel("More than one native status footer is visible")
-        if footers:
-            words = [word for word in words if word["top"] < footers[0]]
+        footer = status_footer(words)
+        if footer:
+            words = [word for word in words if word["top"] < footer["top"]]
     if between is not None:
         # A scene may name the two visible field labels bounding a row.
         # Use their tops: OCR can absorb an input border into a label's height.

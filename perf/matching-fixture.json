@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "routes": [
+    "settings-accounts",
+    "bookmarks-all",
+    "automation-schedules",
+    "pr-my-prs",
+    "terminal-workspace",
+    "dashboard"
+  ],
+  "config": {
+    "github": {
+      "accounts": []
+    },
+    "native": {
+      "activeSection": null
+    },
+    "ui": {
+      "theme": "dark",
+      "dashboardCards": {
+        "weather": false,
+        "finance": false
+      }
+    }
+  },
+  "electronLabels": {
+    "dashboard": "Dashboard",
+    "settings-accounts": "Accounts",
+    "bookmarks-all": "All Bookmarks",
+    "automation-schedules": "Schedules",
+    "pr-my-prs": "My PRs",
+    "terminal-workspace": "Terminal Workspace"
+  },
+  "windowState": {
+    "x": 80,
+    "y": 80,
+    "width": 1200,
+    "height": 820,
+    "isMaximized": false,
+    "isFullScreen": false
+  }
+}

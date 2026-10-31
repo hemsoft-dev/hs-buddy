@@ -1,0 +1,1798 @@
+{
+  "schema": 1,
+  "status": "pass",
+  "platform": "Windows-11-10.0.28000-SP0",
+  "architecture": "AMD64",
+  "capturedAt": "2026-10-30T22:46:44.132610-04:00",
+  "appVersion": "0.1.1586",
+  "psutilVersion": "7.2.2",
+  "websocketVersion": "1.9.2",
+  "pythonVersion": "3.14.7",
+  "logicalCpus": 20,
+  "totalPhysicalMemoryBytes": 34027610112,
+  "electronAsarSha256": "7984304271e2795311f8a3c35efe239b39999768bd14f60438a039c5fb880dfa",
+  "runnerImage": null,
+  "runnerImageVersion": null,
+  "revision": "fd97991aa1bcef786aa843519180845cfb5fbe2a",
+  "executables": {
+    "native": {
+      "sha256": "095500692dded1b887e8987a9298df26ed1e61f42557a2fe2f8de8896c37b0ec"
+    },
+    "electron": {
+      "sha256": "8af071014ba76793672289a0d3b0a3516a105b20eee9094c48170502e4f800fa"
+    }
+  },
+  "harnessSha256": "4e29ff906d8778bf5c1f466559eb7dd5f80e1b7af7378608dfac4c9a3680c18d",
+  "budgetSha256": "ce424f082c9fe11585820903fd84710de30b0072b74dcc57984a8909ff09a2ea",
+  "electronMeasurementFlags": [
+    "--disable-features=CalculateNativeWinOcclusion",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling"
+  ],
+  "fixtureSha256": "45634bd207e76e126db2db68bf3ed08374cbef8e12c11e007ff7aa5f1ffd8ed5",
+  "options": {
+    "native": "rust\\target\\release\\buddy.exe",
+    "electron": "release\\0.1.1586\\win-unpacked\\Buddy.exe",
+    "electron_development": false,
+    "runs": 5,
+    "warmup": 300,
+    "settle": 5,
+    "cycles": 3,
+    "output": "comparison.json"
+  },
+  "runs": [
+    {
+      "native": {
+        "startupMs": 2782.071400026325,
+        "viewport": {
+          "width": 1199.3333740234375,
+          "height": 820.0,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 4
+        },
+        "responseMedianMs": 53.57535000075586,
+        "responseMaxMs": 171.25020001549274,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 37.07540000323206
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 51.18819995550439
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 100.9471999714151
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 70.36539999535307
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 67.63380003394559
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 51.5715999645181
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 31.110099982470274
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 53.390199958812445
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 171.25020001549274
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 45.21099996054545
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 58.68400004692376
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 47.07020003115758
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 70.35280001582578
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 87.82949997112155
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 73.25120002496988
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 32.27839997271076
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 57.36009997781366
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 61.87939998926595
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 53.76050004269928
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 55.14880002010614
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 33.83819997543469
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 37.16340003302321
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 39.941800001543015
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 41.10309999668971
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 98504704,
+            "privateBytes": 253431808
+          },
+          "dashboard-warm": {
+            "rssBytes": 58408960,
+            "privateBytes": 121286656
+          },
+          "settings-idle": {
+            "rssBytes": 61362176,
+            "privateBytes": 122089472
+          },
+          "navigation-baseline": {
+            "rssBytes": 59797504,
+            "privateBytes": 122318848
+          },
+          "navigation-cleanup": {
+            "rssBytes": 55480320,
+            "privateBytes": 122757120
+          }
+        },
+        "peak": {
+          "rssBytes": 139321344,
+          "privateBytes": 280457216
+        },
+        "sampleCount": 2566,
+        "log": "native-1793411368710738400.log",
+        "measurementSeconds": 341.59958360000746,
+        "meanHostCpuPercent": 18.142846003898637,
+        "maxSamplingGapMs": 2454.2587000178173
+      },
+      "electron": {
+        "startupMs": 4652.428000001237,
+        "viewport": {
+          "width": 1201,
+          "height": 823,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 0
+        },
+        "responseMedianMs": 9.080850024474785,
+        "responseMaxMs": 37.9765999969095,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 8.530499995686114
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 9.041599987540394
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 8.193799993023276
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 12.412599986419082
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 6.599200016353279
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 8.632000011857599
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 8.021699963137507
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 7.404099975246936
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 10.91650000307709
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 9.609200002159923
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 8.026800001971424
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 33.9500000118278
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 8.732100017368793
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 7.104200019966811
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 10.802200005855411
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 11.143399984575808
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 7.947700039949268
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 7.27920001372695
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 35.022900032345206
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 37.9765999969095
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 6.870100041851401
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 9.429600031580776
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 7.552600000053644
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 11.21709996368736
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 556101632,
+            "privateBytes": 402165760
+          },
+          "dashboard-warm": {
+            "rssBytes": 234377216,
+            "privateBytes": 351940608
+          },
+          "settings-idle": {
+            "rssBytes": 283262976,
+            "privateBytes": 367390720
+          },
+          "navigation-baseline": {
+            "rssBytes": 270462976,
+            "privateBytes": 362188800
+          },
+          "navigation-cleanup": {
+            "rssBytes": 279277568,
+            "privateBytes": 364945408
+          }
+        },
+        "peak": {
+          "rssBytes": 577863680,
+          "privateBytes": 471744512
+        },
+        "sampleCount": 2616,
+        "log": "electron-1793411710438883900.log",
+        "measurementSeconds": 344.5146764999954,
+        "meanHostCpuPercent": 14.557246653919695,
+        "maxSamplingGapMs": 409.16769998148084
+      }
+    },
+    {
+      "electron": {
+        "startupMs": 4434.763099998236,
+        "viewport": {
+          "width": 1201,
+          "height": 823,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 0
+        },
+        "responseMedianMs": 8.514450018992648,
+        "responseMaxMs": 23.734799993690103,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 6.937499972991645
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 18.202300008852035
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 12.87380000576377
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 13.290599978063256
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 11.039200006052852
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 23.329900053795427
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 6.620200001634657
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 7.352100044954568
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 6.5605000127106905
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 8.946800022386014
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 9.017299977131188
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 17.597300000488758
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 8.06010002270341
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 7.198499981313944
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 23.734799993690103
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 18.612900050356984
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 15.540699998382479
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 12.206099985633045
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 7.139099994674325
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 7.456499966792762
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 8.08210001559928
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 13.437100045848638
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 10.82460000179708
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 8.044700021855533
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 548446208,
+            "privateBytes": 401162240
+          },
+          "dashboard-warm": {
+            "rssBytes": 241197056,
+            "privateBytes": 351694848
+          },
+          "settings-idle": {
+            "rssBytes": 299171840,
+            "privateBytes": 368812032
+          },
+          "navigation-baseline": {
+            "rssBytes": 281591808,
+            "privateBytes": 361615360
+          },
+          "navigation-cleanup": {
+            "rssBytes": 276856832,
+            "privateBytes": 366768128
+          }
+        },
+        "peak": {
+          "rssBytes": 570720256,
+          "privateBytes": 467509248
+        },
+        "sampleCount": 2590,
+        "log": "electron-1793412055394916000.log",
+        "measurementSeconds": 344.4328611000092,
+        "meanHostCpuPercent": 18.333951332560833,
+        "maxSamplingGapMs": 225.39150004740804
+      },
+      "native": {
+        "startupMs": 2811.313299986068,
+        "viewport": {
+          "width": 1199.3333740234375,
+          "height": 820.0,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 4
+        },
+        "responseMedianMs": 51.69215000933036,
+        "responseMaxMs": 169.63230003602803,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 21.485900040715933
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 53.67890000343323
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 63.447299995459616
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 77.58859999012202
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 103.90069999266416
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 81.90859999740496
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 51.63820000598207
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 47.76440002024174
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 42.681199964135885
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 76.31360000232235
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 66.91259995568544
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 49.084900005254894
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 33.07179996045306
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 68.65589995868504
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 62.11929995333776
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 43.34249999374151
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 54.95710001559928
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 50.49630004214123
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 77.15590001316741
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 51.74610001267865
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 88.80720002343878
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 35.129699972458184
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 169.63230003602803
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 28.969399980269372
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 113246208,
+            "privateBytes": 253116416
+          },
+          "dashboard-warm": {
+            "rssBytes": 59002880,
+            "privateBytes": 121249792
+          },
+          "settings-idle": {
+            "rssBytes": 61911040,
+            "privateBytes": 121872384
+          },
+          "navigation-baseline": {
+            "rssBytes": 57913344,
+            "privateBytes": 122281984
+          },
+          "navigation-cleanup": {
+            "rssBytes": 57171968,
+            "privateBytes": 122081280
+          }
+        },
+        "peak": {
+          "rssBytes": 140193792,
+          "privateBytes": 281665536
+        },
+        "sampleCount": 2644,
+        "log": "native-1793412400310993700.log",
+        "measurementSeconds": 342.10343010001816,
+        "meanHostCpuPercent": 18.55830495648884,
+        "maxSamplingGapMs": 242.76039999676868
+      }
+    },
+    {
+      "native": {
+        "startupMs": 1830.1639000419527,
+        "viewport": {
+          "width": 1199.3333740234375,
+          "height": 820.0,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 4
+        },
+        "responseMedianMs": 43.04009999032132,
+        "responseMaxMs": 166.8721999740228,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 64.10590000450611
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 57.40029999287799
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 39.38979998929426
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 54.10040001152083
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 24.72769998712465
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 32.035999989602715
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 53.18990000523627
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 49.49879995547235
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 28.81589997559786
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 39.715100021567196
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 34.895399992819875
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 43.27369999373332
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 42.80649998690933
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 166.8721999740228
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 66.25099998200312
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 48.39529999298975
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 43.56769996229559
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 42.558500019367784
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 45.33960000844672
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 28.991200029850006
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 36.661699996329844
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 28.91920000547543
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 68.25760001083836
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 28.445900010410696
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 98349056,
+            "privateBytes": 253222912
+          },
+          "dashboard-warm": {
+            "rssBytes": 55681024,
+            "privateBytes": 121704448
+          },
+          "settings-idle": {
+            "rssBytes": 58933248,
+            "privateBytes": 121786368
+          },
+          "navigation-baseline": {
+            "rssBytes": 58089472,
+            "privateBytes": 122703872
+          },
+          "navigation-cleanup": {
+            "rssBytes": 58347520,
+            "privateBytes": 123056128
+          }
+        },
+        "peak": {
+          "rssBytes": 139587584,
+          "privateBytes": 281579520
+        },
+        "sampleCount": 2586,
+        "log": "native-1793412742611247300.log",
+        "measurementSeconds": 340.37931860005483,
+        "meanHostCpuPercent": 21.49880077369439,
+        "maxSamplingGapMs": 218.26180000789464
+      },
+      "electron": {
+        "startupMs": 6235.081199964043,
+        "viewport": {
+          "width": 1201,
+          "height": 823,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 0
+        },
+        "responseMedianMs": 9.715300024254248,
+        "responseMaxMs": 27.317500032950193,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 26.838699996005744
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 18.63400003639981
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 13.972500048112124
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 11.480000044684857
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 8.006899966858327
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 30.67969996482134
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 22.45059999404475
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 9.057699993718415
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 23.629399947822094
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 10.195699986070395
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 9.036800009198487
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 27.317500032950193
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 9.404800017364323
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 7.563899969682097
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 9.688000020105392
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 13.739900023210794
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 8.929300005547702
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 8.246799989137799
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 7.027400017250329
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 9.742600028403103
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 13.430499995592982
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 12.174699979368597
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 9.404200012795627
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 10.192900022957474
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 569815040,
+            "privateBytes": 423989248
+          },
+          "dashboard-warm": {
+            "rssBytes": 219734016,
+            "privateBytes": 351035392
+          },
+          "settings-idle": {
+            "rssBytes": 276652032,
+            "privateBytes": 368631808
+          },
+          "navigation-baseline": {
+            "rssBytes": 248377344,
+            "privateBytes": 361242624
+          },
+          "navigation-cleanup": {
+            "rssBytes": 223096832,
+            "privateBytes": 364404736
+          }
+        },
+        "peak": {
+          "rssBytes": 575221760,
+          "privateBytes": 468000768
+        },
+        "sampleCount": 2563,
+        "log": "electron-1793413083100056400.log",
+        "measurementSeconds": 346.3406959999702,
+        "meanHostCpuPercent": 15.4980093676815,
+        "maxSamplingGapMs": 284.1451999847777
+      }
+    },
+    {
+      "electron": {
+        "startupMs": 5937.734699982684,
+        "viewport": {
+          "width": 1201,
+          "height": 823,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 0
+        },
+        "responseMedianMs": 8.704250009031966,
+        "responseMaxMs": 31.262500036973506,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 8.013599959667772
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 25.14580002753064
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 10.666799964383245
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 9.059300005901605
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 7.001099991612136
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 8.583299990277737
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 18.255400005728006
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 14.248099992983043
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 10.645800037309527
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 8.210500003769994
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 31.262500036973506
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 11.080700031016022
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 8.349399955477566
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 8.720999991055578
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 7.391199993435293
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 7.9200000036507845
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 8.047199982684106
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 7.859600009396672
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 11.184000002685934
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 7.618000032380223
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 9.458000015001744
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 9.27919999230653
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 8.687500027008355
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 7.5783999636769295
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 529330176,
+            "privateBytes": 388308992
+          },
+          "dashboard-warm": {
+            "rssBytes": 221323264,
+            "privateBytes": 348119040
+          },
+          "settings-idle": {
+            "rssBytes": 272793600,
+            "privateBytes": 362557440
+          },
+          "navigation-baseline": {
+            "rssBytes": 280064000,
+            "privateBytes": 358404096
+          },
+          "navigation-cleanup": {
+            "rssBytes": 256425984,
+            "privateBytes": 367468544
+          }
+        },
+        "peak": {
+          "rssBytes": 561295360,
+          "privateBytes": 472788992
+        },
+        "sampleCount": 2535,
+        "log": "electron-1793413430045840500.log",
+        "measurementSeconds": 345.8726965999813,
+        "meanHostCpuPercent": 11.552446724546172,
+        "maxSamplingGapMs": 222.7044000173919
+      },
+      "native": {
+        "startupMs": 2930.5140000069514,
+        "viewport": {
+          "width": 1199.3333740234375,
+          "height": 820.0,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 4
+        },
+        "responseMedianMs": 46.68820003280416,
+        "responseMaxMs": 82.73720002034679,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 38.06359996087849
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 60.303500038571656
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 52.71289998199791
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 65.99969998933375
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 43.137500004377216
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 60.77129999175668
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 53.46649995772168
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 82.73720002034679
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 28.107999998610467
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 48.30740002216771
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 53.32200002158061
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 45.06900004344061
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 80.0242000259459
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 53.3292000181973
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 43.567099957726896
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 33.00230001332238
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 30.748200020752847
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 32.55959996022284
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 50.586999976076186
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 70.54669997887686
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 66.4354000473395
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 35.08880001027137
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 43.26740000396967
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 31.779199955053627
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 98213888,
+            "privateBytes": 253194240
+          },
+          "dashboard-warm": {
+            "rssBytes": 56074240,
+            "privateBytes": 121200640
+          },
+          "settings-idle": {
+            "rssBytes": 59502592,
+            "privateBytes": 122040320
+          },
+          "navigation-baseline": {
+            "rssBytes": 54489088,
+            "privateBytes": 122683392
+          },
+          "navigation-cleanup": {
+            "rssBytes": 59719680,
+            "privateBytes": 122462208
+          }
+        },
+        "peak": {
+          "rssBytes": 138805248,
+          "privateBytes": 280211456
+        },
+        "sampleCount": 2627,
+        "log": "native-1793413776554961200.log",
+        "measurementSeconds": 341.49311280000256,
+        "meanHostCpuPercent": 16.855978674790556,
+        "maxSamplingGapMs": 174.29840000113472
+      }
+    },
+    {
+      "native": {
+        "startupMs": 945.2085000229999,
+        "viewport": {
+          "width": 1199.3333740234375,
+          "height": 820.0,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 4
+        },
+        "responseMedianMs": 39.36140000587329,
+        "responseMaxMs": 136.057699972298,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 40.32039997400716
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 49.15330000221729
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 40.22569995140657
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 37.138499959837645
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 27.70450001116842
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 35.636299988254905
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 136.057699972298
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 29.908400028944016
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 36.50119999656454
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 52.058500004932284
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 36.46829997887835
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 50.27389997849241
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 29.3701000045985
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 63.45750001491979
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 38.6030999943614
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 46.45749996416271
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 65.28929999331012
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 24.116699991282076
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 42.8348999703303
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 32.167700002901256
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 52.44399997172877
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 24.903799989260733
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 36.74990002764389
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 40.119700017385185
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 98664448,
+            "privateBytes": 253575168
+          },
+          "dashboard-warm": {
+            "rssBytes": 59113472,
+            "privateBytes": 121675776
+          },
+          "settings-idle": {
+            "rssBytes": 53633024,
+            "privateBytes": 122339328
+          },
+          "navigation-baseline": {
+            "rssBytes": 61009920,
+            "privateBytes": 122777600
+          },
+          "navigation-cleanup": {
+            "rssBytes": 61960192,
+            "privateBytes": 122793984
+          }
+        },
+        "peak": {
+          "rssBytes": 138457088,
+          "privateBytes": 279834624
+        },
+        "sampleCount": 2602,
+        "log": "native-1793414118163712700.log",
+        "measurementSeconds": 339.42220939998515,
+        "meanHostCpuPercent": 19.726874279123415,
+        "maxSamplingGapMs": 198.607099999208
+      },
+      "electron": {
+        "startupMs": 5585.075500013772,
+        "viewport": {
+          "width": 1201,
+          "height": 823,
+          "scale": 1.5
+        },
+        "diagnostics": {
+          "RefCell already borrowed": 0,
+          "unable to get cursor position": 0
+        },
+        "responseMedianMs": 10.408050002297387,
+        "responseMaxMs": 34.28079996956512,
+        "responseSamples": [
+          {
+            "route": "settings-accounts",
+            "cycle": 0,
+            "ms": 8.859399997163564
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 0,
+            "ms": 27.64529996784404
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 0,
+            "ms": 16.077200009021908
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 0,
+            "ms": 8.403500018175691
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 0,
+            "ms": 9.471500001382083
+          },
+          {
+            "route": "dashboard",
+            "cycle": 0,
+            "ms": 29.83070001937449
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 1,
+            "ms": 12.003399955574423
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 1,
+            "ms": 15.793099999427795
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 1,
+            "ms": 7.195200014393777
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 1,
+            "ms": 8.514399989508092
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 1,
+            "ms": 7.856799988076091
+          },
+          {
+            "route": "dashboard",
+            "cycle": 1,
+            "ms": 11.223800014704466
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 2,
+            "ms": 9.242699947208166
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 2,
+            "ms": 31.340899993665516
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 2,
+            "ms": 29.098200029693544
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 2,
+            "ms": 24.03900003992021
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 2,
+            "ms": 8.255799999460578
+          },
+          {
+            "route": "dashboard",
+            "cycle": 2,
+            "ms": 34.28079996956512
+          },
+          {
+            "route": "settings-accounts",
+            "cycle": 3,
+            "ms": 7.022399979177862
+          },
+          {
+            "route": "bookmarks-all",
+            "cycle": 3,
+            "ms": 8.115499978885055
+          },
+          {
+            "route": "automation-schedules",
+            "cycle": 3,
+            "ms": 9.939100011251867
+          },
+          {
+            "route": "pr-my-prs",
+            "cycle": 3,
+            "ms": 10.876999993342906
+          },
+          {
+            "route": "terminal-workspace",
+            "cycle": 3,
+            "ms": 15.180199989117682
+          },
+          {
+            "route": "dashboard",
+            "cycle": 3,
+            "ms": 8.778699964750558
+          }
+        ],
+        "scenarios": {
+          "dashboard-cold": {
+            "rssBytes": 554668032,
+            "privateBytes": 408772608
+          },
+          "dashboard-warm": {
+            "rssBytes": 229535744,
+            "privateBytes": 344956928
+          },
+          "settings-idle": {
+            "rssBytes": 254451712,
+            "privateBytes": 342192128
+          },
+          "navigation-baseline": {
+            "rssBytes": 231616512,
+            "privateBytes": 355753984
+          },
+          "navigation-cleanup": {
+            "rssBytes": 273080320,
+            "privateBytes": 367886336
+          }
+        },
+        "peak": {
+          "rssBytes": 560996352,
+          "privateBytes": 479117312
+        },
+        "sampleCount": 2577,
+        "log": "electron-1793414457714580600.log",
+        "measurementSeconds": 345.625116500014,
+        "meanHostCpuPercent": 23.57057453416149,
+        "maxSamplingGapMs": 208.87899998342618
+      }
+    }
+  ],
+  "medians": {
+    "native": {
+      "startupMs": 2782.071400026325,
+      "responseMedianMs": 46.68820003280416,
+      "responseMaxMs": 166.8721999740228,
+      "maxSamplingGapMs": 218.26180000789464,
+      "dashboard-cold": {
+        "rssBytes": 98504704,
+        "privateBytes": 253222912
+      },
+      "dashboard-warm": {
+        "rssBytes": 58408960,
+        "privateBytes": 121286656
+      },
+      "settings-idle": {
+        "rssBytes": 59502592,
+        "privateBytes": 122040320
+      },
+      "navigation-baseline": {
+        "rssBytes": 58089472,
+        "privateBytes": 122683392
+      },
+      "navigation-cleanup": {
+        "rssBytes": 58347520,
+        "privateBytes": 122757120
+      },
+      "peak": {
+        "rssBytes": 139321344,
+        "privateBytes": 280457216
+      }
+    },
+    "electron": {
+      "startupMs": 5585.075500013772,
+      "responseMedianMs": 9.080850024474785,
+      "responseMaxMs": 31.262500036973506,
+      "maxSamplingGapMs": 225.39150004740804,
+      "dashboard-cold": {
+        "rssBytes": 554668032,
+        "privateBytes": 402165760
+      },
+      "dashboard-warm": {
+        "rssBytes": 229535744,
+        "privateBytes": 351035392
+      },
+      "settings-idle": {
+        "rssBytes": 276652032,
+        "privateBytes": 367390720
+      },
+      "navigation-baseline": {
+        "rssBytes": 270462976,
+        "privateBytes": 361242624
+      },
+      "navigation-cleanup": {
+        "rssBytes": 273080320,
+        "privateBytes": 366768128
+      },
+      "peak": {
+        "rssBytes": 570720256,
+        "privateBytes": 471744512
+      }
+    }
+  },
+  "failures": [],
+  "rawResultSha256": "0eb972f381c816ae738a495c91cf160936b87c41b19e3c6c56a500fa8d70eedc",
+  "retention": "Per-run checkpoints and all route timings retained. Full memory series and input snapshots retained on laptop and in CI artifacts. Historical evidence, not a cross-runner gate.",
+  "earlierDiagnosticTrial": {
+    "capturedAt": "2026-10-30T21:47:09.184681-04:00",
+    "harnessSha256": "b2fb3e39c19a17455da059385ef282e63c1e75f6e44b55d9e8a375ae736d1df9",
+    "status": "fail",
+    "failures": ["responseMedianMs", "responseMaxMs"],
+    "exclusionReason": "Included navigation warmup in responsiveness; overlapped other Rust compilation with memory-sampling gaps up to 100 seconds."
+  }
+}

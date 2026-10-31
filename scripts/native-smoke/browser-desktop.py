@@ -211,12 +211,12 @@ def first_pass(driver, theme):
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
     ], record=True)
-    github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe")
-    github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe")
+    github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
+    github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe", browser=True)
     # The page's own text and its tab title prove which page is shown. The
     # address field's dim text read in no OCR layout on Windows (run 40647223188).
-    github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK")
-    github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK")
+    github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
+    github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
 
 
 def restart_pass(driver, theme, visit):
@@ -224,7 +224,7 @@ def restart_pass(driver, theme, visit):
     flow = driver.drive(f"restart-{theme}", [
         ("wait_text", f"Visit {visit}"), ("capture", f"restored-{theme}"),
     ], record=False)
-    github.check(flow / f"restored-{theme}.png", PAGE_TEXT, f"Visit {visit}", "Buddy Probe", "Buddy Fixture OK")
+    github.check(flow / f"restored-{theme}.png", PAGE_TEXT, f"Visit {visit}", "Buddy Probe", "Buddy Fixture OK", browser=True)
 
 
 def light_pass(driver, visit):
@@ -234,9 +234,9 @@ def light_pass(driver, visit):
         ("resize", 1200, 820),
         ("click", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
-    github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK")
-    github.check(flow / "page-compact-light.png", PAGE_TEXT)
-    github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT)
+    github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
+    github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)
+    github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT, browser=True)
 
 
 class BrowserDriver(settings.Driver):
@@ -279,8 +279,8 @@ def shortcut_pass(driver):
         ("shortcut", "shift+Tab"), ("wait_text", PROBE_TEXT),
         ("shortcut", "F4"), ("wait_text", PAGE_TEXT), ("capture", "closed-tab-light"),
     ], record=True)
-    github.check(flow / "next-tab-light.png", PAGE_TEXT, "Buddy Probe", "Buddy Fixture OK")
-    github.check(flow / "closed-tab-light.png", PAGE_TEXT, "Buddy Fixture OK")
+    github.check(flow / "next-tab-light.png", PAGE_TEXT, "Buddy Probe", "Buddy Fixture OK", browser=True)
+    github.check(flow / "closed-tab-light.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
 
 
 def saved_tabs(config):
