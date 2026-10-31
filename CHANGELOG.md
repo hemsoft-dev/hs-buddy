@@ -9,17 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1596] - 2026-10-31
+
+### Changed
+
+- Merge main telemetry qualification into native performance PR
+
 ## [0.1.1595] - 2026-10-31
 
 ### Changed
 
 - Wait for Ralph progress before capturing running state
 
+### Fixed
+
+- Retry busy disk-image primitives
+
 ## [0.1.1594] - 2026-10-31
 
 ### Changed
 
 - Merge main global-tab qualification into native performance PR
+
+### Added
+
+- Opt-in native OTLP telemetry and Aspire launch, with export/redaction tests and feature-intake qualification limits for #823 slice 8.
+- Add opt-in OTLP telemetry and qualify intake (#823)
 
 ## [0.1.1593] - 2026-10-31
 

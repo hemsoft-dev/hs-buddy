@@ -32,8 +32,10 @@ describe('Aspire AppHost isolation', () => {
     const appHost = await readFile(resolve(repoRoot, 'aspire-apphost/apphost.mts'), 'utf8')
 
     expect(appHost).toContain("from './.aspire/modules/aspire.mjs'")
-    expect(appHost.match(/\.add(?:JavaScript|Vite)App\('[^']+', '\.\.'\)/g)).toHaveLength(2)
-    expect(appHost.match(/\.withBun\(\{ install: false \}\)/g)).toHaveLength(2)
+    expect(appHost.match(/\.add(?:JavaScript|Vite)App\('[^']+', '\.\.'\)/g)).toHaveLength(3)
+    expect(appHost.match(/\.withBun\(\{ install: false \}\)/g)).toHaveLength(3)
+    expect(appHost).toContain("if (process.env.BUDDY_ASPIRE_NATIVE === '1')")
+    expect(appHost).toContain(".withRunScript('native:dev')")
   })
 
   it('keeps fixed profile ports out of the dynamic client range', async () => {
