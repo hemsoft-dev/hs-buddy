@@ -65,6 +65,13 @@ class MacMenus(unittest.TestCase):
                 menus.capture(window, 'Other app', Path('menu.png'))
             run.assert_not_called()
 
+    def test_window_wait_tolerates_launch_services_registration_delay(self):
+        window = Mock()
+        window.process.poll.return_value = None
+        with patch.object(menus, 'run', side_effect=[menus.subprocess.CalledProcessError(1, 'osascript'), '1']), \
+                patch.object(menus.time, 'sleep'):
+            menus.wait_window(window, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

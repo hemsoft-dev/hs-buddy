@@ -105,14 +105,19 @@ return rows
 
 def wait_window(window, expected):
     deadline = time.monotonic() + 30
+    last_error = None
     while time.monotonic() < deadline:
         if window.process.poll() is not None:
             raise RuntimeError('Owned native app exited during menu qualification')
-        count = int(run('osascript', '-e', window.apple('get count of windows')))
-        if count == expected:
-            return
+        try:
+            count = int(run('osascript', '-e', window.apple('get count of windows')))
+            if count == expected:
+                return
+        except (subprocess.SubprocessError, ValueError) as error:
+            # Launch Services can register the owned PID after Popen returns.
+            last_error = error
         time.sleep(.2)
-    raise RuntimeError('Native window lifecycle did not reach its expected state')
+    raise RuntimeError('Native window lifecycle did not reach its expected state') from last_error
 
 
 def main():
