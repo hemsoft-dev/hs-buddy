@@ -8,7 +8,7 @@ description = "Buddy domain models, configuration, and data providers (no UI)"
 
 [dependencies]
 opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
 opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs", "http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
 
 github-copilot-sdk = "=1.0.23-preview.2"
