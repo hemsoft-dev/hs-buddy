@@ -54,6 +54,29 @@ def verify(menu, rows, window_open=True):
             raise RuntimeError(f'Native window availability mismatch for {label}')
 
 
+def menu_rows_script(menu):
+    if menu not in CONTRACT:
+        raise RuntimeError("Native menu requires a known menu")
+    item = f'menu bar item {json.dumps(menu, ensure_ascii=False)} of menu bar 1'
+    return f'''
+set menuRows to ""
+repeat with entry in menu items of menu 1 of {item}
+    if name of entry is not missing value then
+        set k to ""
+        set m to -1
+        try
+            set k to value of attribute "AXMenuItemCmdChar" of entry
+            set m to value of attribute "AXMenuItemCmdModifiers" of entry
+        end try
+        if k is missing value then set k to ""
+        if m is missing value then set m to -1
+        set menuRows to menuRows & (name of entry) & tab & k & tab & m & tab & (enabled of entry) & linefeed
+    end if
+end repeat
+return menuRows
+'''
+
+
 def capture(window, menu, destination, window_open=True):
     # Only known application menu names enter AppleScript. Geometry and labels
     # come from this owned PID's popup, never another process or the desktop.
@@ -69,23 +92,7 @@ set s to size of popup
 return {{item 1 of p, item 2 of p, item 1 of s, item 2 of s}}
 '''
         bounds = rectangle(run('osascript', '-e', window.apple(script)))
-        script = f'''
-set rows to ""
-repeat with entry in menu items of menu 1 of {item}
-    if name of entry is not missing value then
-        set k to ""
-        set m to -1
-        try
-            set k to value of attribute "AXMenuItemCmdChar" of entry
-            set m to value of attribute "AXMenuItemCmdModifiers" of entry
-        end try
-        if k is missing value then set k to ""
-        if m is missing value then set m to -1
-        set rows to rows & (name of entry) & tab & k & tab & m & tab & (enabled of entry) & linefeed
-    end if
-end repeat
-return rows
-'''
+        script = menu_rows_script(menu)
         rows = []
         for line in run('osascript', '-e', window.apple(script)).splitlines():
             label, key, modifiers, enabled = line.split('\t')
@@ -113,7 +120,7 @@ def wait_window(window, expected):
             count = int(run('osascript', '-e', window.apple('get count of windows')))
             if count == expected:
                 return
-        except (subprocess.SubprocessError, ValueError) as error:
+        except (subprocess.SubprocessError, RuntimeError, ValueError) as error:
             # Launch Services can register the owned PID after Popen returns.
             last_error = error
         time.sleep(.2)

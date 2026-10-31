@@ -55,6 +55,18 @@ class MacMenus(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             menus.verify('Window', rows, window_open=False)
 
+    @unittest.skipUnless(menus.platform.system() == 'Darwin', 'Requires the real System Events dictionary')
+    def test_row_accumulator_is_a_local_variable_in_system_events_terms(self):
+        # Exercise the actual script prefix without sending any UI AppleEvent.
+        # "rows" resolves to System Events' crow class and fails here too.
+        prefix = menus.menu_rows_script('Buddy Native').split('repeat with', 1)[0]
+        script = ('using terms from application "System Events"\n' + prefix
+            + '\nreturn "initialized"\nend using terms from')
+        result = menus.subprocess.run(['osascript', '-e', script],
+            capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'initialized')
+
     def test_no_capture_can_target_a_dead_process_or_an_unlisted_menu(self):
         window = Mock()
         window.process.poll.return_value = 0
@@ -68,7 +80,7 @@ class MacMenus(unittest.TestCase):
     def test_window_wait_tolerates_launch_services_registration_delay(self):
         window = Mock()
         window.process.poll.return_value = None
-        with patch.object(menus, 'run', side_effect=[menus.subprocess.CalledProcessError(1, 'osascript'), '1']), \
+        with patch.object(menus, 'run', side_effect=[RuntimeError('osascript failed with exit 1'), '1']), \
                 patch.object(menus.time, 'sleep'):
             menus.wait_window(window, 1)
 
