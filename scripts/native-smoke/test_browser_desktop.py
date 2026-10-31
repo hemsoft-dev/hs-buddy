@@ -31,8 +31,10 @@ class BrowserDesktopTests(unittest.TestCase):
                 return Path('flow')
 
         driver = Driver()
-        with patch.object(desktop.github, 'check'):
+        with patch.object(desktop.github, 'check') as check:
             desktop.first_pass(driver, 'dark')
+        self.assertEqual(len(check.call_args_list), 4)
+        self.assertTrue(all(call.kwargs.get('browser') for call in check.call_args_list))
         self.assertEqual(driver.target, dict(left=182, top=44, width=78, height=9))
 
     def test_the_x11_shortcuts_are_pressed_with_the_pointer_over_a_page(self):

@@ -61,6 +61,7 @@ $h = [IntPtr]$Hwnd
 $recordFrame = 0
 $recorder = $null
 $recordDirectory = $null
+$targetSequence = 0
 [Drive]::Attach($h)
 function Save-OwnedImage([string] $Path) {
     $rect = New-Object Drive+RECT
@@ -76,11 +77,13 @@ function Save-OwnedImage([string] $Path) {
 }
 function Click-OwnedPoint([int] $X, [int] $Y) {
     $lp = [Drive]::MakeLParam($X, $Y)
-    [Drive]::PostMessageW($h, 0x200, 0, $lp) | Out-Null
+    Note "click client=$X,$Y hwnd=$h"
+    if (-not [Drive]::PostMessageW($h, 0x200, 0, $lp)) { throw 'Owned mouse move was not posted' }
     Start-Sleep -Milliseconds 150
-    [Drive]::PostMessageW($h, 0x201, 1, $lp) | Out-Null
+    if (-not [Drive]::PostMessageW($h, 0x201, 1, $lp)) { throw 'Owned mouse down was not posted' }
     Start-Sleep -Milliseconds 80
-    [Drive]::PostMessageW($h, 0x202, 0, $lp) | Out-Null
+    if (-not [Drive]::PostMessageW($h, 0x202, 0, $lp)) { throw 'Owned mouse up was not posted' }
+    Note "click messages posted client=$X,$Y"
     Start-Sleep -Milliseconds 600
 }
 function Scroll-OwnedWindow([int] $Delta, [hashtable] $Position) {
@@ -124,7 +127,20 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     [Drive]::ClientToScreen($h, [ref]$origin) | Out-Null
     $scale = [Drive]::GetDpiForWindow($h) / 96.0
     $target = Get-OwnedLabelTarget $box $Mode ($rect.r-$rect.l) $scale $LabelBottomOffset
-    return @{ X=[int]($rect.l + $target.X - $origin.x); Y=[int]($rect.t + $target.Y - $origin.y) }
+    $point = @{ X=[int]($rect.l + $target.X - $origin.x); Y=[int]($rect.t + $target.Y - $origin.y) }
+    # The shared locator image is overwritten by subsequent waits. Preserve
+    # the actual pre-click frame and transformation, not a later recording
+    # frame that merely looks similar after asynchronous view updates.
+    $script:targetSequence++
+    $directory = [IO.Path]::GetDirectoryName($Log)
+    $capture = 'target-{0:D4}.png' -f $script:targetSequence
+    Copy-Item -LiteralPath $image -Destination (Join-Path $directory $capture)
+    [ordered]@{
+        sequence = $script:targetSequence; label = $label; mode = $Mode; image = $capture
+        box = $box; window = @{ left=$rect.l; top=$rect.t; right=$rect.r; bottom=$rect.b }
+        clientOrigin = @{ x=$origin.x; y=$origin.y }; clientPoint = $point; dpi = $scale * 96
+    } | ConvertTo-Json -Depth 8 -Compress | Add-Content -Encoding utf8 (Join-Path $directory 'label-targets.jsonl')
+    return $point
 }
 # Window-relative target for an OCR label box, matching settings-desktop.py's
 # Unix geometry. `field` aims at the middle of the window width: beside the

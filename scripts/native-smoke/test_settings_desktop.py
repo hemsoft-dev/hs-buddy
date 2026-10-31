@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from unittest.mock import MagicMock, Mock, patch
 
 spec = importlib.util.spec_from_file_location("settings_desktop", Path(__file__).with_name("settings-desktop.py"))
@@ -832,9 +833,13 @@ class WindowsScrollAnchors(unittest.TestCase):
             self.assertIn("waitcontent64:" + desktop.b64("The Crew"), commands)
             for session in ("x11", "macos"):
                 driver.session = session
+                image = directory / "locator.png"
+                image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', 1200, 820))
                 with patch.object(desktop.ocr, "locate_image", return_value=dict(left=100, top=100, width=30, height=12)) as locate, \
-                        patch.object(desktop, "record_measurement"):
-                    driver.locate(Mock(), directory / "locator.png", "content", "Jobs")
+                        patch.object(desktop, "record_measurement"), \
+                        patch.object(desktop.ocr, "status_content_image", return_value=image), \
+                        patch.object(desktop.ocr, "crop_content_image", return_value=image):
+                    driver.locate(Mock(), image, "content", "Jobs")
                 self.assertTrue(locate.call_args.kwargs["content"])
 
     def test_row_boundaries_reach_windows_and_unix_without_becoming_input_text(self):
@@ -1064,6 +1069,86 @@ class MacStabilityTests(unittest.TestCase):
         driver = object.__new__(desktop.Driver)
         driver.session = "macos"
         return driver
+
+    def footer_replay(self, directory, *, moving=False, resizing=False, no_border=False):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('bookmarks-macos-stability.json').read_text())
+        def header(width, height):
+            return b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', width, height)
+        window = Mock()
+        window.captures = 0
+        def screenshot(image):
+            width = fixture['width'] + (window.captures % 2 if resizing else 0)
+            image.write_bytes(header(width, fixture['height']))
+            window.captures += 1
+        window.screenshot.side_effect = screenshot
+        crops = []
+        def run(*args, **kwargs):
+            source = Path(args[args.index('-i') + 1])
+            width, height = struct.unpack('>II', source.read_bytes()[16:24])
+            filters = args[args.index('-vf') + 1]
+            if 'rawvideo' in args:
+                pixels = zlib.decompress(base64.b64decode(fixture['footerPixelsZlibBase64']))
+                Path(args[-1]).write_bytes(bytes(len(pixels)) if no_border else pixels)
+            else:
+                if filters.startswith('crop='):
+                    height = int(filters.split(':')[1]); crops.append(height)
+                else:
+                    width *= 3; height *= 3
+                Path(args[-1]).write_bytes(header(width, height))
+            return ''
+        def recognize(image, mode):
+            return next((row['words'] for row in fixture['footerLayouts'] if row['image'] == image.name and row['mode'] == mode), [])
+        def locate(image, *args, **kwargs):
+            height = struct.unpack('>II', image.read_bytes()[16:24])[1]
+            index = window.captures - 1
+            if height != fixture['contentHeight']:
+                return fixture['observed'][index]
+            target = dict(fixture['scopedTarget'])
+            if moving: target['top'] += 40 * (index % 2)
+            return target
+        return fixture, window, crops, run, recognize, locate
+
+    def test_actual_macos_footer_frames_fail_unscoped_and_pass_in_two_scoped_measurements(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            for scoped in (False, True):
+                fixture, window, crops, run, recognize, locate = self.footer_replay(directory)
+                image = directory / 'locator.png'
+                with patch.object(desktop, 'run', side_effect=run), \
+                        patch.object(desktop.ocr, 'recognize', side_effect=recognize), \
+                        patch.object(desktop.ocr, 'locate_image', side_effect=locate):
+                    if scoped:
+                        target = self.driver().locate(window, image, 'content', 'Add bookmark')
+                        self.assertEqual(target, fixture['scopedTarget'])
+                        self.assertEqual(window.captures, 2)
+                        self.assertEqual(crops, [fixture['contentHeight']] * 2)
+                    else:
+                        with patch.object(desktop.ocr, 'status_content_image', return_value=image), \
+                                patch.object(desktop.ocr, 'crop_content_image', return_value=image):
+                            with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                                self.driver().locate(window, image, 'content', 'Add bookmark')
+                        self.assertEqual(window.captures, 4)
+
+    def test_footer_exclusion_still_rejects_moving_controls_and_window_resizes(self):
+        with tempfile.TemporaryDirectory() as root:
+            for moving, resizing in ((True, False), (False, True)):
+                _, window, _, run, recognize, locate = self.footer_replay(Path(root), moving=moving, resizing=resizing)
+                with patch.object(desktop, 'run', side_effect=run), \
+                        patch.object(desktop.ocr, 'recognize', side_effect=recognize), \
+                        patch.object(desktop.ocr, 'locate_image', side_effect=locate):
+                    with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                        self.driver().locate(window, Path(root) / 'locator.png', 'content', 'Add bookmark')
+                self.assertEqual(window.captures, 4)
+
+    def test_a_missing_painted_footer_border_fails_before_locating_a_control(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, window, _, run, recognize, _ = self.footer_replay(Path(root), no_border=True)
+            with patch.object(desktop, 'run', side_effect=run), \
+                    patch.object(desktop.ocr, 'recognize', side_effect=recognize), \
+                    patch.object(desktop.ocr, 'locate_image') as locate:
+                with self.assertRaisesRegex(RuntimeError, 'no visible separator'):
+                    self.driver().locate(window, Path(root) / 'locator.png', 'content', 'Add bookmark')
+                locate.assert_not_called()
 
     def test_pixel_jitter_counts_as_the_same_target(self):
         a = dict(left=340, top=450, width=180, height=13, row_control=dict(left=900, top=448))

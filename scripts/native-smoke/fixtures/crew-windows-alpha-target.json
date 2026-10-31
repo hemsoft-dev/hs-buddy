@@ -1,0 +1,15 @@
+{
+  "artifact": 13048101464,
+  "job": 124578738493,
+  "image": "replayed-crew/keep-dark/target-0001.png",
+  "description": "The hosted receipt's alpha bounds include the activity-bar icon; the full slug bounds are recognized from that preserved image at native resolution.",
+  "window": { "left": 80, "top": 40, "right": 1124, "bottom": 828 },
+  "clientOrigin": { "x": 88, "y": 40 },
+  "dpi": 96,
+  "labels": {
+    "alpha": { "left": 26, "top": 295, "width": 86, "height": 18 },
+    "fixture-org/alpha": { "left": 81, "top": 320, "width": 97, "height": 13 }
+  },
+  "observedBadClientPoint": { "X": 61, "Y": 304 },
+  "projectCardClientBounds": { "left": 64, "top": 280, "right": 311, "bottom": 406 }
+}

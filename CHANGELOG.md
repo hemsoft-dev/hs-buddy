@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1600] - 2026-10-31
+
+### Fixed
+
+- Stabilize Mac OCR above the measured status footer
+
+## [0.1.1599] - 2026-10-31
+
+### Fixed
+
+- Merge main and scope browser OCR above status footer
+
+## [0.1.1598] - 2026-10-31
+
+### Fixed
+
+- Select Crew projects by repository identity
+
+## [0.1.1597] - 2026-10-31
+
+### Changed
+
+- Retain Windows click targets and replay Crew packages
+
 ## [0.1.1596] - 2026-10-31
 
 ### Changed
@@ -23,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Address status totals review findings
 - Retry busy disk-image primitives
 
 ## [0.1.1594] - 2026-10-31
@@ -33,8 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Share dashboard and automation totals with shell status
 - Opt-in native OTLP telemetry and Aspire launch, with export/redaction tests and feature-intake qualification limits for #823 slice 8.
 - Add opt-in OTLP telemetry and qualify intake (#823)
+
+### Fixed
+
+- Scope session errors away from status totals
 
 ## [0.1.1593] - 2026-10-31
 

@@ -11,6 +11,46 @@ spec = importlib.util.spec_from_file_location('copilot_desktop', Path(__file__).
 copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
+class SessionErrorScope(unittest.TestCase):
+    def test_captured_errors_are_unique_and_footer_alone_cannot_satisfy_the_wait(self):
+        ocr = copilot.settings.ocr
+        for platform in ('ubuntu', 'windows', 'macos'):
+            with self.subTest(platform=platform):
+                evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
+                    f'status-session-error-{platform}.json').read_text(encoding='utf-8'))
+                words = evidence['words']
+                with self.assertRaises(ocr.AmbiguousLabel):
+                    ocr.find_label(words, 'unavailable')
+                found = ocr.find_label(words, copilot.SESSION_SOURCE_ERROR, content=True)
+                self.assertLess(found['top'], 620)
+                self.assertEqual(ocr.find_label(words, 'unavailable', content=True)['top'], found['top'])
+                error_line = next(w['line'] for w in words if w['left'] == found['left']
+                    and found['top'] <= w['top'] <= found['top'] + found['height'])
+                without_error = [w for w in words if w['line'] != error_line]
+                with self.assertRaises(RuntimeError):
+                    ocr.find_label(without_error, copilot.SESSION_SOURCE_ERROR, content=True)
+                with self.assertRaises(RuntimeError):
+                    ocr.find_label(without_error, 'unavailable', content=True)
+                duplicate = [dict(w, top=w['top']-25, line='duplicate-error')
+                    for w in words if w['line'] == error_line]
+                with self.assertRaises(ocr.AmbiguousLabel):
+                    ocr.find_label(words + duplicate, copilot.SESSION_SOURCE_ERROR, content=True)
+
+
+    def test_footer_scope_scales_with_captured_glyph_geometry(self):
+        ocr = copilot.settings.ocr
+        for platform in ('ubuntu', 'windows', 'macos'):
+            words = json.loads(Path(__file__).with_name('fixtures').joinpath(
+                f'status-session-error-{platform}.json').read_text(encoding='utf-8'))['words']
+            expected = ocr.find_label(words, 'unavailable', content=True)
+            for scale in (0.75, 1.5, 2, 3):
+                with self.subTest(platform=platform, scale=scale):
+                    scaled = [dict(w, **{key: w[key]*scale for key in ('top', 'left', 'width', 'height')})
+                        for w in words]
+                    found = ocr.find_label(scaled, 'unavailable', content=True)
+                    self.assertEqual(found, {key: value*scale for key, value in expected.items()})
+
+
 class StartupDiagnostics(unittest.TestCase):
     def logs(self, output):
         for scene in copilot.STARTUP_SCENES:

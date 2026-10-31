@@ -140,16 +140,16 @@ pub struct BuddyApp {
     pub active_section: Option<Section>,
     /// The account the `gh` CLI is currently using, once resolved.
     pub active_account: Option<String>,
-    dashboard: Entity<DashboardView>,
+    pub(crate) dashboard: Entity<DashboardView>,
     settings_view: Entity<SettingsView>,
-    github_view: Entity<GitHubView>,
+    pub(crate) github_view: Entity<GitHubView>,
     terminal_view: Entity<TerminalView>,
     terminal_panel: Entity<crate::terminal_view::panel::TerminalPanel>,
     copilot_view: Entity<CopilotView>,
     assistant: Entity<crate::copilot_view::chat::ChatView>,
     todoist_view: Entity<TodoistView>,
     tempo_view: Entity<TempoView>,
-    automation_view: Entity<AutomationView>,
+    pub(crate) automation_view: Entity<AutomationView>,
     ralph_view: Entity<RalphView>,
     crew_view: Entity<CrewView>,
     bookmarks_view: Entity<BookmarksView>,
@@ -430,6 +430,7 @@ impl BuddyApp {
         let saved = Settings::global(cx).config.native.active_section.clone();
         let section = saved.as_deref().and_then(Section::from_id);
         let dashboard = cx.new(|cx| DashboardView::new(window, cx, section.is_none()));
+        cx.observe(&dashboard, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&dashboard, |this, _, event, cx| {
             let DashboardEvent::Navigate(section) = event;
             this.set_section(Some(*section), cx);
@@ -520,6 +521,8 @@ impl BuddyApp {
         // The dispatcher claims queued runs whichever section is visible.
         let automation_view = cx.new(|cx| AutomationView::new(window, cx));
         automation_view.update(cx, |view, _| view.shell_navigation = true);
+        cx.observe(&automation_view, |_, _, cx| cx.notify())
+            .detach();
         automation_view.update(cx, |view, cx| view.start(cx));
         let ralph_view = cx.new(|cx| RalphView::new(window, cx));
         ralph_view.update(cx, |view, cx| view.start(cx));

@@ -294,6 +294,7 @@ impl DashboardView {
             _subscriptions: subscriptions,
         };
 
+        this.refresh_active_prs(false, cx);
         if active {
             this.start_visible_work(cx);
         }
@@ -368,11 +369,11 @@ impl DashboardView {
             CardId::Finance,
             FINANCE_DEFAULT_INTERVAL_MINUTES,
         );
+        self.refresh_active_prs(false, cx);
         if !self.active {
             cx.notify();
             return;
         }
-        self.refresh_active_prs(false, cx);
         let weather_visible = config.is_dashboard_card_visible(CardId::Weather.key());
         let finance_visible = config.is_dashboard_card_visible(CardId::Finance.key());
         if finance_visible
@@ -411,12 +412,12 @@ impl DashboardView {
 
     /// Once a second: fire due auto-refreshes and repaint countdowns/uptime.
     fn tick(&mut self, cx: &mut Context<Self>) {
+        self.refresh_active_prs(false, cx);
         // Like the Electron router unmounting WelcomePanel: nothing to refresh
         // or repaint while another section is shown; due work runs on return.
         if !self.active {
             return;
         }
-        self.refresh_active_prs(false, cx);
         if self.weather_refresh.is_due() && self.card_visible(CardId::Weather, cx) {
             self.refresh_weather(cx);
         }
@@ -874,6 +875,10 @@ impl DashboardView {
             self.active_prs.total,
             self.repo_bookmark_count as u64,
         )
+    }
+
+    pub(crate) fn status_prs(&self) -> (Option<u64>, bool) {
+        (self.active_prs.total, self.active_prs.error.is_some())
     }
 
     /// Connection error, or a reachability hint once the first load is overdue.

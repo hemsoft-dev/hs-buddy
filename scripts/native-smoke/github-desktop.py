@@ -62,23 +62,17 @@ def installed_binary(executable, version):
 
 
 def analysis_images(path):
-    yield path
-    # Analysis copy only; the original window capture is never edited.
-    image = path.with_suffix(".ocr-scale3.png")
-    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-        "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
-    yield image
-    # Mixed dark shell chrome and a light hosted page can segment separately.
-    # Keep one-layout matching, but offer the same contrast analysis as locators.
-    image = path.with_suffix(".ocr-scale3-inverted.png")
-    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-        "-vf", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate", "-frames:v", "1", image)
-    yield image
+    yield from settings.ocr.analysis_images(path, settings.run)
 
 
-def check(path, *markers, absent=()):
+def browser_analysis(path):
+    image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png")
+    yield from analysis_images(image)
+
+
+def check(path, *markers, absent=(), browser=False):
     missing = None
-    for image in analysis_images(path):
+    for image in (browser_analysis(path) if browser else analysis_images(path)):
         for mode in (11, 3, 6):
             complete = True
             try:

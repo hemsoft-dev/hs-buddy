@@ -73,6 +73,13 @@ def state(output):
     return json.loads((output / "native-crew" / "state.json").read_text(encoding="utf-8"))
 
 
+def project_action(name):
+    # The hosted 100% alpha caption box absorbed an activity-bar icon and
+    # placed its centre left of the card. Select the full visible repository
+    # identity, which identifies the project without using that short caption.
+    return ("content", f"fixture-org/{name}")
+
+
 def conversation(value, slug):
     project = next(item for item in value["projects"] if item["githubSlug"] == slug)
     sessions = [item for item in value["sessions"] if item["projectId"] == project["id"]]
@@ -181,7 +188,7 @@ def qualify(executable, output, session, version):
         agent_readme = "# alpha\n\nEdited by an agent.\n"
         readme.write_text(agent_readme, encoding="utf-8")
         kept = driver.drive("keep-dark", [
-            ("content", "alpha"), ("wait_text", "README.md"), ("capture", "one-change-dark"),
+            project_action("alpha"), ("wait_text", "README.md"), ("capture", "one-change-dark"),
             ("content", "Keep"), ("wait_text", "Kept the changes to README.md."), ("capture", "kept-dark"),
         ], record=True)
         github.check(kept / "one-change-dark.png", "Changed files", "README.md", "Modified", "+2", "Keep", "Undo change")
@@ -192,7 +199,7 @@ def qualify(executable, output, session, version):
 
         library.write_text("pub fn answer() -> u32 { 0 } // an agent's edit\n", encoding="utf-8")
         undone = driver.drive("undo-dark", [
-            ("content", "alpha"), ("wait_text", "Modified"),
+            project_action("alpha"), ("wait_text", "Modified"),
             ("content", "Undo change"), ("wait_text", "Confirm undo"), ("capture", "undo-confirm-dark"),
             ("content", "Confirm undo"), ("wait_text", "Undid the changes to"), ("capture", "undone-dark"),
         ], record=True)
@@ -209,7 +216,7 @@ def qualify(executable, output, session, version):
         os.symlink(outside, alpha / "outside-link", target_is_directory=True)
         readme.write_text("# alpha\n\nA second agent edit.\n", encoding="utf-8")
         linked = driver.drive("outside-dark", [
-            ("content", "alpha"), ("wait_text", "Undo is unavailable"), ("capture", "outside-dark"),
+            project_action("alpha"), ("wait_text", "Undo is unavailable"), ("capture", "outside-dark"),
         ], record=True)
         # Without the closing period: at 3x OCR dropped it on macOS Intel, the
         # one layout that read "outside-link" (run 40855157455).
@@ -226,14 +233,14 @@ def qualify(executable, output, session, version):
         light = json.loads(fixture(config.parent / "light-template", "light").read_text())
         terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
         errors = driver.drive("errors-light", [
-            ("content", "alpha"), ("wait_text", "Clear conversation"),
+            project_action("alpha"), ("wait_text", "Clear conversation"),
             ("content", "Clear conversation"), ("wait_text", "Confirm clear"), ("capture", "clear-confirm-light"),
             ("content", "Confirm clear"), ("wait_text", "Conversation cleared."), ("capture", "cleared-light"),
             ("content", "Start conversation"), ("wait_text", "No changes since this conversation started."),
             # The offline provider refuses an unmarked prompt: a service error.
             ("input", "Message", "A question the provider refuses"), ("content", "Send message"),
             ("wait_text", "Last reply failed"), ("capture", "service-error-light"),
-            ("content", "beta"), ("wait_text", "And beta?"),
+            project_action("beta"), ("wait_text", "And beta?"),
             ("input", "Message", f"{CANCEL} Keep answering"), ("content", "Send message"),
             ("wait_text", "Partial synthetic answer"), ("capture", "replying-light"),
             # The drive ends by quitting Buddy while this reply is still streaming.
@@ -244,9 +251,9 @@ def qualify(executable, output, session, version):
         github.check(errors / "replying-light.png", "Copilot is replying", "Partial synthetic answer", "Stop reply")
 
         reopened = driver.drive("restart-light", [
-            ("wait_content", "The Crew"), ("content", "beta"),
+            ("wait_content", "The Crew"), project_action("beta"),
             ("wait_text", "Buddy closed before this reply finished."), ("capture", "interrupted-light"),
-            ("content", "alpha"), ("wait_text", "A question the provider refuses"), ("capture", "restored-light"),
+            project_action("alpha"), ("wait_text", "A question the provider refuses"), ("capture", "restored-light"),
             ("resize", 900, 650), ("sleep", 1), ("capture", "compact-light"),
         ], record=True)
         github.check(reopened / "interrupted-light.png", "Buddy closed before this reply finished.",

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import time
 import uuid
@@ -441,6 +442,8 @@ class Driver:
 
     def locate(self, window, image, kind, text, row_control=None, between=None):
         previous = None
+        content_bounds = None
+        content_height = None
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
             options = dict(navigation=kind == "nav",
@@ -457,7 +460,20 @@ class Driver:
                 options["block_first"] = True
             if row_control is not None:
                 options["row_control"] = row_control
-            label = ocr.locate_image(image, text, **options)
+            scoped = image
+            if self.session == "macos" and kind in ("content", "nav"):
+                bounds = struct.unpack(">II", image.read_bytes()[16:24])
+                if bounds != content_bounds:
+                    # A resize needs a new footer boundary and two fresh
+                    # control measurements. Clock/caret changes must not
+                    # change the analysis dimensions between measurements.
+                    previous = None
+                    content_bounds = bounds
+                    scoped = ocr.status_content_image(image, run, border=True)
+                    content_height = struct.unpack(">II", scoped.read_bytes()[16:24])[1]
+                else:
+                    scoped = ocr.crop_content_image(image, content_height, run)
+            label = ocr.locate_image(scoped, text, **options)
             if self.session != "macos":
                 return label
             record_measurement(image.parent, text, label)

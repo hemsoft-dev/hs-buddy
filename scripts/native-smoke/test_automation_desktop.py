@@ -21,6 +21,52 @@ def shell_argv(command):
 
 
 class AutomationDesktopTests(unittest.TestCase):
+    def test_status_totals_accept_captured_windows_zero_only_for_expected_zero(self):
+        words = json.loads((Path(__file__).parent / "fixtures" / "status-session-error-windows.json")
+            .read_text(encoding="utf-8"))["words"]
+        desktop.verify_status_totals(words, jobs=0, schedules=0)
+        for jobs, schedules in ((1, 0), (0, 1)):
+            with self.assertRaisesRegex(RuntimeError, "missing"):
+                desktop.verify_status_totals(words, jobs, schedules)
+        for word in words:
+            word["text"] = {"O": "0", "Ojobs": "12jobs"}.get(word["text"], word["text"])
+        desktop.verify_status_totals(words, jobs=12, schedules=0)
+        with self.assertRaisesRegex(RuntimeError, "missing 2 jobs"):
+            desktop.verify_status_totals(words, jobs=2, schedules=0)
+
+    def test_status_totals_reject_body_counts_missing_footer_and_competing_zero_aliases(self):
+        words = json.loads((Path(__file__).parent / "fixtures" / "status-session-error-windows.json")
+            .read_text(encoding="utf-8"))["words"]
+        jobs = next(word for word in words if word["text"] == "Ojobs")
+        jobs["top"] -= 100  # A matching count in the content is not the footer total.
+        with self.assertRaisesRegex(RuntimeError, "missing 0 jobs"):
+            desktop.verify_status_totals(words, 0, 0)
+        jobs["top"] += 100
+        words.append(dict(jobs, text="0jobs", left=jobs["left"] + 40, line="extra"))
+        with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
+            desktop.verify_status_totals(words, 0, 0)
+        with self.assertRaisesRegex(RuntimeError, "exactly one native status footer"):
+            desktop.verify_status_totals([], 0, 0)
+
+    def test_status_totals_cannot_combine_ocr_layouts_and_engine_errors_propagate(self):
+        backend = Mock()
+        backend.query.return_value = []
+        words = json.loads((Path(__file__).parent / "fixtures" / "status-session-error-windows.json")
+            .read_text(encoding="utf-8"))["words"]
+        without_jobs = [word for word in words if word["text"] != "Ojobs"]
+        without_schedules = [word for word in words if word["text"] != "schedules"]
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "status.png"
+            with patch.object(desktop.github, "analysis_images", return_value=[image]), \
+                    patch.object(desktop.settings.ocr, "recognize",
+                        side_effect=[without_jobs, without_schedules, without_jobs]):
+                with self.assertRaisesRegex(RuntimeError, "both backend totals"):
+                    desktop.check_status_totals(image, backend)
+            with patch.object(desktop.github, "analysis_images", return_value=[image]), \
+                    patch.object(desktop.settings.ocr, "recognize", side_effect=OSError("OCR failed")):
+                with self.assertRaises(OSError):
+                    desktop.check_status_totals(image, backend)
+
     def test_non_runner_is_refused_before_argument_file_backend_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.argparse, "ArgumentParser") as parser, \
