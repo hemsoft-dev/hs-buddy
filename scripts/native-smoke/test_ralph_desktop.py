@@ -20,6 +20,36 @@ def receipt(**changes):
 
 
 class RalphDesktopTests(unittest.TestCase):
+    def test_long_running_capture_waits_for_phase_even_when_output_is_already_visible(self):
+        class SceneComplete(Exception):
+            pass
+
+        def drive(name, actions, **_kwargs):
+            if name != "stop-dark":
+                return Path("unused-captures")
+            phase_ready = False
+            for action, *values in actions:
+                value = values[0]
+                if action == "wait_text" and value == "Iterating":
+                    phase_ready = True
+                if action == "capture" and value == "long-running-dark":
+                    self.assertTrue(phase_ready, "The log can render while the phase is still Initializing")
+                    raise SceneComplete()
+            self.fail("The long-running scene was not captured")
+
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ), \
+                patch.object(desktop.github, "installed_binary", return_value={}), \
+                patch.object(desktop, "repository", return_value="fixture-head"), \
+                patch.object(desktop.settings, "Driver") as driver, \
+                patch.object(desktop.terminal, "start_sentinel"), \
+                patch.object(desktop.terminal, "stop_sentinel"), \
+                patch.object(desktop, "stop_leftovers"), \
+                patch.object(desktop.github, "check"), \
+                patch.object(desktop, "verify_receipts"):
+            driver.return_value.drive.side_effect = drive
+            with self.assertRaises(SceneComplete):
+                desktop.qualify(Path("unused-buddy"), Path(root) / "evidence", "macos", "test")
+
     def test_non_runner_is_refused_before_argument_or_desktop_access(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false", "BUDDY_SETTINGS_FIXTURE": "1"}), \
                 patch.object(desktop.argparse, "ArgumentParser") as parser:
