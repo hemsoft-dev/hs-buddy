@@ -108,6 +108,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   done
   test -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT"
   python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
+  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/macos-menus.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos-menus" --version "$version" --source-sha "$source_sha"
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/github-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/github" --session macos --version "$version"
   BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/terminal-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/terminal" --session macos --version "$version"

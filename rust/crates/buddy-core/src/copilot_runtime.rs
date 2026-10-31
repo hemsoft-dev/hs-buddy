@@ -98,6 +98,7 @@ fn sensitive_name(name: &std::ffi::OsStr) -> bool {
         "AZURE_",
         "CODEX_",
         "OTEL_",
+        "DYLD_",
     ]
     .iter()
     .any(|prefix| name.starts_with(prefix))
@@ -295,7 +296,14 @@ fn prepare_blocking(
         let _ = child.wait();
         return Err(InstallError::Unavailable);
     };
+    let Some(mut stderr) = child.stderr.take() else {
+        let _ = owner.finish();
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(InstallError::Unavailable);
+    };
     let (tx, rx) = std::sync::mpsc::channel();
+    let diagnostic_tx = tx.clone();
     let reader = std::thread::Builder::new()
         .name("buddy-runtime-output".into())
         .spawn(move || {
@@ -309,6 +317,28 @@ fn prepare_blocking(
             let _ = owner.finish();
             let _ = child.kill();
             let _ = child.wait();
+            return Err(InstallError::Unavailable);
+        }
+    };
+    // Any diagnostic remains a failure. Observe it concurrently so a full
+    // stderr pipe cannot prevent the helper from publishing its receipt.
+    // Retain only whether one byte exists, never its potentially private text.
+    let diagnostics = std::thread::Builder::new()
+        .name("buddy-runtime-diagnostics".into())
+        .spawn(move || {
+            let clean = matches!(stderr.read(&mut [0u8; 1]), Ok(0));
+            if !clean {
+                let _ = diagnostic_tx.send(Err(std::io::Error::other("helper diagnostics")));
+            }
+            clean
+        });
+    let diagnostics = match diagnostics {
+        Ok(reader) => reader,
+        Err(_) => {
+            let _ = owner.finish();
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
             return Err(InstallError::Unavailable);
         }
     };
@@ -342,19 +372,9 @@ fn prepare_blocking(
         .map(|_| ())
         .map_err(|error| CleanupFailure::capture(CleanupStage::Reap, error));
     let _ = reader.join();
+    let clean_diagnostics = diagnostics.join().unwrap_or(false);
     let bytes = preparation_result(result, cleanup.and(reaped))?;
-    if bytes.len() > 16 * 1024 {
-        return Err(InstallError::Unavailable);
-    }
-    let mut stderr = [0u8; 1];
-    if child
-        .stderr
-        .take()
-        .ok_or(InstallError::Unavailable)?
-        .read(&mut stderr)
-        .map_err(|_| InstallError::Unavailable)?
-        != 0
-    {
+    if bytes.len() > 16 * 1024 || !clean_diagnostics {
         return Err(InstallError::Unavailable);
     }
     verify_receipt(

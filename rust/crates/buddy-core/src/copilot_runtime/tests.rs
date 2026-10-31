@@ -150,10 +150,64 @@ fn helper_arguments_preserve_unicode_as_one_argument_and_use_owned_homes() {
         "OTEL_EXPORTER_OTLP_HEADERS",
         "NODE_OPTIONS",
         "RUST_LOG",
+        "DYLD_PRINT_LIBRARIES",
+        "DYLD_PRINT_APIS",
+        "DYLD_INSERT_LIBRARIES",
     ] {
         assert!(sensitive_name(std::ffi::OsStr::new(name)));
     }
     assert!(!sensitive_name(std::ffi::OsStr::new("PATH")));
+}
+
+#[cfg(unix)]
+#[test]
+fn helper_stderr_fails_promptly_without_waiting_for_a_stdout_receipt() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let helper = directory.path().join("diagnostic-helper");
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nread command || exit 2\n/usr/bin/head -c 262144 /dev/zero >&2\nprintf '{}\\n'\nread command\n",
+    ).unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancellation = cancelled.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+    let timer = std::thread::spawn(move || {
+        if finished.recv_timeout(Duration::from_secs(2)).is_err() {
+            cancellation.store(true, Ordering::Release);
+        }
+    });
+    let result = prepare_blocking(&helper, &directory.path().join("runtime"), &cancelled);
+    let _ = done.send(());
+    timer.join().unwrap();
+    assert!(
+        matches!(result, Err(InstallError::Unavailable)),
+        "stderr must fail before cancellation: {:?}",
+        result.err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_valid_receipt_does_not_allow_even_short_helper_diagnostics() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("runtime");
+    private_directory(&root).unwrap();
+    let receipt = fixture(&root);
+    std::fs::write(
+        root.join("receipt.json"),
+        format!("{}\n", serde_json::to_string(&receipt).unwrap()),
+    )
+    .unwrap();
+    let helper = directory.path().join("diagnostic-helper");
+    std::fs::write(&helper, "#!/bin/sh\nread command || exit 2\nprintf diagnostic >&2\ncat \"$2/receipt.json\"\nread command\n").unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(matches!(
+        prepare_blocking(&helper, &root, &AtomicBool::new(false)),
+        Err(InstallError::Unavailable)
+    ));
 }
 
 #[test]
