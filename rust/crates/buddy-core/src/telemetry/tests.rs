@@ -70,8 +70,9 @@ fn protobuf_export_reaches_all_three_signal_paths_and_flushes_on_shutdown() {
             .output().unwrap();
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
         return;
     }
@@ -86,6 +87,8 @@ fn protobuf_export_reaches_all_three_signal_paths_and_flushes_on_shutdown() {
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             };
+            // Winsock inherits the listener's nonblocking mode on accepted sockets.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(3)))
                 .unwrap();
