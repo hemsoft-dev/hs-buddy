@@ -11,6 +11,9 @@ import subprocess
 import sys
 
 
+# shell/status_bar.rs uses this height at 100% native zoom.
+STATUS_BAR_HEIGHT = 22.0
+
 class AmbiguousLabel(RuntimeError):
     """A later OCR mode must not hide competing visible controls."""
 
@@ -74,7 +77,36 @@ def crop_content_image(path, bottom, run, suffix=".content-ocr.png"):
     return image
 
 
-def footer_border(path, footer, scale, run):
+def known_footer_top(path, footer, scale, zoom=1.0):
+    """Use the native layout contract only with an owned capture's scale receipt."""
+    receipt = path.with_suffix(".window.json")
+    if not receipt.is_file():
+        return None
+    try:
+        metadata = json.loads(receipt.read_text(encoding="utf-8"))
+        width, height = struct.unpack(">II", path.read_bytes()[16:24])
+        backing = metadata["capturePixelsPerWindowPoint"]
+        bounds = metadata["kCGWindowBounds"]
+        numbers = (backing, zoom, scale, bounds["Width"], bounds["Height"])
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value <= 0 for value in numbers):
+            raise ValueError("Invalid scale")
+        if metadata["capturePixelSize"] != [width, height] or not all((
+                math.isclose(bounds["Width"] * backing, width, abs_tol=1),
+                math.isclose(bounds["Height"] * backing, height, abs_tol=1))):
+            raise ValueError("Mismatched capture dimensions")
+        top = round(height - STATUS_BAR_HEIGHT * backing * zoom)
+        band_top = footer["top"] / scale
+        band_bottom = (footer["top"] + footer["height"]) / scale
+        if not (0 < top < height and 0 <= band_top < band_bottom <= height
+                and band_bottom > top and band_top >= top - (height - top)):
+            raise ValueError("The measured text does not overlap the known footer")
+        return top
+    except (KeyError, TypeError, ValueError, OverflowError, struct.error) as error:
+        raise RuntimeError("The native footer fallback has invalid capture metadata") from error
+
+
+def footer_border(path, footer, scale, run, zoom=1.0):
     """Find the painted separator above the measured labels, across their span."""
     left = math.floor(footer["left"] / scale)
     right = math.ceil(footer["right"] / scale)
@@ -98,10 +130,15 @@ def footer_border(path, footer, scale, run):
         if uniform and not previous_uniform:
             return top + offset
         previous_uniform = uniform
+    # OCR may absorb the painted border into a label, ending the scan above
+    # the line. A validated backing-scale receipt can still bound the footer.
+    fallback = known_footer_top(path, footer, scale, zoom)
+    if fallback is not None:
+        return fallback
     raise RuntimeError("The measured native status footer has no visible separator")
 
 
-def status_content_image(path, run, suffix=".content-ocr.png", border=False):
+def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoom=1.0):
     """Measure and exclude the shared footer from an untouched capture."""
     width = struct.unpack(">II", path.read_bytes()[16:24])[0]
     for analysis in analysis_images(path, run):
@@ -110,7 +147,7 @@ def status_content_image(path, run, suffix=".content-ocr.png", border=False):
             words = recognize(analysis, mode=mode)
             footer = status_footer(words)
             if footer:
-                bottom = (footer_border(path, footer, scale, run) if border else
+                bottom = (footer_border(path, footer, scale, run, zoom) if border else
                     int((footer["top"] - footer["height"] / 2) / scale))
                 return crop_content_image(path, bottom, run, suffix)
     raise RuntimeError("The content screenshot has no unique native status footer")

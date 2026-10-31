@@ -469,7 +469,12 @@ class Driver:
                     # change the analysis dimensions between measurements.
                     previous = None
                     content_bounds = bounds
-                    scoped = ocr.status_content_image(image, run, border=True)
+                    zoom = 1.0
+                    config = getattr(self, "config", None)
+                    zoom_path = config.with_name("zoom-level.json") if isinstance(config, Path) else None
+                    if zoom_path is not None and zoom_path.is_file():
+                        zoom = json.loads(zoom_path.read_text(encoding="utf-8-sig")).get("zoomFactor", 1.0)
+                    scoped = ocr.status_content_image(image, run, border=True, zoom=zoom)
                     content_height = struct.unpack(">II", scoped.read_bytes()[16:24])[1]
                 else:
                     scoped = ocr.crop_content_image(image, content_height, run)
