@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
+import process from 'node:process'
 import { test } from 'node:test'
 import { URL } from 'node:url'
 import { inspectPackage, packageConfiguration, sourceSnapshot } from './package-native.mjs'
+import { hdiutilPath, runHdiutil } from './package-native-hdiutil.mjs'
 import {
   verifyBinaryArchitecture,
   verifyStandaloneMac,
@@ -22,6 +24,116 @@ function directory(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }))
   return root
 }
+
+function diskImageRun(results) {
+  const calls = [],
+    delays = [],
+    output = []
+  const invoke = args =>
+    runHdiutil(args, {
+      run: (...call) => {
+        calls.push(call)
+        return results[Math.min(calls.length - 1, results.length - 1)]
+      },
+      pause: ms => delays.push(ms),
+      stdout: text => output.push(text),
+      stderr: text => output.push(text),
+    })
+  return { invoke, calls, delays, output }
+}
+
+for (const [operation, status, message] of [
+  ['create', 1, 'hdiutil: create failed - Resource busy\n'],
+  ['detach', 16, 'hdiutil: couldn\'t eject "disk2" - Resource busy\n'],
+]) {
+  test(`DMG ${operation} retries a busy primitive, retaining arguments, diagnostics and success`, () => {
+    const run = diskImageRun([
+      { status, stderr: message },
+      { status: 0, stdout: 'done\n' },
+    ])
+    const args = [operation, '/owned build/界 image.dmg']
+    assert.equal(run.invoke(args), 0)
+    assert.equal(run.calls.length, 2)
+    for (const [command, observed] of run.calls) {
+      assert.equal(command, '/usr/bin/hdiutil')
+      assert.deepEqual(observed, args)
+    }
+    assert.deepEqual(run.delays, [2000])
+    assert.ok(run.output.includes(message))
+    assert.ok(run.output.includes('done\n'))
+  })
+}
+
+test('DMG busy retries are bounded and preserve the final failure', () => {
+  const run = diskImageRun([{ status: 16, stderr: 'hdiutil: could not eject - Resource busy\n' }])
+  assert.equal(run.invoke(['detach', '/dev/disk2']), 16)
+  assert.equal(run.calls.length, 5)
+  assert.deepEqual(run.delays, [2000, 4000, 8000, 16000])
+})
+
+test('DMG retry consumes real child exit codes and output without changing Unicode arguments', t => {
+  const root = directory(t)
+  const state = join(root, 'attempt.json')
+  const fixture = join(root, 'fake-hdiutil.cjs')
+  writeFileSync(
+    fixture,
+    `
+    const fs = require('node:fs');
+    const [state, ...args] = process.argv.slice(2);
+    const calls = fs.existsSync(state) ? JSON.parse(fs.readFileSync(state)) : [];
+    calls.push(args); fs.writeFileSync(state, JSON.stringify(calls));
+    if (calls.length === 1) {
+      process.stderr.write('hdiutil: create failed - Resource busy\\n');
+      process.exitCode = 1;
+    } else { process.stdout.write('created image\\n'); }
+  `
+  )
+  const args = ['create', '/owned folder/界 image.dmg']
+  const output = []
+  const status = runHdiutil(args, {
+    run: (_, argv, options) => spawnSync(process.execPath, [fixture, state, ...argv], options),
+    pause: () => {},
+    stdout: text => output.push(text),
+    stderr: text => output.push(text),
+  })
+  assert.equal(status, 0)
+  assert.deepEqual(JSON.parse(readFileSync(state, 'utf8')), [args, args])
+  assert.ok(output.includes('hdiutil: create failed - Resource busy\n'))
+  assert.ok(output.includes('created image\n'))
+})
+
+test('DMG retries never mask other errors, operations, success or termination', () => {
+  for (const [operation, result, expected] of [
+    ['create', { status: 1, stderr: 'hdiutil: permission denied\n' }, 1],
+    ['create', { status: 1, stderr: 'file named Resource busy does not exist\n' }, 1],
+    ['create', { status: 16, stderr: 'hdiutil: failed - Resource busy\n' }, 16],
+    ['detach', { status: 1, stderr: 'hdiutil: failed - Resource busy\n' }, 1],
+    ['attach', { status: 16, stderr: 'hdiutil: failed - Resource busy\n' }, 16],
+    ['create', { status: 0, stderr: 'hdiutil: warning - Resource busy\n' }, 0],
+    ['detach', { status: null, signal: 'SIGTERM', stderr: 'hdiutil: failed - Resource busy\n' }, 1],
+  ]) {
+    const run = diskImageRun([result])
+    assert.equal(run.invoke([operation]), expected)
+    assert.equal(run.calls.length, 1)
+    assert.deepEqual(run.delays, [])
+  }
+  const run = diskImageRun([{ error: new Error('spawn failed') }])
+  assert.throws(() => run.invoke(['create']), /spawn failed/)
+  assert.equal(run.calls.length, 1)
+  assert.deepEqual(run.delays, [])
+})
+
+test('DMG shim is private to the package command and preserves argument boundaries', t => {
+  const root = directory(t)
+  const before = process.env.PATH
+  const path = hdiutilPath(root)
+  assert.equal(path, `${join(root, '.hdiutil-bin')}${delimiter}${before || ''}`)
+  assert.equal(process.env.PATH, before)
+  const shim = readFileSync(join(root, '.hdiutil-bin', 'hdiutil'), 'utf8')
+  assert.ok(shim.startsWith('#!/bin/sh\nexec '))
+  assert.ok(shim.includes('native-hdiutil.mjs'))
+  assert.ok(shim.endsWith(' "$@"\n'))
+})
 
 function pe(machine = 0x8664) {
   const bytes = Buffer.alloc(128)

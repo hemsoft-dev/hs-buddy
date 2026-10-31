@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1595] - 2026-10-31
+
+### Fixed
+
+- Retry busy disk-image primitives
+
 ## [0.1.1594] - 2026-10-31
 
 ### Added
