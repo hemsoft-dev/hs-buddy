@@ -158,7 +158,9 @@ def qualify(executable, output, session, version, backend, api):
         ("content", "Back"), ("tab", "Conversation"), ("wheel", -480),
         ("input", "PR comment", "Installed native fixture comment"), ("content", "Review comment"),
         ("capture", "confirmation-dark"), ("content", "Confirm action"), ("sleep", 1),
-        ("capture", "write-ack-dark"), ("content", "Refresh"),
+        ("capture", "write-ack-dark"),
+        # The acknowledgement also says Refresh. Identify the toolbar row.
+        ("between", "Refresh", "Filter loaded items", "Conversation"),
     ], record=True)
     check(review / "filter-list-dark.png", "First private", "List")
     check(review / "diff-dark.png", "navigation.rs", "native navigation", "Patch unavailable")

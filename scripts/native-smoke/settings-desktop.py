@@ -103,12 +103,37 @@ def stable(current, previous, slack=STABLE_SLACK):
     return current == previous
 
 
-def record_measurement(directory, name, value):
-    """Keeps every Mac stability measurement, so a failure shows what moved."""
+def record_measurement(directory, name, value, *, capture=None, raw=None, scope=None):
+    """Bind each Mac measurement to its exact OCR input and raw window capture."""
     if not isinstance(directory, Path) or not directory.is_dir():
         return
+    entry = dict(target=name, measurement=value)
+    if scope is not None:
+        entry["scope"] = scope
+    if capture is not None and capture.is_file():
+        token = "stability-" + uuid.uuid4().hex
+        try:
+            saved = directory / (token + "-ocr.png")
+            shutil.copyfile(capture, saved)
+            entry["ocrCapture"] = saved.name
+            if raw is None or raw == capture:
+                entry["rawCapture"] = saved.name
+            elif raw.is_file():
+                saved = directory / (token + "-raw.png")
+                shutil.copyfile(raw, saved)
+                entry["rawCapture"] = saved.name
+            else:
+                entry["captureError"] = "RawCaptureMissing"
+            receipt = (raw or capture).with_suffix(".window.json")
+            if receipt.is_file():
+                saved = directory / (token + ".window.json")
+                shutil.copyfile(receipt, saved)
+                entry["windowReceipt"] = saved.name
+        except OSError as error:
+            # Diagnostics must not replace a stable target or its real failure.
+            entry["captureError"] = type(error).__name__
     with (directory / "stability.jsonl").open("a", encoding="utf-8") as log:
-        log.write(json.dumps(dict(target=name, measurement=value)) + "\n")
+        log.write(json.dumps(entry) + "\n")
 
 
 def b64(value):
@@ -481,7 +506,7 @@ class Driver:
             label = ocr.locate_image(scoped, text, **options)
             if self.session != "macos":
                 return label
-            record_measurement(image.parent, text, label)
+            record_measurement(image.parent, text, label, capture=scoped, raw=image, scope=options)
             # A pending save can insert feedback while OCR runs, moving every
             # content control. Measure twice before emitting any Mac input.
             if stable(label, previous):

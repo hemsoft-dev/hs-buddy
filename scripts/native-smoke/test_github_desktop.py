@@ -114,6 +114,70 @@ class InstalledEvidence(unittest.TestCase):
                     desktop.check(image, 'PROBE PAGE', browser=True)
                 self.assertEqual(recognize.call_count, 1)
 
+    def refresh_fixture(self):
+        return json.loads(Path(__file__).with_name('fixtures').joinpath('github-refresh-acknowledgement.json').read_text())
+
+    def review_refresh_action(self):
+        class Captured(Exception):
+            pass
+        driver = Mock()
+        driver.drive.side_effect = Captured
+        with TemporaryDirectory() as temporary, \
+                patch.object(desktop, 'installed_binary', return_value={}), \
+                patch.object(desktop, 'mutate'), \
+                patch.object(desktop.settings, 'Driver', return_value=driver):
+            with self.assertRaises(Captured):
+                desktop.qualify(Path('owned-buddy'), Path(temporary) / 'profile', 'macos', 'fixture', Mock(), Mock())
+        return driver.drive.call_args.args[1][-1]
+
+    def select_refresh(self, words, action):
+        return desktop.settings.ocr.locate_label(words, action[1],
+            content=action[0] == 'content', between=action[2:] if action[0] == 'between' else None)
+
+    def test_recorded_refresh_guard_alternates_between_static_prose_and_toolbar(self):
+        fixture = self.refresh_fixture()
+        targets = [desktop.settings.ocr.locate_label(fixture['wordLayouts'][frame['layout']], 'Refresh', content=True)
+            for frame in fixture['layouts']['original']]
+        self.assertEqual(targets, [frame['target'] for frame in fixture['layouts']['original']])
+        self.assertTrue(all(not desktop.settings.stable(a, b) for a, b in zip(targets, targets[1:])))
+        for diff in fixture['differences']:
+            self.assertEqual(diff['changedPixels']['toolbarRefresh'], 0)
+            self.assertEqual(diff['changedPixels']['acknowledgementRefresh'], 0)
+            self.assertEqual(diff['otherPixels'], 0)
+
+    def test_actual_review_flow_selects_the_toolbar_in_one_layout_per_capture(self):
+        fixture, action = self.refresh_fixture(), self.review_refresh_action()
+        selected = []
+        for original, scoped in zip(fixture['layouts']['original'], fixture['layouts']['scoped']):
+            for frame in (original, scoped):
+                try:
+                    target = self.select_refresh(fixture['wordLayouts'][frame['layout']], action)
+                    break
+                except desktop.settings.ocr.AmbiguousLabel:
+                    raise
+                except RuntimeError:
+                    continue
+            else:
+                self.fail('No single captured layout identifies the toolbar Refresh')
+            self.assertEqual(target, scoped['target'])
+            selected.append(target)
+        self.assertTrue(desktop.settings.stable(*selected))
+
+    def test_acknowledgement_prose_cannot_substitute_for_a_missing_toolbar_button(self):
+        fixture = self.refresh_fixture()
+        words = fixture['wordLayouts'][fixture['layouts']['original'][0]['layout']]
+        with self.assertRaises(RuntimeError):
+            self.select_refresh(words, self.review_refresh_action())
+
+    def test_refresh_requires_both_visible_toolbar_boundaries(self):
+        fixture = self.refresh_fixture()
+        words = fixture['wordLayouts'][fixture['layouts']['scoped'][0]['layout']]
+        action = self.review_refresh_action()
+        for missing in ('filter', 'conversation'):
+            subset = [word for word in words if missing not in desktop.settings.ocr.normalize(word['text'])]
+            with self.assertRaises(RuntimeError):
+                self.select_refresh(subset, action)
+
     def review_fixture(self):
         return json.loads(Path(__file__).with_name('fixtures').joinpath('review-result-wrapped-words.json').read_text(encoding='utf-8'))
 

@@ -1150,6 +1150,46 @@ class MacStabilityTests(unittest.TestCase):
                     self.driver().locate(window, Path(root) / 'locator.png', 'content', 'Add bookmark')
                 locate.assert_not_called()
 
+    def test_each_failed_measurement_preserves_its_exact_input_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            image = directory / 'locator.png'
+            window = Mock()
+            frames = [b'first', b'second', b'third', b'fourth']
+            capture = iter(frames)
+            window.screenshot.side_effect = lambda path: path.write_bytes(next(capture))
+            readings = [dict(left=10), dict(left=80)] * 2
+            with patch.object(desktop.ocr, 'locate_image', side_effect=readings):
+                with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                    self.driver().locate(window, image, 'click', 'Refresh')
+            receipts = [json.loads(line) for line in (directory / 'stability.jsonl').read_text().splitlines()]
+            self.assertEqual([row['measurement'] for row in receipts], readings)
+            self.assertEqual([(directory / row['ocrCapture']).read_bytes() for row in receipts], frames)
+            self.assertEqual(len({row['ocrCapture'] for row in receipts}), 4)
+
+    def test_measurement_preserves_both_raw_and_scoped_frames_and_receipt(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            raw, scoped = directory / 'raw.png', directory / 'scoped.png'
+            raw.write_bytes(b'raw footer and caret'); scoped.write_bytes(b'scoped caret')
+            raw.with_suffix('.window.json').write_text('{"capturePixelsPerWindowPoint": 1}')
+            desktop.record_measurement(directory, 'Refresh', dict(left=348), capture=scoped, raw=raw,
+                scope=dict(between=['Filter loaded items', 'Conversation']))
+            receipt = json.loads((directory / 'stability.jsonl').read_text())
+            self.assertEqual((directory / receipt['rawCapture']).read_bytes(), raw.read_bytes())
+            self.assertEqual((directory / receipt['ocrCapture']).read_bytes(), scoped.read_bytes())
+            self.assertEqual((directory / receipt['windowReceipt']).read_bytes(), raw.with_suffix('.window.json').read_bytes())
+            with patch.object(desktop.shutil, 'copyfile', side_effect=OSError('capture copy failed')):
+                desktop.record_measurement(directory, 'Refresh', dict(left=348), capture=scoped, raw=raw)
+            last = json.loads((directory / 'stability.jsonl').read_text().splitlines()[-1])
+            self.assertEqual(last['measurement'], dict(left=348))
+            self.assertEqual(last['captureError'], 'OSError')
+            raw.unlink()
+            desktop.record_measurement(directory, 'Refresh', dict(left=348), capture=scoped, raw=raw)
+            last = json.loads((directory / 'stability.jsonl').read_text().splitlines()[-1])
+            self.assertNotIn('rawCapture', last)
+            self.assertEqual(last['captureError'], 'RawCaptureMissing')
+
     def test_pixel_jitter_counts_as_the_same_target(self):
         a = dict(left=340, top=450, width=180, height=13, row_control=dict(left=900, top=448))
         b = dict(left=341, top=448, width=181, height=14, row_control=dict(left=902, top=449))
