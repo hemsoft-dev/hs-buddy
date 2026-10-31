@@ -260,20 +260,50 @@ pub fn apply_restore_bounds(
         if HasWindowHandle::window_handle(window)
             .is_ok_and(|handle| matches!(handle.as_raw(), RawWindowHandle::Wayland(_)))
         {
-            // Root establishes its decoration inset during the first render.
-            // Resize the surface afterwards so the visible geometry matches
-            // the saved size. Global placement remains the compositor's.
-            window.on_next_frame(move |window, _| {
-                let surface = window.window_bounds().get_bounds().size;
-                let geometry = window.inner_window_bounds().get_bounds().size;
-                window.resize(surface_size_for_geometry(bounds.size, surface, geometry));
-            });
+            restore_wayland_geometry(window, bounds.size, 8);
         } else if let Err(err) = apply_x11_restore_bounds(window, bounds) {
             log::warn!("could not restore X11 window rectangle: {err}");
         }
     }
     #[cfg(not(windows))]
     let _ = (window, bounds, cx, physical);
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn restore_wayland_geometry(window: &Window, requested: gpui_kit::Size<Pixels>, frames: u8) {
+    window.on_next_frame(move |window, _| {
+        // GPUI runs queued frame callbacks before drawing Root. In particular,
+        // the first callback can precede its client-decoration inset. Resizing
+        // then queues an unpadded surface resize which can overtake the initial
+        // compositor configure and clip the visible geometry by one shadow.
+        // A stored inset alone is insufficient: decoration negotiation can
+        // temporarily report server decorations, whose geometry has no inset.
+        // Wait until the platform applies Root's inset as well.
+        let surface = window.window_bounds().get_bounds().size;
+        let geometry = window.inner_window_bounds().get_bounds().size;
+        if !wayland_inset_applied(window.client_inset(), surface, geometry) {
+            if frames > 1 {
+                restore_wayland_geometry(window, requested, frames - 1);
+            }
+            return;
+        }
+        if window.is_maximized() || window.is_fullscreen() {
+            return;
+        }
+        window.resize(surface_size_for_geometry(requested, surface, geometry));
+    });
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn wayland_inset_applied(
+    inset: Option<Pixels>,
+    surface: gpui_kit::Size<Pixels>,
+    geometry: gpui_kit::Size<Pixels>,
+) -> bool {
+    inset.is_some_and(|inset| {
+        inset == gpui_kit::px(0.0)
+            || (surface.width > geometry.width && surface.height > geometry.height)
+    })
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -680,6 +710,71 @@ mod windows {
 #[cfg(test)]
 mod geometry_tests {
     use super::*;
+
+    #[gpui_kit::test]
+    fn wayland_restore_waits_for_root_and_retires_after_one_resize(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::{px, size};
+        let visual = cx.add_empty_window();
+        visual.update(|window, cx| {
+            let original = window.window_bounds().get_bounds().size;
+            let requested = size(px(900.0), px(650.0));
+            restore_wayland_geometry(window, requested, 8);
+            for _ in 0..2 {
+                window.simulate_next_frame(cx);
+                assert_eq!(window.window_bounds().get_bounds().size, original);
+            }
+            // The root can know its inset while server decoration geometry
+            // still has no padding, exactly as in the failed Wayland trace.
+            window.set_client_inset(px(20.0));
+            for _ in 0..2 {
+                window.simulate_next_frame(cx);
+                assert_eq!(window.window_bounds().get_bounds().size, original);
+            }
+            // Root establishes its inset only after the early callbacks.
+            // The test platform has no shadow padding, so its ready inset is zero.
+            window.set_client_inset(px(0.0));
+            window.simulate_next_frame(cx);
+            assert_eq!(window.window_bounds().get_bounds().size, requested);
+            // A later user resize must never be corrected back to saved state.
+            window.resize(original);
+            window.simulate_next_frame(cx);
+            assert_eq!(window.window_bounds().get_bounds().size, original);
+        });
+    }
+
+    #[test]
+    fn a_stored_inset_is_not_ready_during_server_decoration_negotiation() {
+        use gpui_kit::{px, size};
+        let geometry = size(px(900.0), px(650.0));
+        assert!(!wayland_inset_applied(None, geometry, geometry));
+        assert!(!wayland_inset_applied(Some(px(20.0)), geometry, geometry));
+        assert!(wayland_inset_applied(
+            Some(px(20.0)),
+            size(px(940.0), px(690.0)),
+            geometry
+        ));
+        assert!(wayland_inset_applied(Some(px(0.0)), geometry, geometry));
+    }
+
+    #[gpui_kit::test]
+    fn wayland_restore_is_bounded_when_no_client_border_is_drawn(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use gpui_kit::{px, size};
+        let visual = cx.add_empty_window();
+        visual.update(|window, cx| {
+            let original = window.window_bounds().get_bounds().size;
+            restore_wayland_geometry(window, size(px(900.0), px(650.0)), 8);
+            for _ in 0..8 {
+                window.simulate_next_frame(cx);
+            }
+            window.set_client_inset(px(20.0));
+            assert_eq!(window.simulate_next_frame(cx), 0);
+            assert_eq!(window.window_bounds().get_bounds().size, original);
+        });
+    }
 
     #[test]
     fn exact_geometry_requires_the_current_display_scale() {

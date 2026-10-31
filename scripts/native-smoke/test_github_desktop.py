@@ -13,6 +13,45 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_recorded_browser_needs_one_complete_mixed_contrast_layout(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-mixed-contrast.json').read_text(encoding='utf-8'))
+        calls = []
+        def recognize(*args, **kwargs):
+            calls.append(args)
+            if args[0] == 'ffmpeg': return ''
+            mode = int(args[args.index('--psm') + 1])
+            if str(args[1]).endswith('.ocr-scale3-inverted.png'):
+                return fixture['invertedComplete'] if mode == 6 else fixture['original'][0]
+            offset = 3 if str(args[1]).endswith('.ocr-scale3.png') else 0
+            return fixture['original'][offset + (11, 3, 6).index(mode)]
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, 'run', side_effect=recognize):
+            image = Path(temporary) / 'blocked.png'
+            image.write_bytes(b'untouched original')
+            desktop.check(image, 'PROBE PAGE', 'Downloads are blocked', 'Bookmarks', 'Buddy Probe')
+            self.assertEqual(image.read_bytes(), b'untouched original')
+            self.assertIn('probe page', image.with_suffix('.ocr.txt').read_text(encoding='utf-8'))
+        self.assertIn('scale=iw*3:ih*3:flags=neighbor,format=gray,negate', [a[a.index('-vf')+1] for a in calls if a[0]=='ffmpeg'])
+
+    def test_inverted_layout_cannot_hide_forbidden_account_data(self):
+        def recognize(*args, **kwargs):
+            if args[0] == 'ffmpeg': return ''
+            return 'First private Second private' if str(args[1]).endswith('.ocr-scale3-inverted.png') else 'missing'
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, 'run', side_effect=recognize):
+            with self.assertRaisesRegex(RuntimeError, 'Another account'):
+                desktop.check(Path(temporary) / 'mixed.png', 'First private', absent=('Second private',))
+
+    def test_recorded_ubuntu_page_keeps_its_title_and_page_in_one_layout(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-mixed-contrast.json').read_text(encoding='utf-8'))['ubuntu']
+        def recognize(*args, **kwargs):
+            if args[0] == 'ffmpeg': return ''
+            mode = int(args[args.index('--psm') + 1])
+            if str(args[1]).endswith('.ocr-scale3-inverted.png'):
+                return fixture['invertedComplete'] if mode == 11 else fixture['original'][0]
+            offset = 3 if str(args[1]).endswith('.ocr-scale3.png') else 0
+            return fixture['original'][offset + (11, 3, 6).index(mode)]
+        with TemporaryDirectory() as temporary, patch.object(desktop.settings, 'run', side_effect=recognize):
+            desktop.check(Path(temporary) / 'page.png', 'FIXTURE PAGE', 'Visit 1', 'Buddy Fixture OK')
+
     def review_fixture(self):
         return json.loads(Path(__file__).with_name('fixtures').joinpath('review-result-wrapped-words.json').read_text(encoding='utf-8'))
 

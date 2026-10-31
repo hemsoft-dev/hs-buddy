@@ -27,6 +27,10 @@ HERE = Path(__file__).resolve().parent
 
 def run(*args, **kwargs):
     timeout = kwargs.pop("timeout", 60)
+    # Pipes redirect output but do not suppress Windows console creation.
+    # This includes the outer PowerShell driver for a never-shown desktop.
+    if os.name == "nt":
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | subprocess.CREATE_NO_WINDOW
     try:
         return subprocess.run(
             [str(arg) for arg in args], check=True, capture_output=True,

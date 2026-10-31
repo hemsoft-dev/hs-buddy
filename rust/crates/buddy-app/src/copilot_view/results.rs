@@ -624,3 +624,34 @@ impl Render for ResultsView {
         view
     }
 }
+
+impl ResultsView {
+    pub(super) fn destination(
+        &self,
+        entity: Entity<Self>,
+    ) -> crate::shell::navigation::Destination {
+        let id = self.selected_id.clone();
+        let mut d =
+            crate::shell::navigation::Destination::section(Some(crate::app::Section::Copilot));
+        d.key = format!("copilot-result:{id:?}");
+        d.label = id
+            .as_ref()
+            .map(|id| format!("Result: {id}"))
+            .unwrap_or_else(|| "Copilot: Saved results".into());
+        d.restore = std::rc::Rc::new(move |_, cx| {
+            entity.update(cx, |view, cx| {
+                if let Some(id) = &id {
+                    view.inspect(id.clone(), cx);
+                } else {
+                    view.detail_ticket = uuid::Uuid::new_v4();
+                    view.detail_loading = false;
+                    view.pending_open = None;
+                    view.selected_id = None;
+                    view.selected = None;
+                    cx.notify();
+                }
+            })
+        });
+        d
+    }
+}

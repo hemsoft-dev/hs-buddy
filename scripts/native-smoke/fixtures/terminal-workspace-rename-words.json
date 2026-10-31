@@ -1,0 +1,1423 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41106374415/job/124239550495",
+  "sparse": [
+    {
+      "text": "ao",
+      "left": 980,
+      "top": 11,
+      "width": 10,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 1014,
+      "top": 11,
+      "width": 10,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 20,
+      "top": 6,
+      "width": 12,
+      "height": 20,
+      "line": "2/1/1"
+    },
+    {
+      "text": "suday",
+      "left": 44,
+      "top": 0,
+      "width": 42,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Fie",
+      "left": 93,
+      "top": 0,
+      "width": 23,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 127,
+      "top": 0,
+      "width": 19,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "View",
+      "left": 158,
+      "top": 0,
+      "width": 26,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 191,
+      "top": 0,
+      "width": 27,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "#8",
+      "left": 890,
+      "top": 10,
+      "width": 33,
+      "height": 12,
+      "line": "3/1/1"
+    },
+    {
+      "text": "Ey",
+      "left": 26,
+      "top": 51,
+      "width": 14,
+      "height": 14,
+      "line": "4/1/1"
+    },
+    {
+      "text": "=",
+      "left": 60,
+      "top": 45,
+      "width": 97,
+      "height": 9,
+      "line": "5/1/1"
+    },
+    {
+      "text": "_",
+      "left": 188,
+      "top": 45,
+      "width": 45,
+      "height": 9,
+      "line": "5/1/1"
+    },
+    {
+      "text": "Native",
+      "left": 82,
+      "top": 92,
+      "width": 39,
+      "height": 10,
+      "line": "6/1/1"
+    },
+    {
+      "text": "terminal",
+      "left": 124,
+      "top": 92,
+      "width": 51,
+      "height": 10,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Workspace",
+      "left": 208,
+      "top": 92,
+      "width": 68,
+      "height": 13,
+      "line": "7/1/1"
+    },
+    {
+      "text": "Hide",
+      "left": 411,
+      "top": 92,
+      "width": 28,
+      "height": 10,
+      "line": "8/1/1"
+    },
+    {
+      "text": "workspace",
+      "left": 443,
+      "top": 92,
+      "width": 65,
+      "height": 13,
+      "line": "8/1/1"
+    },
+    {
+      "text": "details",
+      "left": 512,
+      "top": 92,
+      "width": 40,
+      "height": 10,
+      "line": "8/1/1"
+    },
+    {
+      "text": "Prompt",
+      "left": 583,
+      "top": 92,
+      "width": 45,
+      "height": 13,
+      "line": "9/1/1"
+    },
+    {
+      "text": "library",
+      "left": 636,
+      "top": 92,
+      "width": 35,
+      "height": 13,
+      "line": "9/1/1"
+    },
+    {
+      "text": "New",
+      "left": 702,
+      "top": 92,
+      "width": 27,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "workspace",
+      "left": 733,
+      "top": 92,
+      "width": 65,
+      "height": 13,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Reload",
+      "left": 829,
+      "top": 92,
+      "width": 41,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "saved",
+      "left": 875,
+      "top": 92,
+      "width": 34,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "layout",
+      "left": 914,
+      "top": 92,
+      "width": 38,
+      "height": 13,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Workspace",
+      "left": 68,
+      "top": 127,
+      "width": 63,
+      "height": 13,
+      "line": "11/1/1"
+    },
+    {
+      "text": "saved.",
+      "left": 135,
+      "top": 127,
+      "width": 32,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "Workspace",
+      "left": 64,
+      "top": 147,
+      "width": 67,
+      "height": 28,
+      "line": "12/1/1"
+    },
+    {
+      "text": "name",
+      "left": 138,
+      "top": 147,
+      "width": 34,
+      "height": 28,
+      "line": "12/1/1"
+    },
+    {
+      "text": "Rename",
+      "left": 830,
+      "top": 172,
+      "width": 49,
+      "height": 10,
+      "line": "13/1/1"
+    },
+    {
+      "text": "Close",
+      "left": 910,
+      "top": 172,
+      "width": 34,
+      "height": 10,
+      "line": "14/1/1"
+    },
+    {
+      "text": "workspace",
+      "left": 947,
+      "top": 172,
+      "width": 66,
+      "height": 13,
+      "line": "14/1/1"
+    },
+    {
+      "text": "Selected",
+      "left": 68,
+      "top": 217,
+      "width": 114,
+      "height": 10,
+      "line": "15/1/1"
+    },
+    {
+      "text": "shell",
+      "left": 120,
+      "top": 208,
+      "width": 28,
+      "height": 28,
+      "line": "15/1/1"
+    },
+    {
+      "text": "name",
+      "left": 155,
+      "top": 208,
+      "width": 31,
+      "height": 28,
+      "line": "15/1/1"
+    },
+    {
+      "text": "Shell",
+      "left": 79,
+      "top": 244,
+      "width": 29,
+      "height": 10,
+      "line": "16/1/1"
+    },
+    {
+      "text": "Rename",
+      "left": 932,
+      "top": 233,
+      "width": 49,
+      "height": 10,
+      "line": "17/1/1"
+    },
+    {
+      "text": "shell",
+      "left": 985,
+      "top": 233,
+      "width": 27,
+      "height": 10,
+      "line": "17/1/1"
+    },
+    {
+      "text": "lu",
+      "left": 29,
+      "top": 254,
+      "width": 9,
+      "height": 9,
+      "line": "18/1/1"
+    },
+    {
+      "text": "Working",
+      "left": 64,
+      "top": 269,
+      "width": 51,
+      "height": 29,
+      "line": "19/1/1"
+    },
+    {
+      "text": "directory",
+      "left": 119,
+      "top": 269,
+      "width": 57,
+      "height": 29,
+      "line": "19/1/1"
+    },
+    {
+      "text": "Save",
+      "left": 925,
+      "top": 294,
+      "width": 29,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "directory",
+      "left": 958,
+      "top": 294,
+      "width": 55,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "Working",
+      "left": 79,
+      "top": 305,
+      "width": 52,
+      "height": 13,
+      "line": "21/1/1"
+    },
+    {
+      "text": "directory;",
+      "left": 136,
+      "top": 305,
+      "width": 57,
+      "height": 13,
+      "line": "21/1/1"
+    },
+    {
+      "text": "empty",
+      "left": 198,
+      "top": 306,
+      "width": 38,
+      "height": 12,
+      "line": "21/1/1"
+    },
+    {
+      "text": "uses",
+      "left": 241,
+      "top": 308,
+      "width": 26,
+      "height": 7,
+      "line": "21/1/1"
+    },
+    {
+      "text": "your",
+      "left": 271,
+      "top": 308,
+      "width": 28,
+      "height": 10,
+      "line": "21/1/1"
+    },
+    {
+      "text": "home",
+      "left": 304,
+      "top": 305,
+      "width": 34,
+      "height": 10,
+      "line": "21/1/1"
+    },
+    {
+      "text": "folder",
+      "left": 342,
+      "top": 305,
+      "width": 37,
+      "height": 10,
+      "line": "21/1/1"
+    },
+    {
+      "text": "\u2018Organize",
+      "left": 483,
+      "top": 344,
+      "width": 56,
+      "height": 13,
+      "line": "22/1/1"
+    },
+    {
+      "text": "workspace",
+      "left": 542,
+      "top": 344,
+      "width": 66,
+      "height": 13,
+      "line": "22/1/1"
+    },
+    {
+      "text": "r",
+      "left": 547,
+      "top": 370,
+      "width": 4,
+      "height": 4,
+      "line": "23/1/1"
+    },
+    {
+      "text": ">",
+      "left": 629,
+      "top": 370,
+      "width": 4,
+      "height": 4,
+      "line": "24/1/1"
+    },
+    {
+      "text": "Split",
+      "left": 79,
+      "top": 380,
+      "width": 27,
+      "height": 13,
+      "line": "25/1/1"
+    },
+    {
+      "text": "right",
+      "left": 111,
+      "top": 380,
+      "width": 28,
+      "height": 13,
+      "line": "25/1/1"
+    },
+    {
+      "text": "Split",
+      "left": 166,
+      "top": 380,
+      "width": 27,
+      "height": 13,
+      "line": "26/1/1"
+    },
+    {
+      "text": "below",
+      "left": 198,
+      "top": 380,
+      "width": 37,
+      "height": 10,
+      "line": "26/1/1"
+    },
+    {
+      "text": "More",
+      "left": 262,
+      "top": 380,
+      "width": 32,
+      "height": 10,
+      "line": "27/1/1"
+    },
+    {
+      "text": "space",
+      "left": 298,
+      "top": 383,
+      "width": 35,
+      "height": 10,
+      "line": "27/1/1"
+    },
+    {
+      "text": "Restart",
+      "left": 368,
+      "top": 380,
+      "width": 42,
+      "height": 10,
+      "line": "27/1/1"
+    },
+    {
+      "text": "shell",
+      "left": 414,
+      "top": 380,
+      "width": 27,
+      "height": 10,
+      "line": "27/1/1"
+    },
+    {
+      "text": "Interrupt",
+      "left": 469,
+      "top": 380,
+      "width": 53,
+      "height": 13,
+      "line": "28/1/1"
+    },
+    {
+      "text": "Close",
+      "left": 558,
+      "top": 380,
+      "width": 33,
+      "height": 10,
+      "line": "29/1/1"
+    },
+    {
+      "text": "shell",
+      "left": 595,
+      "top": 380,
+      "width": 27,
+      "height": 10,
+      "line": "29/1/1"
+    },
+    {
+      "text": "a",
+      "left": 25,
+      "top": 404,
+      "width": 16,
+      "height": 6,
+      "line": "30/1/1"
+    },
+    {
+      "text": "Py",
+      "left": 27,
+      "top": 396,
+      "width": 12,
+      "height": 7,
+      "line": "31/1/1"
+    },
+    {
+      "text": "C",
+      "left": 547,
+      "top": 396,
+      "width": 4,
+      "height": 4,
+      "line": "32/1/1"
+    },
+    {
+      "text": "J",
+      "left": 629,
+      "top": 396,
+      "width": 4,
+      "height": 4,
+      "line": "33/1/1"
+    },
+    {
+      "text": "Shell",
+      "left": 68,
+      "top": 421,
+      "width": 29,
+      "height": 10,
+      "line": "34/1/1"
+    },
+    {
+      "text": "1",
+      "left": 102,
+      "top": 421,
+      "width": 5,
+      "height": 10,
+      "line": "34/1/1"
+    },
+    {
+      "text": "ic}",
+      "left": 25,
+      "top": 443,
+      "width": 16,
+      "height": 16,
+      "line": "35/1/1"
+    },
+    {
+      "text": "PS",
+      "left": 58,
+      "top": 447,
+      "width": 15,
+      "height": 10,
+      "line": "36/1/1"
+    },
+    {
+      "text": "C:\\Users\\runneradmin>",
+      "left": 82,
+      "top": 446,
+      "width": 172,
+      "height": 12,
+      "line": "36/1/1"
+    },
+    {
+      "text": "Layout",
+      "left": 69,
+      "top": 740,
+      "width": 37,
+      "height": 12,
+      "line": "37/1/1"
+    },
+    {
+      "text": "saved",
+      "left": 110,
+      "top": 739,
+      "width": 32,
+      "height": 10,
+      "line": "37/1/1"
+    },
+    {
+      "text": ":",
+      "left": 144,
+      "top": 730,
+      "width": 3,
+      "height": 28,
+      "line": "37/1/1"
+    },
+    {
+      "text": "Ctrl+Shift+P",
+      "left": 153,
+      "top": 739,
+      "width": 70,
+      "height": 10,
+      "line": "37/1/1"
+    },
+    {
+      "text": "focuses",
+      "left": 227,
+      "top": 739,
+      "width": 43,
+      "height": 10,
+      "line": "37/1/1"
+    },
+    {
+      "text": "workspace",
+      "left": 274,
+      "top": 739,
+      "width": 60,
+      "height": 13,
+      "line": "37/1/1"
+    },
+    {
+      "text": "controls",
+      "left": 338,
+      "top": 739,
+      "width": 46,
+      "height": 10,
+      "line": "37/1/1"
+    },
+    {
+      "text": "@",
+      "left": 941,
+      "top": 756,
+      "width": 10,
+      "height": 28,
+      "line": "38/1/1"
+    },
+    {
+      "text": "o71627\u00b0M.",
+      "left": 962,
+      "top": 766,
+      "width": 57,
+      "height": 8,
+      "line": "38/1/1"
+    },
+    {
+      "text": "No",
+      "left": 24,
+      "top": 764,
+      "width": 47,
+      "height": 12,
+      "line": "39/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 59,
+      "top": 756,
+      "width": 10,
+      "height": 28,
+      "line": "39/1/1"
+    },
+    {
+      "text": "account",
+      "left": 75,
+      "top": 766,
+      "width": 38,
+      "height": 8,
+      "line": "39/1/1"
+    }
+  ],
+  "block": [
+    {
+      "text": "@",
+      "left": 20,
+      "top": 6,
+      "width": 13,
+      "height": 20,
+      "line": "1/1/1"
+    },
+    {
+      "text": "euddy",
+      "left": 46,
+      "top": 2,
+      "width": 40,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "File",
+      "left": 93,
+      "top": 2,
+      "width": 26,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 125,
+      "top": 2,
+      "width": 24,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "View",
+      "left": 158,
+      "top": 2,
+      "width": 26,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 193,
+      "top": 2,
+      "width": 25,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "#08",
+      "left": 890,
+      "top": 10,
+      "width": 134,
+      "height": 12,
+      "line": "1/1/1"
+    },
+    {
+      "text": "-",
+      "left": 944,
+      "top": 3,
+      "width": 18,
+      "height": 26,
+      "line": "1/1/1"
+    },
+    {
+      "text": "o",
+      "left": 976,
+      "top": 3,
+      "width": 17,
+      "height": 26,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 1009,
+      "top": 3,
+      "width": 18,
+      "height": 26,
+      "line": "1/1/1"
+    },
+    {
+      "text": "\u00abDashboard",
+      "left": 60,
+      "top": 45,
+      "width": 82,
+      "height": 9,
+      "line": "1/1/2"
+    },
+    {
+      "text": "x",
+      "left": 151,
+      "top": 48,
+      "width": 6,
+      "height": 5,
+      "line": "1/1/2"
+    },
+    {
+      "text": "~~",
+      "left": 171,
+      "top": 50,
+      "width": 7,
+      "height": 1,
+      "line": "1/1/2"
+    },
+    {
+      "text": "Terminal)",
+      "left": 188,
+      "top": 45,
+      "width": 45,
+      "height": 9,
+      "line": "1/1/2"
+    },
+    {
+      "text": "x",
+      "left": 246,
+      "top": 48,
+      "width": 3,
+      "height": 5,
+      "line": "1/1/2"
+    },
+    {
+      "text": "~~",
+      "left": 263,
+      "top": 50,
+      "width": 7,
+      "height": 1,
+      "line": "1/1/2"
+    },
+    {
+      "text": "88",
+      "left": 26,
+      "top": 51,
+      "width": 14,
+      "height": 14,
+      "line": "1/1/3"
+    },
+    {
+      "text": "Native",
+      "left": 82,
+      "top": 82,
+      "width": 39,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "terminal",
+      "left": 125,
+      "top": 82,
+      "width": 50,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "Workspace",
+      "left": 208,
+      "top": 92,
+      "width": 68,
+      "height": 13,
+      "line": "1/1/4"
+    },
+    {
+      "text": "Hide",
+      "left": 411,
+      "top": 82,
+      "width": 28,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "workspace",
+      "left": 447,
+      "top": 82,
+      "width": 60,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "details",
+      "left": 512,
+      "top": 82,
+      "width": 40,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "Prompt",
+      "left": 583,
+      "top": 92,
+      "width": 45,
+      "height": 13,
+      "line": "1/1/4"
+    },
+    {
+      "text": "library",
+      "left": 636,
+      "top": 92,
+      "width": 35,
+      "height": 13,
+      "line": "1/1/4"
+    },
+    {
+      "text": "New",
+      "left": 704,
+      "top": 82,
+      "width": 25,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "workspace",
+      "left": 734,
+      "top": 82,
+      "width": 68,
+      "height": 30,
+      "line": "1/1/4"
+    },
+    {
+      "text": "_Reload",
+      "left": 829,
+      "top": 92,
+      "width": 41,
+      "height": 10,
+      "line": "1/1/4"
+    },
+    {
+      "text": "saved",
+      "left": 875,
+      "top": 92,
+      "width": 34,
+      "height": 10,
+      "line": "1/1/4"
+    },
+    {
+      "text": "layout",
+      "left": 914,
+      "top": 92,
+      "width": 38,
+      "height": 13,
+      "line": "1/1/4"
+    },
+    {
+      "text": "Cs)",
+      "left": 25,
+      "top": 107,
+      "width": 16,
+      "height": 16,
+      "line": "1/1/5"
+    },
+    {
+      "text": "Rename",
+      "left": 830,
+      "top": 172,
+      "width": 49,
+      "height": 10,
+      "line": "3/1/1"
+    },
+    {
+      "text": "Close",
+      "left": 900,
+      "top": 163,
+      "width": 45,
+      "height": 29,
+      "line": "3/1/1"
+    },
+    {
+      "text": "workspace",
+      "left": 951,
+      "top": 163,
+      "width": 62,
+      "height": 29,
+      "line": "3/1/1"
+    },
+    {
+      "text": "Selected",
+      "left": 68,
+      "top": 217,
+      "width": 48,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "shell",
+      "left": 120,
+      "top": 217,
+      "width": 26,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "name",
+      "left": 150,
+      "top": 220,
+      "width": 32,
+      "height": 7,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Rename",
+      "left": 932,
+      "top": 233,
+      "width": 49,
+      "height": 10,
+      "line": "10/1/2"
+    },
+    {
+      "text": "shell",
+      "left": 985,
+      "top": 233,
+      "width": 27,
+      "height": 10,
+      "line": "10/1/2"
+    },
+    {
+      "text": "Shell",
+      "left": 79,
+      "top": 244,
+      "width": 29,
+      "height": 10,
+      "line": "10/1/3"
+    },
+    {
+      "text": "lu",
+      "left": 29,
+      "top": 254,
+      "width": 9,
+      "height": 9,
+      "line": "10/1/4"
+    },
+    {
+      "text": "Working",
+      "left": 68,
+      "top": 278,
+      "width": 49,
+      "height": 13,
+      "line": "10/1/5"
+    },
+    {
+      "text": "directory",
+      "left": 121,
+      "top": 278,
+      "width": 51,
+      "height": 13,
+      "line": "10/1/5"
+    },
+    {
+      "text": "cove",
+      "left": 925,
+      "top": 294,
+      "width": 7,
+      "height": 10,
+      "line": "10/1/5"
+    },
+    {
+      "text": "di",
+      "left": 958,
+      "top": 294,
+      "width": 11,
+      "height": 10,
+      "line": "10/1/5"
+    },
+    {
+      "text": "\u20ac",
+      "left": 26,
+      "top": 301,
+      "width": 14,
+      "height": 12,
+      "line": "10/1/6"
+    },
+    {
+      "text": "|",
+      "left": 60,
+      "top": 294,
+      "width": 13,
+      "height": 29,
+      "line": "10/1/6"
+    },
+    {
+      "text": "Working",
+      "left": 79,
+      "top": 305,
+      "width": 52,
+      "height": 13,
+      "line": "10/1/6"
+    },
+    {
+      "text": "directory;",
+      "left": 136,
+      "top": 305,
+      "width": 57,
+      "height": 13,
+      "line": "10/1/6"
+    },
+    {
+      "text": "empty",
+      "left": 198,
+      "top": 306,
+      "width": 38,
+      "height": 12,
+      "line": "10/1/6"
+    },
+    {
+      "text": "uses",
+      "left": 241,
+      "top": 308,
+      "width": 26,
+      "height": 7,
+      "line": "10/1/6"
+    },
+    {
+      "text": "your",
+      "left": 271,
+      "top": 308,
+      "width": 28,
+      "height": 10,
+      "line": "10/1/6"
+    },
+    {
+      "text": "home",
+      "left": 304,
+      "top": 305,
+      "width": 34,
+      "height": 10,
+      "line": "10/1/6"
+    },
+    {
+      "text": "folder",
+      "left": 342,
+      "top": 305,
+      "width": 37,
+      "height": 10,
+      "line": "10/1/6"
+    },
+    {
+      "text": "SSCS",
+      "left": 933,
+      "top": 297,
+      "width": 41,
+      "height": 7,
+      "line": "10/1/6"
+    },
+    {
+      "text": "SY",
+      "left": 1005,
+      "top": 297,
+      "width": 5,
+      "height": 10,
+      "line": "10/1/6"
+    },
+    {
+      "text": "o",
+      "left": 26,
+      "top": 348,
+      "width": 14,
+      "height": 14,
+      "line": "10/1/7"
+    },
+    {
+      "text": "Organize",
+      "left": 483,
+      "top": 344,
+      "width": 56,
+      "height": 13,
+      "line": "10/1/7"
+    },
+    {
+      "text": "workspace",
+      "left": 542,
+      "top": 344,
+      "width": 66,
+      "height": 13,
+      "line": "10/1/7"
+    },
+    {
+      "text": "Split",
+      "left": 79,
+      "top": 380,
+      "width": 27,
+      "height": 13,
+      "line": "10/1/8"
+    },
+    {
+      "text": "right",
+      "left": 111,
+      "top": 380,
+      "width": 28,
+      "height": 13,
+      "line": "10/1/8"
+    },
+    {
+      "text": "|",
+      "left": 152,
+      "top": 371,
+      "width": 7,
+      "height": 28,
+      "line": "10/1/8"
+    },
+    {
+      "text": "Splitbelow",
+      "left": 166,
+      "top": 380,
+      "width": 69,
+      "height": 13,
+      "line": "10/1/8"
+    },
+    {
+      "text": " Morespace",
+      "left": 262,
+      "top": 380,
+      "width": 71,
+      "height": 13,
+      "line": "10/1/8"
+    },
+    {
+      "text": "_\u2014Restartshell__",
+      "left": 368,
+      "top": 380,
+      "width": 73,
+      "height": 10,
+      "line": "10/1/8"
+    },
+    {
+      "text": "Interrupt",
+      "left": 469,
+      "top": 380,
+      "width": 53,
+      "height": 13,
+      "line": "10/1/8"
+    },
+    {
+      "text": "|",
+      "left": 546,
+      "top": 375,
+      "width": 1,
+      "height": 20,
+      "line": "10/1/8"
+    },
+    {
+      "text": "Close",
+      "left": 558,
+      "top": 380,
+      "width": 33,
+      "height": 10,
+      "line": "10/1/8"
+    },
+    {
+      "text": "shell",
+      "left": 595,
+      "top": 380,
+      "width": 27,
+      "height": 10,
+      "line": "10/1/8"
+    },
+    {
+      "text": "|",
+      "left": 633,
+      "top": 375,
+      "width": 1,
+      "height": 20,
+      "line": "10/1/8"
+    },
+    {
+      "text": "2",
+      "left": 27,
+      "top": 396,
+      "width": 12,
+      "height": 7,
+      "line": "10/1/9"
+    },
+    {
+      "text": "ea",
+      "left": 547,
+      "top": 396,
+      "width": 86,
+      "height": 5,
+      "line": "10/1/9"
+    },
+    {
+      "text": "Shell",
+      "left": 68,
+      "top": 421,
+      "width": 29,
+      "height": 10,
+      "line": "10/1/10"
+    },
+    {
+      "text": "1",
+      "left": 102,
+      "top": 421,
+      "width": 5,
+      "height": 10,
+      "line": "10/1/10"
+    },
+    {
+      "text": "\u00a9",
+      "left": 25,
+      "top": 443,
+      "width": 16,
+      "height": 16,
+      "line": "10/1/11"
+    },
+    {
+      "text": "PS",
+      "left": 58,
+      "top": 447,
+      "width": 15,
+      "height": 10,
+      "line": "10/1/11"
+    },
+    {
+      "text": "C:\\Users\\runneradmin>",
+      "left": 82,
+      "top": 446,
+      "width": 172,
+      "height": 12,
+      "line": "10/1/11"
+    },
+    {
+      "text": "Q",
+      "left": 27,
+      "top": 492,
+      "width": 12,
+      "height": 14,
+      "line": "10/1/12"
+    },
+    {
+      "text": "BS",
+      "left": 26,
+      "top": 588,
+      "width": 14,
+      "height": 14,
+      "line": "10/1/13"
+    },
+    {
+      "text": "Layout",
+      "left": 69,
+      "top": 740,
+      "width": 37,
+      "height": 12,
+      "line": "10/1/14"
+    },
+    {
+      "text": "saved",
+      "left": 110,
+      "top": 739,
+      "width": 32,
+      "height": 10,
+      "line": "10/1/14"
+    },
+    {
+      "text": "-",
+      "left": 147,
+      "top": 744,
+      "width": 2,
+      "height": 2,
+      "line": "10/1/14"
+    },
+    {
+      "text": "Ctrl+Shift+P",
+      "left": 153,
+      "top": 739,
+      "width": 70,
+      "height": 10,
+      "line": "10/1/14"
+    },
+    {
+      "text": "focuses",
+      "left": 227,
+      "top": 739,
+      "width": 43,
+      "height": 10,
+      "line": "10/1/14"
+    },
+    {
+      "text": "workspace",
+      "left": 274,
+      "top": 739,
+      "width": 60,
+      "height": 13,
+      "line": "10/1/14"
+    },
+    {
+      "text": "controls",
+      "left": 338,
+      "top": 739,
+      "width": 46,
+      "height": 10,
+      "line": "10/1/14"
+    },
+    {
+      "text": "\u00a9",
+      "left": 945,
+      "top": 763,
+      "width": 12,
+      "height": 12,
+      "line": "10/1/15"
+    },
+    {
+      "text": "o7e27\u00b0M",
+      "left": 962,
+      "top": 766,
+      "width": 57,
+      "height": 8,
+      "line": "10/1/15"
+    },
+    {
+      "text": "No",
+      "left": 24,
+      "top": 764,
+      "width": 47,
+      "height": 12,
+      "line": "11/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 59,
+      "top": 756,
+      "width": 10,
+      "height": 28,
+      "line": "11/1/1"
+    },
+    {
+      "text": "account",
+      "left": 75,
+      "top": 766,
+      "width": 38,
+      "height": 8,
+      "line": "11/1/1"
+    }
+  ]
+}

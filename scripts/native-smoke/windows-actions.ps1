@@ -101,14 +101,19 @@ function Write-OwnedText([string] $Encoded) {
     }
     Start-Sleep -Milliseconds 400
 }
-function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBottomOffset = 20) {
+function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBottomOffset = 20, [string[]] $BetweenLabels = @()) {
     if ($LabelBottomOffset -lt 20 -or $LabelBottomOffset -gt 40) { throw 'Owned input offset is outside its bounded range' }
     $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'settings-locator.png'
     Save-OwnedImage $image
     $label = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded))
     $arguments = @((Join-Path $PSScriptRoot 'settings-ocr.py'), '--image', $image, '--label', $label)
     if ($Mode -eq 'navigation') { $arguments += '--navigation' }
+    if ($Mode -in @('content', 'navigation')) { $arguments += '--content' }
     if ($Mode -eq 'tab') { $arguments += '--tab' }
+    if ($BetweenLabels.Count -ne 0) {
+        if ($BetweenLabels.Count -ne 2) { throw 'A row needs two visible boundary labels' }
+        $arguments += @('--between-labels') + $BetweenLabels
+    }
     if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
     $raw = & python @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Owned settings label was not found unambiguously' }
@@ -200,7 +205,7 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'waituptext64', 'revealtext64' } {
+            { $_ -in 'waittext64', 'waitcontent64', 'waitmodeltext64', 'waitscrolltext64', 'waituptext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
                 $hasAnchor = $parts[0] -eq 'revealtext64' -or (($parts[0] -in @('waitscrolltext64', 'waituptext64')) -and $parts.Count -eq 3)
@@ -217,7 +222,8 @@ try {
                     # probe that started at or after the deadline.
                     $started = $timer.Elapsed.TotalSeconds
                     try {
-                        Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
+                        $mode = if ($parts[0] -eq 'waitcontent64') { 'content' } else { 'button' }
+                        Find-OwnedLabelPoint $parts[1] $mode | Out-Null
                         break
                     } catch {
                         if ($started -ge $timeoutSeconds) { throw }
@@ -265,8 +271,14 @@ try {
                 # global input, shell expansion, or payload logging.
                 Write-OwnedText $parts[1]
             }
-            { $_ -in 'nav64', 'tab64', 'click64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
-                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
+            'between64' {
+                if ($parts.Count -ne 4) { throw 'A row action needs a control and two visible labels' }
+                $boundaries = @($parts[2..3] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
+                $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
+                Click-OwnedPoint $point.X $point.Y
+            }
+            { $_ -in 'nav64', 'tab64', 'click64', 'content64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
+                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'content64' {'content'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
                 $offset = 20
                 if ($mode -eq 'input' -and $parts.Count -gt 3) {
                     if ($parts.Count -ne 4 -or -not [int]::TryParse($parts[3], [ref]$offset)) { throw 'Owned input offset is invalid' }

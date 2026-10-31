@@ -39,6 +39,7 @@ pub fn directory(path: &Path) -> Result<Vec<Entry>, String> {
     Ok(entries)
 }
 
+#[derive(Clone)]
 pub struct Preview {
     pub content: String,
     pub language: &'static str,

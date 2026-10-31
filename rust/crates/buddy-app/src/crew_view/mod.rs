@@ -1078,3 +1078,43 @@ impl gpui_kit::Render for CrewView {
         self.render_view(window, cx)
     }
 }
+
+impl CrewView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let selected = self.selected.clone();
+        let _ = cx;
+        crate::shell::navigation::Destination {
+            key: format!("crew:{selected:?}"),
+            label: self
+                .selected_project()
+                .map(|p| p.display_name.clone())
+                .unwrap_or_else(|| "The Crew".into()),
+            section: Some(crate::app::Section::Crew),
+            badge: None,
+            available: std::rc::Rc::new(|_| true),
+            close: std::rc::Rc::new(|_| {}),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| {
+                    if let Some(id) = &selected {
+                        view.select(id.clone(), window, cx);
+                    } else if let Some(previous) = view.selected.take() {
+                        let draft = view.message.read(cx).value().to_string();
+                        if !draft.trim().is_empty() {
+                            view.drafts.insert(previous, draft);
+                        }
+                        view.message
+                            .update(cx, |input, cx| input.set_value("", window, cx));
+                        view.reset_start = true;
+                        view.changes = None;
+                        cx.notify();
+                    }
+                });
+            }),
+        }
+    }
+}

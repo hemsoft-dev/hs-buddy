@@ -209,15 +209,15 @@ def headless(executable, output, config, backend):
 
 def chat_turns(driver):
     dark = driver.drive('chat-dark', [
-        ('input', 'GitHub account', 'synthetic-account'), ('click', 'Load available models'),
-        ('wait_models', 'Synthetic offline model'), ('click', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
-        ('click', 'Run and save'), ('wait_text', 'Assistant is responding'), ('capture', 'streaming-dark'),
+        ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
+        ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
+        ('content', 'Run and save'), ('wait_text', 'Assistant is responding'), ('capture', 'streaming-dark'),
         ('wait_scroll_text', 'Saved to results'), ('reveal_text', 'Copy answer', 'Saved to results'),
-        ('click', 'Copy answer'), ('capture', 'completed-dark'),
-        ('reveal_text', 'Inspect saved result', 'Saved to results'), ('click', 'Inspect saved result'),
+        ('content', 'Copy answer'), ('capture', 'completed-dark'),
+        ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Synthetic assistant'), ('capture', 'saved-result-dark'),
-        ('click', 'Chat'), ('click', 'New conversation'), ('input', 'Message', 'BUDDYCANCEL73429'),
-        ('click', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('click', 'Cancel response'),
+        ('content', 'Chat'), ('content', 'New conversation'), ('input', 'Message', 'BUDDYCANCEL73429'),
+        ('content', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('content', 'Cancel response'),
         ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
         ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
     ], record=True)
@@ -229,12 +229,12 @@ def chat_turns(driver):
 
 def review_pull_request(driver):
     review = driver.drive('review-dark', [
-        ('click', '#7 Second private navigation review'), ('click', 'Review with Buddy assistant'),
+        ('content', '#7 Second private navigation review'), ('content', 'Review with Buddy assistant'),
         ('wait_text', 'Reviewing fixture-org/native-demo'),
-        ('click', 'Load available models'), ('wait_models', 'Synthetic offline model'), ('click', 'Synthetic offline model'),
+        ('content', 'Load available models'), ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
         ('capture', 'review-context-dark'),
-        ('click', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
-        ('reveal_text', 'Inspect saved result', 'Saved to results'), ('click', 'Inspect saved result'),
+        ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
+        ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
     ])
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
@@ -244,10 +244,10 @@ def review_pull_request(driver):
 
 def usage_pages(driver):
     usage = driver.drive('usage-light', [
-        ('click', 'Usage'), ('click', 'Refresh usage'), ('wait_text', 'Billing snapshot saved'),
-        ('click', 'Load period'), ('wait_text', 'Showing'), ('capture', 'usage-history-light'),
-        ('wheel', -600), ('click', 'Load metrics file'), ('wait_scroll_text', 'fixture-member'), ('capture', 'enterprise-users-light'),
-        ('wheel', 1200), ('click', 'codex-fixture'), ('click', 'Refresh usage'),
+        ('content', 'Usage'), ('content', 'Refresh usage'), ('wait_text', 'Billing snapshot saved'),
+        ('content', 'Load period'), ('wait_text', 'Showing'), ('capture', 'usage-history-light'),
+        ('wheel', -600), ('content', 'Load metrics file'), ('wait_scroll_text', 'fixture-member'), ('capture', 'enterprise-users-light'),
+        ('wheel', 1200), ('content', 'codex-fixture'), ('content', 'Refresh usage'),
         ('wait_text', 'Weekly allowance'), ('capture', 'codex-allowances-light'),
     ])
     # Both OCR engines read this font's "AI" prefix as "Al" on the actual
@@ -297,17 +297,17 @@ def qualify(executable, output, session, version, backend, api):
             write_section(config, 'copilot', light)
             usage_pages(driver)
             with environment(dict(BUDDY_CODEX_FIXTURE_SCENARIO='missing-auth')):
-                missing = driver.drive('codex-auth-error-light', [('click', 'Usage'), ('click', 'codex-fixture'), ('click', 'Refresh usage'), ('wait_text', 'No Codex ChatGPT login found'), ('capture', 'codex-auth-error-light')])
+                missing = driver.drive('codex-auth-error-light', [('content', 'Usage'), ('content', 'codex-fixture'), ('content', 'Refresh usage'), ('wait_text', 'No Codex ChatGPT login found'), ('capture', 'codex-auth-error-light')])
                 github.check(missing / 'codex-auth-error-light.png', 'No Codex ChatGPT login found')
             sessions = driver.drive('sessions-light', [
-                ('click', 'Sessions'), ('input', 'VS Code User directory', str(user_directory), 'Scan folder'), ('click', 'Scan folder'),
-                ('wait_text', 'Synthetic session'), ('click', 'Synthetic session'), ('wait_text', '100 prompt tokens'),
+                ('content', 'Sessions'), ('input', 'VS Code User directory', str(user_directory), 'Scan folder'), ('content', 'Scan folder'),
+                ('wait_text', 'Synthetic session'), ('content', 'Synthetic session'), ('wait_text', '100 prompt tokens'),
                 ('capture', 'session-detail-light'), ('resize', 900, 650), ('capture', 'session-compact-light'),
                 ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
-                ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('click', 'Scan folder'),
-                ('wait_text', 'unavailable'), ('click', 'Next requests'),
+                ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('content', 'Scan folder'),
+                ('wait_text', 'unavailable'), ('content', 'Next requests'),
                 ('wait_scroll_above', 'Final synthetic request twenty one', 'Next requests'), ('capture', 'session-error-light'),
-                ('click', 'Previous requests'), ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
+                ('content', 'Previous requests'), ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
                 ('wait_text', 'unavailable'),
             ])
             github.check(sessions / 'session-detail-light.png', '100 prompt tokens', '25 output tokens', '0.25')

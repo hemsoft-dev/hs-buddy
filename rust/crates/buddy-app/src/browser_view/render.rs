@@ -26,7 +26,7 @@ impl Render for BrowserView {
             .on_action(cx.listener(|this, _: &PreviousTab, _, cx| this.cycle(false, cx)))
             .on_action(cx.listener(|this, _: &CloseTab, _, cx| this.close_active(cx)))
             .debug_selector(|| "browser-view".into())
-            .child(self.render_strip(cx))
+            .children((!self.global_tabs).then(|| self.render_strip(cx)))
             .when(self.full, |this| {
                 this.child(self.render_notice(
                     Notice {

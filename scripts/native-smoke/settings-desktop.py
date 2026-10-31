@@ -119,7 +119,7 @@ def b64(value):
 MODEL_CATALOG_TIMEOUT = 200
 
 
-def wait_visible(window, directory, text, timeout=15, scroll=None):
+def wait_visible(window, directory, text, timeout=15, scroll=None, content=False):
     """Read an owned window until one OCR layout has the exact visible status.
 
     By default this never posts input. A caller may explicitly scroll its
@@ -133,7 +133,7 @@ def wait_visible(window, directory, text, timeout=15, scroll=None):
         started = time.monotonic()
         window.screenshot(image)
         try:
-            ocr.locate_image(image, text)
+            ocr.locate_image(image, text, **({"content": True} if content else {}))
             return
         except RuntimeError as failure:
             if started >= deadline:
@@ -229,7 +229,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -248,9 +248,9 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
-                elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
+                elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
-                    command = "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
+                    command = "waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
                     commands.append(command + ":".join(map(b64, encoded)))
                 elif kind == "wait_models":
                     commands.append("waitmodeltext64:" + b64(values[0]))
@@ -323,7 +323,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -334,13 +334,14 @@ class Driver:
                             window.key(values[0])
                         elif kind == "hover":
                             window.hover(*values)
-                        elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
+                        elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
                             if kind in ("wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                                 self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
                                     above_anchor=kind == "wait_scroll_above", up=kind == "wait_scroll_up")
                             else:
                                 timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
-                                wait_visible(window, directory, values[0], timeout=timeout)
+                                wait_visible(window, directory, values[0], timeout=timeout,
+                                    **({"content": True} if kind == "wait_content" else {}))
                         elif kind == "reveal_text":
                             point = self.scroll_anchor(window, directory, values[1])
                             wait_visible(window, directory, values[0], scroll=lambda: self.reveal_scroll(window, point))
@@ -438,13 +439,17 @@ class Driver:
                 precise=(point is not None) if precise is None else precise)
         time.sleep(0.7)
 
-    def locate(self, window, image, kind, text, row_control=None):
+    def locate(self, window, image, kind, text, row_control=None, between=None):
         previous = None
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
             options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            if kind in ("content", "nav"):
+                options["content"] = True
+            if between is not None:
+                options["between"] = between
             # Only this label needs block segmentation (#886). On the Tempo
             # hours row, block mode absorbs a sidebar glyph into the label and
             # moves the input click into the navigation rail (#888 artifacts).
@@ -531,7 +536,9 @@ class Driver:
             row_control = None
         else:
             row_control = hint
-        if row_control is None:
+        if kind == "between":
+            label = self.locate(window, image, kind, values[0], between=values[1:])
+        elif row_control is None:
             label = self.locate(window, image, kind, values[0])
         else:
             label = self.locate(window, image, kind, values[0], row_control=row_control)
@@ -705,9 +712,9 @@ def qualify(executable, output, session, checkout, backend):
     account_actions = [("nav", "Accounts"), ("capture", "first-run-dark")]
     for index, name in enumerate(("fixture-native-one", "fixture-native-two")):
         account_actions += [("leftfield", "Organization|GitHub username", name),
-            ("rightfield", "Organization|GitHub username", "fixture-native-team"), ("click", "Add account"), ("sleep", 1)]
+            ("rightfield", "Organization|GitHub username", "fixture-native-team"), ("content", "Add account"), ("sleep", 1)]
         if index == 0:
-            account_actions += [("click", "Codex"), ("sleep", 1)]
+            account_actions += [("content", "Codex"), ("sleep", 1)]
     account_actions += [("capture", "two-accounts-dark")]
     accounts = driver.drive("accounts", account_actions, record=True)
     actual = backend.query("githubAccounts:list")
@@ -716,7 +723,7 @@ def qualify(executable, output, session, checkout, backend):
     if next(account for account in actual if account["username"] == "fixture-native-one").get("usageProvider") != "codex":
         raise RuntimeError("Provider selection did not reach the isolated backend")
     verify_text(accounts / "two-accounts-dark.png", "fixture-native-one", "fixture-native-two")
-    appearance = driver.drive("appearance", [("nav", "Appearance"), ("click", "Light"),
+    appearance = driver.drive("appearance", [("nav", "Appearance"), ("content", "Light"),
         ("field", "Accent color", "#8246af"), ("save", "Accent color"), ("capture", "appearance-light"),
         ("field", "Accent color", "not-a-color"), ("save", "Accent color"), ("capture", "invalid-color-light"),
         ("resize", 900, 650), ("key", "Tab"), ("capture", "keyboard-compact-light")], concurrent=True, record=True)
@@ -732,7 +739,7 @@ def qualify(executable, output, session, checkout, backend):
             (output / "failed-concurrent-config.json").write_text(json.dumps(saved), encoding="utf-8")
             comparison = {}
             for name, theme_actions, expected in (
-                ("with-theme-change", [("click", "Dark"), ("click", "Light")], "#51a26b"),
+                ("with-theme-change", [("content", "Dark"), ("content", "Light")], "#51a26b"),
                 ("without-theme-change", [], "#a1624b")):
                 try:
                     driver.drive("input-diagnostic-" + name, [("nav", "Appearance"), *theme_actions,
@@ -746,12 +753,12 @@ def qualify(executable, output, session, checkout, backend):
     if saved["packageQualificationSentinel"] != {"preserve": True}:
         raise RuntimeError("Unknown shared config fields were lost")
     verify_text(appearance / "keyboard-compact-light.png", "six-digit hex color")
-    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("click", "10"), ("wait_text", "Saved"),
-        ("click", "Automatic refresh: on"), ("wait_text", "Saved"), ("capture", "pr-light"), ("nav", "Copilot"),
+    preferences = driver.drive("preferences", [("nav", "Pull requests"), ("content", "10"), ("wait_text", "Saved"),
+        ("content", "Automatic refresh: on"), ("wait_text", "Saved"), ("capture", "pr-light"), ("nav", "Copilot"),
         ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"), ("wait_text", "Saved"),
         ("field", "Model ID|Model 1D|Model lD", "fixture-model"),
         ("save", "Model ID|Model 1D|Model lD"), ("wait_text", "Saved"), ("capture", "copilot-light"),
-        ("nav", "Notifications"), ("click", "Review completion sound: off"), ("wait_text", "Review completion sound: on"),
+        ("nav", "Notifications"), ("content", "Review completion sound: off"), ("wait_text", "Review completion sound: on"),
         ("field", "Notification audio file", "relative.wav"), ("save", "Notification audio file"),
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
         ("nav", "Advanced"), ("capture", "advanced-light")])
@@ -762,7 +769,7 @@ def qualify(executable, output, session, checkout, backend):
     if snapshot["pr"]["refreshInterval"] != 10 or snapshot["pr"]["autoRefresh"] is not False or snapshot["copilot"]["model"] != "fixture-model":
         raise RuntimeError("Synced settings did not reach Convex")
     restarted = driver.drive("restart", [("nav", "Appearance"), ("capture", "persisted-light"),
-        ("resize", 900, 650), ("capture", "persisted-compact-light"), ("click", "Dark"),
+        ("resize", 900, 650), ("capture", "persisted-compact-light"), ("content", "Dark"),
         ("capture", "persisted-compact-dark"), ("resize", 1200, 820), ("nav", "Accounts"),
         ("capture", "accounts-after-restart-dark")])
     verify_color(restarted / "persisted-light.png", "#8246af", session)
@@ -772,7 +779,7 @@ def qualify(executable, output, session, checkout, backend):
     driver.drive("appearance-controls", [("nav", "Appearance"), ("wheel", -2400),
         ("capture", "fonts-and-dashboard-dark"), ("field", "Interface font", font), ("save", "Interface font"),
         ("field", "Monospace font", mono), ("save", "Monospace font"), ("wheel", -2400),
-        ("click", "Command Center: hidden"), ("capture", "applied-fonts-dashboard-dark")])
+        ("content", "Command Center: hidden"), ("capture", "applied-fonts-dashboard-dark")])
     saved = json.loads(config.read_text(encoding="utf-8-sig"))
     if saved["ui"]["fontFamily"] != font or saved["ui"]["monoFontFamily"] != mono or not saved["ui"]["dashboardCards"]["command-center"]:
         raise RuntimeError("Font and dashboard visibility edits did not persist")
@@ -781,7 +788,7 @@ def qualify(executable, output, session, checkout, backend):
         ("field", "GitHub enterprise slug", "draft-enterprise"), ("nav", "Notifications"), ("wheel", 2400),
         ("field", "Notification audio file", "draft audio"), ("key", "Tab"),
         ("nav", "Appearance"), ("wheel", 2400),
-        ("click", "Light"), ("click", "Dark"), ("wheel", -2400),
+        ("content", "Light"), ("content", "Dark"), ("wheel", -2400),
         ("capture", "theme-retained-font-dark"), ("nav", "Accounts"), ("wheel", -2400),
         ("capture", "theme-retained-enterprise-dark"), ("nav", "Notifications"), ("wheel", 2400),
         ("capture", "theme-retained-audio-dark")], record=True)

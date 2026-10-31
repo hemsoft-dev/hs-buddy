@@ -708,3 +708,41 @@ impl Render for TodoistView {
             .child(content)
     }
 }
+
+impl TodoistView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let pane = self.pane;
+        let project = self.project.clone();
+        let _ = cx;
+        crate::shell::navigation::Destination {
+            key: format!(
+                "tasks:{}:{:?}",
+                pane as usize,
+                project.as_ref().map(Id::as_str)
+            ),
+            label: match pane {
+                Pane::Today => "Today",
+                Pane::Upcoming => "Upcoming",
+                Pane::Projects => "Projects",
+            }
+            .into(),
+            section: Some(crate::app::Section::Tasks),
+            badge: None,
+            available: std::rc::Rc::new(|_| true),
+            close: std::rc::Rc::new(|_| {}),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| {
+                    view.pane = pane;
+                    view.project = project.clone();
+                    view.task_page = 0;
+                    cx.notify();
+                });
+            }),
+        }
+    }
+}
