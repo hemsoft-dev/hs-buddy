@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1593] - 2026-10-31
+
+### Fixed
+
+- Analyze mixed browser contrast in one layout
+
+## [0.1.1592] - 2026-10-31
+
+### Fixed
+
+- Scope readiness and suppress helper consoles
+
+## [0.1.1591] - 2026-10-30
+
+### Fixed
+
+- Scope terminal rename to its workspace row
+
+## [0.1.1590] - 2026-10-30
+
+### Fixed
+
+- Await Wayland decoration geometry and target bookmarks tab
+
+## [0.1.1589] - 2026-10-30
+
+### Changed
+
+- Identify the smoke menu by row context
+
+## [0.1.1588] - 2026-10-30
+
+### Changed
+
+- Scope smoke clicks below global tabs
+
+## [0.1.1587] - 2026-10-30
+
+### Fixed
+
+- Guard tab account scopes and preserve terminal history keys
+
+## [0.1.1586] - 2026-10-30
+
+### Added
+
+- Add global tabs and navigation shortcuts (#823)
+
 ## [0.1.1585] - 2026-10-30
 
 ### Added

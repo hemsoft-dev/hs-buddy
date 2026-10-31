@@ -101,27 +101,27 @@ def add_and_delete(driver, theme, victim):
     new = created(theme)
     flow = driver.drive(f"bookmarks-{theme}", [
         ("wait_text", "Rust Book"), ("capture", f"list-{theme}"),
-        ("click", "Development"), ("wait_text", "GPUI guide"), ("capture", f"category-{theme}"),
-        ("click", "All bookmarks"), ("wait_text", "Morning news"),
-        ("click", "Add"), ("wait_text", "New bookmark"),
+        ("content", "Development"), ("wait_text", "GPUI guide"), ("capture", f"category-{theme}"),
+        ("content", "All bookmarks"), ("wait_text", "Morning news"),
+        ("content", "Add"), ("wait_text", "New bookmark"),
         ("input", "URL", new["url"]), ("input", "Title", new["title"]),
         ("input", "Category", new["category"]), ("input", "Tags", ", ".join(new["tags"])),
         ("capture", f"editor-{theme}"),
         # The new bookmark lands at the end of the list, which may be below the
         # window's fold; its own category shows it whatever the window height.
-        ("click", "Add bookmark"), ("wait_text", "Bookmark added."),
-        ("click", "Reading"), ("wait_text", new["title"]), ("capture", f"added-{theme}"),
-        ("click", "All bookmarks"), ("wait_text", "Morning news"),
+        ("content", "Add bookmark"), ("wait_text", "Bookmark added."),
+        ("content", "Reading"), ("wait_text", new["title"]), ("capture", f"added-{theme}"),
+        ("content", "All bookmarks"), ("wait_text", "Morning news"),
         # `box` types at the middle of the input: `input` clicks beside the label,
         # which here is the search icon, and the text never reaches the editor.
         # Unlike `field`, it needs no Save button in the row (Mac anchors on one).
         ("box", "Search", victim), ("wait_text", victim),
-        ("click", "Delete"), ("wait_text", "Confirm delete"), ("capture", f"delete-confirm-{theme}"),
-        ("click", "Confirm delete"), ("wait_text", "Deleted"), ("capture", f"deleted-{theme}"),
-        ("click", "Clear filters"), ("wait_text", "Rust Book"),
+        ("content", "Delete"), ("wait_text", "Confirm delete"), ("capture", f"delete-confirm-{theme}"),
+        ("content", "Confirm delete"), ("wait_text", "Deleted"), ("capture", f"deleted-{theme}"),
+        ("content", "Clear filters"), ("wait_text", "Rust Book"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"compact-list-{theme}"),
-        ("click", "Add"), ("wait_text", "New bookmark"), ("capture", f"compact-editor-{theme}"),
-        ("click", "Cancel"), ("wait_text", "Rust Book"),
+        ("content", "Add"), ("wait_text", "New bookmark"), ("capture", f"compact-editor-{theme}"),
+        ("content", "Cancel"), ("wait_text", "Rust Book"),
     ], record=True)
     # The tree's root is checked where it isn't the selected row: Tesseract skipped
     # "All bookmarks" inside its light-theme focus ring on macOS (run 40643311321).
@@ -144,7 +144,7 @@ def failure(driver, theme, compact):
     if compact:
         actions.append(("resize", 900, 650))
     name = f"failure-{theme}" + ("-compact" if compact else "")
-    actions += [("capture", name), ("click", "Retry"), ("sleep", 1), ("wait_text", "Unable to load bookmarks")]
+    actions += [("capture", name), ("content", "Retry"), ("sleep", 1), ("wait_text", "Unable to load bookmarks")]
     flow = driver.drive(name, actions, record=True)
     github.check(flow / f"{name}.png", "Unable to load bookmarks", "Convex", "Retry")
 

@@ -1,0 +1,274 @@
+[
+  {
+    "text": "\u00a9",
+    "left": 20,
+    "top": 6,
+    "width": 11,
+    "height": 20,
+    "line": "1/1/1"
+  },
+  {
+    "text": "Buddy",
+    "left": 45,
+    "top": 6,
+    "width": 43,
+    "height": 20,
+    "line": "1/1/1"
+  },
+  {
+    "text": "File",
+    "left": 98,
+    "top": 2,
+    "width": 27,
+    "height": 29,
+    "line": "1/1/1"
+  },
+  {
+    "text": "Eat",
+    "left": 132,
+    "top": 2,
+    "width": 21,
+    "height": 29,
+    "line": "1/1/1"
+  },
+  {
+    "text": "view",
+    "left": 163,
+    "top": 2,
+    "width": 30,
+    "height": 29,
+    "line": "1/1/1"
+  },
+  {
+    "text": "Help",
+    "left": 200,
+    "top": 2,
+    "width": 29,
+    "height": 29,
+    "line": "1/1/1"
+  },
+  {
+    "text": "#8",
+    "left": 890,
+    "top": 10,
+    "width": 33,
+    "height": 12,
+    "line": "2/1/1"
+  },
+  {
+    "text": "ao",
+    "left": 980,
+    "top": 11,
+    "width": 10,
+    "height": 10,
+    "line": "3/1/1"
+  },
+  {
+    "text": "x",
+    "left": 1014,
+    "top": 11,
+    "width": 10,
+    "height": 10,
+    "line": "3/1/1"
+  },
+  {
+    "text": "\u00ab",
+    "left": 60,
+    "top": 50,
+    "width": 4,
+    "height": 5,
+    "line": "4/1/1"
+  },
+  {
+    "text": "Dashboard",
+    "left": 84,
+    "top": 45,
+    "width": 74,
+    "height": 9,
+    "line": "5/1/1"
+  },
+  {
+    "text": "<",
+    "left": 152,
+    "top": 35,
+    "width": 10,
+    "height": 28,
+    "line": "5/1/1"
+  },
+  {
+    "text": "Settings:",
+    "left": 188,
+    "top": 45,
+    "width": 43,
+    "height": 11,
+    "line": "6/1/1"
+  },
+  {
+    "text": "Appearance",
+    "left": 238,
+    "top": 45,
+    "width": 65,
+    "height": 11,
+    "line": "6/1/1"
+  },
+  {
+    "text": "Settings:",
+    "left": 348,
+    "top": 45,
+    "width": 43,
+    "height": 11,
+    "line": "7/1/1"
+  },
+  {
+    "text": "ints)",
+    "left": 432,
+    "top": 45,
+    "width": 31,
+    "height": 9,
+    "line": "8/1/1"
+  },
+  {
+    "text": "=",
+    "left": 458,
+    "top": 35,
+    "width": 8,
+    "height": 28,
+    "line": "8/1/1"
+  },
+  {
+    "text": "Ey",
+    "left": 26,
+    "top": 51,
+    "width": 14,
+    "height": 14,
+    "line": "9/1/1"
+  },
+  {
+    "text": "cs)",
+    "left": 25,
+    "top": 107,
+    "width": 16,
+    "height": 16,
+    "line": "10/1/1"
+  },
+  {
+    "text": "Settings",
+    "left": 81,
+    "top": 104,
+    "width": 85,
+    "height": 22,
+    "line": "11/1/1"
+  },
+  {
+    "text": "Reload",
+    "left": 857,
+    "top": 108,
+    "width": 43,
+    "height": 10,
+    "line": "12/1/1"
+  },
+  {
+    "text": "synced",
+    "left": 904,
+    "top": 108,
+    "width": 44,
+    "height": 13,
+    "line": "12/1/1"
+  },
+  {
+    "text": "settings",
+    "left": 953,
+    "top": 108,
+    "width": 48,
+    "height": 13,
+    "line": "12/1/1"
+  },
+  {
+    "text": "Accounts",
+    "left": 91,
+    "top": 159,
+    "width": 58,
+    "height": 10,
+    "line": "13/1/1"
+  },
+  {
+    "text": "Appearance",
+    "left": 179,
+    "top": 159,
+    "width": 76,
+    "height": 13,
+    "line": "13/1/1"
+  },
+  {
+    "text": "Pull",
+    "left": 286,
+    "top": 150,
+    "width": 22,
+    "height": 28,
+    "line": "14/1/1"
+  },
+  {
+    "text": "requests",
+    "left": 314,
+    "top": 150,
+    "width": 57,
+    "height": 28,
+    "line": "14/1/1"
+  },
+  {
+    "text": "_",
+    "left": 377,
+    "top": 150,
+    "width": 10,
+    "height": 28,
+    "line": "14/1/1"
+  },
+  {
+    "text": "Copilot",
+    "left": 396,
+    "top": 159,
+    "width": 44,
+    "height": 13,
+    "line": "14/1/1"
+  },
+  {
+    "text": "Notifications",
+    "left": 471,
+    "top": 159,
+    "width": 75,
+    "height": 10,
+    "line": "14/1/1"
+  },
+  {
+    "text": "Weather",
+    "left": 577,
+    "top": 159,
+    "width": 53,
+    "height": 10,
+    "line": "14/1/1"
+  },
+  {
+    "text": "Advanced",
+    "left": 660,
+    "top": 159,
+    "width": 62,
+    "height": 10,
+    "line": "15/1/1"
+  },
+  {
+    "text": "\u2018Add",
+    "left": 506,
+    "top": 196,
+    "width": 25,
+    "height": 10,
+    "line": "16/1/1"
+  },
+  {
+    "text": "account",
+    "left": 536,
+    "top": 196,
+    "width": 49,
+    "height": 10,
+    "line": "16/1/1"
+  }
+]

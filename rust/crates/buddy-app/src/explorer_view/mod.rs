@@ -1,14 +1,13 @@
 //! Folder explorer: lazy tree and read-only, highlighted source preview.
 //!
 //! File > Open Folder (Ctrl/Cmd+O outside terminal input), or a pane's Folder View,
-//! opens a root. Close returns to the preceding section. The tree caches each
+//! opens a root. Close selects the neighbouring global tab. The tree caches each
 //! expanded directory for this opening, matches Electron's hidden/generated
 //! entry policy, and shows read failures inline. Preview reads are capped at
 //! 1 MiB even if a file grows; each root/selection has a request identity so a
 //! late read cannot replace the current file. Source stays read-only and local.
 //! Syntect supplies syntax colors, with plain text for unknown languages.
-//! Global application tabs and persistent navigation belong to the separate
-//! shell parity work in #823.
+//! Global application tabs are owned by the shell.
 mod chooser;
 mod files;
 #[cfg(test)]
@@ -360,5 +359,63 @@ impl Render for ExplorerView {
                         ),
                 ),
             )
+    }
+}
+
+impl ExplorerView {
+    pub(crate) fn destination(
+        &self,
+        entity: Entity<Self>,
+    ) -> crate::shell::navigation::Destination {
+        let path = self.root.clone();
+        let children = self.children.clone();
+        let expanded = self.expanded.clone();
+        let errors = self.errors.clone();
+        let selected = self.selected.clone();
+        let preview = self.preview.clone();
+        let editor = self.editor.clone();
+        let chooser = self.chooser.clone();
+        let mut d = crate::shell::navigation::Destination::section(None);
+        d.key = if chooser.is_some() {
+            "folder:chooser".into()
+        } else {
+            format!("folder:{}", path.display())
+        };
+        d.label = if chooser.is_some() {
+            "Open Folder".into()
+        } else {
+            path.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Open Folder".into())
+        };
+        d.restore = std::rc::Rc::new(move |window, cx| {
+            entity.update(cx, |view, cx| {
+                let chooser_changed = view.chooser.as_ref().map(Entity::entity_id)
+                    != chooser.as_ref().map(Entity::entity_id);
+                if view.root != path || chooser_changed {
+                    view.generation += 1;
+                    view.preview_request += 1;
+                    view.root = path.clone();
+                    view.children = children.clone();
+                    view.expanded = expanded.clone();
+                    view.errors = errors.clone();
+                    view.pending.clear();
+                    view.selected = selected.clone();
+                    view.preview = preview.clone();
+                    view.editor = editor.clone();
+                    view.chooser = chooser.clone();
+                    if view.preview.is_none()
+                        && let Some(selected) = selected.clone()
+                    {
+                        view.select(selected, window, cx);
+                    }
+                    if view.children.is_empty() {
+                        view.load(path.clone(), cx);
+                    }
+                    cx.notify();
+                }
+            })
+        });
+        d
     }
 }

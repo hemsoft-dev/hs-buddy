@@ -156,11 +156,11 @@ def qualify(executable, output, session, version):
     try:
         launched = driver.drive("launch-dark", [
             ("wait_text", "Start a loop"), ("capture", "dashboard-dark"),
-            ("click", "New loop"), ("sleep", 1),
+            ("content", "New loop"), ("sleep", 1),
             ("input", "Repository", repo), ("input", "Prompt", "quick"), ("capture", "form-dark"),
-            ("click", "Launch"), ("wait_text", "RALPH STUB TOOL FOUND IN stub-tools"), ("capture", "running-dark"),
+            ("content", "Launch"), ("wait_text", "RALPH STUB TOOL FOUND IN stub-tools"), ("capture", "running-dark"),
             ("sleep", 8), ("wait_text", "Completed"), ("capture", "completed-dark"),
-            ("click", "All loops"), ("sleep", 2), ("capture", "recent-dark"),
+            ("content", "All loops"), ("sleep", 2), ("capture", "recent-dark"),
         ], record=True)
         github.check(launched / "dashboard-dark.png", "Ralph Loops", "Start a loop", "Ralph Loop", "Ralph PR", "Ralph Issues")
         github.check(launched / "form-dark.png", "Ralph Loop", "Launch", "Repository", "Provider", "Model",
@@ -174,10 +174,10 @@ def qualify(executable, output, session, version):
         verify_receipts(proofs, repository_path, dict(quick=1))
 
         stopped = driver.drive("stop-dark", [
-            ("click", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
-            ("click", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "long-running-dark"),
-            ("click", "Stop loop"), ("capture", "stop-confirm-dark"),
-            ("click", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "stopped-dark"),
+            ("content", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
+            ("content", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "long-running-dark"),
+            ("content", "Stop loop"), ("capture", "stop-confirm-dark"),
+            ("content", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "stopped-dark"),
         ], record=True)
         github.check(stopped / "long-running-dark.png", "Running", "Iterating", "RALPH STUB RUNNING", "Stop loop")
         github.check(stopped / "stop-confirm-dark.png", "Stop this loop?", "Stop now", "Keep running")
@@ -189,8 +189,8 @@ def qualify(executable, output, session, version):
         light = json.loads(fixture(config.parent / "light-template", "light").read_text())
         terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
         detached = driver.drive("detach-light", [
-            ("click", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
-            ("click", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "detached-running-light"),
+            ("content", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
+            ("content", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "detached-running-light"),
         ])
         github.check(detached / "detached-running-light.png", "Running", "RALPH STUB RUNNING")
         # Buddy has quit; its loop keeps running under its own host.
@@ -200,8 +200,8 @@ def qualify(executable, output, session, version):
             raise RuntimeError("The loop stopped when Buddy closed")
         reopened = driver.drive("reopen-light", [
             ("wait_text", "Active (1)"), ("capture", "reopened-light"),
-            ("click", "Stop"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "reopened-detail-light"),
-            ("click", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "reopened-stopped-light"),
+            ("content", "Stop"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "reopened-detail-light"),
+            ("content", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "reopened-stopped-light"),
         ], record=True)
         github.check(reopened / "reopened-light.png", "Active (1)", "Running", "Recent (2)")
         github.check(reopened / "reopened-detail-light.png", "Running", "RALPH STUB RUNNING", "Stop now")
@@ -215,12 +215,12 @@ def qualify(executable, output, session, version):
         if any((folder / ".git").exists() for folder in (not_repository, *not_repository.parents)):
             raise RuntimeError("The evidence folder must be outside any Git repository")
         errors = driver.drive("errors-light", [
-            ("click", "New loop"), ("sleep", 1), ("input", "Repository", str(not_repository)),
-            ("click", "Launch"), ("wait_text", "is not inside a Git repository."), ("capture", "not-repository-light"),
+            ("content", "New loop"), ("sleep", 1), ("input", "Repository", str(not_repository)),
+            ("content", "Launch"), ("wait_text", "is not inside a Git repository."), ("capture", "not-repository-light"),
             ("input", "Repository", repo), ("input", "Prompt", "fail"),
-            ("click", "Launch"), ("wait_text", "Failed"), ("capture", "failed-light"),
-            ("click", "Retry"), ("sleep", 6), ("wait_text", "Failed"), ("capture", "retried-light"),
-            ("click", "All loops"), ("sleep", 1), ("resize", 900, 650), ("click", "New loop"), ("sleep", 1),
+            ("content", "Launch"), ("wait_text", "Failed"), ("capture", "failed-light"),
+            ("content", "Retry"), ("sleep", 6), ("wait_text", "Failed"), ("capture", "retried-light"),
+            ("content", "All loops"), ("sleep", 1), ("resize", 900, 650), ("content", "New loop"), ("sleep", 1),
             ("capture", "compact-form-light"),
         ])
         github.check(errors / "not-repository-light.png", "is not inside a Git repository.", "Launch")
@@ -232,11 +232,11 @@ def qualify(executable, output, session, version):
         # The same launch without the Copilot CLI is refused with setup guidance.
         os.environ["PATH"] = original_path
         missing = driver.drive("missing-light", [
-            ("click", "New loop"), ("sleep", 1), ("input", "Prompt", "quick"),
+            ("content", "New loop"), ("sleep", 1), ("input", "Prompt", "quick"),
             # The form's on states: merging checked, one review agent with its model picker.
-            ("click", "Merge the PR when it is clean"), ("click", "pr-review-general"), ("sleep", 1),
+            ("content", "Merge the PR when it is clean"), ("content", "pr-review-general"), ("sleep", 1),
             ("capture", "form-options-light"),
-            ("click", "Launch"), ("wait_text", "GitHub Copilot CLI (copilot) was not found."),
+            ("content", "Launch"), ("wait_text", "GitHub Copilot CLI (copilot) was not found."),
             ("capture", "missing-tool-light"),
         ])
         github.check(missing / "form-options-light.png", "Merge the PR when it is clean", "pr-review-general model")

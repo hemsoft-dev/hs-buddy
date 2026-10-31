@@ -269,11 +269,11 @@ impl AutomationView {
         v_flex()
             .gap_3()
             .child(header)
-            .child(
+            .children((!self.shell_navigation).then(|| {
                 div()
                     .debug_selector(|| "automation-panes".into())
-                    .child(tabs),
-            )
+                    .child(tabs)
+            }))
             .into_any_element()
     }
 

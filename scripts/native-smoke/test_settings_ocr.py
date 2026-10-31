@@ -18,6 +18,17 @@ def word(text, left, top, line):
 
 
 class SessionInputRow(unittest.TestCase):
+    def test_windows_ocr_never_creates_an_interactive_console(self):
+        image = Path("owned screenshot.png")
+        with patch.object(ocr.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+                patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")) as run:
+            self.assertEqual(ocr.recognize_windows(image), [])
+        args = run.call_args.args[0]
+        self.assertEqual(args[:4], ["powershell.exe", "-NoProfile", "-NonInteractive", "-File"])
+        self.assertEqual(args[-2:], ["-Path", str(image)])
+        self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
     def test_actual_failed_intel_layout_measures_the_editor_row_below_the_old_click(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('session-input-row-ocr.json').read_text(encoding='utf-8'))
         label = ocr.locate_label(evidence['words'], 'VS Code User directory', field=True)
@@ -50,6 +61,35 @@ class SessionInputRow(unittest.TestCase):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_workspace_rename_is_bounded_by_the_two_visible_field_labels(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('terminal-workspace-rename-words.json').read_text())
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(evidence['block'], 'Rename', content=True)
+        # Sparse OCR sees both row anchors but misreads the File menu. The
+        # explicit field scope needs neither a menu nor a mixed-engine result.
+        with self.assertRaisesRegex(RuntimeError, 'menu row'):
+            ocr.find_label(evidence['sparse'], 'Rename', content=True)
+        self.assertEqual(ocr.find_label(evidence['sparse'], 'Rename', between=('Workspace name', 'Selected shell name')),
+            dict(left=830, top=172, width=49, height=10))
+        with self.assertRaises(RuntimeError):
+            ocr.find_label(evidence['block'], 'Rename', between=('Workspace name', 'Selected shell name'))
+
+    def test_bounded_row_never_falls_back_to_a_neighbor_or_hides_a_duplicate(self):
+        words = [word('Workspace name', 60, 140, 'start'), word('Rename', 830, 172, 'workspace'),
+            word('Selected shell name', 60, 208, 'end'), word('Rename', 932, 233, 'shell')]
+        for missing in ('Workspace name', 'Selected shell name', 'Rename'):
+            kept = [w for w in words if not (w['text'] == missing and (missing != 'Rename' or w['top'] == 172))]
+            with self.subTest(missing=missing), self.assertRaises(RuntimeError):
+                ocr.find_label(kept, 'Rename', between=('Workspace name', 'Selected shell name'))
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words + [word('Rename', 500, 172, 'duplicate')], 'Rename',
+                between=('Workspace name', 'Selected shell name'))
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words + [word('Workspace name', 400, 140, 'duplicate-anchor')], 'Rename',
+                between=('Workspace name', 'Selected shell name'))
+        with self.assertRaisesRegex(RuntimeError, 'out of order'):
+            ocr.find_label(words, 'Rename', between=('Selected shell name', 'Workspace name'))
+
     def test_border_punctuation_does_not_create_two_matches_for_one_interrupt_button(self):
         words = [dict(text="Interrupt", left=499, top=151, width=61, height=30, line="16/1/1"),
             dict(text="(", left=584, top=155, width=4, height=30, line="16/1/1"),
@@ -377,6 +417,54 @@ class LabelGuards(unittest.TestCase):
     def test_navigation_uses_the_heading_not_the_reload_button(self):
         words = [word("Settings", 80, 100, "heading"), word("Reload", 800, 100, "button"), word("synced", 840, 100, "button"), word("settings", 880, 100, "button"), word("Accounts", 80, 150, "nav")]
         self.assertEqual(ocr.find_label(words, "Accounts", navigation=True)["top"], 150)
+
+
+    def test_content_scope_excludes_global_tab_titles_at_each_capture_scale(self):
+        for scale in (1, 1.5, 2, 3):
+            for label in ("Jobs", "History", "Schedules", "Launch", "New job", "alpha", "Development"):
+                with self.subTest(scale=scale, label=label):
+                    words = [word("File", 100, 20, "menu"), word("Edit", 140, 20, "menu"),
+                        word("View", 180, 20, "menu"), word("Help", 280, 20, "menu"),
+                        word(label, 100, 55, "global-tab"), word(label, 100, 110, "view")]
+                    for item in words:
+                        for key in ("left", "top", "width", "height"):
+                            item[key] *= scale
+                    with self.assertRaises(ocr.AmbiguousLabel):
+                        ocr.find_label(words, label)
+                    self.assertEqual(ocr.find_label(words, label, content=True)["top"], 110 * scale)
+                    with self.assertRaises(RuntimeError):
+                        ocr.find_label(words[:-1], label, content=True)
+
+    def test_settings_navigation_ignores_the_clipped_global_tab_heading(self):
+        # Windows job 124177959929, settings/retained-drafts original OCR.
+        words = json.loads(Path(__file__).with_name("fixtures").joinpath("settings-global-tab-words.json").read_text())
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Notifications", navigation=True)
+        self.assertEqual(ocr.find_label(words, "Notifications", navigation=True, content=True),
+            dict(left=471, top=159, width=75, height=10))
+
+    def test_content_scope_anchors_the_menu_even_when_file_occurs_in_view_labels(self):
+        words = [word("File", 100, 20, "menu"), word("Edit", 140, 20, "menu"),
+            word("View", 180, 20, "menu"), word("Help", 280, 20, "menu"),
+            word("Settings", 100, 55, "global-tab"), word("Settings", 100, 110, "heading"),
+            word("Weather", 100, 150, "nav"), word("File", 100, 250, "view-file"),
+            word("File", 100, 300, "another-file"), word("Help", 280, 300, "view-help")]
+        self.assertEqual(ocr.find_label(words, "Weather", navigation=True, content=True)["top"], 150)
+        # A second full menu must fail, rather than choose a row by order.
+        words += [word(label, left, 350, "second-menu") for label, left
+            in (("File",100),("Edit",140),("View",180),("Help",280))]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Weather", navigation=True, content=True)
+
+    def test_content_scope_still_rejects_competing_view_controls(self):
+        words = [word("File", 100, 20, "menu"), word("Edit", 140, 20, "menu"),
+                        word("View", 180, 20, "menu"), word("Help", 280, 20, "menu"),
+            word("Jobs", 100, 55, "global-tab"), word("Jobs", 100, 110, "view"),
+            word("Jobs", 300, 110, "another-control")]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, "Jobs", content=True)
+        with self.assertRaises(RuntimeError):
+            ocr.find_label(words[2:], "Jobs", content=True)
 
 
 if __name__ == "__main__":

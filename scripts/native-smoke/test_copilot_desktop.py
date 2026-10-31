@@ -161,7 +161,7 @@ class CopilotQualificationTests(unittest.TestCase):
 
             def drive(self, name, actions):
                 for action in actions:
-                    if action == ('click', 'Load metrics file'):
+                    if action == ('content', 'Load metrics file'):
                         # Actual Windows capture: the search field occupies
                         # the bottom edge; summary and user follow below it.
                         self.loaded = True
@@ -221,7 +221,7 @@ class CopilotQualificationTests(unittest.TestCase):
                         if action[2] not in self.visible:
                             raise AssertionError('Scroll anchor is not in the visible conversation')
                         self.visible.add(action[1])
-                    elif action[0] == 'click' and action[1] in ('Copy answer', 'Inspect saved result'):
+                    elif action[0] == 'content' and action[1] in ('Copy answer', 'Inspect saved result'):
                         if action[1] not in self.visible:
                             raise AssertionError('Saved status did not reveal the requested control: ' + action[1])
                         self.clicked.append(action[1])
@@ -248,18 +248,18 @@ class CopilotQualificationTests(unittest.TestCase):
             def drive(self, name, actions):
                 self.assert_name = name
                 for action in actions:
-                    if action == ('click', 'Review with Buddy assistant'):
+                    if action == ('content', 'Review with Buddy assistant'):
                         self.context = True
-                    elif action == ('click', 'Load available models'):
+                    elif action == ('content', 'Load available models'):
                         self.catalog = True
                     elif action == ('wait_models', 'Synthetic offline model'):
                         if not self.catalog:
                             raise AssertionError('Model discovery was not requested')
-                    elif action == ('click', 'Synthetic offline model'):
+                    elif action == ('content', 'Synthetic offline model'):
                         if not self.catalog:
                             raise AssertionError('Cannot select a model before discovery')
                         self.model = 'gpt-4.1'
-                    elif action == ('click', 'Run and save'):
+                    elif action == ('content', 'Run and save'):
                         if not self.context or self.model != 'gpt-4.1':
                             raise AssertionError('Fresh review dispatch reaches the offline identity guard with model=' + self.model)
                         self.dispatched = True

@@ -18,13 +18,52 @@ def normalize(text):
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
-def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False):
+def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
     wanted = normalize(label)
     if not wanted:
         raise RuntimeError("A nonempty visible label is required")
     # Borders and punctuation have no label characters. Keeping them in a
     # span can count one word twice, such as Interrupt and Interrupt + '('.
     words = [word for word in words if normalize(word["text"])]
+    if content:
+        # Explicit scene scope: the menu row and the following workspace-tab
+        # row are chrome, not controls in the retained view. Measure both from
+        # the untouched capture rather than assuming a DPI or window origin.
+        # View/Help identify the menu context even when field labels also
+        # contain File. Do not require Edit: the captured Windows OCR reads
+        # that menu label as Eat. All candidate rows must still be unique.
+        menus = []
+        for candidate in (word for word in words if normalize(word["text"]) == "file"):
+            row = [word for word in words if abs(word["top"] - candidate["top"])
+                <= max(word["height"], candidate["height"]) / 2]
+            labels = [[word for word in row if normalize(word["text"]) == label]
+                for label in ("file", "view", "help")]
+            if all(len(matches) == 1 for matches in labels):
+                positions = [matches[0]["left"] for matches in labels]
+                if positions == sorted(set(positions)):
+                    menus.append(candidate)
+        if len(menus) > 1:
+            raise AmbiguousLabel("More than one native menu row is visible")
+        if not menus:
+            raise RuntimeError("The native File/Edit/View/Help menu row is not visible")
+        menu = menus[0]
+        below_menu = [word for word in words if word["top"] > menu["top"] + menu["height"]]
+        if not below_menu:
+            raise RuntimeError("The workspace tab row is not visible")
+        row_top = min(word["top"] for word in below_menu)
+        if row_top > menu["top"] + 5 * menu["height"]:
+            raise RuntimeError("The workspace tab row is not visible")
+        row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
+        row_bottom = max(word["top"] + word["height"] for word in row)
+        words = [word for word in words if word["top"] > row_bottom]
+    if between is not None:
+        # A scene may name the two visible field labels bounding a row.
+        # Use their tops: OCR can absorb an input border into a label's height.
+        # Missing/competing anchors or competing controls still fail closed.
+        start, end = (find_label(words, text, field=True) for text in between)
+        if start["top"] >= end["top"]:
+            raise RuntimeError("The visible row boundaries are out of order")
+        words = [word for word in words if start["top"] < word["top"] < end["top"]]
     if field:
         try:
             heading = find_label(words, "Settings", exact_line=True)
@@ -98,7 +137,10 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
 
 
 def recognize_windows(image):
-    result = subprocess.run(["powershell.exe", "-NoProfile", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    # Captured pipes do not stop a console child from opening a terminal on
+    # Windows. OCR is repeatedly invoked by hidden-desktop smoke workers.
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW)
     return json.loads(result.stdout)
 
 
@@ -113,7 +155,8 @@ def recognize_macos(image):
 
 def recognize(image, mode=11):
     if shutil.which("tesseract"):
-        result = subprocess.run(["tesseract", str(image), "stdout", "--psm", str(mode), "tsv"], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+        result = subprocess.run(["tesseract", str(image), "stdout", "--psm", str(mode), "tsv"], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         rows = csv.DictReader(result.stdout.splitlines(), delimiter="\t", quoting=csv.QUOTE_NONE)
         return [dict(text=row["text"], left=int(row["left"]), top=int(row["top"]), width=int(row["width"]), height=int(row["height"]), line="/".join(row[key] for key in ("block_num", "par_num", "line_num"))) for row in rows if row["level"] == "5" and row["text"].strip()]
     if sys.platform == "win32":
@@ -121,10 +164,10 @@ def recognize(image, mode=11):
     raise RuntimeError("Native settings qualification requires Tesseract")
 
 
-def locate_label(words, labels, navigation=False, field=False, tab=False):
+def locate_label(words, labels, navigation=False, field=False, tab=False, content=False, between=None):
     for label in labels.split("|"):
         try:
-            return find_label(words, label, navigation, field, tab=tab)
+            return find_label(words, label, navigation, field, tab=tab, content=content, between=between)
         except AmbiguousLabel:
             raise
         except RuntimeError:
@@ -205,7 +248,7 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None):
     # Compact Mac forms put a focus border just above the next label. Sparse
     # segmentation can absorb that border into its glyph box (#886). The
     # original-image block pass reads the label alone in the failed artifacts.
@@ -213,7 +256,7 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
     for mode in (modes if shutil.which("tesseract") else (11,)):
         words = recognize(image, mode)
         try:
-            label = locate_label(words, labels, navigation, field, tab)
+            label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
             if save_row:
                 label["save"] = aligned_save(words, label)
             if row_control is not None:
@@ -240,11 +283,12 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
                 if mode == 11:
                     subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
                         "-vf", filters, "-frames:v", "1", str(analysis)],
-                        capture_output=True, check=True, timeout=30)
+                        capture_output=True, check=True, timeout=30,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
                 raw = recognize(analysis, mode)
                 words = [dict(word, **{key: word[key] / 3 for key in ("left", "top", "width", "height")}) for word in raw]
                 try:
-                    label = locate_label(words, labels, navigation, field, tab)
+                    label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
                     if save_row:
                         label["save"] = aligned_save(words, label)
                     if row_control is not None:
@@ -261,7 +305,7 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
             engine = recognize_windows if sys.platform == "win32" else recognize_macos
             words = engine(image)
             image.with_suffix(f".ocr-{sys.platform}.json").write_text(json.dumps(words), encoding="utf-8")
-            label = locate_label(words, labels, navigation, field, tab)
+            label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
             if save_row:
                 label["save"] = aligned_save(words, label)
             if row_control is not None:
@@ -277,8 +321,10 @@ def main():
     parser.add_argument("--navigation", action="store_true")
     parser.add_argument("--field", action="store_true")
     parser.add_argument("--tab", action="store_true")
+    parser.add_argument("--content", action="store_true")
+    parser.add_argument("--between-labels", nargs=2)
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels)))
 
 
 if __name__ == "__main__":

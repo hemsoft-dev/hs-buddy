@@ -274,6 +274,9 @@ impl TerminalGrid {
             return;
         }
         let stroke = &event.keystroke;
+        if crate::browser_view::keys::claimed(cx).contains(stroke) {
+            return;
+        }
         let modifiers = stroke.modifiers;
         let clipboard = if cfg!(target_os = "macos") {
             modifiers.platform

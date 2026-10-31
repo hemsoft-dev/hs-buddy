@@ -29,13 +29,14 @@ pub(super) struct SessionsView {
     sources: Vec<Source>,
     root: Option<Arc<SessionRoot>>,
     loaded_source: Option<PathBuf>,
-    scan: ScanResult,
+    scan: Arc<ScanResult>,
     page: usize,
     selected: Option<usize>,
     detail: Option<SessionDetail>,
     digest: Option<Digest>,
     request_page: usize,
     busy: bool,
+    navigation_generation: u64,
     error: Option<String>,
 }
 impl SessionsView {
@@ -65,13 +66,14 @@ impl SessionsView {
             ),
             root: None,
             loaded_source: None,
-            scan: ScanResult::default(),
+            scan: Arc::default(),
             page: 0,
             selected: None,
             detail: None,
             digest: None,
             request_page: 0,
             busy: false,
+            navigation_generation: 0,
             error: None,
         }
     }
@@ -102,6 +104,8 @@ impl SessionsView {
             cx.notify();
             return;
         }
+        self.navigation_generation += 1;
+        let generation = self.navigation_generation;
         self.busy = true;
         self.error = None;
         let rx = Runtime::global(cx).spawn(async move {
@@ -115,12 +119,15 @@ impl SessionsView {
         cx.spawn(async move |this, cx| {
             let result = rx.await;
             this.update(cx, |this, cx| {
+                if this.navigation_generation != generation {
+                    return;
+                }
                 this.busy = false;
                 match result {
                     Ok(Ok(Ok((root, scan, path)))) => {
                         this.loaded_source = Some(path);
                         this.root = Some(root);
-                        this.scan = scan;
+                        this.scan = Arc::new(scan);
                         this.page = 0;
                         this.selected = None;
                         this.detail = None;
@@ -149,6 +156,8 @@ impl SessionsView {
         let key = summary.file.clone();
         let workspace = summary.workspace_name.clone();
         let agent = summary.agent.clone();
+        self.navigation_generation += 1;
+        let generation = self.navigation_generation;
         self.busy = true;
         self.error = None;
         self.selected = Some(index);
@@ -168,6 +177,9 @@ impl SessionsView {
         cx.spawn(async move |this, cx| {
             let result = rx.await;
             this.update(cx, |this, cx| {
+                if this.navigation_generation != generation {
+                    return;
+                }
                 this.busy = false;
                 match result {
                     Ok(Ok(Ok((detail, digest)))) => {
@@ -431,5 +443,61 @@ impl Render for SessionsView {
             );
         }
         view
+    }
+}
+
+impl SessionsView {
+    pub(super) fn destination(
+        &self,
+        entity: Entity<Self>,
+    ) -> crate::shell::navigation::Destination {
+        let selected = self.selected;
+        let source = self.loaded_source.clone();
+        let file = selected
+            .and_then(|i| self.scan.sessions.get(i))
+            .map(|s| s.file.clone());
+        let root = self.root.clone();
+        let scan = self.scan.clone();
+        let detail = self.detail.clone();
+        let digest = self.digest.clone();
+        let mut d =
+            crate::shell::navigation::Destination::section(Some(crate::app::Section::Copilot));
+        d.key = format!("copilot-sessions:{source:?}:{file:?}");
+        d.label = file
+            .as_ref()
+            .map(|_| {
+                selected
+                    .and_then(|i| self.scan.sessions.get(i))
+                    .map(|s| format!("Session: {}", s.title))
+                    .unwrap_or_else(|| "Session".into())
+            })
+            .unwrap_or_else(|| "Copilot: Sessions".into());
+        d.restore = std::rc::Rc::new(move |_, cx| {
+            entity.update(cx, |view, cx| {
+                let same_root = match (&view.root, &root) {
+                    (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if same_root && view.loaded_source == source && view.selected == selected {
+                    return;
+                }
+                view.navigation_generation += 1;
+                view.busy = false;
+                view.loaded_source = source.clone();
+                view.root = root.clone();
+                view.scan = scan.clone();
+                view.selected = selected;
+                view.detail = detail.clone();
+                view.digest = digest.clone();
+                if view.detail.is_none()
+                    && let Some(index) = selected
+                {
+                    view.open(index, cx);
+                }
+                cx.notify();
+            })
+        });
+        d
     }
 }

@@ -498,3 +498,38 @@ impl gpui_kit::Render for RalphView {
         self.render_view(window, cx)
     }
 }
+
+impl RalphView {
+    pub(crate) fn destination(
+        &self,
+        entity: gpui_kit::Entity<Self>,
+        cx: &gpui_kit::App,
+    ) -> crate::shell::navigation::Destination {
+        let page = self.page.clone();
+        let form = self.form.clone();
+        let _ = cx;
+        crate::shell::navigation::Destination {
+            key: format!("ralph:{page:?}"),
+            label: match &page {
+                Page::Detail(id) => format!("Ralph: {id}"),
+                Page::Launch => "Launch Ralph".into(),
+                Page::Dashboard => "Ralph Loops".into(),
+            },
+            section: Some(crate::app::Section::Ralph),
+            badge: None,
+            available: std::rc::Rc::new(|_| true),
+            close: std::rc::Rc::new(|_| {}),
+            restore: std::rc::Rc::new(move |window, cx| {
+                let _ = window;
+                entity.update(cx, |view, cx| match &page {
+                    Page::Detail(id) => view.open_detail(id.clone(), cx),
+                    _ => {
+                        view.form = form.clone();
+                        view.page = page.clone();
+                        cx.notify();
+                    }
+                });
+            }),
+        }
+    }
+}

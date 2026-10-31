@@ -356,13 +356,14 @@ fn main() {
             zoom::init(cx);
             terminal_view::init(cx);
             bookmarks_view::init(cx);
-            browser_view::init(cx);
+            app::init_navigation(cx);
             explorer_view::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
                 KeyBinding::new("secondary-shift-a", app::ToggleAssistant, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
+
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.on_action(|_: &ToggleFullScreen, cx| {
