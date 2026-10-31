@@ -1,7 +1,7 @@
 {
   "name": "@hemsoft/buddy",
   "private": true,
-  "version": "0.1.1593",
+  "version": "0.1.1595",
   "description": "Your universal productivity companion - manage skills, tasks, and workflows",
   "type": "module",
   "main": "dist-electron/main.js",
@@ -70,6 +70,7 @@
     "crap": "bun scripts/crap-report.ts",
     "crap:check": "bun run crap:coverage && bun run crap",
     "crap:ratchet": "bun scripts/crap-report.ts --update-baseline",
+    "native:dev": "cd rust && cargo run -p buddy-app",
     "native:toolchain": "node scripts/check-native-toolchain.mjs",
     "test:native-toolchain": "node --test scripts/check-native-toolchain.test.mjs scripts/node-pty-rebuild.test.mjs"
   },

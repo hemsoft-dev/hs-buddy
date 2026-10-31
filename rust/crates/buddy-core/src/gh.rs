@@ -124,6 +124,19 @@ fn gh_command(args: &[&str]) -> Command {
 }
 
 async fn run(args: &[&str], token: Option<&str>, timeout: Duration) -> Result<String, GhError> {
+    let mut span = crate::telemetry::OperationSpan::start(crate::telemetry::Operation::GitHubCli);
+    let result = run_inner(args, token, timeout).await;
+    if result.is_ok() {
+        span.success();
+    }
+    result
+}
+
+async fn run_inner(
+    args: &[&str],
+    token: Option<&str>,
+    timeout: Duration,
+) -> Result<String, GhError> {
     let mut command = gh_command(args);
     if let Some(token) = token {
         command.env("GH_TOKEN", token);

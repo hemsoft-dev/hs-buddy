@@ -25,4 +25,15 @@ await builder
   .withExternalHttpEndpoints()
   .withOtlpExporter()
 
+// Opt in alongside Electron. Electron remains the primary/default app.
+if (process.env.BUDDY_ASPIRE_NATIVE === '1') {
+  await builder
+    .addJavaScriptApp('buddy-native', '..')
+    .withBun({ install: false })
+    .withRunScript('native:dev')
+    .withReference(convex)
+    .waitFor(convex)
+    .withOtlpExporter()
+}
+
 await builder.build().run()
