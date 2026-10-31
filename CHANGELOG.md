@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1593] - 2026-10-31
+
+### Fixed
+
+- Analyze mixed browser contrast in one layout
+
 ## [0.1.1592] - 2026-10-31
 
 ### Fixed

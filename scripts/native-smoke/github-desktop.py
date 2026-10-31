@@ -68,6 +68,12 @@ def analysis_images(path):
     settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
         "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
     yield image
+    # Mixed dark shell chrome and a light hosted page can segment separately.
+    # Keep one-layout matching, but offer the same contrast analysis as locators.
+    image = path.with_suffix(".ocr-scale3-inverted.png")
+    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate", "-frames:v", "1", image)
+    yield image
 
 
 def check(path, *markers, absent=()):
