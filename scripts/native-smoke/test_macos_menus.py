@@ -38,6 +38,43 @@ class MacMenus(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             menus.verify('Buddy Native', rows[1:])
 
+    def test_ax_uppercase_letters_do_not_imply_shift(self):
+        for menu in menus.CONTRACT:
+            rows = [dict(label=label, key=key[0].upper() if key else '',
+                modifiers=key[1] if key else -1, enabled=True)
+                for label, key in menus.CONTRACT[menu].items()]
+            menus.verify(menu, rows)
+            for label, wrong_mask in (('Hide Buddy Native', 1), ('Hide Buddy Native', 8),
+                    ('Hide Others', 0), ('Redo', 0), ('Undo', 1)):
+                if label in menus.CONTRACT[menu]:
+                    bad = [dict(row, modifiers=wrong_mask) if row['label'] == label else row for row in rows]
+                    with self.assertRaises(RuntimeError):
+                        menus.verify(menu, bad)
+
+    def test_mismatched_menu_retains_pixels_and_raw_attributes(self):
+        window = Mock()
+        window.process.poll.return_value = None
+        window.apple.side_effect = lambda script: script
+        rows = '\n'.join(label + '\t' + (key[0].upper() if key else '') + '\t'
+            + str(8 if label == 'Hide Buddy Native' else key[1] if key else -1) + '\ttrue'
+            for label, key in menus.CONTRACT['Buddy Native'].items())
+        def run(*args):
+            if args[0] == 'screencapture':
+                Path(args[-1]).write_bytes(b'\x89PNG\r\n\x1a\n')
+                return ''
+            if 'set p to position' in args[-1]:
+                return '100, 25, 300, 400'
+            return rows if 'set menuRows' in args[-1] else ''
+        with tempfile.TemporaryDirectory() as directory, patch.object(menus, 'run', side_effect=run), \
+                patch.object(menus.time, 'sleep'):
+            image = Path(directory) / 'app.png'
+            with self.assertRaises(RuntimeError):
+                menus.capture(window, 'Buddy Native', image)
+            self.assertTrue(image.is_file())
+            metadata = menus.json.loads(image.with_suffix('.json').read_text())
+            hide = next(item for item in metadata['items'] if item['label'] == 'Hide Buddy Native')
+            self.assertEqual((hide['key'], hide['modifiers']), ('H', 8))
+
     def test_capture_bounds_are_finite_positive_and_enclose_only_the_owned_popup(self):
         self.assertEqual(menus.rectangle('40.5, 25, 250.25, 300.1'), [40, 25, 251, 301])
         for bad in ('-1, 25, 250, 300', '40, 25, nan, 300', '40, 25, 250, inf',

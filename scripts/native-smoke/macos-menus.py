@@ -48,8 +48,13 @@ def verify(menu, rows, window_open=True):
         matches = [row for row in rows if row['label'] == label]
         if len(matches) != 1:
             raise RuntimeError(f'Native {menu} menu must contain exactly one {label}')
-        if accelerator and (matches[0]['key'], matches[0]['modifiers']) != accelerator:
-            raise RuntimeError(f'Native accelerator mismatch for {label}')
+        # AppKit exposes lowercase native letter equivalents as uppercase AX
+        # characters. Shift is represented independently in the modifier mask.
+        actual = (matches[0]['key'].lower(), matches[0]['modifiers'])
+        if accelerator and actual != accelerator:
+            raise RuntimeError(f'Native accelerator mismatch for {label}: '
+                f'expected {accelerator!r}, got raw key {matches[0]["key"]!r} '
+                f'with modifiers {matches[0]["modifiers"]}')
         if menu == 'Window' and matches[0]['enabled'] != window_open:
             raise RuntimeError(f'Native window availability mismatch for {label}')
 
@@ -99,13 +104,17 @@ return {{item 1 of p, item 2 of p, item 1 of s, item 2 of s}}
             if enabled not in ('true', 'false'):
                 raise RuntimeError('Native menu availability must be explicit')
             rows.append(dict(label=label, key=key, modifiers=int(modifiers), enabled=enabled == 'true'))
-        verify(menu, rows, window_open)
         time.sleep(.3)
         run('screencapture', '-x', '-R', ','.join(map(str, bounds)), destination)
         if not destination.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
             raise RuntimeError('Native menu pixels were not captured')
-        return dict(menu=menu, bounds=bounds, items=rows,
+        receipt = dict(menu=menu, bounds=bounds, items=rows,
             sha256=hashlib.sha256(destination.read_bytes()).hexdigest())
+        # Preserve the actual pixels and unnormalized AX values even when the
+        # contract fails, so the next investigation can distinguish app/driver.
+        destination.with_suffix('.json').write_text(json.dumps(receipt, indent=2))
+        verify(menu, rows, window_open)
+        return receipt
     finally:
         window.key('Escape', control=False)
 
