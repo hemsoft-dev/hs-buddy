@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
@@ -12,7 +13,7 @@ spec.loader.exec_module(comparison)
 
 class BudgetTests(unittest.TestCase):
     def setUp(self):
-        row = {'startupMs': 1000, 'responseMedianMs': 30, 'responseMaxMs': 60}
+        row = {'startupMs': 1000, 'responseMedianMs': 30, 'responseMaxMs': 60, 'maxSamplingGapMs': 150}
         for scenario in ('dashboard-warm', 'settings-idle', 'navigation-baseline', 'navigation-cleanup', 'peak'):
             row[scenario] = {'rssBytes': 400 * 1024**2, 'privateBytes': None}
         self.summary = {'native': copy.deepcopy(row), 'electron': copy.deepcopy(row)}
@@ -21,6 +22,39 @@ class BudgetTests(unittest.TestCase):
         self.summary['native']['startupMs'] = 2999
         self.summary['native']['peak']['rssBytes'] *= 1.24
         self.assertEqual(comparison.evaluate(self.summary), [])
+
+    def test_sparse_sampling_cannot_qualify_either_runtime(self):
+        self.summary['native']['maxSamplingGapMs'] = 5001
+        self.summary['electron']['maxSamplingGapMs'] = 5001
+        self.assertEqual(comparison.evaluate(self.summary), ['native.sampling-gap', 'electron.sampling-gap'])
+
+    def test_warmup_route_times_are_retained_but_excluded_from_steady_response(self):
+        trace = [{'cycle': 0, 'ms': 55000}, {'cycle': 1, 'ms': 10}, {'cycle': 1, 'ms': 30}]
+        self.assertEqual(comparison.response_metrics(trace), {'responseMedianMs': 20, 'responseMaxMs': 30})
+        self.assertEqual(len(trace), 3)
+        with self.assertRaises(ValueError):
+            comparison.response_metrics(trace[:1])
+
+    def test_sampling_coverage_includes_initial_and_trailing_gaps(self):
+        self.assertAlmostEqual(comparison.sampling_gap([{'atSeconds': 2}, {'atSeconds': 2.1}], 2.2), 2000)
+        self.assertAlmostEqual(comparison.sampling_gap([{'atSeconds': .1}, {'atSeconds': .2}], 3), 2800)
+        with self.assertRaises(ValueError):
+            comparison.sampling_gap([], 3)
+
+    def test_packaged_control_hashes_the_application_archive(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            self.assertIsNone(comparison.electron_asar(directory / 'Buddy.exe'))
+            (directory / 'resources').mkdir()
+            archive = directory / 'resources/app.asar'
+            archive.write_bytes(b'packaged application')
+            self.assertEqual(comparison.electron_asar(directory / 'Buddy.exe'), archive)
+            contents = directory / 'Buddy.app/Contents'
+            (contents / 'MacOS').mkdir(parents=True)
+            (contents / 'Resources').mkdir()
+            mac_archive = contents / 'Resources/app.asar'
+            mac_archive.write_bytes(b'packaged application')
+            self.assertEqual(comparison.electron_asar(contents / 'MacOS/Buddy'), mac_archive)
 
     def test_regressions_fail(self):
         self.summary['native']['startupMs'] = 3001

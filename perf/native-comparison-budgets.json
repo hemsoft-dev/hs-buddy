@@ -1,6 +1,9 @@
 {
   "schema": 1,
   "baseline": "same-runner Electron, alternating order, median of five fresh profiles",
+  "sampling": {
+    "maxMedianGapMs": 5000
+  },
   "timing": {
     "startupMs": {
       "floor": 3000,

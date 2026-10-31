@@ -28,6 +28,12 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / 'perf/matching-fixture.json').read_text(encoding='utf-8'))
 ROUTES = CONTRACT['routes']
 FIXTURE = CONTRACT['config']
+WINDOWS_ELECTRON_FLAGS = [
+    '--disable-features=CalculateNativeWinOcclusion',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-background-timer-throttling',
+]
 
 
 class HiddenDesktop:
@@ -160,6 +166,33 @@ def terminate(process):
         raise RuntimeError('owned processes survived cleanup')
 
 
+def response_metrics(trace):
+    measured = [entry['ms'] for entry in trace if entry['cycle'] > 0]
+    if not measured or not all(math.isfinite(value) and value > 0 for value in measured):
+        raise ValueError('missing or invalid post-warmup responsiveness samples')
+    return {'responseMedianMs': statistics.median(measured), 'responseMaxMs': max(measured)}
+
+
+def sampling_gap(samples, elapsed):
+    if not samples:
+        raise ValueError('no process memory samples')
+    boundaries = [0] + [sample['atSeconds'] for sample in samples] + [elapsed]
+    return max(b - a for a, b in zip(boundaries, boundaries[1:])) * 1000
+
+
+def warmup(seconds, kind):
+    started = time.monotonic()
+    while (remaining := seconds - (time.monotonic() - started)) > 0:
+        time.sleep(min(60, remaining))
+        print(f'{kind}: dashboard warmup {min(seconds, time.monotonic() - started):.0f}/{seconds:.0f}s', flush=True)
+
+
+def electron_asar(executable):
+    candidates = [executable.parent / 'resources/app.asar',
+                  executable.parent.parent / 'Resources/app.asar']
+    return next((path for path in candidates if path.is_file()), None)
+
+
 def run_one(kind, exe, desktop, options):
     with tempfile.TemporaryDirectory(prefix='buddy-paired-perf-') as temp:
         profile = Path(temp)
@@ -177,6 +210,8 @@ def run_one(kind, exe, desktop, options):
             if options.electron_development:
                 args += [str(ROOT)]
             args += [f'--user-data-dir={temp}']
+            if os.name == 'nt':
+                args += WINDOWS_ELECTRON_FLAGS
         started = time.perf_counter()
         child = None
         log_path = options.output.parent / f'{kind}-{time.time_ns()}.log'
@@ -190,7 +225,11 @@ def run_one(kind, exe, desktop, options):
         def sample():
             while not stop.is_set():
                 try:
-                    samples.append(memory(process) | {'atSeconds': time.perf_counter() - started})
+                    collecting = time.perf_counter()
+                    snapshot = memory(process)
+                    samples.append(snapshot | {'atSeconds': time.perf_counter() - started,
+                        'collectionMs': (time.perf_counter() - collecting) * 1000,
+                        'systemCpuPercent': psutil.cpu_percent()})
                 except Exception as error:
                     errors.append(str(error))
                     break
@@ -228,7 +267,7 @@ def run_one(kind, exe, desktop, options):
             viewport = ready['viewport'] if kind == 'native' else cdp.evaluate(
                 '({width: innerWidth, height: innerHeight, scale: devicePixelRatio})')
             scenarios = {'dashboard-cold': memory(process)}
-            time.sleep(options.warmup)
+            warmup(options.warmup, kind)
             scenarios['dashboard-warm'] = memory(process)
             frame('settings-accounts')
             time.sleep(options.settle)
@@ -238,12 +277,16 @@ def run_one(kind, exe, desktop, options):
                 for route in ROUTES:
                     before = time.perf_counter()
                     frame(route)
-                    latencies.append((time.perf_counter() - before) * 1000)
+                    latencies.append({'route': route, 'cycle': cycle,
+                                      'ms': (time.perf_counter() - before) * 1000})
                     time.sleep(.5)
                 if cdp:
                     cdp.close_tabs()
                 time.sleep(options.settle)
                 scenarios['navigation-baseline' if cycle == 0 else 'navigation-cleanup'] = memory(process)
+            stop.set()
+            thread.join()
+            elapsed = time.perf_counter() - started
             if errors:
                 raise RuntimeError(errors)
             diagnostic_text = log_path.read_text(encoding='utf-8', errors='replace')
@@ -251,12 +294,13 @@ def run_one(kind, exe, desktop, options):
                            ('RefCell already borrowed', 'unable to get cursor position')}
             if diagnostics['RefCell already borrowed']:
                 raise RuntimeError('native startup borrow regression; see retained log')
-            return {'startupMs': startup, 'viewport': viewport, 'diagnostics': diagnostics, 'responseMedianMs': statistics.median(latencies),
-                    'responseMaxMs': max(latencies), 'scenarios': scenarios,
+            return {'startupMs': startup, 'viewport': viewport, 'diagnostics': diagnostics,
+                    **response_metrics(latencies), 'responseSamples': latencies, 'scenarios': scenarios,
                     'peak': {key: max(s[key] for s in samples + list(scenarios.values())) if samples[0][key] is not None else None
                              for key in ('rssBytes', 'privateBytes')}, 'sampleCount': len(samples), 'memorySamples': samples, 'log': log_path.name,
-                    'maxSamplingGapMs': max((b['atSeconds'] - a['atSeconds']) * 1000
-                                            for a, b in zip(samples, samples[1:])) if len(samples) > 1 else None}
+                    'measurementSeconds': elapsed,
+                    'meanHostCpuPercent': statistics.mean(s['systemCpuPercent'] for s in samples[1:]) if len(samples) > 1 else None,
+                    'maxSamplingGapMs': sampling_gap(samples, elapsed)}
         finally:
             stop.set()
             thread.join()
@@ -273,7 +317,7 @@ def summarize(runs):
     for kind in ('native', 'electron'):
         values = [r[kind] for r in runs]
         result[kind] = {key: statistics.median(v[key] for v in values)
-                        for key in ('startupMs', 'responseMedianMs', 'responseMaxMs')}
+                        for key in ('startupMs', 'responseMedianMs', 'responseMaxMs', 'maxSamplingGapMs')}
         for label in ('dashboard-cold', 'dashboard-warm', 'settings-idle', 'navigation-baseline', 'navigation-cleanup', 'peak'):
             metrics = [v['peak'] if label == 'peak' else v['scenarios'][label] for v in values]
             result[kind][label] = {key: None if metrics[0][key] is None else statistics.median(m[key] for m in metrics)
@@ -284,6 +328,12 @@ def summarize(runs):
 def evaluate(summary):
     budgets = json.loads((ROOT / 'perf/native-comparison-budgets.json').read_text(encoding='utf-8'))
     failures = []
+    for kind in ('native', 'electron'):
+        gap = summary[kind]['maxSamplingGapMs']
+        if not isinstance(gap, (int, float)) or not math.isfinite(gap) or gap <= 0:
+            raise ValueError('invalid sampling coverage')
+        if gap > budgets['sampling']['maxMedianGapMs']:
+            failures.append(f'{kind}.sampling-gap')
     for key, budget in budgets['timing'].items():
         native, electron = summary['native'][key], summary['electron'][key]
         if not all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0 for v in (native, electron)):
@@ -314,7 +364,7 @@ def evaluate(summary):
 
 def write_report(output, summary):
     rows = []
-    for key, label in [('startupMs', 'Startup to frame receipt'), ('responseMedianMs', 'View switch median'), ('responseMaxMs', 'View switch maximum')]:
+    for key, label in [('startupMs', 'Startup to frame receipt'), ('responseMedianMs', 'View switch median'), ('responseMaxMs', 'View switch maximum'), ('maxSamplingGapMs', 'Median largest sampling gap')]:
         rows.append((label, summary['native'][key], summary['electron'][key], 'ms'))
     for label in ('dashboard-cold', 'dashboard-warm', 'settings-idle', 'navigation-baseline', 'navigation-cleanup', 'peak'):
         for key in ('rssBytes', 'privateBytes'):
@@ -339,16 +389,25 @@ def main():
     args = parser.parse_args()
     if not args.native.is_file() or not args.electron.is_file():
         parser.error('both executables must exist')
+    asar = electron_asar(args.electron.resolve())
+    if not args.electron_development and asar is None:
+        parser.error('packaged Electron control requires resources/app.asar')
     if args.runs < 5 or args.warmup < 0 or args.settle < 0 or args.cycles < 1:
         parser.error('require >=5 runs, nonnegative delays, and >=1 cycle')
     if os.name != 'nt' and os.environ.get('GITHUB_ACTIONS') != 'true':
         parser.error('Unix desktop launches are CI only')
-    if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--', 'perf', 'rust', 'src', 'electron',
-                       'shared', 'package.json', 'bun.lock', 'vite.config.ts']).returncode != 0:
-        parser.error('commit measured sources before qualification')
+    if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--', 'perf/startup-timing.ts', 'rust', 'src', 'electron',
+                       'shared', 'public', 'desktop-package.json', 'electron-builder.json5', 'package.json', 'bun.lock', 'vite.config.ts']).returncode != 0:
+        parser.error('commit application sources before qualification')
     desktop = HiddenDesktop() if os.name == 'nt' else None
     runs = []
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    inputs = args.output.parent / 'inputs'
+    inputs.mkdir(exist_ok=True)
+    for source in (Path(__file__), ROOT / 'perf/matching-fixture.json', ROOT / 'perf/native-comparison-budgets.json'):
+        destination = inputs / source.name
+        if source.resolve() != destination.resolve():
+            destination.write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
     try:
         for index in range(args.runs):
             pair = {}
@@ -360,7 +419,7 @@ def main():
                     args.output.write_text(json.dumps({'schema': 1, 'status': 'error', 'runtime': kind,
                         'error': str(error), 'completedPairs': runs, 'partialPair': pair}, indent=2), encoding='utf-8')
                     raise
-                print(json.dumps({k: v for k, v in pair[kind].items() if k != 'memorySamples'}), flush=True)
+                print(json.dumps({k: v for k, v in pair[kind].items() if k not in ('memorySamples', 'responseSamples')}), flush=True)
             runs.append(pair)
     finally:
         if desktop:
@@ -373,10 +432,16 @@ def main():
               'capturedAt': datetime.now().astimezone().isoformat(),
               'appVersion': json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version'],
               'psutilVersion': psutil.__version__, 'websocketVersion': websocket.__version__,
+              'pythonVersion': platform.python_version(), 'logicalCpus': psutil.cpu_count(),
+              'totalPhysicalMemoryBytes': psutil.virtual_memory().total,
+              'electronAsarSha256': hashlib.file_digest(asar.open('rb'), 'sha256').hexdigest() if asar else None,
               'runnerImage': os.environ.get('ImageOS'), 'runnerImageVersion': os.environ.get('ImageVersion'),
               'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
               'executables': {kind: {'sha256': hashlib.file_digest(getattr(args, kind).open('rb'), 'sha256').hexdigest()}
                               for kind in ('native', 'electron')},
+              'harnessSha256': hashlib.sha256(Path(__file__).read_text(encoding='utf-8').encode('utf-8')).hexdigest(),
+              'budgetSha256': hashlib.sha256(json.dumps(json.loads((ROOT / 'perf/native-comparison-budgets.json').read_text(encoding='utf-8')), sort_keys=True).encode()).hexdigest(),
+              'electronMeasurementFlags': WINDOWS_ELECTRON_FLAGS if os.name == 'nt' else [],
               'fixtureSha256': hashlib.sha256(json.dumps(CONTRACT, sort_keys=True).encode()).hexdigest(),
               'options': vars(args) | {'native': str(args.native), 'electron': str(args.electron), 'output': str(args.output)},
               'runs': runs, 'medians': summary, 'failures': failures}
