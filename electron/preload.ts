@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_INVOKE, IPC_SEND, IPC_PUSH } from '../src/ipc/contracts'
 
-// Keep legacy off() bookkeeping for callers sharing a listener identity.
-// Disposers capture their wrapper so cleanup survives contextBridge proxying.
+// Legacy off() is retained for compatibility, but callback identity is not stable
+// across contextBridge. Renderer callers must use the disposer returned by on().
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type IpcListener = (event: Electron.IpcRendererEvent, ...args: any[]) => void
 const ipcListenerWrappers = new Map<string, Map<IpcListener, IpcListener>>()

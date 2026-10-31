@@ -237,6 +237,12 @@ IPC mock follows the same return contract. Performance scenarios dispose their
 temporary handles, including the textarea when input throws. Existing memory
 budgets, lifecycle counts, warmup and settle periods remain unchanged.
 
+The harness verifies the Electron-created `Partitions/buddy` directory rather
+than the preseeded config file. Regression cases reject a config-only directory
+and accept a real session independently of config seeding. Legacy `off()` callers
+outside TerminalPane remain a separate migration; the preload comment explicitly
+directs renderer callers to the returned disposer.
+
 The regression tests exercise handle ownership at every memory checkpoint,
 terminal unmount cleanup, repeated disposal and overlapping subscriptions. A
 real Electron test verifies event delivery before cleanup and verifies that a
@@ -251,6 +257,17 @@ and temporary settings. The earlier paired native/Electron table remains
 historical evidence from application revision fd97991a. The cleanup study is a
 separate measurement of the approved Electron candidate, based on PR head
 8f09a2d, and does not replace current-head CI qualification.
+
+The three-sample median qualification passed with zero aggregate failures.
+Median warm working set was 282.00 MiB for the process tree and 66.15 MiB for
+renderers, below the unchanged 605/230 MiB limits. Terminal DOM counts remained
+675/675/675 and browser counts remained 677/677/677 at the three cleanup
+checkpoints in every sample. Individual sample outcomes were PASS, FAIL, FAIL:
+sample 2 exceeded terminal renderer RSS warmup/total-growth limits at
+1.14648/1.17780, and sample 3 exceeded browser tree/renderer RSS cleanup limits
+at 1.12240/1.19841. All individual failures are retained; only the existing
+three-sample median policy passed. The raw samples and qualification JSON remain
+in `buddy-perf-cleanup-full-memory/` under laptop temporary storage.
 
 macOS Intel/Apple silicon and Ubuntu numbers are pending the CI matrix. The
 Windows paired result qualifies this isolated fixture and frame proxy. Native terminal/browser

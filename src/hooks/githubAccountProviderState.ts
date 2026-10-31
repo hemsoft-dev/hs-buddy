@@ -5,16 +5,9 @@ import {
   type UsageProviderOverrides,
 } from '../utils/usageProviderOverrides'
 import { retainConnectedOverrides } from './githubAccountMirrorObservation'
+import type { ConvexGitHubAccount } from './githubAccountProviderTypes'
 
-export type ConvexGitHubAccount = {
-  _id?: string
-  username: string
-  org: string
-  repoRoot?: string
-  usageProvider?: UsageProvider
-  createdAt?: number
-  updatedAt?: number
-}
+export type { ConvexGitHubAccount } from './githubAccountProviderTypes'
 
 export function markOverrideChange(
   key: string,

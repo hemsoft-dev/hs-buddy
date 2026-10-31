@@ -66,6 +66,33 @@ describe('preload', () => {
       expect(listener).toHaveBeenCalledWith(mockEvent, 'arg1', 'arg2')
     })
 
+    it('off() removes the correct wrapper registered by on()', () => {
+      const listener = vi.fn()
+      exposedApis.ipcRenderer.on('remove-channel', listener)
+      const registeredWrapper = mockOn.mock.calls[0][1]
+
+      exposedApis.ipcRenderer.off('remove-channel', listener)
+      expect(mockOff).toHaveBeenCalledWith('remove-channel', registeredWrapper)
+    })
+
+    it('off() does nothing when listener was never registered', () => {
+      const unknownListener = vi.fn()
+      exposedApis.ipcRenderer.off('unknown-channel', unknownListener)
+      expect(mockOff).not.toHaveBeenCalled()
+    })
+
+    it('send() forwards channel and args to ipcRenderer.send', () => {
+      exposedApis.ipcRenderer.send('msg-channel', 'payload1', 'payload2')
+      expect(mockSend).toHaveBeenCalledWith('msg-channel', 'payload1', 'payload2')
+    })
+
+    it('invoke() forwards channel and args to ipcRenderer.invoke', () => {
+      exposedApis.ipcRenderer.invoke('invoke-channel', 'data')
+      expect(mockInvoke).toHaveBeenCalledWith('invoke-channel', 'data')
+    })
+  })
+
+  describe('ipcRenderer subscription disposal', () => {
     it('returns an idempotent disposer for the captured wrapper', () => {
       const listener = vi.fn()
       const dispose = exposedApis.ipcRenderer.on('dispose-channel', listener)
@@ -115,31 +142,6 @@ describe('preload', () => {
         ['cleared-channel', newWrapper],
         ['cleared-channel', oldWrapper],
       ])
-    })
-
-    it('off() removes the correct wrapper registered by on()', () => {
-      const listener = vi.fn()
-      exposedApis.ipcRenderer.on('remove-channel', listener)
-      const registeredWrapper = mockOn.mock.calls[0][1]
-
-      exposedApis.ipcRenderer.off('remove-channel', listener)
-      expect(mockOff).toHaveBeenCalledWith('remove-channel', registeredWrapper)
-    })
-
-    it('off() does nothing when listener was never registered', () => {
-      const unknownListener = vi.fn()
-      exposedApis.ipcRenderer.off('unknown-channel', unknownListener)
-      expect(mockOff).not.toHaveBeenCalled()
-    })
-
-    it('send() forwards channel and args to ipcRenderer.send', () => {
-      exposedApis.ipcRenderer.send('msg-channel', 'payload1', 'payload2')
-      expect(mockSend).toHaveBeenCalledWith('msg-channel', 'payload1', 'payload2')
-    })
-
-    it('invoke() forwards channel and args to ipcRenderer.invoke', () => {
-      exposedApis.ipcRenderer.invoke('invoke-channel', 'data')
-      expect(mockInvoke).toHaveBeenCalledWith('invoke-channel', 'data')
     })
   })
 
