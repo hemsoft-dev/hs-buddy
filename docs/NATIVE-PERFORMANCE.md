@@ -219,8 +219,41 @@ from the qualified baseline. The corrected study retained every route timing,
 excluded warmup from steady-response metrics and added a sampling-coverage gate.
 Startup, memory and responsiveness budget values stayed unchanged.
 
+## Electron lifecycle cleanup regression
+
+The existing [packaged memory gate failed on the initial PR head](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41162718276/job/124426289871).
+All three Linux samples retained terminal DOM nodes: 693 after first cleanup,
+729 after warmup, and 783 after the final cleanup. The total-growth ratio was
+1.12987 against the unchanged 1.10 limit. This was a real retention failure.
+
+Two roots kept detached subtrees alive. The Puppeteer scenarios did not dispose
+selector and textarea handles. Separately, terminal subscriptions attempted to
+remove renderer callbacks by sending their identity across `contextBridge`
+again. That identity did not resolve to the registered preload wrapper.
+
+The bounded fix returns an idempotent disposer that owns the exact preload
+wrapper. Terminal cleanup calls the three returned disposers. The browser-only
+IPC mock follows the same return contract. Performance scenarios dispose their
+temporary handles, including the textarea when input throws. Existing memory
+budgets, lifecycle counts, warmup and settle periods remain unchanged.
+
+The regression tests exercise handle ownership at every memory checkpoint,
+terminal unmount cleanup, repeated disposal and overlapping subscriptions. A
+real Electron test verifies event delivery before cleanup and verifies that a
+second listener still receives events afterward. A controlled cross-world
+reproduction retained 24 detached nodes and delivered 12 stale callbacks before
+the fix; afterward it retained zero nodes and delivered zero stale callbacks.
+
+The laptop qualification uses three fresh unpacked production Electron samples,
+the existing 300-second warmup, five-second settling, six terminal opens and four
+browser opens per sample. These isolated Windows runs use a never-shown desktop
+and temporary settings. The earlier paired native/Electron table remains
+historical evidence from application revision fd97991a. The cleanup study is a
+separate measurement of the approved Electron candidate, based on PR head
+8f09a2d, and does not replace current-head CI qualification.
+
 macOS Intel/Apple silicon and Ubuntu numbers are pending the CI matrix. The
-Windows result qualifies this isolated fixture and frame proxy. Terminal/browser
+Windows paired result qualifies this isolated fixture and frame proxy. Native terminal/browser
 lifecycle, rich data, default Windows DirectComposition, physical input and an
 installed release downgrade retain the limits described above. Electron remains
 primary and the overall #823 cutover gate stays open.

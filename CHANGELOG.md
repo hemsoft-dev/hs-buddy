@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1588] - 2026-10-31
+
+### Fixed
+
+- Dispose terminal IPC subscriptions and memory probe handles
+
 ## [0.1.1587] - 2026-10-31
 
 ### Fixed

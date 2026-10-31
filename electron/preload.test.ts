@@ -66,6 +66,57 @@ describe('preload', () => {
       expect(listener).toHaveBeenCalledWith(mockEvent, 'arg1', 'arg2')
     })
 
+    it('returns an idempotent disposer for the captured wrapper', () => {
+      const listener = vi.fn()
+      const dispose = exposedApis.ipcRenderer.on('dispose-channel', listener)
+      const wrapper = mockOn.mock.calls[0][1]
+      dispose()
+      dispose()
+      exposedApis.ipcRenderer.off('dispose-channel', listener)
+      expect(mockOff.mock.calls).toEqual([['dispose-channel', wrapper]])
+    })
+
+    it('disposes one subscription without removing another listener on the channel', () => {
+      const first = vi.fn()
+      const second = vi.fn()
+      const disposeFirst = exposedApis.ipcRenderer.on('shared-channel', first)
+      const firstWrapper = mockOn.mock.calls[0][1]
+      const disposeSecond = exposedApis.ipcRenderer.on('shared-channel', second)
+      const secondWrapper = mockOn.mock.calls[1][1]
+      disposeFirst()
+      expect(mockOff.mock.calls).toEqual([['shared-channel', firstWrapper]])
+      disposeSecond()
+      expect(mockOff.mock.calls[1]).toEqual(['shared-channel', secondWrapper])
+    })
+
+    it('keeps a newer registration discoverable when disposing an older one', () => {
+      const listener = vi.fn()
+      const disposeOld = exposedApis.ipcRenderer.on('reused-channel', listener)
+      const oldWrapper = mockOn.mock.calls[0][1]
+      exposedApis.ipcRenderer.on('reused-channel', listener)
+      const newWrapper = mockOn.mock.calls[1][1]
+      disposeOld()
+      exposedApis.ipcRenderer.off('reused-channel', listener)
+      expect(mockOff.mock.calls).toEqual([
+        ['reused-channel', oldWrapper],
+        ['reused-channel', newWrapper],
+      ])
+    })
+
+    it('removes a captured older wrapper after the newer registration clears the channel', () => {
+      const listener = vi.fn()
+      const disposeOld = exposedApis.ipcRenderer.on('cleared-channel', listener)
+      const oldWrapper = mockOn.mock.calls[0][1]
+      const disposeNew = exposedApis.ipcRenderer.on('cleared-channel', listener)
+      const newWrapper = mockOn.mock.calls[1][1]
+      disposeNew()
+      disposeOld()
+      expect(mockOff.mock.calls).toEqual([
+        ['cleared-channel', newWrapper],
+        ['cleared-channel', oldWrapper],
+      ])
+    })
+
     it('off() removes the correct wrapper registered by on()', () => {
       const listener = vi.fn()
       exposedApis.ipcRenderer.on('remove-channel', listener)

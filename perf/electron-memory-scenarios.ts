@@ -58,21 +58,27 @@ async function openTerminal(page: Page): Promise<void> {
   await page.evaluate(() =>
     document.querySelector<HTMLButtonElement>('button[aria-label^="Toggle Terminal"]')?.click()
   )
-  await page.waitForSelector('.terminal-panel', { visible: true })
+  await (await page.waitForSelector('.terminal-panel', { visible: true }))?.dispose()
   const automaticTerminal = await page
     .waitForSelector('.xterm', { visible: true, timeout: 30_000 })
     .catch(() => null)
-  if (!automaticTerminal) {
+  if (automaticTerminal) {
+    await automaticTerminal.dispose()
+  } else {
     await page.evaluate(() =>
       document.querySelector<HTMLButtonElement>('button[aria-label="New Terminal"]')?.click()
     )
-    await page.waitForSelector('.xterm', { visible: true, timeout: 30_000 })
+    await (await page.waitForSelector('.xterm', { visible: true, timeout: 30_000 }))?.dispose()
   }
   const textarea = await page.$('.xterm-helper-textarea')
   if (textarea) {
-    await textarea.focus()
-    await page.keyboard.type('echo buddy-memory-probe')
-    await page.keyboard.press('Enter')
+    try {
+      await textarea.focus()
+      await page.keyboard.type('echo buddy-memory-probe')
+      await page.keyboard.press('Enter')
+    } finally {
+      await textarea.dispose()
+    }
   }
   await new Promise(resolve => setTimeout(resolve, 1_000))
 }
@@ -93,7 +99,7 @@ async function closeTerminal(page: Page): Promise<void> {
 async function openBrowser(page: Page): Promise<void> {
   const route = `browser:${encodeURIComponent('https://example.com')}|${encodeURIComponent('Memory Probe')}`
   await navigate(page, route)
-  await page.waitForSelector('webview', { timeout: 30_000 })
+  await (await page.waitForSelector('webview', { timeout: 30_000 }))?.dispose()
   await new Promise(resolve => setTimeout(resolve, 3_000))
 }
 
