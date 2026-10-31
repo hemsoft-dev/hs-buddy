@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1597] - 2026-10-31
+
+### Changed
+
+- Retain Windows click targets and replay Crew packages
+
 ## [0.1.1595] - 2026-10-31
 
 ### Fixed
