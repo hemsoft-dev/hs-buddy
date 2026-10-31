@@ -72,7 +72,8 @@ impl ActivePrs {
 
 impl DashboardView {
     pub(super) fn refresh_active_prs(&mut self, force: bool, cx: &mut Context<Self>) {
-        if !self.active || !self.card_visible(buddy_core::dashboard::CardId::WorkspacePulse, cx) {
+        // The shell also consumes this total while the dashboard is hidden.
+        if !cx.has_global::<crate::runtime::Runtime>() {
             return;
         }
         let config = &Settings::global(cx).config;

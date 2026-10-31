@@ -50,6 +50,30 @@ pub struct AutomationView {
     error: Option<String>,
 }
 impl AutomationView {
+    pub(crate) fn status_totals(&self) -> (Option<u64>, Option<u64>, bool) {
+        (
+            self.snapshot
+                .loaded
+                .then_some(self.snapshot.jobs.len() as u64),
+            self.snapshot
+                .loaded
+                .then_some(self.snapshot.schedules.len() as u64),
+            !self.snapshot.connected
+                && (self.snapshot.loaded || self.snapshot.connection_error.is_some()),
+        )
+    }
+
+    pub(crate) fn show_status_list(&mut self, schedules: bool, cx: &mut Context<Self>) {
+        self.pane = if schedules {
+            Pane::Schedules
+        } else {
+            Pane::Jobs
+        };
+        self.page = 0;
+        self.job_page = 0;
+        cx.notify();
+    }
+
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Name, command, cron or state"));

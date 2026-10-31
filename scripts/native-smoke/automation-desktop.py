@@ -149,6 +149,8 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
     echo = github.mutate(backend, "jobs:create", job_arguments("Echo job", echo_command(proof, nonce), workspace))
     long = github.mutate(backend, "jobs:create", job_arguments("Long job", long_command(children, long_nonce), workspace))
     runs = driver.drive("runs-dark", [
+        ("wait_text", "Echo job"),
+        ("click", "File"), ("capture", "file-menu-status-dark"), ("key", "Escape"),
         ("input", "Filter", "Echo job"), ("sleep", 1), ("capture", "jobs-dark"),
         ("content", "Run now"), ("capture", "run-input-dark"), ("content", "Queue run"), ("sleep", 1),
         # The queued notice clears when the run settles and the list moves up a
@@ -164,6 +166,8 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
         ("content", "Cancel run"), ("wait_text", "Cancelled"), ("sleep", 2), ("capture", "cancelled-dark"),
     ], record=True)
     github.check(runs / "jobs-dark.png", "Echo job", "Run now", "Edit", "Duplicate", absent=("Long job",))
+    github.check(runs / "file-menu-status-dark.png", "Open Folder", "Exit",
+        f"{len(backend.query('jobs:list'))} jobs", f"{len(backend.query('schedules:list'))} schedules")
     github.check(runs / "run-input-dark.png", "Run Echo job now", "Queue run")
     github.check(runs / "output-dark.png", "Completed", "NATIVEAUTOMATIONREADY", "Manual")
     github.check(runs / "running-dark.png", "Running", "NATIVESTARTED", "Cancel run")
@@ -195,6 +199,8 @@ def qualify_editing(driver, backend, config, echo, long):
     github.check(restarted / "schedule-editor-light.png", "New schedule", "Native created job", "Run the latest missed")
     github.check(restarted / "schedule-created-light.png", "Native weekdays", "Enabled", "Run the latest missed")
     github.check(restarted / "schedule-paused-light.png", "Native weekdays", "Paused", "Enable", "Not scheduled")
+    github.check(restarted / "schedule-paused-light.png",
+        f"{len(backend.query('jobs:list'))} jobs", f"{len(backend.query('schedules:list'))} schedules")
     # The restarted dispatcher reconciles; it never runs either job again.
     single_run(backend, echo, "completed")
     single_run(backend, long, "cancelled")
@@ -232,6 +238,8 @@ def qualify_editing(driver, backend, config, echo, long):
     ])
     github.check(deleted / "job-delete-light.png", "and its schedules will be removed.", "Delete job", "Keep")
     github.check(deleted / "job-deleted-light.png", "No jobs match the filter.")
+    github.check(deleted / "job-deleted-light.png",
+        f"{len(backend.query('jobs:list'))} jobs", f"{len(backend.query('schedules:list'))} schedules")
     if any(job["name"] == "Native created job" for job in backend.query("jobs:list")):
         raise RuntimeError("The confirmed job delete did not reach the backend")
 

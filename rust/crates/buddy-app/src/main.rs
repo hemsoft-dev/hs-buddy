@@ -361,6 +361,7 @@ fn main() {
 
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
+                KeyBinding::new("secondary-r", Reload, Some("!BuddyTerminal && !BuddyTerminalPaste")),
                 KeyBinding::new("secondary-shift-a", app::ToggleAssistant, None),
                 KeyBinding::new("f11", ToggleFullScreen, None),
 

@@ -9,11 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Share dashboard and automation totals with shell status
+
 ## [0.1.1593] - 2026-10-31
 
 ### Fixed
 
 - Analyze mixed browser contrast in one layout
+
+### Added
+
+- Share dashboard and automation totals with shell status
 
 ## [0.1.1592] - 2026-10-31
 
@@ -4910,7 +4918,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove unused exports flagged by knip
 - Remove unused exports and address review findings
 - Achieve 100% test coverage for CRAP score improvements
-- Resolve CI failures — guard null bookmarks and remove unused hooks
+- Resolve CI failures â€” guard null bookmarks and remove unused hooks
 - Resolve CI failures (lint + coverage)
 - Correct type error in usePRContextMenu test
 - Address all 11 PR review comments
@@ -4941,22 +4949,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump @opentelemetry/api-logs from 0.216.0 to 0.218.0
 - Reduce CRAP scores across codebase (batch 2)
 - Reduce CRAP scores batch 3 - extract helpers
-- Batch 4 — reduce complexity in prs, OrgDetailPanel, userHelpers, useTerminalPanel
-- Batch 5 — reduce complexity in useConfig, CopilotResultPanel, useTerminalPanel, RepoNode
+- Batch 4 â€” reduce complexity in prs, OrgDetailPanel, userHelpers, useTerminalPanel
+- Batch 5 â€” reduce complexity in useConfig, CopilotResultPanel, useTerminalPanel, RepoNode
 - Batch 6 - reduce complexity in TerminalPane, usePRListData, pr-detail, RepoNode, PullRequestDetailPanel, BookmarksSidebar, ralphService, BookmarkDialog, UserDetailPanel, OrgBudgetsSection, AutomationSidebarSection
-- Reduce CRAP scores batch 7 - complexity 229→172
+- Reduce CRAP scores batch 7 - complexity 229â†’172
 - Reduce CRAP scores batch 8 - hooks and handlers
 - Reduce CRAP scores batch 9 - smaller hooks
 - Extract fetchUserPremiumRequests, registerCopilotSeatHandlers, collectCopilotSnapshots
 - Extract helpers from borderline-size components and hooks
 - Extract sub-components and compress handlers in UI layer
-- Simplisticate batch 13 — compress functions under 80-line threshold
-- Simplisticate batch 14 — more function compressions
-- Simplisticate batch 24 — compress TerminalPanel, useCopilotReviewMonitor, useAIReviewMonitor, BookmarkDialog
-- Simplisticate batch 25 — compress usePRThreadsPanel, TempoWorklogEditor, TerminalPane
-- Compress batch 26 — SettingsCopilot, users, PullRequestDetailPanel
-- Compress batch 27 — SettingsAppearance, RalphLaunchForm, useAppTabs
-- Batch-31 — extract sub-components to reduce complexity in 7 files
+- Simplisticate batch 13 â€” compress functions under 80-line threshold
+- Simplisticate batch 14 â€” more function compressions
+- Simplisticate batch 24 â€” compress TerminalPanel, useCopilotReviewMonitor, useAIReviewMonitor, BookmarkDialog
+- Simplisticate batch 25 â€” compress usePRThreadsPanel, TempoWorklogEditor, TerminalPane
+- Compress batch 26 â€” SettingsCopilot, users, PullRequestDetailPanel
+- Compress batch 27 â€” SettingsAppearance, RalphLaunchForm, useAppTabs
+- Batch-31 â€” extract sub-components to reduce complexity in 7 files
 - Improve CRAP scores for terminalHandlers and githubHandlers
 - Reduce CRAP scores below 30 for all critical methods
 - Reduce cyclomatic complexity across 5 files to improve CRAP scores
@@ -5021,7 +5029,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add coverage for 5 untested source files
 - Improve coverage from 67/52/69/69 to 79/63/86/81
-- Upgrade @uiw/react-markdown-preview 5.1.5 → 5.2.0
+- Upgrade @uiw/react-markdown-preview 5.1.5 â†’ 5.2.0
 
 ## [0.1.752] - 2026-05-08
 
@@ -5036,7 +5044,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve batchProcess and cache detection tests
 - Add --disable-dev-shm-usage to lighthouse chrome flags
 - Move changelog entry to Unreleased section
-- Address PR review feedback — strengthen test assertions and fix TS2556
+- Address PR review feedback â€” strengthen test assertions and fix TS2556
 - Sync MockStore.store after clear() to prevent stale state
 - Remove unused exports and harden extractRepoFromUrl
 - Resolve Lighthouse CI NO_FCP by using --mode e2e and browser IPC mock
@@ -5105,7 +5113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add AI review provider architecture with CodeRabbit support
-- Contract testing — validate renderer↔main channel contracts
+- Contract testing â€” validate rendererâ†”main channel contracts
 - Expand axe-core a11y testing coverage and add test:a11y script
 - Add Lighthouse CI for renderer performance auditing
 - Add terminal prompt library
@@ -5129,7 +5137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Achieve 100% test coverage with cursor-highlight tests, barrel re-export tests, and v8-ignore fixes (no exclusions)
 - Achieve 100% coverage with proper tests (no exclusions)
 - Parameterize pr-review-all.ps1 for positional PR number
-- Update TODO.md — mark coverage 100% done, update progress counts
+- Update TODO.md â€” mark coverage 100% done, update progress counts
 
 ## [0.1.747] - 2026-05-06
 
@@ -5141,7 +5149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update TODO.md — mark 7 completed items, remove stale descriptions
+- Update TODO.md â€” mark 7 completed items, remove stale descriptions
 
 ## [0.1.745] - 2026-05-05
 
@@ -5175,7 +5183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Address PR review comments for security, accessibility, and CI visibility
 - Address PR review feedback for CI and ESLint quality gate
 - Replace invalid --fail-on flag with JSON-based error check for depcruise
-- Enforce convex→renderer boundary with known-violations baseline
+- Enforce convexâ†’renderer boundary with known-violations baseline
 - Apply SSRF validation to shell:open-in-app-browser and security checker
 - Prevent SSRF via HTTP redirect chains in BrowserWindow
 - Close SSRF via will-navigate and harden security checks
@@ -5243,7 +5251,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent dropdown, prompt textbox with script-aware auto-fill
 - Split agent selection into Work Agent dropdown + PR Review Agent chips
 - Add generic repeat wrapper + Work Iterations/Repeat Cycles UX
-- Add perfection skill — total quality gate audit
+- Add perfection skill â€” total quality gate audit
 - Add run history sidebar tree + detail panel
 - Filter model dropdown by selected provider
 - Stack-agnostic prompts, runtime extraction, per-reviewer models
@@ -5302,15 +5310,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gate auto-merge on AutoApprove flag
 - Suppress false warning when user is org member
 - Issue list table view now shows title column properly
-- Issue list header layout — prevent stacking and add separator
+- Issue list header layout â€” prevent stacking and add separator
 - Write issue prompts to temp file to avoid cmd-line corruption
 - Revert vite 8.0.10 to 6.4.2 for Electron compatibility
 - Address PR review feedback and fix ActivityBar test
 - Use separate worktree in autopilot to prevent app restart
 - Address PR review comments + achieve 100% test coverage
 - Remove unnecessary `as any` casts from RepoNode test config objects
-- Resolve all CI failures — typecheck, lint, knip
-- Achieve 100% coverage — add missing branch and keyboard tests
+- Resolve all CI failures â€” typecheck, lint, knip
+- Achieve 100% coverage â€” add missing branch and keyboard tests
 - Apply Prettier formatting to 13 files flagged by CI
 - Paginate review threads >100 and update bundle-size baseline
 - Remove broken npx convex typecheck step
@@ -5321,7 +5329,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Address PR review comments for coverage ratchet and Escape race test
 - Guard all dismissal paths against save-in-flight race
 - Address PR review comments for coverage ratchet and race test
-- Address PR review — revert out-of-scope Tempo changes, update docs for parallel CI
+- Address PR review â€” revert out-of-scope Tempo changes, update docs for parallel CI
 - Remove unused exports to fix Knip CI failure
 - Restore v8 ignore directives lost in module split
 - Address 3 review findings from PR #705
@@ -5336,14 +5344,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Set electron test coverage thresholds to match actual baseline
 - Resolve TS2556 spread argument error in copilotClient test
 - Resolve TS2554 type error in copilotClient test mock
-- Address PR review comments — improve test depth and coverage thresholds
+- Address PR review comments â€” improve test depth and coverage thresholds
 - Deepen electron test coverage and align thresholds with actual values
 - Resolve TS2556 spread argument errors in electron test mocks
 - Strengthen electron tests per PR review feedback
 - Integrate electron coverage ratchet into CI pipeline
 - Resolve typecheck and electron coverage CI failures
 - Address PR review feedback for electron tests
-- Update electron coverage ratchet threshold (statements 54→55)
+- Update electron coverage ratchet threshold (statements 54â†’55)
 
 ### Changed
 
@@ -5375,7 +5383,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrade happy-dom 20.8.4 to 20.9.0 to resolve Dependabot alerts
 - Use Write-Error/Write-Warning for proper PS stream routing
 - Use proper PS output streams for error/warning/info messages
-- Address PR review — revert convex generated file reformatting, restore callback contravariance
+- Address PR review â€” revert convex generated file reformatting, restore callback contravariance
 - Use Write-Information for banners/progress in ralph scripts
 - Use SDK approveAll helper for copilot-sdk 0.3.0 compatibility
 - Make launcher scripts cross-platform (macOS + Windows)
@@ -5426,10 +5434,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduce CRAP scores via complexity reduction and test infra fix
 - Reduce CRAP scores by lowering cyclomatic complexity
 - Reduce CRAP scores via helper extraction and spread defaults
-- Reduce CRAP scores — 100% coverage, complexity 22→2
+- Reduce CRAP scores â€” 100% coverage, complexity 22â†’2
 - Reduce cyclomatic complexity in mapper functions
 - Reduce complexity and fix code smells
-- Reduce cyclomatic complexity to ≤7 in three functions
+- Reduce cyclomatic complexity to â‰¤7 in three functions
 - Extract pure functions from electron/convex to reduce CRAP scores
 - Extract pure functions from electron/ to src/utils/ for CRAP reduction
 - Extract pure functions to src/utils/ for CRAP score reduction
@@ -5451,9 +5459,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extract sub-components and helpers to reduce cyclomatic complexity
 - Extract helpers and sub-components to reduce cyclomatic complexity
 - Fix prettier formatting across src/
-- Reduce cyclomatic complexity to ≤10 in all functions
+- Reduce cyclomatic complexity to â‰¤10 in all functions
 - Extract sub-components in AccountQuotaCard, OrgBudgetsSection, AutomationSidebarSection
-- Reduce cyclomatic complexity to ≤10 across 15 files
+- Reduce cyclomatic complexity to â‰¤10 across 15 files
 - Reduce cyclomatic complexity in remaining components
 - Extract helpers to reduce complexity and eliminate duplication
 - Reduce cyclomatic complexity across 7 files
@@ -5523,7 +5531,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Detect missing read:user scope and show upgrade banner for contribution grid
 - Use search API for contribution grid data instead of scope-gated GraphQL
 - Address PR review feedback and fix ContributionGraph test failure
-- Resolve CI failures — TypeScript errors and coverage gaps
+- Resolve CI failures â€” TypeScript errors and coverage gaps
 - Use Object.defineProperty for ipcRenderer mock instead of stubGlobal
 - Use Reflect.deleteProperty to fix TS2790 in data-cache steps
 - Resolve Prettier formatting and restore Date.now spy in afterAll
@@ -5566,7 +5574,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Address all PR review findings in FolderTree and CI
 - Stop event bubbling and purify state updater
 - Align focus-visible CSS with treeitem focus target
-- Address final review findings — useLayoutEffect for nodesRef and grep guard
+- Address final review findings â€” useLayoutEffect for nodesRef and grep guard
 - Address PR review comments and CI typecheck failures
 - Resolve CI lint and format failures
 - Mock getBoundingClientRect before opening context menu in overflow tests
@@ -5574,12 +5582,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use Object.defineProperty for viewport mocking in TabBar tests
 - Improve react-doctor score from 93 to 99/100
 - Address PR review comments for react-doctor improvements
-- Address PR review comments — null-safe dragOver and accurate PR description
+- Address PR review comments â€” null-safe dragOver and accurate PR description
 - Clear context menu state on tab change to prevent stale resurrection
 - Preserve expanded state during async directory load
 - Achieve react-doctor 100/100 score
 - Add XSS safety guard and fix stale content flash
-- Address review comments — context menu resurrection, render-phase updates, tests
+- Address review comments â€” context menu resurrection, render-phase updates, tests
 - Move activation sequence to commit-phase useLayoutEffect
 - Address PR review comments for FilePreview and TerminalPanel
 - Reframe innerHTML comment as sanity check, not security guard
@@ -5609,7 +5617,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increase coverage to 100% for 8 target components
 - Cover updatedAt > createdAt branch in RepoIssueDetailPanel
 - Cover catch callback in abortResponse for 100% function coverage
-- Log iteration 10 — coverage verified at 100% all metrics
+- Log iteration 10 â€” coverage verified at 100% all metrics
 - Mark test coverage TODO as complete
 - Clean up TODO.md per best practices
 
@@ -5714,13 +5722,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Address PR review — safe onViewClose flush + guarded startup command
+- Address PR review â€” safe onViewClose flush + guarded startup command
 
 ## [0.1.722] - 2026-04-17
 
 ### Fixed
 
-- Address PR review — orphaned PTY, stale onViewClose, attach sender
+- Address PR review â€” orphaned PTY, stale onViewClose, attach sender
 
 ## [0.1.721] - 2026-04-17
 
@@ -5759,7 +5767,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Address PR #604 review comments
 - Address PR review comments for terminal pane
-- Address PR review — derive closed tabs inside state updater, route terminal output per-session
+- Address PR review â€” derive closed tabs inside state updater, route terminal output per-session
 
 ## [0.1.715] - 2026-04-17
 
@@ -5777,7 +5785,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Upgrade vite 5→6.4.2 to fix GHSA-4w7w-66w2-5vf9 path traversal
+- Upgrade vite 5â†’6.4.2 to fix GHSA-4w7w-66w2-5vf9 path traversal
 - Address PR review feedback for terminal and bookmarks
 
 ### Changed
@@ -6393,7 +6401,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Production hook architecture — validate first, modify last
+- Production hook architecture â€” validate first, modify last
 
 ## [0.1.624] - 2026-04-07
 
@@ -6452,7 +6460,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update convex 1.31.7 → 1.34.1
+- Update convex 1.31.7 â†’ 1.34.1
 
 ## [0.1.580] - 2026-04-04
 
@@ -7096,7 +7104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- UX polish — auto-select, auto-scroll, checkmarks, completion indicator
+- UX polish â€” auto-select, auto-scroll, checkmarks, completion indicator
 
 ## [0.1.414] - 2026-03-23
 
@@ -7138,7 +7146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Make Jira optional — get accountId from Tempo API fallback
+- Make Jira optional â€” get accountId from Tempo API fallback
 
 ## [0.1.405] - 2026-03-22
 
@@ -7258,7 +7266,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Add 13 test files, ~230 tests, coverage 1.96→7%
+- Add 13 test files, ~230 tests, coverage 1.96â†’7%
 
 ## [0.1.359] - 2026-03-14
 
@@ -7288,7 +7296,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Analyzer C: deterministic dispatch via top-level `jobs:` — always dispatches sfl-pr-label-actions after analysis, even if agent omits dispatch_workflow call
+- Analyzer C: deterministic dispatch via top-level `jobs:` â€” always dispatches sfl-pr-label-actions after analysis, even if agent omits dispatch_workflow call
 
 ## [0.1.354] - 2026-03-13
 
@@ -7480,7 +7488,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Pipeline V2 end-to-end test tracking — PASSED
+- Pipeline V2 end-to-end test tracking â€” PASSED
 
 ## [0.1.303] - 2026-03-10
 
@@ -7671,7 +7679,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Break infinite fixer loop — dispatcher checks PASS verdicts, fixer respects all-PASS exit
+- Break infinite fixer loop â€” dispatcher checks PASS verdicts, fixer respects all-PASS exit
 
 ## [0.1.219] - 2026-03-01
 
@@ -7719,9 +7727,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Fixer no longer gives up on unfixable issues — makes progress each cycle and lets the loop iterate
+- Fixer no longer gives up on unfixable issues â€” makes progress each cycle and lets the loop iterate
 - Dynamic cycle detection across all workflows (no longer hardcoded to 3)
-- Removed cycle-3 cap from analyzers — Fixer controls escalation via sfl-config
+- Removed cycle-3 cap from analyzers â€” Fixer controls escalation via sfl-config
 - Increased max-fix-cycles from 3 to 10
 
 ## [0.1.203] - 2026-02-28
@@ -7908,7 +7916,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add Discussion Processor workflow (discussion → issues pipeline)
+- Add Discussion Processor workflow (discussion â†’ issues pipeline)
 
 ## [0.1.151] - 2026-02-26
 
@@ -8011,7 +8019,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Unblock SFL pipeline — 4 root causes of infinite no-op loop
+- Unblock SFL pipeline â€” 4 root causes of infinite no-op loop
 
 ## [0.1.122] - 2026-02-24
 
@@ -8059,7 +8067,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- SFL Auditor Step 8 — flag unclaimed agent:fixable issues older than 2 hours
+- SFL Auditor Step 8 â€” flag unclaimed agent:fixable issues older than 2 hours
 
 ## [0.1.110] - 2026-02-23
 
@@ -8077,7 +8085,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Simplify label taxonomy — drop type: prefixes
+- Simplify label taxonomy â€” drop type: prefixes
 
 ## [0.1.107] - 2026-02-23
 
@@ -8089,7 +8097,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Add Step 6 — close issues left open after merged agent PRs
+- Add Step 6 â€” close issues left open after merged agent PRs
 
 ## [0.1.105] - 2026-02-23
 
@@ -8160,8 +8168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remove redundant cron triggers from dispatcher-gated workflows
 - Remove duplicate SFL Auditor lock workflow and orphaned prompt
-- Update ATTENTION.md — resolve completed issues, add run waste fix
-- Update SFL-LAUNCH.md — status operational v2.0.0
+- Update ATTENTION.md â€” resolve completed issues, add run waste fix
+- Update SFL-LAUNCH.md â€” status operational v2.0.0
 - Add version number to SFL badge
 - Add SFL-LAUNCH.md planning document
 - Update Project Structure in README.md (#66)
@@ -8180,7 +8188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mark human review handoff with `human:ready-for-review`
 - PR promotion uses `gh pr ready` (deterministic undraft)
-- Bootstrap gh auth for promoter draft→ready transition
+- Bootstrap gh auth for promoter draftâ†’ready transition
 - Wire GitHub token into promoter agent runtime
 - Grant promoter write permissions for ready-for-review transition
 - Recompile pr-promoter and restore strict-compatible frontmatter
@@ -8197,13 +8205,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- PR Analyzer workflows (x3) — correctness, security, style
-- PR Fixer workflow — authority model with cycle-aware fix loop
-- PR Promoter workflow — un-drafts clean PRs for human review
+- PR Analyzer workflows (x3) â€” correctness, security, style
+- PR Fixer workflow â€” authority model with cycle-aware fix loop
+- PR Promoter workflow â€” un-drafts clean PRs for human review
 - Debug skill with pipeline forensics arsenal
 - Status skill and unblock analyzer/promoter no-op flow
 - `status.prompt.md` for quick pipeline status checks
-- `health.prompt.md` — pipeline harmony audit prompt
+- `health.prompt.md` â€” pipeline harmony audit prompt
 - Idempotency standing order in docs
 
 ### Fixed
@@ -8212,7 +8220,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replace HTML comment markers with visible text markers in all PR workflows
 - Unblock promoter by adding empty promotion commit strategy
 - Avoid promoter patch failures on large PR bodies
-- SFL-auditor — add noop safe-output, require explicit signal
+- SFL-auditor â€” add noop safe-output, require explicit signal
 
 ### Changed
 
@@ -8222,13 +8230,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- SFL-auditor workflow — detect and repair issue/PR label discrepancies
-- Issue processor — 30min schedule, oldest-first, claim-then-fix pattern
-- PR review pipeline design — draft PRs, analyzer+fixer+promoter lifecycle
+- SFL-auditor workflow â€” detect and repair issue/PR label discrepancies
+- Issue processor â€” 30min schedule, oldest-first, claim-then-fix pattern
+- PR review pipeline design â€” draft PRs, analyzer+fixer+promoter lifecycle
 
 ### Fixed
 
-- Issue processor — non-draft PRs, working `agent:in-progress` labeling
+- Issue processor â€” non-draft PRs, working `agent:in-progress` labeling
 
 ### Changed
 
