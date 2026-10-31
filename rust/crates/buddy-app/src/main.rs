@@ -248,6 +248,8 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
 }
 
 fn open_primary_window(cx: &mut App) {
+    let mut startup =
+        buddy_core::telemetry::OperationSpan::start(buddy_core::telemetry::Operation::Startup);
     let placement = initial_window_bounds(cx);
     let options = native_window_options(&placement);
     gpui_kit::open_window(options, cx, |window, cx| {
@@ -270,6 +272,8 @@ fn open_primary_window(cx: &mut App) {
         cx.new(|cx| BuddyApp::new(window, cx))
     })
     .expect("failed to open the Buddy window");
+    buddy_core::telemetry::record_window_open();
+    startup.success();
     cx.activate(true);
 }
 
@@ -337,6 +341,9 @@ fn main() {
         }
     }
     logging::init();
+    let mut telemetry = Some(buddy_core::telemetry::Telemetry::init(env!(
+        "BUDDY_VERSION"
+    )));
 
     let config = match AppConfig::load() {
         Ok(config) => config,
@@ -349,6 +356,11 @@ fn main() {
     gpui_kit::application()
         .with_assets(BuddyAssets)
         .run(move |cx| {
+            // Flush before GPUI's 200 ms async quit budget and OS session exit.
+            cx.on_app_quit(move |_| {
+                if let Some(telemetry) = telemetry.take() { telemetry.shutdown(); }
+                std::future::ready(())
+            }).detach();
             gpui_kit::init(cx);
             theme::install(&config, cx);
             cx.set_global(Settings::new(config.clone()));

@@ -19,6 +19,7 @@ import {
   verifyStandaloneMac,
   verifyStandaloneWindows,
 } from './native-binary.mjs'
+import { hdiutilPath } from './package-native-hdiutil.mjs'
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const targets = {
@@ -231,7 +232,12 @@ export function packageNative(root = repository, development = false) {
   if (process.platform !== 'win32') chmodSync(stagedBinary, 0o755)
   const configurationPath = join(output, 'packager.json')
   writeFileSync(configurationPath, `${JSON.stringify(config, null, 2)}\n`)
-  run(tool, ['--config', configurationPath], { timeout: 30 * 60_000, stdio: 'inherit' })
+  run(tool, ['--config', configurationPath], {
+    timeout: 30 * 60_000,
+    stdio: 'inherit',
+    env:
+      options.platform === 'darwin' ? { ...process.env, PATH: hdiutilPath(output) } : process.env,
+  })
   const artifact = inspectPackage(output, options.format)
   if (JSON.stringify(sourceSnapshot(root)) !== JSON.stringify(source))
     throw new Error(
