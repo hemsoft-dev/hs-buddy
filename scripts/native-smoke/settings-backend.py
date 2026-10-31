@@ -101,7 +101,8 @@ class SettingsBackend:
             if self.child is not None:
                 if os.name == "nt":
                     if self.child.poll() is None:
-                        result = subprocess.run(["taskkill", "/PID", str(self.child.pid), "/T", "/F"], capture_output=True, timeout=20)
+                        result = subprocess.run(["taskkill", "/PID", str(self.child.pid), "/T", "/F"], capture_output=True, timeout=20,
+                            creationflags=subprocess.CREATE_NO_WINDOW)
                         if result.returncode != 0 and self.child.poll() is None:
                             raise RuntimeError("Owned backend process-tree cleanup failed")
                 else:

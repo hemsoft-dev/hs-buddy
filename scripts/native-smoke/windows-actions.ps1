@@ -205,7 +205,7 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            { $_ -in 'waittext64', 'waitmodeltext64', 'waitscrolltext64', 'waituptext64', 'revealtext64' } {
+            { $_ -in 'waittext64', 'waitcontent64', 'waitmodeltext64', 'waitscrolltext64', 'waituptext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
                 $hasAnchor = $parts[0] -eq 'revealtext64' -or (($parts[0] -in @('waitscrolltext64', 'waituptext64')) -and $parts.Count -eq 3)
@@ -222,7 +222,8 @@ try {
                     # probe that started at or after the deadline.
                     $started = $timer.Elapsed.TotalSeconds
                     try {
-                        Find-OwnedLabelPoint $parts[1] 'button' | Out-Null
+                        $mode = if ($parts[0] -eq 'waitcontent64') { 'content' } else { 'button' }
+                        Find-OwnedLabelPoint $parts[1] $mode | Out-Null
                         break
                     } catch {
                         if ($started -ge $timeoutSeconds) { throw }

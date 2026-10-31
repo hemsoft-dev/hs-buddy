@@ -14,6 +14,15 @@ BODY = "Your Universal Productivity Companion Customize Command Center Configure
 
 
 class DashboardGate(unittest.TestCase):
+    def test_windows_console_helpers_have_no_window_even_with_captured_output(self):
+        import desktop
+        with patch.object(desktop.os, "name", "nt"), \
+                patch.object(desktop.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+                patch.object(desktop.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "owned output", "")) as child:
+            self.assertEqual(run("pwsh", "-NoProfile", "-File", "owned.ps1", creationflags=0x200), "owned output")
+        self.assertEqual(child.call_args.kwargs["creationflags"], 0x08000200)
+        self.assertTrue(child.call_args.kwargs["capture_output"])
+
     def test_an_x11_shortcut_leaves_the_pointer_where_it_is(self):
         # #880: a page hands Buddy's shortcuts back, so the driver no longer
         # parks the pointer off the page before one, as #875's driver did.
@@ -46,7 +55,8 @@ class DashboardGate(unittest.TestCase):
         spawn = subprocess.Popen
         children = []
         def owned_child(*args, **kwargs):
-            child = spawn([sys.executable, "-c", "import time; time.sleep(300)"], **kwargs)
+            child = spawn([sys.executable, "-c", "import time; time.sleep(300)"],
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0, **kwargs)
             children.append(child)
             return child
         primary = ValueError("Owned app action failed")

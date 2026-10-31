@@ -42,6 +42,19 @@ fn until(
     }
 }
 
+fn shell_ready(snapshot: &SessionSnapshot) -> bool {
+    // Host Running acknowledges the PTY transport, not the interactive shell.
+    // Sending before its first prompt can put that prompt on our marker line.
+    snapshot.status == SessionStatus::Running
+        && snapshot
+            .screen
+            .text()
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .is_some_and(|line| line.trim_end().ends_with(['>', '$', '#', '%']))
+}
+
 fn command(session: &Session, text: &str) -> io::Result<()> {
     let ticket = session.paste(text, false).map_err(io::Error::other)?;
     until(session, |_| {
@@ -166,7 +179,9 @@ fn unicode_executable(host: &Path, directory: &Path) -> io::Result<()> {
     let shell = {
         use std::os::unix::fs::PermissionsExt;
         let program = folder.join("owned shell 界");
-        std::fs::write(&program, b"#!/bin/sh\nexec \"$@\"\n")?;
+        // Deliberately let transport Running precede shell readiness, as on a
+        // loaded runner. The exact-line assertion below must survive this.
+        std::fs::write(&program, b"#!/bin/sh\nsleep 0.2\nexec \"$@\"\n")?;
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))?;
         ShellSpec {
             program,
@@ -187,7 +202,7 @@ fn unicode_executable(host: &Path, directory: &Path) -> io::Result<()> {
         selected,
         TerminalSize::new(100, 24).map_err(io::Error::other)?,
     )?;
-    until(&session, |s| s.status == SessionStatus::Running)?;
+    until(&session, shell_ready)?;
     #[cfg(windows)]
     command(&session, "echo BUDDY_UNICODE_^EXECUTABLE_OK")?;
     #[cfg(unix)]
@@ -217,9 +232,7 @@ fn natural_exit(host: &Path, cwd: &Path) -> io::Result<()> {
         shell,
         TerminalSize::new(100, 24).map_err(io::Error::other)?,
     )?;
-    until(&session, |snapshot| {
-        snapshot.status == SessionStatus::Running
-    })?;
+    until(&session, shell_ready)?;
     #[cfg(windows)]
     command(
         &session,
@@ -292,7 +305,7 @@ fn main() -> io::Result<()> {
         shell,
         TerminalSize::new(80, 24).map_err(io::Error::other)?,
     )?;
-    until(&session, |s| s.status == SessionStatus::Running)?;
+    until(&session, shell_ready)?;
     #[cfg(windows)]
     command(
         &session,
@@ -382,15 +395,7 @@ fn main() -> io::Result<()> {
         .map_err(io::Error::other)?;
     // A write acknowledgement is not a shell-ready acknowledgement: Ctrl+C can flush
     // input already in the console. Observe its returned prompt before sending more.
-    until(&session, |snapshot| {
-        snapshot
-            .screen
-            .text()
-            .lines()
-            .rev()
-            .find(|line| !line.trim().is_empty())
-            .is_some_and(|line| line.trim_end().ends_with(['>', '$', '#', '%']))
-    })?;
+    until(&session, shell_ready)?;
     #[cfg(windows)]
     command(&session, "[Console]::WriteLine('BUDDY_'+'INTERRUPTED')")?;
     #[cfg(unix)]

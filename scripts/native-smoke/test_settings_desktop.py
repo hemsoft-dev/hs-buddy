@@ -416,6 +416,31 @@ class LabeledInputs(unittest.TestCase):
         self.assertEqual(locate.call_count, 2)
         window.key.assert_not_called()
 
+    def test_crew_readiness_scopes_the_recorded_global_tab_and_view_heading(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('crew-global-heading-words.json').read_text())
+        words = evidence['ciSparse']
+        def recognize(image, text, **options):
+            return desktop.ocr.find_label(words, text, **options)
+        with tempfile.TemporaryDirectory() as root, patch.object(desktop.ocr, 'locate_image', side_effect=recognize):
+            with self.assertRaises(RuntimeError) as error:
+                desktop.wait_visible(Mock(), Path(root), 'The Crew', timeout=0)
+            self.assertIsInstance(error.exception.__cause__, desktop.ocr.AmbiguousLabel)
+        with tempfile.TemporaryDirectory() as root, patch.object(desktop.ocr, 'recognize',
+                return_value=evidence['nativeWindowsFromSameCapture']), patch.object(desktop.ocr.shutil, 'which', return_value=None):
+            desktop.wait_visible(Mock(), Path(root), 'The Crew', timeout=0, content=True)
+
+        block = evidence['nativeWindowsFromSameCapture']
+        heading = desktop.ocr.find_label(block, 'The Crew', content=True)
+        glyphs = [w for w in block if heading['top'] <= w['top'] < heading['top'] + heading['height']
+            and heading['left'] <= w['left'] < heading['left'] + heading['width']]
+        # Chrome alone cannot establish readiness; two body headings still fail.
+        for words in ([w for w in block if w not in glyphs],
+                block + [dict(w, top=w['top'] + 100, line='duplicate-heading') for w in glyphs]):
+            with tempfile.TemporaryDirectory() as root, patch.object(desktop.ocr, 'recognize', return_value=words), \
+                    patch.object(desktop.ocr.shutil, 'which', return_value=None):
+                with self.assertRaises(RuntimeError):
+                    desktop.wait_visible(Mock(), Path(root), 'The Crew', timeout=0, content=True)
+
     def test_missing_acknowledgment_times_out_without_posting_return(self):
         window, directory = Mock(), MagicMock()
         with patch.object(desktop.ocr, "locate_image", side_effect=RuntimeError("not ready")), \
@@ -801,9 +826,10 @@ class WindowsScrollAnchors(unittest.TestCase):
             driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
             driver.backend = Mock(url="http://127.0.0.1:9")
             with patch.object(desktop, "run") as run:
-                driver.drive("sidebar", [("content", "Jobs")])
+                driver.drive("sidebar", [("content", "Jobs"), ("wait_content", "The Crew")])
             commands = run.call_args.args[run.call_args.args.index("-Actions") + 1].split(",")
             self.assertIn("content64:" + base64.b64encode(b"Jobs").decode(), commands)
+            self.assertIn("waitcontent64:" + desktop.b64("The Crew"), commands)
             for session in ("x11", "macos"):
                 driver.session = session
                 with patch.object(desktop.ocr, "locate_image", return_value=dict(left=100, top=100, width=30, height=12)) as locate, \
@@ -935,7 +961,8 @@ class WindowsScrollAnchors(unittest.TestCase):
             path = Path(root) / "row.ps1"
             path.write_text(script, encoding="utf-8")
             result = subprocess.run(["pwsh", "-NoProfile", "-File", str(path)], capture_output=True,
-                text=True, encoding="utf-8", timeout=60, check=True)
+                text=True, encoding="utf-8", timeout=60, check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         arguments = json.loads(result.stdout)
         self.assertEqual(arguments[3:], ["--label", "Rename", "--between-labels", *values[1:]])
 
@@ -962,7 +989,8 @@ class WindowsScrollAnchors(unittest.TestCase):
             script = Path(root) / "wait.ps1"
             script.write_text(stubs, encoding="utf-8")
             result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
-                encoding="utf-8", timeout=60, check=True)
+                encoding="utf-8", timeout=60, check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         return result.stdout.strip().split("|")
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
@@ -986,7 +1014,8 @@ class WindowsScrollAnchors(unittest.TestCase):
             script = Path(root) / "target.ps1"
             script.write_text("\n".join(block) + "\n" + calls + "\n", encoding="utf-8")
             result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
-                encoding="utf-8", timeout=60, check=True)
+                encoding="utf-8", timeout=60, check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         self.assertEqual(result.stdout.split(), ["522,278", "372,278", "261,278", "783,278", "946,278", "353,231"])
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
@@ -1025,7 +1054,8 @@ class WindowsScrollAnchors(unittest.TestCase):
             script = Path(root) / "wait.ps1"
             script.write_text(stubs, encoding="utf-8")
             result = subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], capture_output=True, text=True,
-                encoding="utf-8", timeout=60, check=True)
+                encoding="utf-8", timeout=60, check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         self.assertEqual(result.stdout.strip().split("|"), ["find", "find"])
 
 

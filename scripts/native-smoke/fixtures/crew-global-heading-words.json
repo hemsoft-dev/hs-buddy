@@ -1,0 +1,848 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41129385494/job/124317333491",
+  "ciSparse": [
+    {
+      "text": "ao",
+      "left": 980,
+      "top": 11,
+      "width": 10,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 1014,
+      "top": 11,
+      "width": 10,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 20,
+      "top": 6,
+      "width": 12,
+      "height": 20,
+      "line": "2/1/1"
+    },
+    {
+      "text": "suday",
+      "left": 44,
+      "top": 0,
+      "width": 42,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Fie",
+      "left": 93,
+      "top": 0,
+      "width": 27,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 127,
+      "top": 0,
+      "width": 20,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "View",
+      "left": 158,
+      "top": 0,
+      "width": 26,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 191,
+      "top": 0,
+      "width": 30,
+      "height": 31,
+      "line": "2/1/1"
+    },
+    {
+      "text": "#8",
+      "left": 890,
+      "top": 10,
+      "width": 33,
+      "height": 12,
+      "line": "3/1/1"
+    },
+    {
+      "text": "\u00ab>",
+      "left": 60,
+      "top": 50,
+      "width": 15,
+      "height": 4,
+      "line": "4/1/1"
+    },
+    {
+      "text": "Dashboard",
+      "left": 84,
+      "top": 45,
+      "width": 73,
+      "height": 9,
+      "line": "4/1/1"
+    },
+    {
+      "text": "x",
+      "left": 151,
+      "top": 35,
+      "width": 10,
+      "height": 28,
+      "line": "4/1/1"
+    },
+    {
+      "text": "a",
+      "left": 171,
+      "top": 50,
+      "width": 7,
+      "height": 1,
+      "line": "5/1/1"
+    },
+    {
+      "text": "The",
+      "left": 184,
+      "top": 35,
+      "width": 24,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Crew",
+      "left": 212,
+      "top": 35,
+      "width": 26,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Ey",
+      "left": 26,
+      "top": 51,
+      "width": 14,
+      "height": 14,
+      "line": "7/1/1"
+    },
+    {
+      "text": "The",
+      "left": 72,
+      "top": 94,
+      "width": 32,
+      "height": 15,
+      "line": "8/1/1"
+    },
+    {
+      "text": "Crew",
+      "left": 110,
+      "top": 95,
+      "width": 44,
+      "height": 14,
+      "line": "8/1/1"
+    },
+    {
+      "text": "cs)",
+      "left": 25,
+      "top": 107,
+      "width": 16,
+      "height": 16,
+      "line": "9/1/1"
+    },
+    {
+      "text": "\u2018Add",
+      "left": 352,
+      "top": 103,
+      "width": 23,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "a",
+      "left": 379,
+      "top": 106,
+      "width": 6,
+      "height": 7,
+      "line": "10/1/1"
+    },
+    {
+      "text": "project",
+      "left": 390,
+      "top": 104,
+      "width": 40,
+      "height": 12,
+      "line": "10/1/1"
+    },
+    {
+      "text": "folder",
+      "left": 433,
+      "top": 103,
+      "width": 34,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "on",
+      "left": 471,
+      "top": 106,
+      "width": 14,
+      "height": 7,
+      "line": "10/1/1"
+    },
+    {
+      "text": "the",
+      "left": 489,
+      "top": 103,
+      "width": 19,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "left",
+      "left": 512,
+      "top": 103,
+      "width": 33,
+      "height": 10,
+      "line": "10/1/1"
+    },
+    {
+      "text": "to",
+      "left": 534,
+      "top": 94,
+      "width": 10,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "start.",
+      "left": 549,
+      "top": 104,
+      "width": 28,
+      "height": 9,
+      "line": "10/1/1"
+    },
+    {
+      "text": "\u2018Add",
+      "left": 72,
+      "top": 131,
+      "width": 23,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "a",
+      "left": 99,
+      "top": 134,
+      "width": 6,
+      "height": 7,
+      "line": "11/1/1"
+    },
+    {
+      "text": "local",
+      "left": 110,
+      "top": 131,
+      "width": 25,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "clone",
+      "left": 140,
+      "top": 131,
+      "width": 31,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "of",
+      "left": 174,
+      "top": 122,
+      "width": 10,
+      "height": 29,
+      "line": "11/1/1"
+    },
+    {
+      "text": "a",
+      "left": 191,
+      "top": 131,
+      "width": 3,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "GitHub",
+      "left": 200,
+      "top": 131,
+      "width": 40,
+      "height": 10,
+      "line": "11/1/1"
+    },
+    {
+      "text": "repository",
+      "left": 244,
+      "top": 131,
+      "width": 58,
+      "height": 13,
+      "line": "11/1/1"
+    },
+    {
+      "text": "to",
+      "left": 72,
+      "top": 153,
+      "width": 12,
+      "height": 9,
+      "line": "12/1/1"
+    },
+    {
+      "text": "talk",
+      "left": 87,
+      "top": 152,
+      "width": 22,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "about",
+      "left": 112,
+      "top": 152,
+      "width": 33,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "it",
+      "left": 150,
+      "top": 153,
+      "width": 6,
+      "height": 9,
+      "line": "12/1/1"
+    },
+    {
+      "text": "with",
+      "left": 160,
+      "top": 152,
+      "width": 24,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "Copilot.",
+      "left": 188,
+      "top": 152,
+      "width": 44,
+      "height": 13,
+      "line": "12/1/1"
+    },
+    {
+      "text": "Project",
+      "left": 73,
+      "top": 182,
+      "width": 39,
+      "height": 12,
+      "line": "13/1/1"
+    },
+    {
+      "text": "folder",
+      "left": 115,
+      "top": 181,
+      "width": 35,
+      "height": 10,
+      "line": "13/1/1"
+    },
+    {
+      "text": "For",
+      "left": 84,
+      "top": 212,
+      "width": 19,
+      "height": 10,
+      "line": "14/1/1"
+    },
+    {
+      "text": "example",
+      "left": 107,
+      "top": 212,
+      "width": 52,
+      "height": 13,
+      "line": "14/1/1"
+    },
+    {
+      "text": "C:\\repos\\app",
+      "left": 163,
+      "top": 212,
+      "width": 80,
+      "height": 13,
+      "line": "14/1/1"
+    },
+    {
+      "text": "lu",
+      "left": 29,
+      "top": 253,
+      "width": 9,
+      "height": 10,
+      "line": "15/1/1"
+    },
+    {
+      "text": "Add",
+      "left": 83,
+      "top": 251,
+      "width": 22,
+      "height": 10,
+      "line": "16/1/1"
+    },
+    {
+      "text": "ject",
+      "left": 135,
+      "top": 252,
+      "width": 20,
+      "height": 10,
+      "line": "17/1/1"
+    },
+    {
+      "text": "Browse...",
+      "left": 187,
+      "top": 251,
+      "width": 50,
+      "height": 10,
+      "line": "18/1/1"
+    },
+    {
+      "text": "No",
+      "left": 73,
+      "top": 287,
+      "width": 16,
+      "height": 9,
+      "line": "19/1/1"
+    },
+    {
+      "text": "projects",
+      "left": 94,
+      "top": 286,
+      "width": 44,
+      "height": 13,
+      "line": "19/1/1"
+    },
+    {
+      "text": "yet.",
+      "left": 142,
+      "top": 287,
+      "width": 20,
+      "height": 12,
+      "line": "19/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 945,
+      "top": 763,
+      "width": 12,
+      "height": 12,
+      "line": "20/1/1"
+    },
+    {
+      "text": "102840\u00b0M,",
+      "left": 963,
+      "top": 766,
+      "width": 56,
+      "height": 8,
+      "line": "20/1/1"
+    },
+    {
+      "text": "No",
+      "left": 24,
+      "top": 764,
+      "width": 12,
+      "height": 10,
+      "line": "21/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 59,
+      "top": 766,
+      "width": 10,
+      "height": 10,
+      "line": "21/1/1"
+    },
+    {
+      "text": "account",
+      "left": 73,
+      "top": 766,
+      "width": 40,
+      "height": 10,
+      "line": "21/1/1"
+    }
+  ],
+  "nativeWindowsFromSameCapture": [
+    {
+      "text": "Buddy",
+      "width": 33,
+      "top": 12,
+      "line": "0",
+      "left": 51,
+      "height": 12
+    },
+    {
+      "text": "File",
+      "width": 17,
+      "top": 12,
+      "line": "0",
+      "left": 99,
+      "height": 9
+    },
+    {
+      "text": "Edit",
+      "width": 19,
+      "top": 12,
+      "line": "0",
+      "left": 127,
+      "height": 9
+    },
+    {
+      "text": "View",
+      "width": 26,
+      "top": 12,
+      "line": "0",
+      "left": 157,
+      "height": 9
+    },
+    {
+      "text": "Help",
+      "width": 24,
+      "top": 12,
+      "line": "0",
+      "left": 194,
+      "height": 12
+    },
+    {
+      "text": "o",
+      "width": 10,
+      "top": 11,
+      "line": "1",
+      "left": 980,
+      "height": 10
+    },
+    {
+      "text": "x",
+      "width": 10,
+      "top": 11,
+      "line": "2",
+      "left": 1014,
+      "height": 10
+    },
+    {
+      "text": "Dashboard",
+      "width": 56,
+      "top": 45,
+      "line": "3",
+      "left": 85,
+      "height": 9
+    },
+    {
+      "text": "The",
+      "width": 32,
+      "top": 94,
+      "line": "4",
+      "left": 72,
+      "height": 15
+    },
+    {
+      "text": "Crew",
+      "width": 44,
+      "top": 95,
+      "line": "4",
+      "left": 110,
+      "height": 14
+    },
+    {
+      "text": "The",
+      "width": 19,
+      "top": 45,
+      "line": "5",
+      "left": 188,
+      "height": 9
+    },
+    {
+      "text": "Crew",
+      "width": 26,
+      "top": 45,
+      "line": "5",
+      "left": 211,
+      "height": 9
+    },
+    {
+      "text": "Add",
+      "width": 23,
+      "top": 103,
+      "line": "6",
+      "left": 352,
+      "height": 10
+    },
+    {
+      "text": "a",
+      "width": 5,
+      "top": 106,
+      "line": "6",
+      "left": 380,
+      "height": 7
+    },
+    {
+      "text": "project",
+      "width": 40,
+      "top": 103,
+      "line": "6",
+      "left": 390,
+      "height": 13
+    },
+    {
+      "text": "folder",
+      "width": 34,
+      "top": 103,
+      "line": "6",
+      "left": 433,
+      "height": 10
+    },
+    {
+      "text": "on",
+      "width": 14,
+      "top": 106,
+      "line": "6",
+      "left": 471,
+      "height": 7
+    },
+    {
+      "text": "the",
+      "width": 19,
+      "top": 103,
+      "line": "6",
+      "left": 489,
+      "height": 10
+    },
+    {
+      "text": "left",
+      "width": 18,
+      "top": 103,
+      "line": "6",
+      "left": 512,
+      "height": 10
+    },
+    {
+      "text": "to",
+      "width": 12,
+      "top": 104,
+      "line": "6",
+      "left": 533,
+      "height": 9
+    },
+    {
+      "text": "start.",
+      "width": 28,
+      "top": 104,
+      "line": "6",
+      "left": 549,
+      "height": 9
+    },
+    {
+      "text": "Add",
+      "width": 23,
+      "top": 131,
+      "line": "7",
+      "left": 72,
+      "height": 10
+    },
+    {
+      "text": "a",
+      "width": 5,
+      "top": 134,
+      "line": "7",
+      "left": 100,
+      "height": 7
+    },
+    {
+      "text": "local",
+      "width": 25,
+      "top": 131,
+      "line": "7",
+      "left": 110,
+      "height": 10
+    },
+    {
+      "text": "clone",
+      "width": 31,
+      "top": 131,
+      "line": "7",
+      "left": 140,
+      "height": 10
+    },
+    {
+      "text": "of",
+      "width": 13,
+      "top": 131,
+      "line": "7",
+      "left": 174,
+      "height": 10
+    },
+    {
+      "text": "a",
+      "width": 5,
+      "top": 134,
+      "line": "7",
+      "left": 190,
+      "height": 7
+    },
+    {
+      "text": "GitHub",
+      "width": 40,
+      "top": 131,
+      "line": "7",
+      "left": 200,
+      "height": 10
+    },
+    {
+      "text": "repository",
+      "width": 57,
+      "top": 131,
+      "line": "7",
+      "left": 245,
+      "height": 13
+    },
+    {
+      "text": "to",
+      "width": 12,
+      "top": 153,
+      "line": "8",
+      "left": 72,
+      "height": 9
+    },
+    {
+      "text": "talk",
+      "width": 22,
+      "top": 152,
+      "line": "8",
+      "left": 87,
+      "height": 10
+    },
+    {
+      "text": "about",
+      "width": 33,
+      "top": 152,
+      "line": "8",
+      "left": 112,
+      "height": 10
+    },
+    {
+      "text": "it",
+      "width": 6,
+      "top": 152,
+      "line": "8",
+      "left": 150,
+      "height": 10
+    },
+    {
+      "text": "with",
+      "width": 24,
+      "top": 152,
+      "line": "8",
+      "left": 160,
+      "height": 10
+    },
+    {
+      "text": "Copilot",
+      "width": 44,
+      "top": 152,
+      "line": "8",
+      "left": 188,
+      "height": 13
+    },
+    {
+      "text": "Project",
+      "width": 39,
+      "top": 181,
+      "line": "9",
+      "left": 73,
+      "height": 13
+    },
+    {
+      "text": "folder",
+      "width": 34,
+      "top": 181,
+      "line": "9",
+      "left": 115,
+      "height": 10
+    },
+    {
+      "text": "For",
+      "width": 19,
+      "top": 212,
+      "line": "10",
+      "left": 84,
+      "height": 10
+    },
+    {
+      "text": "example",
+      "width": 51,
+      "top": 212,
+      "line": "10",
+      "left": 107,
+      "height": 13
+    },
+    {
+      "text": "Browse...",
+      "width": 53,
+      "top": 251,
+      "line": "11",
+      "left": 187,
+      "height": 10
+    },
+    {
+      "text": "No",
+      "width": 16,
+      "top": 287,
+      "line": "12",
+      "left": 73,
+      "height": 9
+    },
+    {
+      "text": "projects",
+      "width": 44,
+      "top": 286,
+      "line": "12",
+      "left": 94,
+      "height": 13
+    },
+    {
+      "text": "yet",
+      "width": 20,
+      "top": 287,
+      "line": "12",
+      "left": 142,
+      "height": 12
+    },
+    {
+      "text": "No",
+      "width": 14,
+      "top": 766,
+      "line": "13",
+      "left": 42,
+      "height": 8
+    },
+    {
+      "text": "gh",
+      "width": 12,
+      "top": 766,
+      "line": "13",
+      "left": 59,
+      "height": 10
+    },
+    {
+      "text": "account",
+      "width": 38,
+      "top": 766,
+      "line": "13",
+      "left": 75,
+      "height": 8
+    }
+  ],
+  "nativeEngine": "Windows.Media.Ocr, same unmodified retained CI PNG"
+}

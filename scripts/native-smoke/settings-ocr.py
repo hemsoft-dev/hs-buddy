@@ -137,7 +137,10 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
 
 
 def recognize_windows(image):
-    result = subprocess.run(["powershell.exe", "-NoProfile", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    # Captured pipes do not stop a console child from opening a terminal on
+    # Windows. OCR is repeatedly invoked by hidden-desktop smoke workers.
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(Path(__file__).with_name("windows-ocr-words.ps1")), "-Path", str(image)], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW)
     return json.loads(result.stdout)
 
 
@@ -152,7 +155,8 @@ def recognize_macos(image):
 
 def recognize(image, mode=11):
     if shutil.which("tesseract"):
-        result = subprocess.run(["tesseract", str(image), "stdout", "--psm", str(mode), "tsv"], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+        result = subprocess.run(["tesseract", str(image), "stdout", "--psm", str(mode), "tsv"], capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         rows = csv.DictReader(result.stdout.splitlines(), delimiter="\t", quoting=csv.QUOTE_NONE)
         return [dict(text=row["text"], left=int(row["left"]), top=int(row["top"]), width=int(row["width"]), height=int(row["height"]), line="/".join(row[key] for key in ("block_num", "par_num", "line_num"))) for row in rows if row["level"] == "5" and row["text"].strip()]
     if sys.platform == "win32":
@@ -279,7 +283,8 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
                 if mode == 11:
                     subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
                         "-vf", filters, "-frames:v", "1", str(analysis)],
-                        capture_output=True, check=True, timeout=30)
+                        capture_output=True, check=True, timeout=30,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
                 raw = recognize(analysis, mode)
                 words = [dict(word, **{key: word[key] / 3 for key in ("left", "top", "width", "height")}) for word in raw]
                 try:

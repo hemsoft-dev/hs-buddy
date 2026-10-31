@@ -145,7 +145,7 @@ def qualify(executable, output, session, version):
     primary = None
     try:
         chats = driver.drive("conversations-dark", [
-            ("wait_text", "The Crew"), ("capture", "empty-dark"),
+            ("wait_content", "The Crew"), ("capture", "empty-dark"),
             ("input", "Project folder", str(plain)), ("content", "Add project"),
             ("wait_text", "This folder is not inside a Git repository."), ("capture", "not-a-repository-dark"),
             ("input", "Project folder", str(alpha)), ("content", "Add project"),
@@ -244,7 +244,7 @@ def qualify(executable, output, session, version):
         github.check(errors / "replying-light.png", "Copilot is replying", "Partial synthetic answer", "Stop reply")
 
         reopened = driver.drive("restart-light", [
-            ("wait_text", "The Crew"), ("content", "beta"),
+            ("wait_content", "The Crew"), ("content", "beta"),
             ("wait_text", "Buddy closed before this reply finished."), ("capture", "interrupted-light"),
             ("content", "alpha"), ("wait_text", "A question the provider refuses"), ("capture", "restored-light"),
             ("resize", 900, 650), ("sleep", 1), ("capture", "compact-light"),

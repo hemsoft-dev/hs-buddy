@@ -18,6 +18,17 @@ def word(text, left, top, line):
 
 
 class SessionInputRow(unittest.TestCase):
+    def test_windows_ocr_never_creates_an_interactive_console(self):
+        image = Path("owned screenshot.png")
+        with patch.object(ocr.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+                patch.object(ocr.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")) as run:
+            self.assertEqual(ocr.recognize_windows(image), [])
+        args = run.call_args.args[0]
+        self.assertEqual(args[:4], ["powershell.exe", "-NoProfile", "-NonInteractive", "-File"])
+        self.assertEqual(args[-2:], ["-Path", str(image)])
+        self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
     def test_actual_failed_intel_layout_measures_the_editor_row_below_the_old_click(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('session-input-row-ocr.json').read_text(encoding='utf-8'))
         label = ocr.locate_label(evidence['words'], 'VS Code User directory', field=True)

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1592] - 2026-10-31
+
+### Fixed
+
+- Scope readiness and suppress helper consoles
+
 ## [0.1.1591] - 2026-10-30
 
 ### Fixed

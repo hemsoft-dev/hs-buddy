@@ -119,7 +119,7 @@ def b64(value):
 MODEL_CATALOG_TIMEOUT = 200
 
 
-def wait_visible(window, directory, text, timeout=15, scroll=None):
+def wait_visible(window, directory, text, timeout=15, scroll=None, content=False):
     """Read an owned window until one OCR layout has the exact visible status.
 
     By default this never posts input. A caller may explicitly scroll its
@@ -133,7 +133,7 @@ def wait_visible(window, directory, text, timeout=15, scroll=None):
         started = time.monotonic()
         window.screenshot(image)
         try:
-            ocr.locate_image(image, text)
+            ocr.locate_image(image, text, **({"content": True} if content else {}))
             return
         except RuntimeError as failure:
             if started >= deadline:
@@ -248,9 +248,9 @@ class Driver:
                     commands.append(f"resize:80:40:{size[0]}:{size[1]}")
                 elif kind == "key":
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
-                elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
+                elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
-                    command = "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
+                    command = "waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
                     commands.append(command + ":".join(map(b64, encoded)))
                 elif kind == "wait_models":
                     commands.append("waitmodeltext64:" + b64(values[0]))
@@ -334,13 +334,14 @@ class Driver:
                             window.key(values[0])
                         elif kind == "hover":
                             window.hover(*values)
-                        elif kind in ("wait_text", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
+                        elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
                             if kind in ("wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                                 self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
                                     above_anchor=kind == "wait_scroll_above", up=kind == "wait_scroll_up")
                             else:
                                 timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
-                                wait_visible(window, directory, values[0], timeout=timeout)
+                                wait_visible(window, directory, values[0], timeout=timeout,
+                                    **({"content": True} if kind == "wait_content" else {}))
                         elif kind == "reveal_text":
                             point = self.scroll_anchor(window, directory, values[1])
                             wait_visible(window, directory, values[0], scroll=lambda: self.reveal_scroll(window, point))
