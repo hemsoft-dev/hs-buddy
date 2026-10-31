@@ -113,8 +113,8 @@ impl Telemetry {
             ])
             .build();
         // Do not follow redirects with OTLP authentication headers.
-        let client = reqwest::blocking::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
+        let client = reqwest_otel::blocking::Client::builder()
+            .redirect(reqwest_otel::redirect::Policy::none())
             .timeout(TIMEOUT)
             .build()
             .map_err(|_| opentelemetry_otlp::ExporterBuildError::NoHttpClient)?;
