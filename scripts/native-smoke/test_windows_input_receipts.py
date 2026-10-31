@@ -1,5 +1,7 @@
 """Exercise the real Windows driver's capture receipt and message failure boundary."""
 import json
+import base64
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -34,8 +36,55 @@ def powershell(script, directory):
 
 @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required for the Windows driver seam")
 class WindowsInputReceipts(unittest.TestCase):
+    def test_crew_selection_lands_inside_the_card_with_the_hosted_icon_contaminated_box(self):
+        spec = importlib.util.spec_from_file_location("crew_receipt_scene", HERE / "crew-desktop.py")
+        crew = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(crew)
+        mode, label = crew.project_action("alpha")
+        encoded = base64.b64encode(label.encode()).decode()
+        fixture = json.loads((HERE / "fixtures" / "crew-windows-alpha-target.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="buddy-crew-target-") as root:
+            directory = Path(root)
+            (directory / "fixture.json").write_text(json.dumps(fixture), encoding="utf-8")
+            script = """
+$ErrorActionPreference = 'Stop'
+Add-Type @'
+public static class Drive {
+ public struct RECT { public int l,t,r,b; }
+ public struct POINT { public int x,y; }
+ public static RECT Rect; public static POINT Origin; public static uint Dpi;
+ public static bool GetWindowRect(System.IntPtr h, ref RECT r) { r=Rect;return true; }
+ public static bool ClientToScreen(System.IntPtr h, ref POINT p) { p=Origin;return true; }
+ public static uint GetDpiForWindow(System.IntPtr h) { return Dpi; }
+}
+'@
+$fixture = Get-Content (Join-Path $PSScriptRoot 'fixture.json') -Raw | ConvertFrom-Json
+$rect = [Drive+RECT]::new()
+$rect.l=$fixture.window.left; $rect.t=$fixture.window.top; $rect.r=$fixture.window.right; $rect.b=$fixture.window.bottom
+[Drive]::Rect=$rect
+$origin = [Drive+POINT]::new(); $origin.x=$fixture.clientOrigin.x; $origin.y=$fixture.clientOrigin.y
+[Drive]::Origin=$origin; [Drive]::Dpi=$fixture.dpi
+$h = [IntPtr]1; $Log = Join-Path $PSScriptRoot 'actions.log'; $targetSequence=0
+function Save-OwnedImage($path) { [IO.File]::WriteAllText($path, 'hosted pre-click fixture') }
+function python {
+ $labelIndex=[Array]::IndexOf([object[]]$args,'--label')
+ $box=$fixture.labels.PSObject.Properties[$args[$labelIndex+1]].Value
+ if (-not $box) { throw 'Unrecorded visible fixture label' }
+ $global:LASTEXITCODE=0; $box | ConvertTo-Json -Compress
+}
+""" + function("Get-OwnedLabelTarget") + "\n" + function("Find-OwnedLabelPoint") + f"""
+Find-OwnedLabelPoint '{encoded}' '{mode}' | ConvertTo-Json -Compress
+"""
+            point = powershell(script, directory)
+        card = fixture["projectCardClientBounds"]
+        self.assertGreaterEqual(point["X"], card["left"])
+        self.assertLess(point["X"], card["right"])
+        self.assertGreaterEqual(point["Y"], card["top"])
+        self.assertLess(point["Y"], card["bottom"])
+
     def test_receipt_retains_the_actual_preclick_frame_and_100_percent_transform(self):
-        # Main and both failing #899 artifacts have alpha at this exact box.
+        # Clean recorded 100% frames have alpha at this box. The failing
+        # pre-click receipt has wider bounds, covered by the regression above.
         # The outer frame includes the 8px side border; mouse messages take
         # client coordinates, so the actual rounded target is (88, 302).
         with tempfile.TemporaryDirectory(prefix="buddy-input-receipt-") as root:

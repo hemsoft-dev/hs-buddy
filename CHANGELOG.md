@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1598] - 2026-10-31
+
+### Fixed
+
+- Select Crew projects by repository identity
+
 ## [0.1.1597] - 2026-10-31
 
 ### Changed

@@ -20,12 +20,6 @@ on:
       - 'public/icon-512.png'
       - 'public/icon.ico'
       - 'LICENSE'
-  workflow_dispatch:
-    inputs:
-      crew_package_run:
-        description: 'Replay Windows Crew using the verified package from this repository run ID'
-        required: true
-        type: string
   pull_request:
     paths:
       - 'rust/**'
@@ -56,7 +50,6 @@ defaults:
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch'
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     # Healthy runs on main fd961edf (#852): Intel 134-146 minutes, Apple silicon
@@ -286,92 +279,3 @@ jobs:
             ${{ runner.temp }}/native-evidence/**
             ${{ runner.temp }}/buddy-settings-backend-*/backend.log
           if-no-files-found: error
-
-  replay-windows-crew:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.body, '<!-- native-crew-replay:')
-    name: Windows Crew artifact replay (diagnostic)
-    runs-on: windows-2025
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-    defaults:
-      run:
-        working-directory: .
-        shell: pwsh
-    env:
-      PYTHONDONTWRITEBYTECODE: '1'
-      BUDDY_SETTINGS_FIXTURE: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.12.0
-      - uses: ./.github/actions/setup-bun
-      - name: Install the shared credential adapter
-        run: bun install --frozen-lockfile
-      - name: Install and verify OCR tools
-        run: |
-          $tesseractDirectory = 'C:\Program Files\Tesseract-OCR'
-          $env:PATH = "$tesseractDirectory;$env:PATH"
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            choco install tesseract ffmpeg --yes --no-progress
-            $chocoExit = $LASTEXITCODE
-            $missing = @('tesseract', 'ffmpeg' | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
-            if ($chocoExit -eq 0 -and $missing.Count -eq 0) { break }
-            if ($attempt -eq 3) { throw "OCR installation failed: exit=$chocoExit; missing=$missing" }
-            Start-Sleep -Seconds 30
-          }
-          tesseract --version
-          if ($LASTEXITCODE -ne 0) { throw 'Tesseract version probe failed' }
-          ffmpeg -version
-          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg version probe failed' }
-          $tesseractDirectory | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Download and verify the original release binary
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_RUN: ${{ inputs.crew_package_run }}
-          REPLAY_REQUEST: ${{ github.event.pull_request.body }}
-        run: |
-          if (-not $env:PACKAGE_RUN) {
-            $requests = [regex]::Matches($env:REPLAY_REQUEST, '<!-- native-crew-replay:([1-9][0-9]*) -->')
-            if ($requests.Count -ne 1) { throw 'Expected exactly one explicit Crew replay request' }
-            $env:PACKAGE_RUN = $requests[0].Groups[1].Value
-          }
-          if ($env:PACKAGE_RUN -notmatch '^[1-9][0-9]*$') { throw 'A numeric repository run ID is required' }
-          $sourceSha = gh run view $env:PACKAGE_RUN --json headSha --jq .headSha
-          if ($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}$') { throw 'Cannot verify the package run head' }
-          $download = Join-Path $env:RUNNER_TEMP 'crew-source-package'
-          gh run download $env:PACKAGE_RUN --name buddy-native-windows-2025 --dir $download
-          if ($LASTEXITCODE -ne 0) { throw 'Native package artifact download failed' }
-          $manifests = @(Get-ChildItem -LiteralPath $download -Recurse -Filter build.json |
-            Where-Object { $_.FullName -match '[\\/]release[\\/]native[\\/]' })
-          if ($manifests.Count -ne 1) { throw 'Expected exactly one native build manifest' }
-          $build = Get-Content -LiteralPath $manifests[0].FullName -Raw | ConvertFrom-Json
-          if ($build.sourceSha -cne $sourceSha -or $build.sourceDirty -ne $false -or
-              $build.profile -cne 'release' -or $build.target -cne 'x86_64-pc-windows-msvc') {
-            throw 'Artifact is not a clean Windows release of its run head'
-          }
-          $binary = Join-Path $manifests[0].DirectoryName 'bin/buddy-native.exe'
-          $hash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne $build.binarySha256) { throw 'Release binary hash differs from its build manifest' }
-          [ordered]@{ packageRun=$env:PACKAGE_RUN; binarySourceSha=$sourceSha; binarySha256=$hash;
-            scriptSourceSha=(git rev-parse HEAD); version=$build.version } |
-            ConvertTo-Json | Set-Content (Join-Path $env:RUNNER_TEMP 'crew-replay-source.json')
-          "CREW_REPLAY_BINARY=$binary" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-          "CREW_REPLAY_VERSION=$($build.version)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Replay Crew on an isolated hosted desktop
-        run: |
-          python scripts/native-smoke/crew-desktop.py --executable $env:CREW_REPLAY_BINARY --version $env:CREW_REPLAY_VERSION --session windows --output "$env:RUNNER_TEMP/replayed-crew"
-          if ($LASTEXITCODE -ne 0) { throw 'Hosted Crew replay failed; inspect its label-target receipts and frames' }
-      - name: Upload replay evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: windows-crew-replay
-          path: |
-            ${{ runner.temp }}/replayed-crew/**
-            ${{ runner.temp }}/crew-replay-source.json
-          if-no-files-found: warn
