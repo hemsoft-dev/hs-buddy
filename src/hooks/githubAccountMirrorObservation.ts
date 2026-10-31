@@ -3,7 +3,7 @@ import {
   getUsageProviderOverrideKey,
   type UsageProviderOverrides,
 } from '../utils/usageProviderOverrides'
-import type { ConvexGitHubAccount } from './githubAccountProviderState'
+import type { ConvexGitHubAccount } from './githubAccountProviderTypes'
 
 export type ObservedAccountGroup = {
   account: Pick<ConvexGitHubAccount, 'username' | 'org'>

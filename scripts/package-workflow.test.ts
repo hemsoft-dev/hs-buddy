@@ -243,7 +243,7 @@ describe('bounded apt installs', () => {
         .split(/\n\s+- (?=name:|uses:)/)
         .filter(step => step.includes('buddy_apt'))
     )
-    expect(steps).toHaveLength(4)
+    expect(steps).toHaveLength(5)
     for (const step of steps) {
       expect(step).toMatch(/\n\s+timeout-minutes: \d+\n/)
       expect(step).toContain('source scripts/lib/bounded-apt.sh')
@@ -274,6 +274,6 @@ describe('bounded apt installs', () => {
         }
       }
     }
-    expect(checked).toBe(4)
+    expect(checked).toBe(5)
   })
 })

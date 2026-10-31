@@ -16,6 +16,7 @@ mod explorer_view;
 mod github_view;
 mod logging;
 mod notification_audio;
+mod performance_probe;
 mod platform_placement;
 mod ralph_view;
 mod runtime;
@@ -269,7 +270,9 @@ fn open_primary_window(cx: &mut App) {
         if placement.enter_full_screen {
             window.on_next_frame(|window, _| window.toggle_fullscreen());
         }
-        cx.new(|cx| BuddyApp::new(window, cx))
+        let app = cx.new(|cx| BuddyApp::new(window, cx));
+        performance_probe::install(&app, window, cx);
+        app
     })
     .expect("failed to open the Buddy window");
     buddy_core::telemetry::record_window_open();
