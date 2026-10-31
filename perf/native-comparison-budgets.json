@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "baseline": "same-runner Electron, alternating order, median of five fresh profiles",
+  "timing": {
+    "startupMs": {
+      "floor": 3000,
+      "ratio": 1.5
+    },
+    "responseMedianMs": {
+      "floor": 100,
+      "ratio": 2
+    },
+    "responseMaxMs": {
+      "floor": 500,
+      "ratio": 2
+    }
+  },
+  "memory": {
+    "floorBytes": 268435456,
+    "ratio": 1.25,
+    "scenarios": ["dashboard-warm", "settings-idle", "navigation-cleanup", "peak"]
+  },
+  "cleanupGrowth": {
+    "ratio": 1.2,
+    "headroomBytes": 67108864,
+    "baseline": "navigation-baseline",
+    "scenario": "navigation-cleanup"
+  }
+}

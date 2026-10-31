@@ -64,7 +64,7 @@ describe('Markdown CI contract', () => {
             '/config',
             '**/*.md',
           ],
-          { cwd: directory, encoding: 'utf8' }
+          { cwd: directory, encoding: 'utf8', timeout: 10_000 }
         )
       const failure = lint()
       expect(failure.error).toBeUndefined()
@@ -83,7 +83,8 @@ describe('Markdown CI contract', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
-  })
+    // Three bounded CLI launches exceed the default five seconds on Windows.
+  }, 35_000)
 
   it('propagates a Markdown failure through both aggregate gates', () => {
     expect(jobBlock('ci-feedback')).toMatch(/needs:[\s\S]*\blint\b/)

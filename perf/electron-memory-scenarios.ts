@@ -1,3 +1,4 @@
+import fixture from './matching-fixture.json'
 import type { Page } from 'puppeteer-core'
 import { type ProcessKind, type ScenarioMetrics } from './electron-memory-model'
 import { collectScenario, type LaunchedRuntime } from './electron-memory-runtime'
@@ -46,14 +47,7 @@ export async function closeNonDashboardTabs(page: Page): Promise<void> {
 }
 
 export async function runNavigationScenario(page: Page, cycles: number): Promise<void> {
-  const views = [
-    'settings-accounts',
-    'bookmarks-all',
-    'automation-schedules',
-    'pr-my-prs',
-    'terminal-workspace',
-    'dashboard',
-  ]
+  const views = fixture.routes
   for (let cycle = 0; cycle < cycles; cycle += 1) {
     for (const view of views) await navigate(page, view)
   }
