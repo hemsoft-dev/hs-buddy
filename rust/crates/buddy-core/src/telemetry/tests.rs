@@ -213,3 +213,28 @@ fn protobuf_export_reaches_all_three_signal_paths_and_flushes_on_shutdown() {
         }
     }
 }
+
+#[test]
+fn default_tls_builder_works_without_telemetry() {
+    const CHILD: &str = "BUDDY_TLS_PROVIDER_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "telemetry::tests::default_tls_builder_works_without_telemetry",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        return;
+    }
+    assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+    assert!(!Telemetry::from_config(None).is_enabled());
+    // Convex's WebSocket transport uses this builder without a custom provider.
+    let _ = rustls::ClientConfig::builder();
+}

@@ -106,6 +106,9 @@ impl Telemetry {
         }
     }
     fn build(config: Config) -> Result<Enabled, opentelemetry_otlp::ExporterBuildError> {
+        // reqwest 0.13 requires an installed provider with rustls-no-provider.
+        // Keep the existing default when an embedding process has selected one.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let resource = Resource::builder_empty()
             .with_attributes([
                 KeyValue::new("service.name", config.service.clone()),
@@ -114,6 +117,7 @@ impl Telemetry {
             .build();
         // Do not follow redirects with OTLP authentication headers.
         let client = reqwest_otel::blocking::Client::builder()
+            .tls_backend_rustls()
             .redirect(reqwest_otel::redirect::Policy::none())
             .timeout(TIMEOUT)
             .build()
