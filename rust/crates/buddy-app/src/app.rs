@@ -521,7 +521,8 @@ impl BuddyApp {
         // The dispatcher claims queued runs whichever section is visible.
         let automation_view = cx.new(|cx| AutomationView::new(window, cx));
         automation_view.update(cx, |view, _| view.shell_navigation = true);
-        cx.observe(&automation_view, |_, _, cx| cx.notify()).detach();
+        cx.observe(&automation_view, |_, _, cx| cx.notify())
+            .detach();
         automation_view.update(cx, |view, cx| view.start(cx));
         let ralph_view = cx.new(|cx| RalphView::new(window, cx));
         ralph_view.update(cx, |view, cx| view.start(cx));
