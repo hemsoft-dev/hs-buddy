@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import socket
@@ -143,6 +144,54 @@ def only(items, message):
     return items[0]
 
 
+def verify_status_totals(words, jobs, schedules):
+    """Require both counts on one bottom footer row, allowing only zero's O misread."""
+    ocr = settings.ocr
+    bottom = max((word["top"] + word["height"] for word in words), default=0)
+    anchors = [word for word in words if re.fullmatch(r"[0-9o]*prs", ocr.normalize(word["text"]))
+        and word["top"] >= bottom - 2 * word["height"]]
+    if len(anchors) != 1:
+        raise RuntimeError("Expected exactly one native status footer")
+    anchor = anchors[0]
+    row = [word for word in words if abs(word["top"] - anchor["top"])
+        <= max(word["height"], anchor["height"]) / 2]
+    matches = []
+    for count, noun in ((schedules, "schedules"), (jobs, "jobs")):
+        # Match complete OCR words, so 2 never matches 12, and O never matches
+        # a nonzero count. The captured Windows footer has O schedules/Ojobs.
+        found = []
+        for value in ("0", "O") if count == 0 else (str(count),):
+            try:
+                found.append(ocr.find_label(row, f"{value} {noun}"))
+            except ocr.AmbiguousLabel:
+                raise
+            except RuntimeError:
+                pass
+        if len(found) > 1:
+            raise ocr.AmbiguousLabel(f"Competing {noun} totals in status footer")
+        if not found:
+            raise RuntimeError(f"Status footer is missing {count} {noun}")
+        matches.append(found[0])
+    if not anchor["left"] < matches[0]["left"] < matches[1]["left"]:
+        raise RuntimeError("Status totals are not in footer order")
+
+
+def check_status_totals(path, backend):
+    jobs, schedules = len(backend.query("jobs:list")), len(backend.query("schedules:list"))
+    for image in github.analysis_images(path):
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            image.with_suffix(f".status-words-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+            try:
+                verify_status_totals(words, jobs, schedules)
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError:
+                continue
+            return
+    raise RuntimeError("Screenshot does not show both backend totals in one status footer")
+
+
 def qualify_runs(driver, backend, output, workspace, sentinel):
     proof, children = output / "run-proof.json", output / "owned-children.jsonl"
     nonce, long_nonce = str(uuid.uuid4()), str(uuid.uuid4())
@@ -166,8 +215,8 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
         ("content", "Cancel run"), ("wait_text", "Cancelled"), ("sleep", 2), ("capture", "cancelled-dark"),
     ], record=True)
     github.check(runs / "jobs-dark.png", "Echo job", "Run now", "Edit", "Duplicate", absent=("Long job",))
-    github.check(runs / "file-menu-status-dark.png", "Open Folder", "Exit",
-        f"{len(backend.query('jobs:list'))} jobs", f"{len(backend.query('schedules:list'))} schedules")
+    github.check(runs / "file-menu-status-dark.png", "Open Folder", "Exit")
+    check_status_totals(runs / "file-menu-status-dark.png", backend)
     github.check(runs / "run-input-dark.png", "Run Echo job now", "Queue run")
     github.check(runs / "output-dark.png", "Completed", "NATIVEAUTOMATIONREADY", "Manual")
     github.check(runs / "running-dark.png", "Running", "NATIVESTARTED", "Cancel run")
@@ -199,8 +248,7 @@ def qualify_editing(driver, backend, config, echo, long):
     github.check(restarted / "schedule-editor-light.png", "New schedule", "Native created job", "Run the latest missed")
     github.check(restarted / "schedule-created-light.png", "Native weekdays", "Enabled", "Run the latest missed")
     github.check(restarted / "schedule-paused-light.png", "Native weekdays", "Paused", "Enable", "Not scheduled")
-    github.check(restarted / "schedule-paused-light.png",
-        f"{len(backend.query('jobs:list'))} jobs", f"{len(backend.query('schedules:list'))} schedules")
+    check_status_totals(restarted / "schedule-paused-light.png", backend)
     # The restarted dispatcher reconciles; it never runs either job again.
     single_run(backend, echo, "completed")
     single_run(backend, long, "cancelled")
@@ -238,8 +286,7 @@ def qualify_editing(driver, backend, config, echo, long):
     ])
     github.check(deleted / "job-delete-light.png", "and its schedules will be removed.", "Delete job", "Keep")
     github.check(deleted / "job-deleted-light.png", "No jobs match the filter.")
-    github.check(deleted / "job-deleted-light.png",
-        f"{len(backend.query('jobs:list'))} jobs", f"{len(backend.query('schedules:list'))} schedules")
+    check_status_totals(deleted / "job-deleted-light.png", backend)
     if any(job["name"] == "Native created job" for job in backend.query("jobs:list")):
         raise RuntimeError("The confirmed job delete did not reach the backend")
 

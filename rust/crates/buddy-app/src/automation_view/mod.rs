@@ -59,16 +59,26 @@ impl AutomationView {
                 .loaded
                 .then_some(self.snapshot.schedules.len() as u64),
             !self.snapshot.connected
-                && (self.snapshot.loaded || self.snapshot.connection_error.is_some()),
+                && (self.snapshot.loaded
+                    || self.snapshot.connection_error.is_some()
+                    || (self.handle.is_none() && self.error.is_some())
+                    || self.snapshot.error.is_some()),
         )
     }
 
     pub(crate) fn show_status_list(&mut self, schedules: bool, cx: &mut Context<Self>) {
-        self.pane = if schedules {
-            Pane::Schedules
-        } else {
-            Pane::Jobs
-        };
+        self.select_pane(
+            if schedules {
+                Pane::Schedules
+            } else {
+                Pane::Jobs
+            },
+            cx,
+        );
+    }
+
+    fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        self.pane = pane;
         self.page = 0;
         self.job_page = 0;
         cx.notify();

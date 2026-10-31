@@ -25,6 +25,15 @@ fn shell_totals_follow_unfiltered_snapshots_and_preserve_stale_counts(
             cx.new(|cx| {
                 let mut view = AutomationView::new(window, cx);
                 assert_eq!(view.status_totals(), (None, None, false));
+                // A profile failure never creates a dispatcher or a snapshot.
+                view.error = Some("Automation has not started.".into());
+                assert_eq!(view.status_totals(), (None, None, true));
+                view.error = None;
+                // A dispatcher can also fail while opening its coordinator.
+                view.snapshot.error = Some("Cannot open automation journal".into());
+                assert_eq!(view.status_totals(), (None, None, true));
+                view.snapshot.error = None;
+                assert_eq!(view.status_totals(), (None, None, false));
                 view.snapshot.connection_error = Some("Offline".into());
                 assert_eq!(view.status_totals(), (None, None, true));
                 view.snapshot = sample();
@@ -42,6 +51,13 @@ fn shell_totals_follow_unfiltered_snapshots_and_preserve_stale_counts(
                 view.snapshot.schedules.clear();
                 view.snapshot.connected = true;
                 assert_eq!(view.status_totals(), (Some(0), Some(0), false));
+                for (schedules, expected) in [(true, Pane::Schedules), (false, Pane::Jobs)] {
+                    view.page = 3;
+                    view.job_page = 2;
+                    view.show_status_list(schedules, cx);
+                    assert!(view.pane == expected);
+                    assert_eq!((view.page, view.job_page), (0, 0));
+                }
                 view
             })
         })
