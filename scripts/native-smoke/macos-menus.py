@@ -235,7 +235,11 @@ def main():
                 config.write_text(saved_config)
                 # Use the same owned input/OCR driver as installed settings
                 # scenes. A real local form save must keep Settings selected.
-                driver = load_script('settings-desktop').Driver(
+                scene = load_script('settings-desktop')
+                # The offline loader disables local fields until it finishes.
+                # Observe its known loopback failure before sending any input.
+                scene.wait_visible(window, directory, 'Convex is unavailable', timeout=60, content=True)
+                driver = scene.Driver(
                     executable, directory, 'macos', None, Path(__file__).resolve().parents[2])
                 driver.interact(window, directory, 'field', ['GitHub enterprise slug', 'synthetic-parity'])
                 driver.interact(window, directory, 'save', ['GitHub enterprise slug'])

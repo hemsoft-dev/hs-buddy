@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1604] - 2026-11-01
+
+### Changed
+
+- Wait for settings form readiness before recovery save
+
 ## [0.1.1603] - 2026-11-01
 
 ### Fixed
