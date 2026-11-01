@@ -1108,6 +1108,164 @@ impl Render for BuddyApp {
 mod tests {
     use super::*;
 
+    // Each mouse test has its own process/profile: section persistence must
+    // never write the developer's settings or race another GPUI test's env.
+    fn status_click_child(test: &str) -> bool {
+        if std::env::var("BUDDY_STATUS_CLICK_CHILD").as_deref() == Ok(test) {
+            return false;
+        }
+        let profile = tempfile::tempdir().unwrap();
+        let config = profile.path().join("config.json");
+        std::fs::write(
+            &config,
+            serde_json::to_vec(&buddy_core::config::AppConfig::default()).unwrap(),
+        )
+        .unwrap();
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", test, "--nocapture"])
+            .env("BUDDY_STATUS_CLICK_CHILD", test)
+            .env("BUDDY_CONFIG_PATH", &config)
+            // No backend is needed to prove the real navigation callbacks.
+            .env("BUDDY_CONVEX_URL", "fixture://status-click-offline");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        true
+    }
+
+    fn status_click_shell(
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> (gpui_kit::AnyWindowHandle, Entity<BuddyApp>) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            cx.set_global(Runtime::for_test(cx.background_executor().clone()));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                let dashboard = cx.new(|cx| DashboardView::new(window, cx, false));
+                cx.new(|cx| {
+                    BuddyApp::observe_settings(window, cx);
+                    BuddyApp {
+                        active_section: None,
+                        active_account: None,
+                        dashboard,
+                        settings_view: cx.new(|cx| SettingsView::new(window, cx)),
+                        github_view: cx.new(|cx| GitHubView::new(window, cx)),
+                        terminal_view: cx.new(|cx| TerminalView::new(window, cx)),
+                        terminal_panel: cx
+                            .new(|cx| crate::terminal_view::panel::TerminalPanel::new(window, cx)),
+                        copilot_view: cx.new(|cx| CopilotView::new(window, cx)),
+                        assistant: cx
+                            .new(|cx| crate::copilot_view::chat::ChatView::new(window, cx)),
+                        todoist_view: cx.new(|cx| TodoistView::new(window, cx)),
+                        tempo_view: cx.new(|cx| TempoView::new(window, cx)),
+                        automation_view: cx.new(|cx| AutomationView::new(window, cx)),
+                        ralph_view: cx.new(|cx| RalphView::new(window, cx)),
+                        crew_view: cx.new(|cx| CrewView::new(window, cx)),
+                        bookmarks_view: cx.new(|cx| BookmarksView::new(window, cx)),
+                        browser_view: cx.new(|cx| BrowserView::new(window, cx)),
+                        explorer_view: cx.new(|_| crate::explorer_view::ExplorerView::new()),
+                        folder_open: false,
+                        window_state: WindowPersistence::new(),
+                        focus: BuddyApp::initial_focus(window, cx),
+                        tabs: crate::shell::navigation::Tabs::default(),
+                    }
+                })
+            })
+            .unwrap()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn status_prs_click_selects_my_prs_and_clears_retained_page(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child(
+            "app::tests::status_prs_click_selects_my_prs_and_clears_retained_page",
+        ) {
+            return;
+        }
+        use gpui_kit::test::TestWindowExt as _;
+        let (window, shell) = status_click_shell(cx);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        let retained = visual.update(|_, cx| shell.read(cx).github_view.entity_id());
+        for _ in 0..2 {
+            visual.update(|window, cx| {
+                shell
+                    .read(cx)
+                    .github_view
+                    .clone()
+                    .update(cx, |view, cx| view.seed_status_click_page(cx));
+                window.draw(cx).clear(cx);
+                window.click("status-prs", cx);
+                let app = shell.read(cx);
+                assert_eq!(app.active_section, Some(Section::GitHub));
+                assert_eq!(app.github_view.entity_id(), retained);
+                app.github_view.read(cx).assert_status_click_reset();
+            });
+        }
+    }
+
+    fn assert_automation_status_click(cx: &mut gpui_kit::TestAppContext, schedules: bool) {
+        use gpui_kit::test::TestWindowExt as _;
+        let (window, shell) = status_click_shell(cx);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        let retained = visual.update(|_, cx| shell.read(cx).automation_view.entity_id());
+        for _ in 0..2 {
+            visual.update(|window, cx| {
+                shell
+                    .read(cx)
+                    .automation_view
+                    .clone()
+                    .update(cx, |view, cx| view.seed_status_click_page(cx));
+                window.draw(cx).clear(cx);
+                window.click(
+                    if schedules {
+                        "status-schedules"
+                    } else {
+                        "status-jobs"
+                    },
+                    cx,
+                );
+                let app = shell.read(cx);
+                assert_eq!(app.active_section, Some(Section::Automation));
+                assert_eq!(app.automation_view.entity_id(), retained);
+                app.automation_view
+                    .read(cx)
+                    .assert_status_click_reset(schedules);
+            });
+        }
+    }
+
+    #[gpui_kit::test]
+    fn status_schedules_click_selects_schedules_and_resets_pages(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        if status_click_child(
+            "app::tests::status_schedules_click_selects_schedules_and_resets_pages",
+        ) {
+            return;
+        }
+        assert_automation_status_click(cx, true);
+    }
+
+    #[gpui_kit::test]
+    fn status_jobs_click_selects_jobs_and_resets_pages(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child("app::tests::status_jobs_click_selects_jobs_and_resets_pages") {
+            return;
+        }
+        assert_automation_status_click(cx, false);
+    }
+
     struct HistoryShortcutProbe {
         focus: gpui_kit::FocusHandle,
         context: &'static str,

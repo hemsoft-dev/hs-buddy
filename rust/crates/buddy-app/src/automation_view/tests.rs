@@ -680,3 +680,25 @@ fn an_unchanged_tick_does_not_advance_the_redraw_sequence() {
     assert!(publish_into(&target, running));
     assert_eq!(target.lock().unwrap().sequence, first + 1);
 }
+
+// Test-only state access for the root shell's real status-bar mouse tests.
+impl AutomationView {
+    pub(crate) fn seed_status_click_page(&mut self, cx: &mut Context<Self>) {
+        self.pane = Pane::History;
+        self.page = 3;
+        self.job_page = 2;
+        cx.notify();
+    }
+
+    pub(crate) fn assert_status_click_reset(&self, schedules: bool) {
+        assert!(
+            self.pane
+                == if schedules {
+                    Pane::Schedules
+                } else {
+                    Pane::Jobs
+                }
+        );
+        assert_eq!((self.page, self.job_page), (0, 0));
+    }
+}
