@@ -469,13 +469,14 @@ class Driver:
         previous = None
         content_bounds = None
         content_height = None
+        sparse_only = False
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
             options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
             if self.session == "macos" and kind in ("content", "nav", "click", "tab", "between"):
-                options["native_macos"] = True
+                options["sparse_only" if sparse_only else "native_macos"] = True
             if kind == "workspace":
                 options["workspace"] = True
             if kind in ("content", "nav"):
@@ -507,7 +508,22 @@ class Driver:
                     content_height = struct.unpack(">II", scoped.read_bytes()[16:24])[1]
                 else:
                     scoped = ocr.crop_content_image(image, content_height, run)
-            label = ocr.locate_image(scoped, text, **options)
+            try:
+                label = ocr.locate_image(scoped, text, **options)
+            except ocr.AmbiguousLabel:
+                raise
+            except RuntimeError:
+                if not options.get("native_macos"):
+                    raise
+                # A missing Vision label may be legible in sparse OCR, but
+                # never compare boxes across engines. Pin this lookup to one
+                # Tesseract mode and require two fresh matching measurements
+                # within the original four-capture budget.
+                sparse_only = True
+                previous = None
+                options.pop("native_macos")
+                options["sparse_only"] = True
+                label = ocr.locate_image(scoped, text, **options)
             if self.session != "macos":
                 return label
             record_measurement(image.parent, text, label, capture=scoped, raw=image, scope=options)

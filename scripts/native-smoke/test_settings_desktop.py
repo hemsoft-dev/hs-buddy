@@ -1085,6 +1085,63 @@ class WindowsScrollAnchors(unittest.TestCase):
 
 
 class MacStabilityTests(unittest.TestCase):
+    def delete_fixture(self):
+        return json.loads(Path(__file__).with_name('fixtures').joinpath('automation-intel-delete-engines.json').read_text())
+
+    def test_real_intel_delete_miss_pins_sparse_ocr_and_resets_prior_engine_measurement(self):
+        fixture = self.delete_fixture()
+        with self.assertRaises(RuntimeError):
+            desktop.ocr.locate_label(fixture['nativeWords'], 'Delete', content=True)
+        correct = [dict(word, text='Delete', **fixture['expected']) if word['text'] == 'JDelete' else dict(word)
+            for word in fixture['nativeWords']]
+        for initial_match in (False, True):
+            with self.subTest(initial_match=initial_match), tempfile.TemporaryDirectory() as root:
+                image = Path(root) / 'capture.png'
+                window = Mock()
+                window.screenshot.side_effect = lambda path: path.write_bytes(b'\x89PNG\r\n\x1a\n' + bytes(8) + struct.pack('>II', 1200, 820))
+                readings = ([correct] if initial_match else []) + [fixture['nativeWords']]
+                with patch.object(desktop.ocr, 'recognize_macos', side_effect=readings) as native, \
+                        patch.object(desktop.ocr, 'recognize', return_value=fixture['sparseWords']) as sparse, \
+                        patch.object(desktop.ocr, 'status_content_image', side_effect=lambda path, *a, **k: path), \
+                        patch.object(desktop.ocr, 'crop_content_image', side_effect=lambda path, *a, **k: path):
+                    self.assertEqual(self.driver().locate(window, image, 'content', 'Delete'), fixture['expected'])
+                self.assertEqual(native.call_count, 2 if initial_match else 1)
+                self.assertEqual(sparse.call_count, 2)
+                self.assertEqual(window.screenshot.call_count, 3 if initial_match else 2)
+                self.assertTrue(all(call.args[1] == 11 for call in sparse.call_args_list))
+                receipts = [json.loads(line) for line in (Path(root) / 'stability.jsonl').read_text().splitlines()]
+                self.assertTrue(all(row['scope'].get('sparse_only') for row in receipts[-2:]))
+
+    def test_sparse_fallback_still_rejects_a_moving_control_within_four_captures(self):
+        fixture = self.delete_fixture()
+        readings = [[dict(word, top=word['top'] + (40 if index % 2 else 0)) if word['text'] == 'Delete' else dict(word)
+            for word in fixture['sparseWords']] for index in range(4)]
+        with tempfile.TemporaryDirectory() as root:
+            image, window = Path(root) / 'capture.png', Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(bytes(16) + struct.pack('>II', 1200, 820))
+            with patch.object(desktop.ocr, 'recognize_macos', return_value=fixture['nativeWords']) as native, \
+                    patch.object(desktop.ocr, 'recognize', side_effect=readings), \
+                    patch.object(desktop.ocr, 'status_content_image', side_effect=lambda path, *a, **k: path), \
+                    patch.object(desktop.ocr, 'crop_content_image', side_effect=lambda path, *a, **k: path):
+                with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                    self.driver().locate(window, image, 'content', 'Delete')
+            self.assertEqual(native.call_count, 1)
+            self.assertEqual(window.screenshot.call_count, 4)
+
+    def test_ambiguous_native_controls_never_try_another_engine(self):
+        fixture = self.delete_fixture()
+        words = [dict(word, text='Delete') if word['text'] == 'JDelete' else dict(word) for word in fixture['nativeWords']]
+        words.append(dict(fixture['expected'], text='Delete', top=350, line='duplicate'))
+        with tempfile.TemporaryDirectory() as root:
+            image, window = Path(root) / 'capture.png', Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(bytes(16) + struct.pack('>II', 1200, 820))
+            with patch.object(desktop.ocr, 'recognize_macos', return_value=words), \
+                    patch.object(desktop.ocr, 'recognize', side_effect=AssertionError('Ambiguity cannot fall back')), \
+                    patch.object(desktop.ocr, 'status_content_image', side_effect=lambda path, *a, **k: path):
+                with self.assertRaises(desktop.ocr.AmbiguousLabel):
+                    self.driver().locate(window, image, 'content', 'Delete')
+            self.assertEqual(window.screenshot.call_count, 1)
+
     def test_captured_history_engine_switch_cannot_invalidate_stationary_mac_control(self):
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('automation-history-engines.json').read_text())
         boxes = [frame['recordedBox'] for frame in fixture['frames']]

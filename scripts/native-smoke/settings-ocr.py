@@ -460,7 +460,11 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False, sparse_only=False):
+    if sparse_only:
+        words = recognize(image, 11)
+        image.with_suffix('.sparse-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+        return locate_label(words, labels, navigation, field, tab, content=content, between=between)
     if workspace:
         # Global tab titles are shell chrome, not view controls. Keep their
         # measurements on one engine per platform. Sparse Tesseract reads

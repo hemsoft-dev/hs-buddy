@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1610] - 2026-11-01
+
+### Changed
+
+- Pin sparse fallback after missing Mac control labels
+
 ## [0.1.1609] - 2026-11-01
 
 ### Changed
