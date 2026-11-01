@@ -153,6 +153,49 @@ def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoo
     raise RuntimeError("The content screenshot has no unique native status footer")
 
 
+def content_words(words, chrome=None):
+    """Bound view labels using a measured menu and workspace-tab row."""
+    # Explicit scene scope: the menu row and the following workspace-tab
+    # row are chrome, not controls in the retained view. Measure both from
+    # the untouched capture rather than assuming a DPI or window origin.
+    # View/Help identify the menu context even when field labels also
+    # contain File. Do not require Edit: the captured Windows OCR reads
+    # that menu label as Eat. All candidate rows must still be unique.
+    chrome = words if chrome is None else chrome
+    chrome = [word for word in chrome if normalize(word["text"])]
+    menus = []
+    for candidate in (word for word in chrome if normalize(word["text"]) == "file"):
+        row = [word for word in chrome if abs(word["top"] - candidate["top"])
+            <= max(word["height"], candidate["height"]) / 2]
+        labels = [[word for word in row if normalize(word["text"]) == label]
+            for label in ("file", "view", "help")]
+        if all(len(matches) == 1 for matches in labels):
+            positions = [matches[0]["left"] for matches in labels]
+            if positions == sorted(set(positions)):
+                menus.append(candidate)
+    if len(menus) > 1:
+        raise AmbiguousLabel("More than one native menu row is visible")
+    if not menus:
+        raise RuntimeError("The native File/Edit/View/Help menu row is not visible")
+    menu = menus[0]
+    below_menu = [word for word in chrome if word["top"] > menu["top"] + menu["height"]]
+    if not below_menu:
+        raise RuntimeError("The workspace tab row is not visible")
+    row_top = min(word["top"] for word in below_menu)
+    if row_top > menu["top"] + 5 * menu["height"]:
+        raise RuntimeError("The workspace tab row is not visible")
+    row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
+    row_bottom = max(word["top"] + word["height"] for word in row)
+    words = [word for word in words if word["top"] > row_bottom]
+    # The shared totals footer is chrome too. Identify its three ordered
+    # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
+    # Older captures without totals retain the existing upper-bound scope.
+    footer = status_footer(words)
+    if footer:
+        words = [word for word in words if word["top"] < footer["top"]]
+    return words
+
+
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
     wanted = normalize(label)
     if not wanted:
@@ -161,42 +204,7 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
     # span can count one word twice, such as Interrupt and Interrupt + '('.
     words = [word for word in words if normalize(word["text"])]
     if content:
-        # Explicit scene scope: the menu row and the following workspace-tab
-        # row are chrome, not controls in the retained view. Measure both from
-        # the untouched capture rather than assuming a DPI or window origin.
-        # View/Help identify the menu context even when field labels also
-        # contain File. Do not require Edit: the captured Windows OCR reads
-        # that menu label as Eat. All candidate rows must still be unique.
-        menus = []
-        for candidate in (word for word in words if normalize(word["text"]) == "file"):
-            row = [word for word in words if abs(word["top"] - candidate["top"])
-                <= max(word["height"], candidate["height"]) / 2]
-            labels = [[word for word in row if normalize(word["text"]) == label]
-                for label in ("file", "view", "help")]
-            if all(len(matches) == 1 for matches in labels):
-                positions = [matches[0]["left"] for matches in labels]
-                if positions == sorted(set(positions)):
-                    menus.append(candidate)
-        if len(menus) > 1:
-            raise AmbiguousLabel("More than one native menu row is visible")
-        if not menus:
-            raise RuntimeError("The native File/Edit/View/Help menu row is not visible")
-        menu = menus[0]
-        below_menu = [word for word in words if word["top"] > menu["top"] + menu["height"]]
-        if not below_menu:
-            raise RuntimeError("The workspace tab row is not visible")
-        row_top = min(word["top"] for word in below_menu)
-        if row_top > menu["top"] + 5 * menu["height"]:
-            raise RuntimeError("The workspace tab row is not visible")
-        row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
-        row_bottom = max(word["top"] + word["height"] for word in row)
-        words = [word for word in words if word["top"] > row_bottom]
-        # The shared totals footer is chrome too. Identify its three ordered
-        # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
-        # Older captures without totals retain the existing upper-bound scope.
-        footer = status_footer(words)
-        if footer:
-            words = [word for word in words if word["top"] < footer["top"]]
+        words = content_words(words)
     if between is not None:
         # A scene may name the two visible field labels bounding a row.
         # Use their tops: OCR can absorb an input border into a label's height.
@@ -394,7 +402,25 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
         # Stability measurements must not alternate Tesseract glyph boxes
         # with Vision's line boxes for the same stationary control.
         words = recognize_macos(image)
-        label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
+        # Preserve missing/ambiguous native tokens too, before matching can
+        # raise; raw captures alone cannot reproduce another OS's Vision model.
+        if image.is_file():
+            image.with_suffix('.ocr-darwin.json').write_text(json.dumps(words), encoding='utf-8')
+        if content:
+            # Vision on Intel can omit the File menu while reading every view
+            # control. A missing header may use Tesseract's chrome boundary,
+            # but target boxes always remain Vision's. Competing headers must
+            # still fail rather than being hidden by another engine.
+            try:
+                words = content_words(words)
+            except AmbiguousLabel:
+                raise
+            except RuntimeError:
+                chrome = recognize(image)
+                if image.is_file():
+                    image.with_suffix('.chrome-ocr.json').write_text(json.dumps(chrome), encoding='utf-8')
+                words = content_words(words, chrome)
+        label = locate_label(words, labels, navigation, field, tab, content=False, between=between)
         if save_row:
             label["save"] = aligned_save(words, label)
         if row_control is not None:

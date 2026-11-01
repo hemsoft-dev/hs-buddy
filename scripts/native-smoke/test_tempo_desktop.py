@@ -19,6 +19,16 @@ spec.loader.exec_module(desktop)
 
 
 class FixtureScenarios(unittest.TestCase):
+    def test_view_clicks_are_content_scoped_before_reaching_each_platform_driver(self):
+        for session in ('macos', 'x11', 'windows'):
+            with self.subTest(session=session):
+                driver = object.__new__(desktop.TempoDriver)
+                driver.session = session
+                actions = [('click', 'Timesheet'), ('click', 'Timeline'), ('click', 'Refresh'), ('wait_text', 'Tempo timesheet')]
+                with patch.object(desktop.settings.Driver, 'drive', return_value='owned') as drive:
+                    self.assertEqual(driver.drive('scene', actions), 'owned')
+                self.assertEqual(drive.call_args.args[1], [('content', 'Timesheet'), ('content', 'Timeline'), ('content', 'Refresh'), ('wait_text', 'Tempo timesheet')])
+
     def test_real_http_preflight_counts_only_mutations_after_recorded_reads(self):
         with desktop.ScenarioFixture() as api:
             api.preflight_after_lookup = True
@@ -181,7 +191,7 @@ class CellInput(unittest.TestCase):
             driver.drive(stage, CellInput.stage_actions(stage, session))
         return drive.call_args.args[2]
 
-    def test_every_mac_tempo_editor_gets_one_bounded_offset_and_other_sessions_are_unchanged(self):
+    def test_every_mac_tempo_editor_gets_one_bounded_offset_and_other_sessions_preserve_inputs(self):
         stages = ('connect-dark', 'range-navigation-dark', 'grid-navigation-dark', 'template-dark', 'denied-write-dark')
         for stage in stages:
             mac = [action for action in self.driven(stage, 'macos') if action[0] == 'input']
@@ -195,7 +205,9 @@ class CellInput(unittest.TestCase):
                 self.assertEqual(sum(isinstance(item, dict) for item in action), 1, action[:2])
                 self.assertEqual(action[-1], {'labelBottomOffset': 30}, action[:2])
             for session in ('windows', 'x11'):
-                self.assertEqual(self.driven(stage, session), self.stage_actions(stage, session))
+                expected = [('content', *action[1:]) if action[0] == 'click' else action
+                    for action in self.stage_actions(stage, session)]
+                self.assertEqual(self.driven(stage, session), expected)
         start, = [action for action in self.driven('denied-write-dark', 'macos')
             if action[:2] == ('input', 'Start time in the account timezone')]
         self.assertEqual(start[3:], ({'labelBottomOffset': 30},))

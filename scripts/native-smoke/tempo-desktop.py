@@ -157,6 +157,9 @@ class TempoDriver(settings.Driver):
     """
 
     def drive(self, name, actions, concurrent=False, record=False):
+        # Every Tempo click addresses retained-view content, including controls
+        # whose names also occur in global tab titles (Timesheet, Timeline).
+        actions = [('content', *action[1:]) if action[0] == 'click' else action for action in actions]
         if self.session == 'macos':
             actions = [action + ({'labelBottomOffset': 30},)
                 if action[0] == 'input' and action[1] not in ('From', 'Through')
