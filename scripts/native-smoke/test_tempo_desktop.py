@@ -161,6 +161,41 @@ class FixtureScenarios(unittest.TestCase):
 
 
 class CellInput(unittest.TestCase):
+    def test_real_windows_today_capture_requires_the_toolbar_scope_on_every_platform(self):
+        fixture = json.loads(Path(desktop.__file__).with_name('fixtures').joinpath('tempo-windows-today-scope.json').read_text())
+        ocr = desktop.settings.ocr
+        for name, words in fixture['layouts'].items():
+            with self.subTest(layout=name):
+                target = ocr.find_label(words, fixture['target'], between=fixture['anchors'])
+                self.assertEqual(target, dict(left=210, top=140, width=38, height=13))
+                # Competing toolbar controls must still fail, even though
+                # Today in warning/help prose below the totals is excluded.
+                duplicate = words + [dict(target, text='Today', line='duplicate', left=400)]
+                with self.assertRaises(ocr.AmbiguousLabel):
+                    ocr.find_label(duplicate, fixture['target'], between=fixture['anchors'])
+                with self.assertRaises(RuntimeError):
+                    ocr.find_label(words, fixture['target'], between=('Missing heading', 'Logged'))
+        # The Windows path first misses the menu in sparse Tesseract, then
+        # correctly rejects four Today matches in block mode. Replay that
+        # exact engine order rather than assuming every engine sees a collision.
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / 'owned.png'
+            image.write_bytes(b'owned capture')
+            sparse = fixture['layouts']['settings-locator.ocr-11.json']
+            with patch.object(ocr.shutil, 'which', return_value='tesseract'), \
+                    patch.object(ocr, 'recognize', side_effect=[sparse, fixture['ambiguousWords']]):
+                with self.assertRaisesRegex(ocr.AmbiguousLabel, '4 visible matches'):
+                    ocr.locate_image(image, 'Today', content=True)
+            with patch.object(ocr.shutil, 'which', return_value='tesseract'), \
+                    patch.object(ocr, 'recognize', return_value=sparse) as recognize:
+                self.assertEqual(ocr.locate_image(image, 'Today', between=fixture['anchors']),
+                    dict(left=210, top=140, width=38, height=13))
+                recognize.assert_called_once_with(image, 11)
+        for session in ('windows', 'macos', 'x11'):
+            actions = self.driven('range-navigation-dark', session)
+            today, = [action for action in actions if len(action) > 1 and action[1] == 'Today']
+            self.assertEqual(today, ('between', 'Today', *fixture['anchors']))
+
     @staticmethod
     def stage_actions(stage, session):
         tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))
