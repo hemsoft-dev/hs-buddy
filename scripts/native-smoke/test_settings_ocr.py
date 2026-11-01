@@ -113,6 +113,22 @@ class LabelGuards(unittest.TestCase):
             self.assertEqual(run.call_args.args[0], [str(helper), str(image)])
             self.assertEqual(run.call_args.kwargs["timeout"], 30)
 
+    def test_macos_helper_failure_retains_the_frame_and_reports_a_retryable_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            helper, image = Path(folder) / "buddy-ocr-words", Path(folder) / "owned.png"
+            helper.write_bytes(b"synthetic prepared helper")
+            image.write_bytes(b"original owned capture")
+            failure = subprocess.CalledProcessError(1, [str(helper), str(image)],
+                stderr="Native image OCR failed: stage=recognition domain=Vision code=9")
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(helper)}), \
+                    patch.object(ocr.subprocess, "run", side_effect=failure):
+                with self.assertRaisesRegex(RuntimeError, "stage=recognition"):
+                    ocr.recognize_macos(image)
+            self.assertEqual(image.with_suffix(".ocr-error.png").read_bytes(), image.read_bytes())
+            evidence = json.loads(image.with_suffix(".ocr-error.json").read_text())
+            self.assertEqual(evidence["exitCode"], 1)
+            self.assertIn("domain=Vision code=9", evidence["stderr"])
+
     def test_missing_prepared_macos_helper_fails_before_spawning_a_process(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(Path(folder) / "missing")}), \
