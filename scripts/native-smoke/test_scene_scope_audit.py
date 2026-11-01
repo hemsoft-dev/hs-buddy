@@ -1,6 +1,7 @@
 """Keep every scene's view controls out of status/footer and global-tab chrome."""
 import ast
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 
@@ -29,6 +30,18 @@ def actions():
 
 
 class SceneChromeScopes(unittest.TestCase):
+    def test_browser_workspace_actions_match_the_real_windows_tab_row(self):
+        fixture = json.loads((HERE / 'fixtures/browser-windows-workspace-title.json').read_text())
+        words = ocr.workspace_words(fixture['windowsWords'])
+        targets = {label for scene, _, kind, label in actions()
+            if scene == 'browser-desktop.py' and kind == 'workspace'}
+        self.assertEqual(targets, {'Bookmarks: All', 'Buddy Probe'})
+        for label in targets:
+            self.assertEqual(ocr.find_label(words, label)['top'], 45)
+        for label in ('File', 'PROBE PAGE', 'jobs'):
+            with self.assertRaises(RuntimeError):
+                ocr.find_label(words, label)
+
     def test_footer_labels_cannot_be_used_as_unscoped_scene_targets(self):
         footer_states = ['0 PRs 0 schedules 0 jobs No gh account',
             'PRs loading schedules loading jobs loading No gh account',

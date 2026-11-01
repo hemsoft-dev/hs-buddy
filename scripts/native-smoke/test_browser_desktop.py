@@ -19,6 +19,33 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_windows_workspace_uses_native_geometry_and_the_workspace_command(self):
+        from unittest.mock import Mock
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-windows-workspace-title.json').read_text())
+        ocr = desktop.settings.ocr
+        with self.assertRaisesRegex(RuntimeError, 'menu row'):
+            ocr.workspace_words(fixture['sparseWords'])
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / 'capture.png'
+            image.write_bytes(b'owned capture')
+            with patch.object(ocr.sys, 'platform', 'win32'), \
+                    patch.object(ocr, 'recognize_windows', return_value=fixture['windowsWords']) as native, \
+                    patch.object(ocr, 'recognize', side_effect=AssertionError('Mixed target engines')):
+                for _ in range(2):
+                    self.assertEqual(ocr.locate_image(image, fixture['target'], workspace=True),
+                        dict(left=189, top=45, width=76, height=9))
+                self.assertEqual(native.call_count, 2)
+            driver = object.__new__(desktop.BrowserDriver)
+            driver.session, driver.profile = 'windows', Path(root)
+            driver.config, driver.executable, driver.checkout = image, Path(root) / 'owned.exe', Path(root)
+            driver.large_size = (1044, 788)
+            driver.backend = Mock(url='http://127.0.0.1:9')
+            driver.input_desktop = False
+            with patch.object(desktop.settings, 'run') as execute:
+                driver.drive('workspace', [('workspace', fixture['target'])])
+            args = execute.call_args.args
+            self.assertIn('workspace64:' + desktop.settings.b64(fixture['target']), args[args.index('-Actions') + 1].split(','))
+
     def test_real_mac_workspace_title_is_exact_and_excludes_page_footer_and_menu(self):
         from unittest.mock import Mock
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-macos-workspace-title.json').read_text())
@@ -47,7 +74,8 @@ class BrowserDesktopTests(unittest.TestCase):
             window.screenshot.side_effect = lambda path: path.write_bytes(b'owned capture')
             driver = object.__new__(desktop.BrowserDriver)
             driver.session = 'macos'
-            with patch.object(ocr, 'recognize', return_value=words) as sparse, \
+            with patch.object(ocr.sys, 'platform', 'darwin'), \
+                    patch.object(ocr, 'recognize', return_value=words) as sparse, \
                     patch.object(ocr, 'recognize_macos', side_effect=AssertionError('Mixed target engines')):
                 self.assertEqual(driver.locate(window, image, 'workspace', fixture['target']), expected)
             self.assertEqual(window.screenshot.call_count, 2)

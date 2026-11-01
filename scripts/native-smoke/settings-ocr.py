@@ -406,9 +406,10 @@ def color_region(label, scale, dimensions):
 def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False):
     if workspace:
         # Global tab titles are shell chrome, not view controls. Keep their
-        # measurements on sparse Tesseract: full-frame Vision can replace
-        # Latin fixture titles with Cyrillic lookalikes on macOS.
-        words = recognize(image, 11)
+        # measurements on one engine per platform. Sparse Tesseract reads
+        # Mac titles that Vision replaces with Cyrillic lookalikes; Windows
+        # OCR reads the 100% DPI titles that sparse Tesseract fragments.
+        words = recognize_windows(image) if sys.platform == 'win32' else recognize(image, 11)
         if image.is_file():
             image.with_suffix('.workspace-ocr.json').write_text(json.dumps(words), encoding='utf-8')
         return locate_label(workspace_words(words), labels)
