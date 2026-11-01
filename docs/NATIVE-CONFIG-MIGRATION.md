@@ -74,3 +74,9 @@ The cutover gate remains partial until installed fresh/upgrade/downgrade flows
 on all supported OS targets qualify Electron local session data, browser
 profiles, caches and recovery/history outside config JSON, actual vaults and
 Convex state. A green config suite alone does not close issue #823.
+
+The [Ubuntu installed lifecycle harness](NATIVE-LINUX-INSTALLED-LIFECYCLE.md)
+adds real package install/remove/reinstall and app-service/UI restoration checks
+in disposable CI. Its receipt separates preserved Electron data and installed
+runtime rollback from unmet native store migration and historical-version
+downgrade. It does not convert the shared JSON contract into whole-app parity.

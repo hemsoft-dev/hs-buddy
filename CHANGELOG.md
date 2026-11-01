@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1614] - 2026-11-01
+
+### Changed
+
+- Exercise Ubuntu installed runtime rollback
+
+## [0.1.1613] - 2026-11-01
+
+### Changed
+
+- Exercise Ubuntu installed runtime rollback
+
 ## [0.1.1612] - 2026-11-01
 
 ### Fixed

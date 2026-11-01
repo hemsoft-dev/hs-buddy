@@ -278,6 +278,19 @@ jobs:
           PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
         run: bash scripts/native-smoke/install-unix.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence"
 
+      - name: Qualify Ubuntu installed runtime upgrade and rollback
+        if: runner.os == 'Linux'
+        timeout-minutes: 25
+        working-directory: .
+        shell: bash
+        env:
+          PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
+          BUDDY_SETTINGS_FIXTURE: '1'
+        run: |
+          python -m pip install --break-system-packages psutil==7.2.2 websocket-client==1.9.2
+          bash scripts/native-smoke/todoist-secret-session.sh xvfb-run -a -s '-screen 0 1600x1000x24' \
+            bash scripts/native-smoke/linux-lifecycle-session.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence/linux-lifecycle"
+
       - name: Stage native evidence without fixture symlinks
         if: always()
         working-directory: .
@@ -294,6 +307,7 @@ jobs:
             release/native/**/*.exe
             release/native/**/*.deb
             release/native/**/*.dmg
+            release/*/*.deb
             ${{ runner.temp }}/native-upload/**
             ${{ runner.temp }}/buddy-settings-backend-*/backend.log
           if-no-files-found: error
