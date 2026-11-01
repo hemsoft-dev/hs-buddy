@@ -23,6 +23,10 @@ open. Closing a window flushes its observed placement before releasing the view.
 Settings also reopens after a persistence failure, exposing the retained save
 error in the status bar without overwriting unreadable configuration. Selecting
 the Settings section is in-memory navigation independent of the save result.
+If that save fails, only the navigation intent stays pending. Resync preserves
+it, and the next guarded save merges it into the fresh disk configuration.
+Successful persistence clears the pending request and old save error; an explicit
+navigation edit or Reload can supersede it without replaying stale field values.
 
 Edit uses AppKit's responder chain for native text and embedded web views. GPUI
 inputs receive the component library's actions. A stable menu target resolves the
@@ -95,7 +99,9 @@ raw character, virtual-key and glyph attributes with the owned popup rectangle,
 closes the last window, reopens
 Settings after both failed and successful configuration saves, and quits. The
 failure case preserves the unreadable disposable profile and native Vision OCR
-proves the Settings view rendered rather than just any reopened window. A native AppKit test
+proves the Settings view rendered rather than just any reopened window. It then
+restores the profile and uses the existing settings-scene driver for a real local
+form save, requiring both its field and the Settings section to persist. A native AppKit test
 exercises Cmd+Z/Cmd+Shift+Z across responder changes without opening menus or
 creating windows, plus click dispatch and current-target validation. The receipt records source and executable identities plus
 image hashes. Both macOS architectures retain their installed qualification gates.

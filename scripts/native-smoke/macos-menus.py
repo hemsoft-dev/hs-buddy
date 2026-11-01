@@ -12,9 +12,14 @@ import time
 
 from desktop import UnixWindow, fixture, run
 
-_ocr_spec = importlib.util.spec_from_file_location('menu_settings_ocr', Path(__file__).with_name('settings-ocr.py'))
-ocr = importlib.util.module_from_spec(_ocr_spec)
-_ocr_spec.loader.exec_module(ocr)
+def load_script(name):
+    spec = importlib.util.spec_from_file_location('menu_' + name.replace('-', '_'), Path(__file__).with_name(name + '.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ocr = load_script('settings-ocr')
 
 
 CONTRACT = {
@@ -227,9 +232,20 @@ def main():
                 capture_settings(window, directory / 'settings-save-error.png')
                 if config.read_text() != '{invalid synthetic fixture':
                     raise RuntimeError('Settings failure overwrote the unreadable profile')
+                config.write_text(saved_config)
+                # Use the same owned input/OCR driver as installed settings
+                # scenes. A real local form save must keep Settings selected.
+                driver = load_script('settings-desktop').Driver(
+                    executable, directory, 'macos', None, Path(__file__).resolve().parents[2])
+                driver.interact(window, directory, 'field', ['GitHub enterprise slug', 'synthetic-parity'])
+                driver.interact(window, directory, 'save', ['GitHub enterprise slug'])
+                capture_settings(window, directory / 'settings-recovery-save.png')
+                recovered = json.loads(config.read_text())
+                if (recovered['native']['activeSection'] != 'settings'
+                        or recovered['ui']['enterpriseSlug'] != 'synthetic-parity'):
+                    raise RuntimeError('The recovery form save lost its field or requested Settings section')
                 window.key('w')
                 wait_window(window, 0)
-                config.write_text(saved_config)
                 # The app menu remains usable with no windows. Settings must
                 # create exactly one real window, rather than exit or duplicate.
                 open_settings(window)
@@ -244,7 +260,8 @@ def main():
     (output / 'qualification.json').write_text(json.dumps(dict(result='passed', sourceSha=args.source_sha,
         version=args.version, executableSha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
         menus=receipts, closeKeepsApplication=True, settingsReopensWindow=True,
-        settingsSaveFailureReopensWindow=True, settingsSaveFailureSelectsSettings=True), indent=2))
+        settingsSaveFailureReopensWindow=True, settingsSaveFailureSelectsSettings=True,
+        settingsSelectionSurvivesRecoverySave=True), indent=2))
 
 
 if __name__ == '__main__':

@@ -100,9 +100,9 @@ fn menus(window_open: bool) -> Vec<Menu> {
 pub fn install(cx: &mut App) {
     cx.on_action(|_: &OpenSettings, cx| {
         select_settings(cx, |cx| {
-            let _ = Settings::update(cx, |config| {
+            Settings::update(cx, |config| {
                 config.native.active_section = Some("settings".into())
-            });
+            })
         });
         // A failed save keeps save_error for the visible status bar. Always
         // reopen so a windowless app can display that error and recover.
@@ -114,11 +114,12 @@ pub fn install(cx: &mut App) {
     refresh(cx);
 }
 
-fn select_settings(cx: &mut App, persist: impl FnOnce(&mut App)) {
-    persist(cx);
+fn select_settings(cx: &mut App, persist: impl FnOnce(&mut App) -> bool) {
+    if !persist(cx) {
+        Settings::stage_native_section(cx, "settings");
+    }
     // Navigation is volatile UI state even when persistence cannot read or
     // lock the profile. Preserve save_error and all other loaded settings.
-    cx.global_mut::<Settings>().config.native.active_section = Some("settings".into());
     cx.refresh_windows();
 }
 
@@ -183,10 +184,12 @@ mod tests {
         cx.update(|cx| {
             cx.set_global(Settings::new(buddy_core::config::AppConfig::default()));
             select_settings(cx, |cx| {
-                assert!(!Settings::update_at(cx, &path, |config| {
+                let saved = Settings::update_at(cx, &path, |config| {
                     edit_called.set(true);
                     config.native.active_section = Some("settings".into());
-                }));
+                });
+                assert!(!saved);
+                saved
             });
             assert!(!edit_called.get(), "Unreadable files fail before editing");
             assert_eq!(
@@ -202,9 +205,26 @@ mod tests {
             );
         });
         assert_eq!(
-            std::fs::read_to_string(path).unwrap(),
+            std::fs::read_to_string(&path).unwrap(),
             "{invalid synthetic fixture"
         );
+        let mut restored = buddy_core::config::AppConfig::default();
+        restored.extra.insert("future".into(), serde_json::json!(7));
+        std::fs::write(&path, serde_json::to_vec(&restored).unwrap()).unwrap();
+        cx.update(|cx| {
+            assert!(Settings::update_at(cx, &path, |config| {
+                config.pr.recently_merged_days = 17.0;
+            }));
+            assert_eq!(
+                Settings::global(cx).config.native.active_section.as_deref(),
+                Some("settings")
+            );
+            assert!(Settings::global(cx).save_error.is_none());
+        });
+        let saved = buddy_core::config::AppConfig::load_from(&path).unwrap();
+        assert_eq!(saved.native.active_section.as_deref(), Some("settings"));
+        assert_eq!(saved.pr.recently_merged_days, 17.0);
+        assert_eq!(saved.extra["future"], 7);
     }
 
     #[test]
