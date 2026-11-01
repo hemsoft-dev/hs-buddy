@@ -14,6 +14,9 @@ struct Word: Encodable {
 
 enum OcrFailure: Error { case invalidImage, invalidBounds }
 
+var stage = "image-input"
+var pixelSize = "unknown"
+
 do {
     guard CommandLine.arguments.count == 2 else { throw OcrFailure.invalidImage }
     let url = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -26,6 +29,8 @@ do {
           image.width <= 12000, image.height <= 12000,
           image.width * image.height <= 32 * 1024 * 1024
     else { throw OcrFailure.invalidImage }
+    pixelSize = "\(image.width)x\(image.height)"
+    stage = "vision-recognition"
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.recognitionLanguages = ["en-US"]
@@ -36,10 +41,12 @@ do {
         guard let candidate = observation.topCandidates(1).first else { continue }
         let text = candidate.string
         for token in text.split(whereSeparator: { $0.isWhitespace }) {
+            stage = "token-box-lookup"
             guard let bounds = try candidate.boundingBox(for: token.startIndex..<token.endIndex) else {
                 throw OcrFailure.invalidBounds
             }
             let box = bounds.boundingBox
+            stage = "token-box-validation"
             guard box.minX.isFinite, box.minY.isFinite,
                   box.width.isFinite, box.height.isFinite,
                   box.width >= 0, box.height >= 0,
@@ -59,9 +66,13 @@ do {
             ))
         }
     }
+    stage = "json-output"
     FileHandle.standardOutput.write(try JSONEncoder().encode(words))
     FileHandle.standardOutput.write(Data([10]))
 } catch {
-    FileHandle.standardError.write(Data("Native image OCR failed.\n".utf8))
+    // Report the failing API stage without recognized text or file paths.
+    let native = error as NSError
+    let reason = error is OcrFailure ? String(describing: error) : "\(native.domain)(\(native.code))"
+    FileHandle.standardError.write(Data("Native image OCR failed: stage=\(stage) pixels=\(pixelSize) error=\(reason)\n".utf8))
     exit(1)
 }

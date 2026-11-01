@@ -15,6 +15,8 @@ mod dashboard;
 mod explorer_view;
 mod github_view;
 mod logging;
+#[cfg(target_os = "macos")]
+mod macos_menu;
 mod notification_audio;
 mod performance_probe;
 mod platform_placement;
@@ -262,7 +264,9 @@ fn open_primary_window(cx: &mut App) {
                 placement.restore_physical,
             );
         }
-        // Quit while the owned HWND still exists, before Windows teardown.
+        // Other platforms quit while the owned window still exists. macOS
+        // keeps its application menu alive after the last window closes.
+        #[cfg(not(target_os = "macos"))]
         window.on_window_should_close(cx, |_, cx| {
             cx.quit();
             false
@@ -275,6 +279,8 @@ fn open_primary_window(cx: &mut App) {
         app
     })
     .expect("failed to open the Buddy window");
+    #[cfg(target_os = "macos")]
+    macos_menu::refresh(cx);
     buddy_core::telemetry::record_window_open();
     startup.success();
     cx.activate(true);
@@ -356,9 +362,10 @@ fn main() {
         }
     };
 
-    gpui_kit::application()
-        .with_assets(BuddyAssets)
-        .run(move |cx| {
+    let application = gpui_kit::application().with_assets(BuddyAssets);
+    #[cfg(target_os = "macos")]
+    application.on_reopen(macos_menu::show_window);
+    application.run(move |cx| {
             // Flush before GPUI's 200 ms async quit budget and OS session exit.
             cx.on_app_quit(move |_| {
                 if let Some(telemetry) = telemetry.take() { telemetry.shutdown(); }
@@ -374,6 +381,9 @@ fn main() {
             app::init_navigation(cx);
             explorer_view::init(cx);
 
+            #[cfg(target_os = "macos")]
+            macos_menu::bind_keys(cx);
+
             cx.bind_keys([
                 KeyBinding::new("secondary-q", Quit, None),
                 KeyBinding::new("secondary-r", Reload, Some("!BuddyTerminal && !BuddyTerminalPaste")),
@@ -382,8 +392,10 @@ fn main() {
 
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
+            #[cfg(not(target_os = "macos"))]
             cx.on_action(|_: &ToggleFullScreen, cx| {
-                if let Some(window) = cx.active_window() {
+                let window = cx.active_window();
+                if let Some(window) = window {
                     window
                         .update(cx, |_, window, _| window.toggle_fullscreen())
                         .ok();
@@ -398,7 +410,9 @@ fn main() {
                 Err(err) => log::warn!("reload failed: {err}"),
             });
             cx.on_action(|_: &About, cx| {
-                if let Some(window) = cx.active_window() {
+                #[cfg(target_os = "macos")]
+                macos_menu::show_window(cx);
+                if let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied()) {
                     window
                         .update(cx, |_, window, cx| {
                             browser_view::Overlays::set(true, cx);
@@ -415,12 +429,18 @@ fn main() {
                         .ok();
                 }
             });
+            #[cfg(not(target_os = "macos"))]
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
                 }
             })
             .detach();
+
+            #[cfg(target_os = "macos")]
+            macos_menu::install(cx);
+            #[cfg(target_os = "macos")]
+            cx.on_window_closed(|cx, _| macos_menu::refresh(cx)).detach();
 
             open_when_displays_ready(cx);
         });

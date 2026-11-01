@@ -446,6 +446,15 @@ impl BuddyApp {
         // Quitting (title-bar close, File → Exit, Ctrl+Q) writes the final
         // placement at once; quit handlers run while the window still exists.
         let handle = window.window_handle();
+        // Closing a macOS window leaves the application running. Flush its
+        // latest observed placement when the view is released as well.
+        #[cfg(target_os = "macos")]
+        cx.on_release(|this, cx| {
+            if this.window_state.flush() && cx.has_global::<Settings>() {
+                this.release_electron_display(cx);
+            }
+        })
+        .detach();
         cx.on_app_quit(move |this, cx| {
             if let Ok(Some(placement)) =
                 handle.update(cx, |_, window, cx| Self::window_placement(window, cx))
@@ -1032,7 +1041,10 @@ impl Render for BuddyApp {
         let background = theme.background;
         let foreground = theme.foreground;
 
-        v_flex()
+        let shell = v_flex();
+        #[cfg(target_os = "macos")]
+        let shell = crate::macos_menu::window_actions(shell);
+        shell
             .key_context("BuddyApp")
             .on_action(cx.listener(|this, _: &NextGlobalTab, window, cx| {
                 this.tabs.cycle(true);

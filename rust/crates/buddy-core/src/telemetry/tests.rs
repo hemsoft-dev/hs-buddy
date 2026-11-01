@@ -70,8 +70,9 @@ fn protobuf_export_reaches_all_three_signal_paths_and_flushes_on_shutdown() {
             .output().unwrap();
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
         return;
     }
@@ -86,6 +87,8 @@ fn protobuf_export_reaches_all_three_signal_paths_and_flushes_on_shutdown() {
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             };
+            // Winsock inherits the listener's nonblocking mode on accepted sockets.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(3)))
                 .unwrap();
@@ -212,4 +215,29 @@ fn protobuf_export_reaches_all_three_signal_paths_and_flushes_on_shutdown() {
             assert_ne!(records[0].severity_number, records[1].severity_number);
         }
     }
+}
+
+#[test]
+fn default_tls_builder_works_without_telemetry() {
+    const CHILD: &str = "BUDDY_TLS_PROVIDER_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "telemetry::tests::default_tls_builder_works_without_telemetry",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        return;
+    }
+    assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+    assert!(!Telemetry::from_config(None).is_enabled());
+    // Convex's WebSocket transport uses this builder without a custom provider.
+    let _ = rustls::ClientConfig::builder();
 }

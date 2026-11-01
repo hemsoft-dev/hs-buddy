@@ -8,6 +8,9 @@ use gpui_kit::{App, Global};
 pub struct Settings {
     pub config: AppConfig,
     pub save_error: Option<String>,
+    // A native navigation request whose persistence failed. Carry only this
+    // UI intent into the next guarded edit, never a stale configuration copy.
+    pending_native_section: Option<String>,
 }
 
 impl Global for Settings {}
@@ -17,11 +20,19 @@ impl Settings {
         Self {
             config,
             save_error: None,
+            pending_native_section: None,
         }
     }
 
     pub fn global(cx: &App) -> &Self {
         cx.global::<Self>()
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn stage_native_section(cx: &mut App, section: &str) {
+        let settings = cx.global_mut::<Self>();
+        settings.pending_native_section = Some(section.into());
+        settings.config.native.active_section = Some(section.into());
     }
 
     /// Re-read the file (Electron may have written it meanwhile), apply the
@@ -95,6 +106,10 @@ impl Settings {
                     ));
                 }
             };
+            if let Some(section) = &Self::global(cx).pending_native_section {
+                fresh.native.active_section = Some(section.clone());
+            }
+            // An explicit navigation edit can supersede the pending request.
             if let Err(error) = edit(&mut fresh) {
                 Self::resync(cx, path);
                 return Err(error);
@@ -110,6 +125,8 @@ impl Settings {
             }
             match fresh.save_if_unchanged_at(path, &stamp) {
                 Ok(true) => {
+                    cx.global_mut::<Self>().pending_native_section = None;
+                    cx.global_mut::<Self>().save_error = None;
                     Self::install(cx, fresh);
                     return Ok(());
                 }
@@ -143,7 +160,7 @@ impl Settings {
 
     /// After a failed save the in-memory copy must reflect the disk, not the
     /// edit that never landed, so the UI does not show a state that a
-    /// restart would undo.
+    /// restart would undo. Pending UI navigation is retained independently.
     fn resync(cx: &mut App, path: &std::path::Path) {
         match AppConfig::load_from(path) {
             Ok(disk) => Self::install(cx, disk),
@@ -154,7 +171,10 @@ impl Settings {
     /// Make `config` the in-memory configuration. The GPUI theme is derived
     /// state and follows whenever an appearance field changed (Electron may
     /// have edited the shared file meanwhile), as on Reload Configuration.
-    fn install(cx: &mut App, config: AppConfig) {
+    fn install(cx: &mut App, mut config: AppConfig) {
+        if let Some(section) = &Self::global(cx).pending_native_section {
+            config.native.active_section = Some(section.clone());
+        }
         let appearance_changed = appearance_differs(&cx.global::<Self>().config.ui, &config.ui);
         cx.global_mut::<Self>().config = config;
         if appearance_changed {
@@ -166,7 +186,9 @@ impl Settings {
 
     /// Replace the in-memory configuration (used by Reload).
     pub fn replace(cx: &mut App, config: AppConfig) {
-        cx.global_mut::<Self>().config = config;
+        let settings = cx.global_mut::<Self>();
+        settings.pending_native_section = None;
+        settings.config = config;
     }
 }
 
@@ -207,6 +229,64 @@ mod tests {
             std::env::temp_dir().join(format!("buddy-settings-{label}-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         root.join("config.json")
+    }
+
+    #[gpui_kit::test]
+    fn pending_navigation_survives_resync_and_explicit_navigation_wins(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let path = fixture("pending-navigation");
+        let original = r#"{"future":42}"#;
+        std::fs::write(&path, original).unwrap();
+        cx.update(|cx| {
+            cx.set_global(Settings::new(AppConfig::default()));
+            Settings::stage_native_section(cx, "settings");
+            cx.global_mut::<Settings>().save_error = Some("previous write failed".into());
+            assert!(
+                Settings::try_update_at(cx, &path, |_| Err(SettingsError("synthetic rejection")))
+                    .is_err()
+            );
+            assert_eq!(
+                Settings::global(cx).config.native.active_section.as_deref(),
+                Some("settings")
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            assert!(
+                Settings::try_update_at(cx, &path, |config| {
+                    config.pr.recently_merged_days = 23.0;
+                    Ok(())
+                })
+                .is_ok()
+            );
+            assert_eq!(
+                Settings::global(cx).config.native.active_section.as_deref(),
+                Some("settings")
+            );
+            assert!(Settings::global(cx).save_error.is_none());
+            assert!(Settings::global(cx).pending_native_section.is_none());
+            assert_eq!(
+                AppConfig::load_from(&path)
+                    .unwrap()
+                    .native
+                    .active_section
+                    .as_deref(),
+                Some("settings")
+            );
+            Settings::stage_native_section(cx, "settings");
+            assert!(Settings::update_at(cx, &path, |config| config
+                .native
+                .active_section =
+                Some("github".into())));
+            assert_eq!(
+                Settings::global(cx).config.native.active_section.as_deref(),
+                Some("github")
+            );
+            assert!(Settings::global(cx).pending_native_section.is_none());
+        });
+        let saved = AppConfig::load_from(&path).unwrap();
+        assert_eq!(saved.native.active_section.as_deref(), Some("github"));
+        assert_eq!(saved.extra["future"], 42);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[gpui_kit::test]

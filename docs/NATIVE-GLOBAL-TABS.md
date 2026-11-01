@@ -36,8 +36,8 @@ GitHub's native sidebar shows counts only after a PR mode has loaded, clears the
 | Mod+X / C / V / A | Cut / copy / paste / select all | GPUI Kit input bindings and Edit menu; terminal retains its own clipboard handling; existing |
 | Mod+R | Electron menu displays Reload; click reloads renderer | Native menu reloads configuration. No renderer reload equivalent; outside navigation/tab scope, remains a cutover distinction |
 | Cmd+Alt+I / Ctrl+Shift+I | Electron menu displays DevTools; click opens DevTools | No native Chromium DevTools equivalent; outside navigation/tab scope |
-| Ctrl+Cmd+F | macOS menu displays full screen | Electron's explicit registration is F11; native explicit registration is also F11. macOS label is not evidence of another registered accelerator |
-| macOS Hide / Hide Others / Quit and Edit role defaults | Supplied by Electron's macOS app/Edit menu roles | Native macOS host/menu qualification remains a cutover gate; Windows testing does not establish these OS-specific roles |
+| Ctrl+Cmd+F | macOS menu displays full screen | Native macOS binds Control+Cmd+F and retains F11; the native Window menu displays the macOS binding |
+| macOS Hide / Hide Others / Quit and Edit role defaults | Supplied by Electron's macOS app/Edit menu roles | [Native App/Edit/Window roles](NATIVE-MACOS-PARITY.md) are implemented with Cmd bindings; installed macOS host qualification remains a cutover gate |
 | Left / Right / Home / End in global tab list | Move tab focus | Native tab-list focus handlers; implemented here |
 | Enter / Space on focused tab and tab action buttons | Activate | Native focus handlers and GPUI Kit buttons; implemented here |
 | Alt+Left / Alt+Right | No Electron global binding | Native global selection history outside terminal/paste contexts; hosted pages retain these keys; requested addition |

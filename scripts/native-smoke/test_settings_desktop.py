@@ -340,6 +340,35 @@ class DraftReadVerification(unittest.TestCase):
 
 
 class LabeledInputs(unittest.TestCase):
+    def test_macos_ocr_failure_recaptures_but_still_requires_the_exact_label_before_deadline(self):
+        for recover in (True, False):
+            with self.subTest(recover=recover), tempfile.TemporaryDirectory() as root:
+                directory = Path(root)
+                helper = directory / "buddy-ocr-words"
+                helper.write_bytes(b"synthetic compiled helper")
+                window = Mock()
+                window.screenshot.side_effect = lambda path: path.write_bytes(b"owned capture")
+                failure = subprocess.CalledProcessError(1, [str(helper)],
+                    stderr="Native image OCR failed: stage=vision-recognition error=Vision(9)")
+                words = [dict(text="Probe page", left=40, top=70, width=80, height=12, line="1")]
+                second = subprocess.CompletedProcess([], 0, json.dumps(words), "") if recover else failure
+                def recognize(image, label, **options):
+                    return desktop.ocr.locate_label(desktop.ocr.recognize_macos(image), label, **options)
+                with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(helper)}), \
+                        patch.object(desktop.ocr.subprocess, "run", side_effect=[failure, second]), \
+                        patch.object(desktop.ocr, "locate_image", side_effect=recognize), \
+                        patch.object(desktop.time, "monotonic", side_effect=[0, 0, 16]), \
+                        patch.object(desktop.time, "sleep"):
+                    if recover:
+                        desktop.wait_visible(window, directory, "Probe page")
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "did not show the expected status") as error:
+                            desktop.wait_visible(window, directory, "Probe page")
+                        self.assertIn("vision-recognition", str(error.exception.__cause__))
+                self.assertEqual(window.screenshot.call_count, 2)
+                window.key.assert_not_called()
+                self.assertEqual((directory / "wait-status.ocr-error.png").read_bytes(), b"owned capture")
+
     def test_cold_model_wait_requires_the_catalog_and_still_expires(self):
         window, directory = Mock(), MagicMock()
         with patch.object(desktop.ocr, "locate_image", side_effect=[RuntimeError("loading"), dict(left=10)]), \

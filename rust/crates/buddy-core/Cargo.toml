@@ -7,9 +7,15 @@ publish.workspace = true
 description = "Buddy domain models, configuration, and data providers (no UI)"
 
 [dependencies]
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "logs", "http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs", "http-proto", "reqwest-blocking-client"] }
+
+# OTLP 0.32 requires reqwest 0.13; other clients remain on workspace reqwest.
+reqwest-otel = { package = "reqwest", version = "0.13", default-features = false, features = ["blocking", "rustls-no-provider"] }
+
+# Share the existing Ring provider with Convex and reqwest 0.12.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 github-copilot-sdk = "=1.0.23-preview.2"
 cap-std = "=4.0.3"
@@ -47,7 +53,7 @@ icu_time = "2"
 [dev-dependencies]
 env_logger = "0.11"
 prost = "0.14"
-opentelemetry-proto = { version = "0.31", default-features = false, features = ["gen-tonic-messages", "trace", "metrics", "logs"] }
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["gen-tonic-messages", "trace", "metrics", "logs"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
