@@ -17,6 +17,14 @@ an existing evidence directory, an unowned native binary, or an already
 installed Electron control. It never installs packages on Mini or Laptop.
 The only installer execution is on the disposable hosted Ubuntu runner.
 
+The native package from the preceding workflow is a borrowed baseline, not a
+cleanup-owned installation. A failure during control-package building or the
+first native UI pass leaves it installed. Only the explicit baseline-removal
+transition may remove it. Fresh install attempts become cleanup-owned before
+apt runs, so partial apt success and failed version validation cannot escape
+cleanup. Existing installed or partially configured packages are refused rather
+than adopted. Attempt/failure/removal receipts retain those ownership decisions.
+
 The sequence uses real `apt-get install` and `apt-get remove` operations:
 
 1. Launch the already installed current-head native binary against a missing
@@ -45,6 +53,12 @@ The sequence uses real `apt-get install` and `apt-get remove` operations:
    it on the same original profile. Require the same IPC, visible project,
    browser state, shared config and window geometry again. Remove only the
    packages installed by the exercise. Keep all evidence/profile fixtures.
+
+Browser checks select the same `browser:<encoded-url>|<encoded-title>` app-tab
+route that [BookmarkList](../src/components/bookmarks/BookmarkList.tsx) opens.
+The shell `openInAppBrowser` API opens a separate window and cannot supply the
+main renderer's `BrowserTabView` webview. A Node event-dispatch regression
+requires the app-tab route and rejects the shell-window path.
 
 The embedded browser fixture uses the documentation-only `203.0.113.1` origin
 through a process-local HTTP proxy on `127.0.0.1`. It supplies no real website,

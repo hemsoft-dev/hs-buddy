@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1615] - 2026-11-01
+
+### Changed
+
+- Fix lifecycle browser route and package ownership
+
 ## [0.1.1614] - 2026-11-01
 
 ### Changed

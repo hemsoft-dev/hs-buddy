@@ -14,6 +14,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 import time
+from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -134,6 +135,18 @@ class Packages:
     def __init__(self, output):
         self.output = output
         self.records = []
+        self.owned = set()
+
+    def record(self, **value):
+        self.records.append(value)
+        write(self.output / "packages.json", self.records)
+
+    def status(self, name):
+        result = subprocess.run(["dpkg-query", "-W", "-f=${db:Status-Status}", name],
+            capture_output=True, text=True, timeout=10)
+        if result.returncode not in (0, 1):
+            raise RuntimeError("Could not inspect the package database")
+        return result.stdout.strip() if result.returncode == 0 else "not-installed"
 
     def run(self, args, *, timeout=180, **kwargs):
         with (self.output / "commands.log").open("a", encoding="utf-8") as log:
@@ -147,22 +160,41 @@ class Packages:
     def install(self, package):
         package = package.resolve()
         name, version = self.field(package, "Package"), self.field(package, "Version")
-        self.run(["sudo", "apt-get", "install", "-y", "--no-install-recommends", "--allow-downgrades", str(package)])
-        installed = subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", name], text=True).strip()
-        if installed != version:
-            raise RuntimeError("The installed deb version does not match its package")
-        self.records.append(dict(action="install", package=name, version=version, sha256=digest(package)))
-        write(self.output / "packages.json", self.records)
+        before = self.status(name)
+        if before not in ("not-installed", "config-files"):
+            raise RuntimeError("Preserve a pre-existing installed or partial package")
+        # Ownership begins before apt, not after validation. Failed apt may
+        # already have unpacked files; wrong-version validation can also fail
+        # after a successful install. Neither may escape owned cleanup.
+        self.record(action="install-attempt", package=name, version=version, priorState=before, sha256=digest(package))
+        self.owned.add(name)
+        try:
+            self.run(["sudo", "apt-get", "install", "-y", "--no-install-recommends", "--allow-downgrades", str(package)])
+            installed = subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", name], text=True).strip()
+            if installed != version or self.status(name) != "installed":
+                raise RuntimeError("The installed deb version or state does not match its package")
+        except BaseException as failure:
+            self.record(action="install-failed", package=name, failureType=type(failure).__name__)
+            raise
+        self.record(action="install", package=name, version=version, sha256=digest(package))
         return name
 
-    def remove(self, name):
+    def remove(self, name, *, baseline=False):
+        if name not in self.owned and not baseline:
+            raise RuntimeError("Refuse cleanup of an unowned baseline package")
         # No autoremove, purge, profile deletion or modified package payloads.
         self.run(["sudo", "apt-get", "remove", "-y", name])
-        status = subprocess.run(["dpkg-query", "-W", "-f=${Status}", name], capture_output=True, text=True, timeout=10)
-        if "install ok installed" in status.stdout:
+        if self.status(name) not in ("not-installed", "config-files"):
             raise RuntimeError("The package is still installed after removal")
-        self.records.append(dict(action="remove", package=name))
-        write(self.output / "packages.json", self.records)
+        self.owned.discard(name)
+        self.record(action="remove", package=name, baseline=baseline)
+
+
+def open_browser_tab(cdp, page):
+    # BookmarkList uses this route; shell.openInAppBrowser opens a separate
+    # BrowserWindow, which cannot supply the main renderer's webview storage.
+    route = "browser:" + quote(page, safe="") + "|" + quote("Lifecycle browser", safe="")
+    cdp.evaluate("window.dispatchEvent(new CustomEvent('app:navigate',{detail:{viewId:" + json.dumps(route) + "}}))")
 
 
 def app_environment(profile, backend):
@@ -261,7 +293,7 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             window.screenshot(directory / "crew-restored.png")
             github.check(directory / "crew-restored.png", PROJECT)
             page = browser["url"] + ("?seed=1" if seed else "")
-            cdp.evaluate(f"window.shell.openInAppBrowser({json.dumps(page)}, 'Lifecycle browser')")
+            open_browser_tab(cdp, page)
             paired.wait_for(lambda: cdp.evaluate("(()=>{try{const w=document.querySelector('webview');return Boolean(w?.getURL().startsWith('http://203.0.113.1:'))&&!w.isLoading()}catch{return false}})()"), psutil.Process(process.pid))
             page_state = cdp.evaluate("document.querySelector('webview').executeJavaScript(\"({marker:localStorage.getItem('lifecycle'),cookie:document.cookie,text:document.body.innerText})\")")
             if page_state.get("marker") != MARKER or "lifecycle=" + MARKER not in page_state.get("cookie", ""):
@@ -330,7 +362,6 @@ def qualify(native_package_directory, output):
     github = load(HERE / "github-desktop.py")
     profile = output / "profile"
     profile.mkdir()
-    installed = {native_name}
     report = dict(sourceSha=head, osRelease=Path("/etc/os-release").read_text(),
         nativeManifest=manifest, cutoverQualified=False, secrets="isolated Secret Service; migration not qualified",
         limitation="Same-head Electron runtime rollback, not an older published-version downgrade")
@@ -347,10 +378,10 @@ def qualify(native_package_directory, output):
             job = github.mutate(backend, "jobs:create", dict(name="Lifecycle inert job", workerType="exec", config=dict(command="exit 0", shell="bash", cwd=str(profile), timeout=1000)))
             github.mutate(backend, "schedules:create", dict(jobId=job, name="Lifecycle paused schedule", cron="0 12 * * *", timezone="UTC", enabled=False, missedPolicy="skip"))
             native_pass(native_exe, output / "fresh-profile", backend, output, "native-fresh", fresh=True)
-            packages.remove(native_name)
-            installed.remove(native_name)
+            # This is the only intentional removal of the preceding job's
+            # validated baseline. Earlier failures must leave it untouched.
+            packages.remove(native_name, baseline=True)
             packages.install(electron_package)
-            installed.add(electron_name)
             listing = subprocess.check_output(["dpkg-query", "-L", electron_name], text=True).splitlines()
             executables = [Path(path) for path in listing if Path(path).name in ("buddy", "Buddy") and Path(path).is_file() and os.access(path, os.X_OK)]
             if len(executables) != 1:
@@ -379,7 +410,6 @@ def qualify(native_package_directory, output):
             write(output / "backend-before-native.json", shared)
             baseline = {name: read(profile / name) for name in ("crew/projects.json", "crew/sessions.json", "data-cache.json")}
             packages.install(native_package)
-            installed.add(native_name)
             if any(digest(Path(path)) != sha for path, sha in launchers.items()):
                 raise RuntimeError("Native installation changed the existing Electron launcher")
             report["nativeUpgrade"] = native_pass(native_exe, profile, backend, output, "native-upgrade")
@@ -404,11 +434,8 @@ def qualify(native_package_directory, output):
                 require_subset(value, backend.query(query), query)
             # Genuine package removal/reinstallation, with the same original profile.
             packages.remove(native_name)
-            installed.remove(native_name)
             packages.remove(electron_name)
-            installed.remove(electron_name)
             packages.install(electron_package)
-            installed.add(electron_name)
             final = electron_pass(electron_exe, profile, backend, output, "electron-installed-rollback", browser_url)
             require_subset(first["config"], final["config"], "shared config")
             require_subset(fixture, read(profile / "config.json"), "seeded shared config after rollback")
@@ -424,7 +451,7 @@ def qualify(native_package_directory, output):
     finally:
         primary = sys.exc_info()[1]
         cleanup_failure = None
-        for name in sorted(installed):
+        for name in sorted(packages.owned):
             try:
                 packages.remove(name)
             except BaseException as failure:
