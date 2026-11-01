@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1619] - 2026-11-01
+
+### Changed
+
+- Split installed mirror controls within quality budget
+
 ## [0.1.1618] - 2026-11-01
 
 ### Changed
