@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1604] - 2026-11-01
+
+### Changed
+
+- Wait for settings form readiness before recovery save
+
+## [0.1.1603] - 2026-11-01
+
+### Fixed
+
+- Retain requested settings section through recovery
+
+## [0.1.1602] - 2026-11-01
+
+### Fixed
+
+- Select settings independently of persistence
+
+## [0.1.1601] - 2026-11-01
+
+### Fixed
+
+- Resolve current edit responder for every command
+
+## [0.1.1600] - 2026-10-31
+
+### Fixed
+
+- Normalize AX accelerator letter case
+
+## [0.1.1599] - 2026-10-31
+
+### Fixed
+
+- Avoid System Events rows term in menu capture
+
+## [0.1.1598] - 2026-10-31
+
+### Changed
+
+- Wait for macOS process registration
+
+## [0.1.1597] - 2026-10-31
+
+### Added
+
+- Add macOS menu roles and isolate runtime diagnostics
+
 ## [0.1.1596] - 2026-10-31
 
 ### Changed

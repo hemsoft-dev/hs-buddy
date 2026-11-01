@@ -289,6 +289,7 @@ pub fn client_options(
             "AZURE_",
             "CODEX_",
             "OTEL_",
+            "DYLD_",
         ]
         .iter()
         .any(|prefix| upper.starts_with(prefix))
@@ -375,6 +376,33 @@ mod tests {
     use super::*;
     use crate::copilot_runs::Context;
     use serde_json::json;
+
+    #[test]
+    fn loader_overrides_cannot_reach_the_isolated_sdk_process() {
+        let root = tempfile::tempdir().unwrap();
+        let names = [
+            "DYLD_PRINT_LIBRARIES",
+            "DYLD_PRINT_APIS",
+            "DYLD_INSERT_LIBRARIES",
+            "DYLD_LIBRARY_PATH",
+        ];
+        let options = client_options(
+            &std::env::current_exe().unwrap(),
+            root.path(),
+            None,
+            names.into_iter().map(OsString::from),
+        )
+        .unwrap();
+        for name in names {
+            assert!(options.env_remove.contains(&OsString::from(name)), "{name}");
+        }
+        assert!(!options.env_remove.contains(&OsString::from("COPILOT_HOME")));
+        assert!(
+            !options
+                .env_remove
+                .contains(&OsString::from("COPILOT_SDK_AUTH_TOKEN"))
+        );
+    }
 
     fn execution() -> Execution {
         let mut execution = Execution::new(
