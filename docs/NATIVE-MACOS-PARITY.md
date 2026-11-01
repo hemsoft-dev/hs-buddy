@@ -21,7 +21,8 @@ duplicate them. Closing the last window leaves the app running; Dock activation,
 About and Settings reopen a window. Window commands disable while no window is
 open. Closing a window flushes its observed placement before releasing the view.
 Settings also reopens after a persistence failure, exposing the retained save
-error in the status bar without overwriting unreadable configuration.
+error in the status bar without overwriting unreadable configuration. Selecting
+the Settings section is in-memory navigation independent of the save result.
 
 Edit uses AppKit's responder chain for native text and embedded web views. GPUI
 inputs receive the component library's actions. A stable menu target resolves the
@@ -89,9 +90,12 @@ Run formatting, warnings-denied workspace Clippy, `cargo test --workspace
 The [menu qualification](../scripts/native-smoke/macos-menus.py) runs only on
 disposable macOS CI desktops, with a fresh profile under `RUNNER_TEMP` and an
 offline loopback backend. It validates native menu labels and accelerator
-modifiers, captures the owned popup rectangle, closes the last window, reopens
+modifiers, including the absence of a shortcut for unbound actions. It captures
+raw character, virtual-key and glyph attributes with the owned popup rectangle,
+closes the last window, reopens
 Settings after both failed and successful configuration saves, and quits. The
-failure case preserves the unreadable disposable profile. A native AppKit test
+failure case preserves the unreadable disposable profile and native Vision OCR
+proves the Settings view rendered rather than just any reopened window. A native AppKit test
 exercises Cmd+Z/Cmd+Shift+Z across responder changes without opening menus or
 creating windows, plus click dispatch and current-target validation. The receipt records source and executable identities plus
 image hashes. Both macOS architectures retain their installed qualification gates.

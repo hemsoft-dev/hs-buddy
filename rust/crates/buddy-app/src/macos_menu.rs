@@ -99,8 +99,10 @@ fn menus(window_open: bool) -> Vec<Menu> {
 
 pub fn install(cx: &mut App) {
     cx.on_action(|_: &OpenSettings, cx| {
-        let _ = Settings::update(cx, |config| {
-            config.native.active_section = Some("settings".into())
+        select_settings(cx, |cx| {
+            let _ = Settings::update(cx, |config| {
+                config.native.active_section = Some("settings".into())
+            });
         });
         // A failed save keeps save_error for the visible status bar. Always
         // reopen so a windowless app can display that error and recover.
@@ -110,6 +112,14 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     refresh(cx);
+}
+
+fn select_settings(cx: &mut App, persist: impl FnOnce(&mut App)) {
+    persist(cx);
+    // Navigation is volatile UI state even when persistence cannot read or
+    // lock the profile. Preserve save_error and all other loaded settings.
+    cx.global_mut::<Settings>().config.native.active_section = Some("settings".into());
+    cx.refresh_windows();
 }
 
 pub fn refresh(cx: &mut App) {
@@ -161,6 +171,41 @@ fn install_responder_roles(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui_kit::test]
+    fn unreadable_profile_still_selects_settings_without_losing_the_save_error(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        std::fs::write(&path, "{invalid synthetic fixture").unwrap();
+        let edit_called = std::cell::Cell::new(false);
+        cx.update(|cx| {
+            cx.set_global(Settings::new(buddy_core::config::AppConfig::default()));
+            select_settings(cx, |cx| {
+                assert!(!Settings::update_at(cx, &path, |config| {
+                    edit_called.set(true);
+                    config.native.active_section = Some("settings".into());
+                }));
+            });
+            assert!(!edit_called.get(), "Unreadable files fail before editing");
+            assert_eq!(
+                Settings::global(cx).config.native.active_section.as_deref(),
+                Some("settings")
+            );
+            assert!(
+                Settings::global(cx)
+                    .save_error
+                    .as_deref()
+                    .unwrap()
+                    .contains("could not be read")
+            );
+        });
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "{invalid synthetic fixture"
+        );
+    }
 
     #[test]
     fn native_menus_keep_edit_responder_roles_and_window_registration() {

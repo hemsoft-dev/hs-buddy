@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1602] - 2026-11-01
+
+### Fixed
+
+- Select settings independently of persistence
+
 ## [0.1.1601] - 2026-11-01
 
 ### Fixed

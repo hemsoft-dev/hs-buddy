@@ -1,6 +1,7 @@
 """Capture native menu pixels only on an owned disposable macOS CI desktop."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -10,6 +11,10 @@ import subprocess
 import time
 
 from desktop import UnixWindow, fixture, run
+
+_ocr_spec = importlib.util.spec_from_file_location('menu_settings_ocr', Path(__file__).with_name('settings-ocr.py'))
+ocr = importlib.util.module_from_spec(_ocr_spec)
+_ocr_spec.loader.exec_module(ocr)
 
 
 CONTRACT = {
@@ -51,10 +56,15 @@ def verify(menu, rows, window_open=True):
         # AppKit exposes lowercase native letter equivalents as uppercase AX
         # characters. Shift is represented independently in the modifier mask.
         actual = (matches[0]['key'].lower(), matches[0]['modifiers'])
-        if accelerator and actual != accelerator:
+        # Empty AppKit equivalents expose mask 0; absent AX attributes use -1.
+        # Special-key accelerators may be represented by a glyph/virtual key.
+        empty = (not actual[0] and actual[1] in (-1, 0)
+            and matches[0].get('virtualKey') is None and matches[0].get('glyph') in (None, 0))
+        if (accelerator is None and not empty) or (accelerator is not None and actual != accelerator):
             raise RuntimeError(f'Native accelerator mismatch for {label}: '
                 f'expected {accelerator!r}, got raw key {matches[0]["key"]!r} '
-                f'with modifiers {matches[0]["modifiers"]}')
+                f'with modifiers {matches[0]["modifiers"]}, '
+                f'virtual key {matches[0].get("virtualKey")}, glyph {matches[0].get("glyph")}')
         if menu == 'Window' and matches[0]['enabled'] != window_open:
             raise RuntimeError(f'Native window availability mismatch for {label}')
 
@@ -69,13 +79,23 @@ repeat with entry in menu items of menu 1 of {item}
     if name of entry is not missing value then
         set k to ""
         set m to -1
+        set v to -1
+        set g to -1
         try
             set k to value of attribute "AXMenuItemCmdChar" of entry
             set m to value of attribute "AXMenuItemCmdModifiers" of entry
         end try
+        try
+            set v to value of attribute "AXMenuItemCmdVirtualKey" of entry
+        end try
+        try
+            set g to value of attribute "AXMenuItemCmdGlyph" of entry
+        end try
         if k is missing value then set k to ""
         if m is missing value then set m to -1
-        set menuRows to menuRows & (name of entry) & tab & k & tab & m & tab & (enabled of entry) & linefeed
+        if v is missing value then set v to -1
+        if g is missing value then set g to -1
+        set menuRows to menuRows & (name of entry) & tab & k & tab & m & tab & (enabled of entry) & tab & v & tab & g & linefeed
     end if
 end repeat
 return menuRows
@@ -100,10 +120,12 @@ return {{item 1 of p, item 2 of p, item 1 of s, item 2 of s}}
         script = menu_rows_script(menu)
         rows = []
         for line in run('osascript', '-e', window.apple(script)).splitlines():
-            label, key, modifiers, enabled = line.split('\t')
+            label, key, modifiers, enabled, virtual, glyph = line.split('\t')
             if enabled not in ('true', 'false'):
                 raise RuntimeError('Native menu availability must be explicit')
-            rows.append(dict(label=label, key=key, modifiers=int(modifiers), enabled=enabled == 'true'))
+            rows.append(dict(label=label, key=key, modifiers=int(modifiers), enabled=enabled == 'true',
+                virtualKey=None if virtual == '-1' else int(virtual),
+                glyph=None if glyph == '-1' else int(glyph)))
         time.sleep(.3)
         run('screencapture', '-x', '-R', ','.join(map(str, bounds)), destination)
         if not destination.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
@@ -140,6 +162,27 @@ def open_settings(window):
     run('osascript', '-e', window.apple('click menu bar item "Buddy Native" of menu bar 1'))
     run('osascript', '-e', window.apple('click menu item "Settings…" of menu 1 of menu bar item "Buddy Native" of menu bar 1'))
     wait_window(window, 1)
+
+
+def capture_settings(window, image):
+    deadline = time.monotonic() + 15
+    while True:
+        if window.process.poll() is not None:
+            raise RuntimeError('Owned native app exited before Settings rendered')
+        window.screenshot(image)
+        words = ocr.recognize_macos(image)
+        image.with_suffix('.words.json').write_text(json.dumps(words, indent=2))
+        try:
+            # Prove the requested view, rather than merely any reopened window.
+            ocr.find_label(words, 'Settings', exact_line=True)
+            ocr.find_label(words, 'GitHub username', field=True)
+            return
+        except RuntimeError:
+            if time.monotonic() >= deadline:
+                raise
+            # Window creation precedes the first rendered frame. Retry only
+            # observation, never the Settings command or persistence attempt.
+            time.sleep(.2)
 
 
 def main():
@@ -181,7 +224,7 @@ def main():
                 saved_config = config.read_text()
                 config.write_text('{invalid synthetic fixture')
                 open_settings(window)
-                window.screenshot(directory / 'settings-save-error.png')
+                capture_settings(window, directory / 'settings-save-error.png')
                 if config.read_text() != '{invalid synthetic fixture':
                     raise RuntimeError('Settings failure overwrote the unreadable profile')
                 window.key('w')
@@ -190,7 +233,7 @@ def main():
                 # The app menu remains usable with no windows. Settings must
                 # create exactly one real window, rather than exit or duplicate.
                 open_settings(window)
-                window.screenshot(directory / 'settings-reopened.png')
+                capture_settings(window, directory / 'settings-reopened.png')
                 window.key('q')
                 if process.wait(timeout=20) != 0:
                     raise RuntimeError('Native Quit did not exit cleanly')
@@ -201,7 +244,7 @@ def main():
     (output / 'qualification.json').write_text(json.dumps(dict(result='passed', sourceSha=args.source_sha,
         version=args.version, executableSha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
         menus=receipts, closeKeepsApplication=True, settingsReopensWindow=True,
-        settingsSaveFailureReopensWindow=True), indent=2))
+        settingsSaveFailureReopensWindow=True, settingsSaveFailureSelectsSettings=True), indent=2))
 
 
 if __name__ == '__main__':

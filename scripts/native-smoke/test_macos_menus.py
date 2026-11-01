@@ -56,7 +56,7 @@ class MacMenus(unittest.TestCase):
         window.process.poll.return_value = None
         window.apple.side_effect = lambda script: script
         rows = '\n'.join(label + '\t' + (key[0].upper() if key else '') + '\t'
-            + str(8 if label == 'Hide Buddy Native' else key[1] if key else -1) + '\ttrue'
+            + str(8 if label == 'Hide Buddy Native' else key[1] if key else -1) + '\ttrue\t-1\t-1'
             for label, key in menus.CONTRACT['Buddy Native'].items())
         def run(*args):
             if args[0] == 'screencapture':
@@ -74,6 +74,20 @@ class MacMenus(unittest.TestCase):
             metadata = menus.json.loads(image.with_suffix('.json').read_text())
             hide = next(item for item in metadata['items'] if item['label'] == 'Hide Buddy Native')
             self.assertEqual((hide['key'], hide['modifiers']), ('H', 8))
+
+    def test_unbound_actions_reject_character_modifier_and_special_key_accelerators(self):
+        for menu, contract in menus.CONTRACT.items():
+            rows = [dict(label=label, key=key[0].upper() if key else '',
+                modifiers=key[1] if key else 0, enabled=True, glyph=None if key else 0)
+                for label, key in contract.items()]
+            menus.verify(menu, rows)
+            for label, key in contract.items():
+                if key is None:
+                    for unexpected in (dict(key='Q'), dict(modifiers=1), dict(modifiers=8),
+                            dict(virtualKey=53), dict(glyph=27)):
+                        bad = [dict(row, **unexpected) if row['label'] == label else row for row in rows]
+                        with self.assertRaises(RuntimeError):
+                            menus.verify(menu, bad)
 
     def test_capture_bounds_are_finite_positive_and_enclose_only_the_owned_popup(self):
         self.assertEqual(menus.rectangle('40.5, 25, 250.25, 300.1'), [40, 25, 251, 301])
