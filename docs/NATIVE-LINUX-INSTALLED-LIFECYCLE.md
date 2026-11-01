@@ -37,7 +37,10 @@ The sequence uses real `apt-get install` and `apt-get remove` operations:
    use its real preload IPC to create conversation history, an error/recovery
    status and a persisted cache entry. Seed a real Chromium localStorage view
    preference and an embedded-browser localStorage/cookie marker.
-4. Exit and restart the installed Electron app. Require real IPC readbacks of
+4. Keep the original synthetic input and the persisted config after each
+   Electron launch before native work. Measure Electron's supported-field
+   account normalization as described below. Exit and restart the installed
+   Electron app. Require real IPC readbacks of
    the project, conversation, error status and cached value. Require the visible
    Crew project and the embedded page's restored marker and cookie. This goes
    beyond reading the files back with the qualification script.
@@ -47,7 +50,9 @@ The sequence uses real `apt-get install` and `apt-get remove` operations:
    Separate selected-section fixtures require visible shared bookmarks and a
    paused schedule from the isolated backend. No synthetic job is dispatched.
 6. Compare the original Crew/history/cache JSON semantically, retaining unknown
-   values and the shared backend records. Record profile file hashes before
+   values and the shared backend records. Compare native and rollback config
+   against the measured pre-native Electron baseline, without normalization
+   exceptions in those later phases. Record profile file hashes before
    native, after native and after rollback, without following profile links.
 7. Remove native and Electron, reinstall the original Electron deb, and restart
    it on the same original profile. Require the same IPC, visible project,
@@ -76,6 +81,40 @@ The embedded browser fixture uses the documentation-only `203.0.113.1` origin
 through a process-local HTTP proxy on `127.0.0.1`. It supplies no real website,
 account or external service. Electron's private-URL checks and Chromium sandbox
 remain enabled. This is a storage/restart test, not an SSRF qualification.
+
+## Electron account baseline limitation
+
+The connected Electron account mirror retains only supported account fields.
+[toDurableAccounts](../src/hooks/githubAccountProviderState.ts) projects the
+connected records; the [snapshot IPC parser](../electron/ipc/configHandlers.ts)
+validates supported fields before
+[replaceGitHubAccounts](../electron/config.ts) replaces the local account list.
+The synthetic `github.accounts[0].futureAccount` extension can therefore be
+discarded by Electron before native runs. Its preservation is unqualified at
+that existing Electron boundary, independently of native migration.
+
+The original input stays in `config-synthetic-input.json`, including that
+extension. `config-after-electron-seed.json` and `config-before-native.json`
+retain the measured pre-native states. `electron-seed-normalization.json` and
+`electron-restart-normalization.json` record the exact observed removal, its
+original value, the Electron cause and `nativeWorkStarted: false`. Only absence
+of this specific seeded extension is accepted during those baseline phases.
+A changed value, lost identity/provider/setting, or any other missing unknown
+field still fails. If the extension survives, it remains part of the baseline.
+
+The fixture selects Copilot explicitly in both the connected synthetic account
+and local account snapshot. It uses no interim local provider override, which
+normal connected reconciliation intentionally clears after syncing it. This
+keeps the durable supported provider setting under strict preservation checks.
+
+`config-after-native.json` and `config-after-rollback.json`, plus rollback IPC
+readbacks, must retain the full measured pre-native baseline. Those comparisons
+never use the startup exception. Baseline normalization cannot count as native
+migration success or hide a new loss. A synthetic regression exercises the real
+renderer mirror, IPC parser and config replacement with an in-memory store and
+mocked OS boundaries. It proves the old full-input expectation fails, the
+measured baseline passes and unexpected identity/provider/settings/unknown-field
+loss still fails. It does not qualify an installed run or a credential adapter.
 
 ## Results must distinguish preservation from parity
 

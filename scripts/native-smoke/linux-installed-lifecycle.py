@@ -1,6 +1,7 @@
 """Real deb installation and runtime rollback; never a native-default cutover."""
 import argparse
 import contextlib
+import copy
 import hashlib
 import importlib.util
 import json
@@ -88,6 +89,27 @@ def require_subset(expected, actual, label="data"):
             require_subset(value, actual[index], f"{label}[{index}]")
     elif expected != actual or isinstance(expected, bool) != isinstance(actual, bool):
         raise RuntimeError(f"Changed {label}")
+
+
+def electron_config_baseline(original, actual):
+    """Measure one known Electron normalization before any native work.
+
+    This exception is never used for native or rollback comparisons. Preserve
+    every other seeded key, including unknown keys in and outside accounts.
+    """
+    expected = copy.deepcopy(original)
+    removals = []
+    accounts = actual.get("github", {}).get("accounts", [])
+    for index, account in enumerate(expected.get("github", {}).get("accounts", [])):
+        if (index < len(accounts) and "futureAccount" in account
+                and "futureAccount" not in accounts[index]):
+            removals.append(dict(path=f"github.accounts[{index}].futureAccount",
+                before=account.pop("futureAccount"), after="absent",
+                cause="Electron connected account snapshot retains supported account fields only"))
+    require_subset(expected, actual, "Electron startup config")
+    return dict(config=copy.deepcopy(actual), observedRemovals=removals,
+        nativeWorkStarted=False,
+        unqualifiedBoundary="Unknown GitHub account extensions are not qualified for preservation by Electron's connected mirror")
 
 
 def restored_state(value):
@@ -359,6 +381,18 @@ def build_electron(packages, backend):
     return candidates[0]
 
 
+def config_fixture():
+    fixture = read(ROOT / "rust/crates/buddy-core/tests/fixtures/electron-config.json")
+    fixture["github"]["accounts"] = [dict(username="fixture-lifecycle", org="fixture-org", usageProvider="copilot", futureAccount=dict(preserve=True))]
+    # An explicit connected provider avoids testing an interim local override
+    # that normal account reconciliation intentionally clears.
+    fixture["github"]["usageProviderOverrides"] = {}
+    fixture["copilot"].update(ghAccount="fixture-lifecycle", model="gpt-4.1", premiumModel="gpt-4.1")
+    fixture["ui"].update(theme="dark", assistantOpen=False, terminalOpen=False, dashboardCards=dict(weather=False, finance=False, **{"command-center": False}))
+    fixture["native"] = dict(activeSection="crew")
+    return fixture
+
+
 def qualify(native_package_directory, output):
     os_release = require_runner(output)
     output.mkdir(parents=True)
@@ -389,7 +423,7 @@ def qualify(native_package_directory, output):
             check = subprocess.run(["dpkg-query", "-W", "-f=${Status}", electron_name], capture_output=True, text=True, timeout=10)
             if "install ok installed" in check.stdout:
                 raise RuntimeError("Preserve an existing Electron installation")
-            github.mutate(backend, "githubAccounts:create", dict(username="fixture-lifecycle", org="fixture-org"))
+            github.mutate(backend, "githubAccounts:create", dict(username="fixture-lifecycle", org="fixture-org", usageProvider="copilot"))
             github.mutate(backend, "bookmarks:create", dict(url="https://example.invalid/lifecycle", title="Lifecycle bookmark", category="Lifecycle"))
             job = github.mutate(backend, "jobs:create", dict(name="Lifecycle inert job", workerType="exec", config=dict(command="exit 0", shell="bash", cwd=str(profile), timeout=1000)))
             github.mutate(backend, "schedules:create", dict(jobId=job, name="Lifecycle paused schedule", cron="0 12 * * *", timezone="UTC", enabled=False, missedPolicy="skip"))
@@ -409,18 +443,26 @@ def qualify(native_package_directory, output):
             report["electron"] = dict(packageSha256=digest(electron_package), binarySha256=digest(electron_exe),
                 asarSha256=digest(electron_exe.parent / "resources/app.asar"), version=packages.field(electron_package, "Version"),
                 desktopLaunchers=launchers)
-            fixture = read(ROOT / "rust/crates/buddy-core/tests/fixtures/electron-config.json")
-            fixture["github"]["accounts"] = [dict(username="fixture-lifecycle", org="fixture-org", futureAccount=dict(preserve=True))]
-            fixture["github"]["usageProviderOverrides"] = {"fixture-org/fixture-lifecycle": "copilot"}
-            fixture["copilot"].update(ghAccount="fixture-lifecycle", model="gpt-4.1", premiumModel="gpt-4.1")
-            fixture["ui"].update(theme="dark", assistantOpen=False, terminalOpen=False, dashboardCards=dict(weather=False, finance=False, **{"command-center": False}))
-            fixture["native"] = dict(activeSection="crew")
+            fixture = config_fixture()
+            write(output / "config-synthetic-input.json", fixture)
             write(profile / "config.json", fixture)
             write(profile / "window-state.json", dict(x=40, y=40, width=1200, height=820, isMaximized=False))
             write(profile / "zoom-level.json", dict(zoomFactor=1.0))
             write(profile / "crew/projects.json", [dict(id=PROJECT, displayName=PROJECT, localPath=str(profile), gitRoot=str(profile), githubSlug="fixture-org/lifecycle", defaultBranch="main", lastOpenedAt=1, lastActiveAt=1)])
-            first = electron_pass(electron_exe, profile, backend, output, "electron-seed", browser_url, seed=True)
+            electron_pass(electron_exe, profile, backend, output, "electron-seed", browser_url, seed=True)
+            seeded = read(profile / "config.json")
+            write(output / "config-after-electron-seed.json", seeded)
+            seed_baseline = electron_config_baseline(fixture, seeded)
+            write(output / "electron-seed-normalization.json", seed_baseline)
             electron_pass(electron_exe, profile, backend, output, "electron-restart", browser_url)
+            config_baseline = read(profile / "config.json")
+            write(output / "config-before-native.json", config_baseline)
+            restart_baseline = electron_config_baseline(seed_baseline["config"], config_baseline)
+            write(output / "electron-restart-normalization.json", restart_baseline)
+            report["electronBaseline"] = dict(
+                seedReceipt="electron-seed-normalization.json", restartReceipt="electron-restart-normalization.json",
+                observedRemovals=seed_baseline["observedRemovals"] + restart_baseline["observedRemovals"],
+                unqualifiedBoundary=restart_baseline["unqualifiedBoundary"])
             write(output / "profile-before-native.json", profile_manifest(profile))
             shared = {key: backend.query(key) for key in ("bookmarks:list", "schedules:list", "jobs:list")}
             write(output / "backend-before-native.json", shared)
@@ -444,7 +486,9 @@ def qualify(native_package_directory, output):
             write(profile / "config.json", value)
             for name, value in baseline.items():
                 require_subset(value, read(profile / name), name)
-            require_subset(fixture, read(profile / "config.json"), "seeded shared config")
+            after_native = read(profile / "config.json")
+            write(output / "config-after-native.json", after_native)
+            require_subset(config_baseline, after_native, "qualified pre-native config")
             write(output / "profile-after-native.json", profile_manifest(profile))
             for query, value in shared.items():
                 require_subset(value, backend.query(query), query)
@@ -453,11 +497,14 @@ def qualify(native_package_directory, output):
             packages.remove(electron_name)
             packages.install(electron_package)
             final = electron_pass(electron_exe, profile, backend, output, "electron-installed-rollback", browser_url)
-            require_subset(first["config"], final["config"], "shared config")
-            require_subset(fixture, read(profile / "config.json"), "seeded shared config after rollback")
+            after_rollback = read(profile / "config.json")
+            write(output / "config-after-rollback.json", after_rollback)
+            require_subset(config_baseline, final["config"], "qualified pre-native config through rollback IPC")
+            require_subset(config_baseline, after_rollback, "qualified pre-native config after rollback")
             write(output / "profile-after-rollback.json", profile_manifest(profile))
             report.update(result="passed-with-unmet-migration-criteria", restoredElectronData=True,
                 unmetCriteria=["Native cannot restore Electron Crew projects/conversations/recovery",
+                    "Unknown GitHub account extension preservation is not qualified for the connected Electron baseline",
                     "Chromium-to-WebKit browser profile migration not qualified", "Older published-version downgrade not qualified",
                     "Native cache/session/history consumption not qualified", "Live vault/backend migration not qualified"])
             write(output / "qualification.json", report)

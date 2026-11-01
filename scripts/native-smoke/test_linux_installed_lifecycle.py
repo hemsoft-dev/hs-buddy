@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import urllib.request
 import contextlib
+import copy
 import json
 import ast
 import inspect
@@ -90,6 +91,36 @@ class BrowserRoutingControl(unittest.TestCase):
 
 
 class DataFailureControls(unittest.TestCase):
+    def test_electron_baseline_records_only_the_known_extension_removal(self):
+        original = lifecycle.config_fixture()
+        actual = copy.deepcopy(original)
+        actual["github"]["accounts"][0].pop("futureAccount")
+        with self.assertRaisesRegex(RuntimeError, "futureAccount"):
+            lifecycle.require_subset(original, actual)
+        receipt = lifecycle.electron_config_baseline(original, actual)
+        self.assertEqual(receipt["config"], actual)
+        self.assertEqual(receipt["observedRemovals"][0]["path"], "github.accounts[0].futureAccount")
+        self.assertFalse(receipt["nativeWorkStarted"])
+        self.assertEqual(original["github"]["accounts"][0]["futureAccount"], dict(preserve=True))
+        lifecycle.require_subset(receipt["config"], actual)
+        preserved = lifecycle.electron_config_baseline(original, original)
+        self.assertEqual(preserved["observedRemovals"], [])
+        with self.assertRaisesRegex(RuntimeError, "futureAccount"):
+            lifecycle.require_subset(preserved["config"], actual)
+
+    def test_electron_baseline_rejects_changed_and_other_unknown_account_fields(self):
+        original = lifecycle.config_fixture()
+        changed = copy.deepcopy(original)
+        changed["github"]["accounts"][0]["futureAccount"] = dict(preserve=False)
+        with self.assertRaisesRegex(RuntimeError, "futureAccount"):
+            lifecycle.electron_config_baseline(original, changed)
+        original["github"]["accounts"][0]["anotherUnknown"] = dict(preserve=True)
+        missing = copy.deepcopy(original)
+        missing["github"]["accounts"][0].pop("futureAccount")
+        missing["github"]["accounts"][0].pop("anotherUnknown")
+        with self.assertRaisesRegex(RuntimeError, "anotherUnknown"):
+            lifecycle.electron_config_baseline(original, missing)
+
     def test_unknown_fields_must_survive_while_new_defaults_are_allowed(self):
         expected = dict(accounts=[dict(username="fixture", futureAccount=dict(preserve=True))], futureTop=[1, None])
         lifecycle.require_subset(expected, dict(expected, newDefault=False))

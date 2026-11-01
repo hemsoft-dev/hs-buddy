@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1618] - 2026-11-01
+
+### Changed
+
+- Measure Electron account normalization before upgrade
+
 ## [0.1.1617] - 2026-11-01
 
 ### Changed
