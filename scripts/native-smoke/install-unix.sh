@@ -107,19 +107,29 @@ if [[ "$(uname -s)" == Darwin ]]; then
     sleep 0.1
   done
   test -s "$BUDDY_SETTINGS_DISPLAY_RECEIPT"
-  python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/macos-menus.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos-menus" --version "$version" --source-sha "$source_sha"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/github-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/github" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/terminal-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/terminal" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/copilot-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/copilot" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/todoist-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/todoist" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/tempo-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/tempo" --session macos --version "$version" --source-sha "$source_sha"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/automation-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/automation" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/ralph-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/ralph" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/crew-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/crew" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/bookmarks-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/bookmarks" --session macos --version "$version"
-  BUDDY_SETTINGS_FIXTURE=1 python3 "$script_directory/browser-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/browser" --session macos --version "$version"
+  # Baseline #901: Tempo 16m, every other scene under 6m. Give slow
+  # runners headroom while ensuring one scene cannot consume the entire job.
+  scene() {
+    local name="$1" seconds=1200
+    shift
+    if [[ "$name" == tempo ]]; then seconds=2100; fi
+    if [[ "$(uname -m)" == x86_64 ]]; then seconds=$((seconds * 2)); fi
+    python3 "$script_directory/scene-runner.py" --name "$name" --timeout "$seconds" \
+      --receipts "$output/scene-timings.jsonl" -- "$@"
+  }
+  scene desktop python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
+  BUDDY_SETTINGS_FIXTURE=1 scene macos-menus python3 "$script_directory/macos-menus.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos-menus" --version "$version" --source-sha "$source_sha"
+  BUDDY_SETTINGS_FIXTURE=1 scene settings python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
+  BUDDY_SETTINGS_FIXTURE=1 scene github python3 "$script_directory/github-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/github" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene terminal python3 "$script_directory/terminal-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/terminal" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene copilot python3 "$script_directory/copilot-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/copilot" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene todoist python3 "$script_directory/todoist-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/todoist" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene tempo python3 "$script_directory/tempo-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/tempo" --session macos --version "$version" --source-sha "$source_sha"
+  BUDDY_SETTINGS_FIXTURE=1 scene automation python3 "$script_directory/automation-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/automation" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene ralph python3 "$script_directory/ralph-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/ralph" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene crew python3 "$script_directory/crew-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/crew" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene bookmarks python3 "$script_directory/bookmarks-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/bookmarks" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene browser python3 "$script_directory/browser-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/browser" --session macos --version "$version"
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]

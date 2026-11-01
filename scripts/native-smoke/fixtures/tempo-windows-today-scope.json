@@ -1,0 +1,4031 @@
+{
+  "sourceCommit": "a2dbe748f3c90d12da6c0480d5a7f0d3d2f58e3b",
+  "jobUrl": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41268901058/job/124737969302",
+  "captureSha256": "3c149d63bd584daa37ec02423272f759eef6aae3a81d8c328e0f0f6ade6daa27",
+  "target": "Today",
+  "anchors": ["Tempo timesheet", "Logged"],
+  "layouts": {
+    "settings-locator.ocr-11.json": [
+      {
+        "text": "ao",
+        "left": 980,
+        "top": 11,
+        "width": 10,
+        "height": 10,
+        "line": "1/1/1"
+      },
+      {
+        "text": "x",
+        "left": 1014,
+        "top": 11,
+        "width": 10,
+        "height": 10,
+        "line": "1/1/1"
+      },
+      {
+        "text": "\u00a9",
+        "left": 20,
+        "top": 6,
+        "width": 12,
+        "height": 20,
+        "line": "2/1/1"
+      },
+      {
+        "text": "suday",
+        "left": 44,
+        "top": 0,
+        "width": 42,
+        "height": 31,
+        "line": "2/1/1"
+      },
+      {
+        "text": "Fie",
+        "left": 93,
+        "top": 0,
+        "width": 23,
+        "height": 31,
+        "line": "2/1/1"
+      },
+      {
+        "text": "Edit",
+        "left": 127,
+        "top": 0,
+        "width": 19,
+        "height": 31,
+        "line": "2/1/1"
+      },
+      {
+        "text": "View",
+        "left": 158,
+        "top": 0,
+        "width": 26,
+        "height": 31,
+        "line": "2/1/1"
+      },
+      {
+        "text": "Help",
+        "left": 191,
+        "top": 0,
+        "width": 27,
+        "height": 31,
+        "line": "2/1/1"
+      },
+      {
+        "text": "#8",
+        "left": 890,
+        "top": 10,
+        "width": 33,
+        "height": 12,
+        "line": "3/1/1"
+      },
+      {
+        "text": "Ey",
+        "left": 26,
+        "top": 51,
+        "width": 14,
+        "height": 14,
+        "line": "4/1/1"
+      },
+      {
+        "text": "=",
+        "left": 60,
+        "top": 45,
+        "width": 118,
+        "height": 9,
+        "line": "5/1/1"
+      },
+      {
+        "text": "s",
+        "left": 234,
+        "top": 48,
+        "width": 6,
+        "height": 5,
+        "line": "5/1/1"
+      },
+      {
+        "text": "cs)",
+        "left": 25,
+        "top": 107,
+        "width": 16,
+        "height": 16,
+        "line": "6/1/1"
+      },
+      {
+        "text": "Tempo",
+        "left": 72,
+        "top": 95,
+        "width": 61,
+        "height": 19,
+        "line": "7/1/1"
+      },
+      {
+        "text": "timesheet",
+        "left": 139,
+        "top": 94,
+        "width": 87,
+        "height": 15,
+        "line": "7/1/1"
+      },
+      {
+        "text": "Previous",
+        "left": 84,
+        "top": 140,
+        "width": 51,
+        "height": 10,
+        "line": "8/1/1"
+      },
+      {
+        "text": "month",
+        "left": 140,
+        "top": 140,
+        "width": 40,
+        "height": 10,
+        "line": "8/1/1"
+      },
+      {
+        "text": "Next",
+        "left": 279,
+        "top": 140,
+        "width": 28,
+        "height": 10,
+        "line": "9/1/1"
+      },
+      {
+        "text": "month",
+        "left": 311,
+        "top": 140,
+        "width": 40,
+        "height": 10,
+        "line": "9/1/1"
+      },
+      {
+        "text": "Refresh",
+        "left": 383,
+        "top": 140,
+        "width": 45,
+        "height": 10,
+        "line": "10/1/1"
+      },
+      {
+        "text": "Last",
+        "left": 545,
+        "top": 140,
+        "width": 24,
+        "height": 10,
+        "line": "11/1/1"
+      },
+      {
+        "text": "month's",
+        "left": 573,
+        "top": 140,
+        "width": 49,
+        "height": 10,
+        "line": "11/1/1"
+      },
+      {
+        "text": "issues",
+        "left": 626,
+        "top": 140,
+        "width": 36,
+        "height": 10,
+        "line": "11/1/1"
+      },
+      {
+        "text": "Connection",
+        "left": 693,
+        "top": 140,
+        "width": 70,
+        "height": 10,
+        "line": "12/1/1"
+      },
+      {
+        "text": "Today",
+        "left": 210,
+        "top": 140,
+        "width": 38,
+        "height": 13,
+        "line": "13/1/1"
+      },
+      {
+        "text": "Log",
+        "left": 456,
+        "top": 130,
+        "width": 23,
+        "height": 30,
+        "line": "14/1/1"
+      },
+      {
+        "text": "time",
+        "left": 486,
+        "top": 130,
+        "width": 27,
+        "height": 30,
+        "line": "14/1/1"
+      },
+      {
+        "text": "\u2018Account",
+        "left": 72,
+        "top": 180,
+        "width": 47,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "123456:synthetic-tempo-user",
+        "left": 124,
+        "top": 179,
+        "width": 167,
+        "height": 13,
+        "line": "15/1/1"
+      },
+      {
+        "text": "-",
+        "left": 295,
+        "top": 184,
+        "width": 2,
+        "height": 2,
+        "line": "15/1/1"
+      },
+      {
+        "text": "America/New",
+        "left": 301,
+        "top": 179,
+        "width": 109,
+        "height": 12,
+        "line": "15/1/1"
+      },
+      {
+        "text": "York",
+        "left": 384,
+        "top": 170,
+        "width": 25,
+        "height": 29,
+        "line": "15/1/1"
+      },
+      {
+        "text": "-",
+        "left": 414,
+        "top": 184,
+        "width": 2,
+        "height": 2,
+        "line": "15/1/1"
+      },
+      {
+        "text": "2026-10-05",
+        "left": 420,
+        "top": 180,
+        "width": 66,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "to",
+        "left": 490,
+        "top": 180,
+        "width": 12,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "2026-10-19",
+        "left": 506,
+        "top": 180,
+        "width": 65,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "-",
+        "left": 576,
+        "top": 184,
+        "width": 2,
+        "height": 2,
+        "line": "15/1/1"
+      },
+      {
+        "text": "refreshed",
+        "left": 583,
+        "top": 179,
+        "width": 52,
+        "height": 10,
+        "line": "15/1/1"
+      },
+      {
+        "text": "2026-10-16",
+        "left": 640,
+        "top": 180,
+        "width": 66,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "16:00",
+        "left": 711,
+        "top": 180,
+        "width": 29,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "UTC",
+        "left": 745,
+        "top": 180,
+        "width": 22,
+        "height": 9,
+        "line": "15/1/1"
+      },
+      {
+        "text": "Balance",
+        "left": 364,
+        "top": 214,
+        "width": 59,
+        "height": 14,
+        "line": "16/1/1"
+      },
+      {
+        "text": "-78:08:59",
+        "left": 429,
+        "top": 215,
+        "width": 72,
+        "height": 13,
+        "line": "16/1/1"
+      },
+      {
+        "text": "Logged",
+        "left": 73,
+        "top": 214,
+        "width": 59,
+        "height": 18,
+        "line": "17/1/1"
+      },
+      {
+        "text": "1:51:01",
+        "left": 139,
+        "top": 215,
+        "width": 52,
+        "height": 13,
+        "line": "17/1/1"
+      },
+      {
+        "text": "Required",
+        "left": 219,
+        "top": 214,
+        "width": 70,
+        "height": 18,
+        "line": "18/1/1"
+      },
+      {
+        "text": "80:00",
+        "left": 295,
+        "top": 215,
+        "width": 42,
+        "height": 13,
+        "line": "18/1/1"
+      },
+      {
+        "text": "lu",
+        "left": 29,
+        "top": 254,
+        "width": 9,
+        "height": 9,
+        "line": "19/1/1"
+      },
+      {
+        "text": "(Capex",
+        "left": 72,
+        "top": 254,
+        "width": 35,
+        "height": 12,
+        "line": "20/1/1"
+      },
+      {
+        "text": "1:51:01",
+        "left": 111,
+        "top": 254,
+        "width": 38,
+        "height": 9,
+        "line": "20/1/1"
+      },
+      {
+        "text": "Non-CapEx",
+        "left": 169,
+        "top": 254,
+        "width": 64,
+        "height": 12,
+        "line": "21/1/1"
+      },
+      {
+        "text": "0:00",
+        "left": 236,
+        "top": 254,
+        "width": 24,
+        "height": 9,
+        "line": "21/1/1"
+      },
+      {
+        "text": "Unclassified",
+        "left": 277,
+        "top": 253,
+        "width": 68,
+        "height": 10,
+        "line": "21/1/1"
+      },
+      {
+        "text": "0:00",
+        "left": 348,
+        "top": 254,
+        "width": 24,
+        "height": 9,
+        "line": "21/1/1"
+      },
+      {
+        "text": "-",
+        "left": 376,
+        "top": 258,
+        "width": 2,
+        "height": 2,
+        "line": "21/1/1"
+      },
+      {
+        "text": "0",
+        "left": 382,
+        "top": 254,
+        "width": 7,
+        "height": 9,
+        "line": "21/1/1"
+      },
+      {
+        "text": "worklogs",
+        "left": 393,
+        "top": 253,
+        "width": 52,
+        "height": 13,
+        "line": "21/1/1"
+      },
+      {
+        "text": "\u00ae",
+        "left": 85,
+        "top": 293,
+        "width": 14,
+        "height": 14,
+        "line": "22/1/1"
+      },
+      {
+        "text": "Use",
+        "left": 107,
+        "top": 300,
+        "width": 21,
+        "height": 9,
+        "line": "22/1/1"
+      },
+      {
+        "text": "Today",
+        "left": 131,
+        "top": 299,
+        "width": 80,
+        "height": 13,
+        "line": "22/1/1"
+      },
+      {
+        "text": "or",
+        "left": 171,
+        "top": 289,
+        "width": 12,
+        "height": 27,
+        "line": "22/1/1"
+      },
+      {
+        "text": "load",
+        "left": 186,
+        "top": 299,
+        "width": 24,
+        "height": 13,
+        "line": "22/1/1"
+      },
+      {
+        "text": "a",
+        "left": 215,
+        "top": 302,
+        "width": 6,
+        "height": 7,
+        "line": "22/1/1"
+      },
+      {
+        "text": "whole",
+        "left": 225,
+        "top": 299,
+        "width": 34,
+        "height": 10,
+        "line": "22/1/1"
+      },
+      {
+        "text": "month",
+        "left": 263,
+        "top": 299,
+        "width": 37,
+        "height": 10,
+        "line": "22/1/1"
+      },
+      {
+        "text": "before",
+        "left": 305,
+        "top": 299,
+        "width": 37,
+        "height": 10,
+        "line": "22/1/1"
+      },
+      {
+        "text": "using",
+        "left": 346,
+        "top": 299,
+        "width": 30,
+        "height": 13,
+        "line": "22/1/1"
+      },
+      {
+        "text": "month",
+        "left": 380,
+        "top": 299,
+        "width": 37,
+        "height": 10,
+        "line": "22/1/1"
+      },
+      {
+        "text": "navigation.",
+        "left": 422,
+        "top": 300,
+        "width": 62,
+        "height": 12,
+        "line": "22/1/1"
+      },
+      {
+        "text": "From",
+        "left": 73,
+        "top": 346,
+        "width": 28,
+        "height": 9,
+        "line": "23/1/1"
+      },
+      {
+        "text": "2026-10-05",
+        "left": 83,
+        "top": 372,
+        "width": 71,
+        "height": 10,
+        "line": "24/1/1"
+      },
+      {
+        "text": "ieee",
+        "left": 460,
+        "top": 361,
+        "width": 100,
+        "height": 13,
+        "line": "25/1/1"
+      },
+      {
+        "text": "a",
+        "left": 25,
+        "top": 404,
+        "width": 16,
+        "height": 6,
+        "line": "26/1/1"
+      },
+      {
+        "text": "2",
+        "left": 28,
+        "top": 396,
+        "width": 10,
+        "height": 7,
+        "line": "27/1/1"
+      },
+      {
+        "text": "Timesheet",
+        "left": 83,
+        "top": 415,
+        "width": 63,
+        "height": 10,
+        "line": "28/1/1"
+      },
+      {
+        "text": "Timeline",
+        "left": 177,
+        "top": 415,
+        "width": 52,
+        "height": 10,
+        "line": "29/1/1"
+      },
+      {
+        "text": "Select",
+        "left": 72,
+        "top": 454,
+        "width": 34,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "a",
+        "left": 110,
+        "top": 457,
+        "width": 5,
+        "height": 7,
+        "line": "30/1/1"
+      },
+      {
+        "text": "cell",
+        "left": 120,
+        "top": 454,
+        "width": 18,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "to",
+        "left": 142,
+        "top": 455,
+        "width": 12,
+        "height": 9,
+        "line": "30/1/1"
+      },
+      {
+        "text": "log",
+        "left": 159,
+        "top": 454,
+        "width": 17,
+        "height": 13,
+        "line": "30/1/1"
+      },
+      {
+        "text": "or",
+        "left": 180,
+        "top": 457,
+        "width": 12,
+        "height": 7,
+        "line": "30/1/1"
+      },
+      {
+        "text": "edit",
+        "left": 196,
+        "top": 445,
+        "width": 20,
+        "height": 29,
+        "line": "30/1/1"
+      },
+      {
+        "text": "time.",
+        "left": 222,
+        "top": 455,
+        "width": 27,
+        "height": 9,
+        "line": "30/1/1"
+      },
+      {
+        "text": "Cells",
+        "left": 254,
+        "top": 454,
+        "width": 26,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "with",
+        "left": 284,
+        "top": 454,
+        "width": 23,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "multiple",
+        "left": 312,
+        "top": 454,
+        "width": 46,
+        "height": 13,
+        "line": "30/1/1"
+      },
+      {
+        "text": "worklogs",
+        "left": 362,
+        "top": 454,
+        "width": 52,
+        "height": 13,
+        "line": "30/1/1"
+      },
+      {
+        "text": "open",
+        "left": 418,
+        "top": 457,
+        "width": 28,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "their",
+        "left": 450,
+        "top": 454,
+        "width": 27,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "list.",
+        "left": 481,
+        "top": 454,
+        "width": 18,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "Ctrl-click",
+        "left": 503,
+        "top": 454,
+        "width": 50,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "a",
+        "left": 556,
+        "top": 445,
+        "width": 3,
+        "height": 29,
+        "line": "30/1/1"
+      },
+      {
+        "text": "filed",
+        "left": 567,
+        "top": 454,
+        "width": 27,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "cell",
+        "left": 598,
+        "top": 454,
+        "width": 18,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "to",
+        "left": 620,
+        "top": 455,
+        "width": 12,
+        "height": 9,
+        "line": "30/1/1"
+      },
+      {
+        "text": "copy",
+        "left": 637,
+        "top": 457,
+        "width": 27,
+        "height": 10,
+        "line": "30/1/1"
+      },
+      {
+        "text": "its",
+        "left": 668,
+        "top": 455,
+        "width": 12,
+        "height": 9,
+        "line": "30/1/1"
+      },
+      {
+        "text": "worklogs",
+        "left": 684,
+        "top": 454,
+        "width": 52,
+        "height": 13,
+        "line": "30/1/1"
+      },
+      {
+        "text": "to",
+        "left": 739,
+        "top": 455,
+        "width": 12,
+        "height": 9,
+        "line": "30/1/1"
+      },
+      {
+        "text": "Today,",
+        "left": 755,
+        "top": 454,
+        "width": 37,
+        "height": 13,
+        "line": "30/1/1"
+      },
+      {
+        "text": "or",
+        "left": 797,
+        "top": 457,
+        "width": 12,
+        "height": 7,
+        "line": "30/1/1"
+      },
+      {
+        "text": "use",
+        "left": 813,
+        "top": 457,
+        "width": 19,
+        "height": 7,
+        "line": "30/1/1"
+      },
+      {
+        "text": "Copy",
+        "left": 836,
+        "top": 455,
+        "width": 29,
+        "height": 12,
+        "line": "30/1/1"
+      },
+      {
+        "text": "day.",
+        "left": 869,
+        "top": 454,
+        "width": 20,
+        "height": 13,
+        "line": "30/1/1"
+      },
+      {
+        "text": "Mon",
+        "left": 287,
+        "top": 486,
+        "width": 23,
+        "height": 9,
+        "line": "31/1/1"
+      },
+      {
+        "text": "Tue",
+        "left": 378,
+        "top": 486,
+        "width": 19,
+        "height": 9,
+        "line": "32/1/1"
+      },
+      {
+        "text": "Wed",
+        "left": 470,
+        "top": 486,
+        "width": 24,
+        "height": 9,
+        "line": "33/1/1"
+      },
+      {
+        "text": "Thu",
+        "left": 562,
+        "top": 486,
+        "width": 19,
+        "height": 9,
+        "line": "34/1/1"
+      },
+      {
+        "text": "Fri",
+        "left": 655,
+        "top": 487,
+        "width": 12,
+        "height": 9,
+        "line": "35/1/1"
+      },
+      {
+        "text": "Sat",
+        "left": 746,
+        "top": 486,
+        "width": 17,
+        "height": 9,
+        "line": "36/1/1"
+      },
+      {
+        "text": "Sun)",
+        "left": 838,
+        "top": 486,
+        "width": 20,
+        "height": 9,
+        "line": "37/1/1"
+      },
+      {
+        "text": "Mon",
+        "left": 931,
+        "top": 486,
+        "width": 23,
+        "height": 9,
+        "line": "38/1/1"
+      },
+      {
+        "text": "Issue",
+        "left": 73,
+        "top": 496,
+        "width": 61,
+        "height": 13,
+        "line": "39/1/1"
+      },
+      {
+        "text": "/",
+        "left": 105,
+        "top": 488,
+        "width": 6,
+        "height": 29,
+        "line": "39/1/1"
+      },
+      {
+        "text": "day",
+        "left": 114,
+        "top": 496,
+        "width": 20,
+        "height": 13,
+        "line": "39/1/1"
+      },
+      {
+        "text": "120ct",
+        "left": 287,
+        "top": 507,
+        "width": 37,
+        "height": 9,
+        "line": "40/1/1"
+      },
+      {
+        "text": "13",
+        "left": 379,
+        "top": 507,
+        "width": 13,
+        "height": 9,
+        "line": "41/1/1"
+      },
+      {
+        "text": "Oct",
+        "left": 396,
+        "top": 507,
+        "width": 20,
+        "height": 9,
+        "line": "41/1/1"
+      },
+      {
+        "text": "140ct",
+        "left": 471,
+        "top": 507,
+        "width": 37,
+        "height": 9,
+        "line": "42/1/1"
+      },
+      {
+        "text": "150ct",
+        "left": 563,
+        "top": 507,
+        "width": 37,
+        "height": 9,
+        "line": "43/1/1"
+      },
+      {
+        "text": "16",
+        "left": 655,
+        "top": 508,
+        "width": 13,
+        "height": 9,
+        "line": "44/1/1"
+      },
+      {
+        "text": "Oct",
+        "left": 672,
+        "top": 508,
+        "width": 20,
+        "height": 9,
+        "line": "44/1/1"
+      },
+      {
+        "text": "od",
+        "left": 747,
+        "top": 507,
+        "width": 37,
+        "height": 9,
+        "line": "45/1/1"
+      },
+      {
+        "text": "18",
+        "left": 839,
+        "top": 507,
+        "width": 13,
+        "height": 9,
+        "line": "46/1/1"
+      },
+      {
+        "text": "Oct",
+        "left": 856,
+        "top": 507,
+        "width": 20,
+        "height": 9,
+        "line": "46/1/1"
+      },
+      {
+        "text": "19",
+        "left": 931,
+        "top": 507,
+        "width": 13,
+        "height": 9,
+        "line": "47/1/1"
+      },
+      {
+        "text": "Oct",
+        "left": 948,
+        "top": 507,
+        "width": 20,
+        "height": 9,
+        "line": "47/1/1"
+      },
+      {
+        "text": "*",
+        "left": 26,
+        "top": 540,
+        "width": 14,
+        "height": 14,
+        "line": "48/1/1"
+      },
+      {
+        "text": "FIX-17",
+        "left": 73,
+        "top": 537,
+        "width": 36,
+        "height": 9,
+        "line": "49/1/1"
+      },
+      {
+        "text": "\u00b0g",
+        "left": 232,
+        "top": 539,
+        "width": 17,
+        "height": 10,
+        "line": "50/1/1"
+      },
+      {
+        "text": "Log",
+        "left": 319,
+        "top": 536,
+        "width": 22,
+        "height": 13,
+        "line": "51/1/1"
+      },
+      {
+        "text": "0:03",
+        "left": 409,
+        "top": 536,
+        "width": 25,
+        "height": 10,
+        "line": "52/1/1"
+      },
+      {
+        "text": "Log",
+        "left": 503,
+        "top": 536,
+        "width": 22,
+        "height": 13,
+        "line": "53/1/1"
+      },
+      {
+        "text": "1:01:01",
+        "left": 585,
+        "top": 536,
+        "width": 41,
+        "height": 10,
+        "line": "54/1/1"
+      },
+      {
+        "text": "0:47",
+        "left": 685,
+        "top": 536,
+        "width": 26,
+        "height": 10,
+        "line": "55/1/1"
+      },
+      {
+        "text": "Log",
+        "left": 779,
+        "top": 536,
+        "width": 22,
+        "height": 13,
+        "line": "56/1/1"
+      },
+      {
+        "text": "Log",
+        "left": 871,
+        "top": 536,
+        "width": 22,
+        "height": 13,
+        "line": "57/1/1"
+      },
+      {
+        "text": "Log",
+        "left": 963,
+        "top": 536,
+        "width": 22,
+        "height": 13,
+        "line": "58/1/1"
+      },
+      {
+        "text": "1:01:01",
+        "left": 563,
+        "top": 571,
+        "width": 38,
+        "height": 9,
+        "line": "59/1/1"
+      },
+      {
+        "text": "0:87",
+        "left": 654,
+        "top": 571,
+        "width": 24,
+        "height": 9,
+        "line": "60/1/1"
+      },
+      {
+        "text": "Day",
+        "left": 69,
+        "top": 560,
+        "width": 23,
+        "height": 30,
+        "line": "61/1/1"
+      },
+      {
+        "text": "total",
+        "left": 96,
+        "top": 560,
+        "width": 27,
+        "height": 30,
+        "line": "61/1/1"
+      },
+      {
+        "text": "Required",
+        "left": 73,
+        "top": 598,
+        "width": 50,
+        "height": 13,
+        "line": "62/1/1"
+      },
+      {
+        "text": "0:00",
+        "left": 562,
+        "top": 599,
+        "width": 24,
+        "height": 9,
+        "line": "63/1/1"
+      },
+      {
+        "text": "8:00",
+        "left": 654,
+        "top": 599,
+        "width": 24,
+        "height": 9,
+        "line": "64/1/1"
+      },
+      {
+        "text": "Copy",
+        "left": 72,
+        "top": 632,
+        "width": 108,
+        "height": 13,
+        "line": "65/1/1"
+      },
+      {
+        "text": "day",
+        "left": 106,
+        "top": 623,
+        "width": 18,
+        "height": 29,
+        "line": "65/1/1"
+      },
+      {
+        "text": "to",
+        "left": 130,
+        "top": 623,
+        "width": 11,
+        "height": 29,
+        "line": "65/1/1"
+      },
+      {
+        "text": "Today",
+        "left": 147,
+        "top": 632,
+        "width": 33,
+        "height": 13,
+        "line": "65/1/1"
+      },
+      {
+        "text": "\u2018Copy",
+        "left": 389,
+        "top": 628,
+        "width": 34,
+        "height": 24,
+        "line": "66/1/1"
+      },
+      {
+        "text": "day",
+        "left": 429,
+        "top": 628,
+        "width": 26,
+        "height": 24,
+        "line": "66/1/1"
+      },
+      {
+        "text": "\u2018Copy",
+        "left": 573,
+        "top": 628,
+        "width": 34,
+        "height": 24,
+        "line": "67/1/1"
+      },
+      {
+        "text": "day",
+        "left": 613,
+        "top": 628,
+        "width": 26,
+        "height": 24,
+        "line": "67/1/1"
+      },
+      {
+        "text": "\u2018Copy",
+        "left": 665,
+        "top": 628,
+        "width": 34,
+        "height": 24,
+        "line": "67/1/1"
+      },
+      {
+        "text": "day",
+        "left": 705,
+        "top": 628,
+        "width": 26,
+        "height": 24,
+        "line": "67/1/1"
+      },
+      {
+        "text": "\u00a9",
+        "left": 944,
+        "top": 763,
+        "width": 12,
+        "height": 12,
+        "line": "68/1/1"
+      },
+      {
+        "text": "04:45:25M",
+        "left": 961,
+        "top": 766,
+        "width": 58,
+        "height": 8,
+        "line": "68/1/1"
+      },
+      {
+        "text": "OPRs",
+        "left": 20,
+        "top": 765,
+        "width": 29,
+        "height": 9,
+        "line": "69/1/1"
+      },
+      {
+        "text": "Oschedules",
+        "left": 65,
+        "top": 765,
+        "width": 62,
+        "height": 9,
+        "line": "69/1/1"
+      },
+      {
+        "text": "O",
+        "left": 143,
+        "top": 765,
+        "width": 6,
+        "height": 9,
+        "line": "69/1/1"
+      },
+      {
+        "text": "jobs",
+        "left": 151,
+        "top": 765,
+        "width": 24,
+        "height": 12,
+        "line": "69/1/1"
+      },
+      {
+        "text": "No",
+        "left": 195,
+        "top": 764,
+        "width": 47,
+        "height": 12,
+        "line": "70/1/1"
+      },
+      {
+        "text": "gh",
+        "left": 230,
+        "top": 756,
+        "width": 10,
+        "height": 28,
+        "line": "70/1/1"
+      },
+      {
+        "text": "account",
+        "left": 246,
+        "top": 766,
+        "width": 38,
+        "height": 8,
+        "line": "70/1/1"
+      }
+    ],
+    "settings-locator.ocr-win32.json": [
+      {
+        "text": "Buddy",
+        "width": 33,
+        "top": 12,
+        "line": "0",
+        "left": 51,
+        "height": 12
+      },
+      {
+        "text": "File",
+        "width": 17,
+        "top": 12,
+        "line": "0",
+        "left": 99,
+        "height": 9
+      },
+      {
+        "text": "Edit",
+        "width": 19,
+        "top": 12,
+        "line": "0",
+        "left": 127,
+        "height": 9
+      },
+      {
+        "text": "View",
+        "width": 26,
+        "top": 12,
+        "line": "0",
+        "left": 157,
+        "height": 9
+      },
+      {
+        "text": "Help",
+        "width": 24,
+        "top": 12,
+        "line": "0",
+        "left": 194,
+        "height": 12
+      },
+      {
+        "text": "o",
+        "width": 10,
+        "top": 11,
+        "line": "1",
+        "left": 980,
+        "height": 10
+      },
+      {
+        "text": "23",
+        "width": 13,
+        "top": 507,
+        "line": "2",
+        "left": 970,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "2",
+        "left": 988,
+        "height": 9
+      },
+      {
+        "text": "x",
+        "width": 10,
+        "top": 11,
+        "line": "3",
+        "left": 1014,
+        "height": 10
+      },
+      {
+        "text": "Dashboard",
+        "width": 56,
+        "top": 45,
+        "line": "4",
+        "left": 85,
+        "height": 9
+      },
+      {
+        "text": "Tem",
+        "width": 22,
+        "top": 45,
+        "line": "5",
+        "left": 188,
+        "height": 9
+      },
+      {
+        "text": "po",
+        "width": 13,
+        "top": 48,
+        "line": "5",
+        "left": 212,
+        "height": 9
+      },
+      {
+        "text": "Tempo",
+        "width": 61,
+        "top": 95,
+        "line": "6",
+        "left": 72,
+        "height": 19
+      },
+      {
+        "text": "timesheet",
+        "width": 87,
+        "top": 94,
+        "line": "6",
+        "left": 139,
+        "height": 15
+      },
+      {
+        "text": "Previous",
+        "width": 51,
+        "top": 140,
+        "line": "7",
+        "left": 84,
+        "height": 10
+      },
+      {
+        "text": "month",
+        "width": 39,
+        "top": 140,
+        "line": "7",
+        "left": 140,
+        "height": 10
+      },
+      {
+        "text": "Today",
+        "width": 38,
+        "top": 140,
+        "line": "8",
+        "left": 210,
+        "height": 13
+      },
+      {
+        "text": "Next",
+        "width": 28,
+        "top": 140,
+        "line": "9",
+        "left": 279,
+        "height": 10
+      },
+      {
+        "text": "month",
+        "width": 39,
+        "top": 140,
+        "line": "9",
+        "left": 312,
+        "height": 10
+      },
+      {
+        "text": "Refresh",
+        "width": 44,
+        "top": 140,
+        "line": "10",
+        "left": 383,
+        "height": 10
+      },
+      {
+        "text": "Log",
+        "width": 21,
+        "top": 140,
+        "line": "11",
+        "left": 460,
+        "height": 13
+      },
+      {
+        "text": "time",
+        "width": 27,
+        "top": 140,
+        "line": "11",
+        "left": 486,
+        "height": 10
+      },
+      {
+        "text": "Last",
+        "width": 23,
+        "top": 140,
+        "line": "11",
+        "left": 545,
+        "height": 10
+      },
+      {
+        "text": "month's",
+        "width": 49,
+        "top": 140,
+        "line": "11",
+        "left": 573,
+        "height": 10
+      },
+      {
+        "text": "issues",
+        "width": 35,
+        "top": 140,
+        "line": "11",
+        "left": 627,
+        "height": 10
+      },
+      {
+        "text": "Connection",
+        "width": 69,
+        "top": 140,
+        "line": "12",
+        "left": 694,
+        "height": 10
+      },
+      {
+        "text": "Account",
+        "width": 47,
+        "top": 180,
+        "line": "13",
+        "left": 72,
+        "height": 9
+      },
+      {
+        "text": "123456\u2022synthetic-tempo-user",
+        "width": 167,
+        "top": 179,
+        "line": "13",
+        "left": 124,
+        "height": 13
+      },
+      {
+        "text": "America/New_York",
+        "width": 109,
+        "top": 179,
+        "line": "13",
+        "left": 301,
+        "height": 12
+      },
+      {
+        "text": "2026-10-01",
+        "width": 64,
+        "top": 180,
+        "line": "13",
+        "left": 420,
+        "height": 9
+      },
+      {
+        "text": "to",
+        "width": 12,
+        "top": 180,
+        "line": "13",
+        "left": 490,
+        "height": 9
+      },
+      {
+        "text": "2026-10-31",
+        "width": 64,
+        "top": 180,
+        "line": "13",
+        "left": 506,
+        "height": 9
+      },
+      {
+        "text": "refreshed",
+        "width": 52,
+        "top": 179,
+        "line": "13",
+        "left": 583,
+        "height": 10
+      },
+      {
+        "text": "2026-10-16",
+        "width": 66,
+        "top": 180,
+        "line": "13",
+        "left": 640,
+        "height": 9
+      },
+      {
+        "text": "16:00",
+        "width": 29,
+        "top": 180,
+        "line": "13",
+        "left": 711,
+        "height": 9
+      },
+      {
+        "text": "UTC",
+        "width": 22,
+        "top": 180,
+        "line": "13",
+        "left": 745,
+        "height": 9
+      },
+      {
+        "text": "Logged",
+        "width": 58,
+        "top": 214,
+        "line": "14",
+        "left": 73,
+        "height": 18
+      },
+      {
+        "text": "1",
+        "width": 5,
+        "top": 215,
+        "line": "14",
+        "left": 139,
+        "height": 13
+      },
+      {
+        "text": "Required",
+        "width": 70,
+        "top": 214,
+        "line": "14",
+        "left": 219,
+        "height": 18
+      },
+      {
+        "text": "168:00",
+        "width": 51,
+        "top": 215,
+        "line": "14",
+        "left": 296,
+        "height": 13
+      },
+      {
+        "text": "Balance",
+        "width": 59,
+        "top": 214,
+        "line": "14",
+        "left": 373,
+        "height": 14
+      },
+      {
+        "text": "-166:08:59",
+        "width": 81,
+        "top": 215,
+        "line": "14",
+        "left": 438,
+        "height": 13
+      },
+      {
+        "text": "CapEx",
+        "width": 35,
+        "top": 254,
+        "line": "15",
+        "left": 72,
+        "height": 12
+      },
+      {
+        "text": "1:51",
+        "width": 20,
+        "top": 254,
+        "line": "15",
+        "left": 112,
+        "height": 9
+      },
+      {
+        "text": "Non-CapEx",
+        "width": 64,
+        "top": 254,
+        "line": "15",
+        "left": 169,
+        "height": 12
+      },
+      {
+        "text": "0:00",
+        "width": 24,
+        "top": 254,
+        "line": "15",
+        "left": 236,
+        "height": 9
+      },
+      {
+        "text": "unclassified",
+        "width": 66,
+        "top": 253,
+        "line": "15",
+        "left": 278,
+        "height": 10
+      },
+      {
+        "text": "0:00",
+        "width": 23,
+        "top": 254,
+        "line": "15",
+        "left": 349,
+        "height": 9
+      },
+      {
+        "text": "\u2022",
+        "width": 2,
+        "top": 258,
+        "line": "15",
+        "left": 376,
+        "height": 2
+      },
+      {
+        "text": "O",
+        "width": 7,
+        "top": 254,
+        "line": "15",
+        "left": 382,
+        "height": 9
+      },
+      {
+        "text": "worklogs",
+        "width": 52,
+        "top": 253,
+        "line": "15",
+        "left": 393,
+        "height": 13
+      },
+      {
+        "text": "O",
+        "width": 14,
+        "top": 293,
+        "line": "16",
+        "left": 85,
+        "height": 14
+      },
+      {
+        "text": "Working",
+        "width": 48,
+        "top": 299,
+        "line": "16",
+        "left": 107,
+        "height": 13
+      },
+      {
+        "text": "with",
+        "width": 24,
+        "top": 299,
+        "line": "16",
+        "left": 159,
+        "height": 10
+      },
+      {
+        "text": "Tempo...",
+        "width": 49,
+        "top": 300,
+        "line": "16",
+        "left": 187,
+        "height": 12
+      },
+      {
+        "text": "From",
+        "width": 28,
+        "top": 346,
+        "line": "17",
+        "left": 73,
+        "height": 9
+      },
+      {
+        "text": "2026-10-05",
+        "width": 71,
+        "top": 372,
+        "line": "18",
+        "left": 83,
+        "height": 10
+      },
+      {
+        "text": "Timesheet",
+        "width": 63,
+        "top": 415,
+        "line": "19",
+        "left": 83,
+        "height": 10
+      },
+      {
+        "text": "Through",
+        "width": 48,
+        "top": 345,
+        "line": "20",
+        "left": 260,
+        "height": 13
+      },
+      {
+        "text": "Load",
+        "width": 28,
+        "top": 361,
+        "line": "21",
+        "left": 460,
+        "height": 10
+      },
+      {
+        "text": "date",
+        "width": 26,
+        "top": 361,
+        "line": "21",
+        "left": 494,
+        "height": 10
+      },
+      {
+        "text": "range",
+        "width": 34,
+        "top": 364,
+        "line": "21",
+        "left": 525,
+        "height": 10
+      },
+      {
+        "text": "2026-10-19",
+        "width": 70,
+        "top": 372,
+        "line": "22",
+        "left": 272,
+        "height": 10
+      },
+      {
+        "text": "Timeline",
+        "width": 52,
+        "top": 415,
+        "line": "23",
+        "left": 177,
+        "height": 10
+      },
+      {
+        "text": "Select",
+        "width": 34,
+        "top": 454,
+        "line": "24",
+        "left": 72,
+        "height": 10
+      },
+      {
+        "text": "a",
+        "width": 6,
+        "top": 457,
+        "line": "24",
+        "left": 110,
+        "height": 7
+      },
+      {
+        "text": "cell",
+        "width": 18,
+        "top": 454,
+        "line": "24",
+        "left": 120,
+        "height": 10
+      },
+      {
+        "text": "to",
+        "width": 12,
+        "top": 455,
+        "line": "24",
+        "left": 142,
+        "height": 9
+      },
+      {
+        "text": "log",
+        "width": 17,
+        "top": 454,
+        "line": "24",
+        "left": 159,
+        "height": 13
+      },
+      {
+        "text": "or",
+        "width": 13,
+        "top": 457,
+        "line": "24",
+        "left": 180,
+        "height": 7
+      },
+      {
+        "text": "edit",
+        "width": 22,
+        "top": 454,
+        "line": "24",
+        "left": 196,
+        "height": 10
+      },
+      {
+        "text": "time.",
+        "width": 28,
+        "top": 454,
+        "line": "24",
+        "left": 221,
+        "height": 10
+      },
+      {
+        "text": "Cells",
+        "width": 26,
+        "top": 454,
+        "line": "24",
+        "left": 254,
+        "height": 10
+      },
+      {
+        "text": "with",
+        "width": 23,
+        "top": 454,
+        "line": "24",
+        "left": 284,
+        "height": 10
+      },
+      {
+        "text": "multiple",
+        "width": 46,
+        "top": 454,
+        "line": "24",
+        "left": 312,
+        "height": 13
+      },
+      {
+        "text": "worklogs",
+        "width": 52,
+        "top": 454,
+        "line": "24",
+        "left": 362,
+        "height": 13
+      },
+      {
+        "text": "open",
+        "width": 28,
+        "top": 457,
+        "line": "24",
+        "left": 418,
+        "height": 10
+      },
+      {
+        "text": "their",
+        "width": 27,
+        "top": 454,
+        "line": "24",
+        "left": 450,
+        "height": 10
+      },
+      {
+        "text": "list.",
+        "width": 18,
+        "top": 454,
+        "line": "24",
+        "left": 481,
+        "height": 10
+      },
+      {
+        "text": "Ctrl-click",
+        "width": 50,
+        "top": 454,
+        "line": "24",
+        "left": 503,
+        "height": 10
+      },
+      {
+        "text": "a",
+        "width": 5,
+        "top": 457,
+        "line": "24",
+        "left": 557,
+        "height": 7
+      },
+      {
+        "text": "filled",
+        "width": 27,
+        "top": 454,
+        "line": "24",
+        "left": 567,
+        "height": 10
+      },
+      {
+        "text": "cell",
+        "width": 18,
+        "top": 454,
+        "line": "24",
+        "left": 598,
+        "height": 10
+      },
+      {
+        "text": "to",
+        "width": 12,
+        "top": 455,
+        "line": "24",
+        "left": 620,
+        "height": 9
+      },
+      {
+        "text": "copy",
+        "width": 27,
+        "top": 457,
+        "line": "24",
+        "left": 637,
+        "height": 10
+      },
+      {
+        "text": "its",
+        "width": 12,
+        "top": 454,
+        "line": "24",
+        "left": 668,
+        "height": 10
+      },
+      {
+        "text": "worklogs",
+        "width": 52,
+        "top": 454,
+        "line": "24",
+        "left": 684,
+        "height": 13
+      },
+      {
+        "text": "to",
+        "width": 12,
+        "top": 455,
+        "line": "24",
+        "left": 739,
+        "height": 9
+      },
+      {
+        "text": "Today,",
+        "width": 37,
+        "top": 454,
+        "line": "24",
+        "left": 755,
+        "height": 13
+      },
+      {
+        "text": "or",
+        "width": 12,
+        "top": 457,
+        "line": "24",
+        "left": 797,
+        "height": 7
+      },
+      {
+        "text": "use",
+        "width": 19,
+        "top": 457,
+        "line": "24",
+        "left": 813,
+        "height": 7
+      },
+      {
+        "text": "Copy",
+        "width": 29,
+        "top": 455,
+        "line": "24",
+        "left": 836,
+        "height": 12
+      },
+      {
+        "text": "day.",
+        "width": 22,
+        "top": 454,
+        "line": "24",
+        "left": 869,
+        "height": 13
+      },
+      {
+        "text": "Issue",
+        "width": 28,
+        "top": 497,
+        "line": "25",
+        "left": 73,
+        "height": 9
+      },
+      {
+        "text": "/",
+        "width": 6,
+        "top": 497,
+        "line": "25",
+        "left": 104,
+        "height": 11
+      },
+      {
+        "text": "day",
+        "width": 21,
+        "top": 496,
+        "line": "25",
+        "left": 113,
+        "height": 13
+      },
+      {
+        "text": "FIX-17",
+        "width": 36,
+        "top": 537,
+        "line": "26",
+        "left": 73,
+        "height": 9
+      },
+      {
+        "text": "Day",
+        "width": 21,
+        "top": 571,
+        "line": "27",
+        "left": 73,
+        "height": 12
+      },
+      {
+        "text": "total",
+        "width": 26,
+        "top": 570,
+        "line": "27",
+        "left": 97,
+        "height": 10
+      },
+      {
+        "text": "Required",
+        "width": 50,
+        "top": 598,
+        "line": "28",
+        "left": 73,
+        "height": 13
+      },
+      {
+        "text": "Copy",
+        "width": 30,
+        "top": 633,
+        "line": "29",
+        "left": 72,
+        "height": 12
+      },
+      {
+        "text": "day",
+        "width": 20,
+        "top": 632,
+        "line": "29",
+        "left": 106,
+        "height": 13
+      },
+      {
+        "text": "to",
+        "width": 12,
+        "top": 633,
+        "line": "29",
+        "left": 129,
+        "height": 9
+      },
+      {
+        "text": "Today",
+        "width": 35,
+        "top": 632,
+        "line": "29",
+        "left": 145,
+        "height": 13
+      },
+      {
+        "text": "O",
+        "width": 6,
+        "top": 765,
+        "line": "30",
+        "left": 20,
+        "height": 9
+      },
+      {
+        "text": "PRs",
+        "width": 18,
+        "top": 765,
+        "line": "30",
+        "left": 31,
+        "height": 9
+      },
+      {
+        "text": "15",
+        "width": 13,
+        "top": 507,
+        "line": "31",
+        "left": 235,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "31",
+        "left": 252,
+        "height": 9
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "32",
+        "left": 250,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 22,
+        "top": 632,
+        "line": "32",
+        "left": 285,
+        "height": 13
+      },
+      {
+        "text": "No",
+        "width": 14,
+        "top": 766,
+        "line": "33",
+        "left": 213,
+        "height": 8
+      },
+      {
+        "text": "gh",
+        "width": 12,
+        "top": 766,
+        "line": "33",
+        "left": 230,
+        "height": 10
+      },
+      {
+        "text": "account",
+        "width": 38,
+        "top": 766,
+        "line": "33",
+        "left": 246,
+        "height": 8
+      },
+      {
+        "text": "16",
+        "width": 13,
+        "top": 508,
+        "line": "34",
+        "left": 327,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 508,
+        "line": "34",
+        "left": 344,
+        "height": 9
+      },
+      {
+        "text": "0:47",
+        "width": 24,
+        "top": 536,
+        "line": "35",
+        "left": 358,
+        "height": 10
+      },
+      {
+        "text": "047",
+        "width": 24,
+        "top": 571,
+        "line": "36",
+        "left": 326,
+        "height": 9
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "37",
+        "left": 342,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 22,
+        "top": 632,
+        "line": "37",
+        "left": 377,
+        "height": 13
+      },
+      {
+        "text": "17",
+        "width": 13,
+        "top": 507,
+        "line": "38",
+        "left": 419,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "38",
+        "left": 436,
+        "height": 9
+      },
+      {
+        "text": "Log",
+        "width": 20,
+        "top": 536,
+        "line": "39",
+        "left": 452,
+        "height": 13
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "40",
+        "left": 434,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 21,
+        "top": 632,
+        "line": "40",
+        "left": 470,
+        "height": 13
+      },
+      {
+        "text": "Sun",
+        "width": 20,
+        "top": 486,
+        "line": "41",
+        "left": 510,
+        "height": 9
+      },
+      {
+        "text": "18",
+        "width": 13,
+        "top": 507,
+        "line": "42",
+        "left": 511,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "42",
+        "left": 528,
+        "height": 9
+      },
+      {
+        "text": "Log",
+        "width": 21,
+        "top": 536,
+        "line": "43",
+        "left": 543,
+        "height": 13
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "44",
+        "left": 526,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 21,
+        "top": 632,
+        "line": "44",
+        "left": 562,
+        "height": 13
+      },
+      {
+        "text": "19",
+        "width": 13,
+        "top": 507,
+        "line": "45",
+        "left": 603,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "45",
+        "left": 620,
+        "height": 9
+      },
+      {
+        "text": "Log",
+        "width": 21,
+        "top": 536,
+        "line": "46",
+        "left": 635,
+        "height": 13
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "47",
+        "left": 618,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 22,
+        "top": 632,
+        "line": "47",
+        "left": 653,
+        "height": 13
+      },
+      {
+        "text": "20",
+        "width": 14,
+        "top": 507,
+        "line": "48",
+        "left": 694,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "48",
+        "left": 712,
+        "height": 9
+      },
+      {
+        "text": "Log",
+        "width": 21,
+        "top": 536,
+        "line": "49",
+        "left": 727,
+        "height": 13
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "50",
+        "left": 710,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 22,
+        "top": 632,
+        "line": "50",
+        "left": 745,
+        "height": 13
+      },
+      {
+        "text": "21",
+        "width": 12,
+        "top": 507,
+        "line": "51",
+        "left": 786,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "51",
+        "left": 804,
+        "height": 9
+      },
+      {
+        "text": "Log",
+        "width": 21,
+        "top": 536,
+        "line": "52",
+        "left": 819,
+        "height": 13
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "53",
+        "left": 802,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 22,
+        "top": 632,
+        "line": "53",
+        "left": 837,
+        "height": 13
+      },
+      {
+        "text": "22",
+        "width": 14,
+        "top": 507,
+        "line": "54",
+        "left": 878,
+        "height": 9
+      },
+      {
+        "text": "Oct",
+        "width": 20,
+        "top": 507,
+        "line": "54",
+        "left": 896,
+        "height": 9
+      },
+      {
+        "text": "Log",
+        "width": 21,
+        "top": 536,
+        "line": "55",
+        "left": 911,
+        "height": 13
+      },
+      {
+        "text": "O",
+        "width": 6,
+        "top": 765,
+        "line": "56",
+        "left": 65,
+        "height": 9
+      },
+      {
+        "text": "schedules",
+        "width": 52,
+        "top": 765,
+        "line": "56",
+        "left": 75,
+        "height": 9
+      },
+      {
+        "text": "O",
+        "width": 6,
+        "top": 765,
+        "line": "57",
+        "left": 143,
+        "height": 9
+      },
+      {
+        "text": "jobs",
+        "width": 24,
+        "top": 765,
+        "line": "57",
+        "left": 151,
+        "height": 12
+      },
+      {
+        "text": "Copy",
+        "width": 31,
+        "top": 632,
+        "line": "58",
+        "left": 894,
+        "height": 13
+      },
+      {
+        "text": "day",
+        "width": 22,
+        "top": 632,
+        "line": "58",
+        "left": 929,
+        "height": 13
+      },
+      {
+        "text": "0",
+        "width": 12,
+        "top": 763,
+        "line": "59",
+        "left": 944,
+        "height": 12
+      },
+      {
+        "text": "AM",
+        "width": 16,
+        "top": 766,
+        "line": "59",
+        "left": 1003,
+        "height": 8
+      }
+    ]
+  },
+  "ambiguousWords": [
+    {
+      "text": "@",
+      "left": 20,
+      "top": 6,
+      "width": 13,
+      "height": 20,
+      "line": "1/1/1"
+    },
+    {
+      "text": "euddy",
+      "left": 46,
+      "top": 2,
+      "width": 40,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "File",
+      "left": 93,
+      "top": 2,
+      "width": 26,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 125,
+      "top": 2,
+      "width": 24,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "View",
+      "left": 158,
+      "top": 2,
+      "width": 26,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 193,
+      "top": 2,
+      "width": 25,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "#08",
+      "left": 890,
+      "top": 10,
+      "width": 134,
+      "height": 12,
+      "line": "1/1/1"
+    },
+    {
+      "text": "-",
+      "left": 944,
+      "top": 3,
+      "width": 18,
+      "height": 26,
+      "line": "1/1/1"
+    },
+    {
+      "text": "o",
+      "left": 976,
+      "top": 3,
+      "width": 17,
+      "height": 26,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 1009,
+      "top": 3,
+      "width": 18,
+      "height": 26,
+      "line": "1/1/1"
+    },
+    {
+      "text": "\u2014==\u2014s\u2014s",
+      "left": 60,
+      "top": 45,
+      "width": 180,
+      "height": 9,
+      "line": "2/1/1"
+    },
+    {
+      "text": "&",
+      "left": 26,
+      "top": 51,
+      "width": 14,
+      "height": 14,
+      "line": "2/1/2"
+    },
+    {
+      "text": "ee:",
+      "left": 184,
+      "top": 34,
+      "width": 83,
+      "height": 34,
+      "line": "2/1/2"
+    },
+    {
+      "text": "-|",
+      "left": 248,
+      "top": 30,
+      "width": 20,
+      "height": 48,
+      "line": "2/1/2"
+    },
+    {
+      "text": "Tempo",
+      "left": 72,
+      "top": 95,
+      "width": 61,
+      "height": 19,
+      "line": "3/1/1"
+    },
+    {
+      "text": "timesheet",
+      "left": 139,
+      "top": 94,
+      "width": 87,
+      "height": 15,
+      "line": "3/1/1"
+    },
+    {
+      "text": "cs)",
+      "left": 25,
+      "top": 107,
+      "width": 16,
+      "height": 16,
+      "line": "5/1/1"
+    },
+    {
+      "text": "Previous",
+      "left": 80,
+      "top": 131,
+      "width": 61,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "month",
+      "left": 142,
+      "top": 131,
+      "width": 38,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Today",
+      "left": 210,
+      "top": 140,
+      "width": 38,
+      "height": 13,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Next",
+      "left": 279,
+      "top": 131,
+      "width": 28,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "month",
+      "left": 313,
+      "top": 131,
+      "width": 40,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Refresh",
+      "left": 383,
+      "top": 140,
+      "width": 45,
+      "height": 10,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Logtime",
+      "left": 460,
+      "top": 140,
+      "width": 53,
+      "height": 13,
+      "line": "6/1/1"
+    },
+    {
+      "text": "_\u2014_Last",
+      "left": 523,
+      "top": 131,
+      "width": 46,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "month's",
+      "left": 576,
+      "top": 131,
+      "width": 46,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "issues",
+      "left": 626,
+      "top": 131,
+      "width": 52,
+      "height": 28,
+      "line": "6/1/1"
+    },
+    {
+      "text": "Connection",
+      "left": 693,
+      "top": 140,
+      "width": 70,
+      "height": 10,
+      "line": "6/1/1"
+    },
+    {
+      "text": "\u2018Account",
+      "left": 72,
+      "top": 180,
+      "width": 47,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "123456:synthetic-tempo-user",
+      "left": 124,
+      "top": 179,
+      "width": 167,
+      "height": 13,
+      "line": "7/1/1"
+    },
+    {
+      "text": "-",
+      "left": 295,
+      "top": 184,
+      "width": 2,
+      "height": 2,
+      "line": "7/1/1"
+    },
+    {
+      "text": "America/New",
+      "left": 301,
+      "top": 179,
+      "width": 109,
+      "height": 12,
+      "line": "7/1/1"
+    },
+    {
+      "text": "York",
+      "left": 384,
+      "top": 170,
+      "width": 25,
+      "height": 29,
+      "line": "7/1/1"
+    },
+    {
+      "text": "-",
+      "left": 414,
+      "top": 184,
+      "width": 2,
+      "height": 2,
+      "line": "7/1/1"
+    },
+    {
+      "text": "2026-10-05",
+      "left": 420,
+      "top": 180,
+      "width": 66,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "to",
+      "left": 490,
+      "top": 180,
+      "width": 12,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "2026-10-19",
+      "left": 506,
+      "top": 180,
+      "width": 65,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "-",
+      "left": 576,
+      "top": 184,
+      "width": 2,
+      "height": 2,
+      "line": "7/1/1"
+    },
+    {
+      "text": "refreshed",
+      "left": 583,
+      "top": 179,
+      "width": 52,
+      "height": 10,
+      "line": "7/1/1"
+    },
+    {
+      "text": "2026-10-16",
+      "left": 640,
+      "top": 180,
+      "width": 66,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "16:00",
+      "left": 711,
+      "top": 180,
+      "width": 29,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "UTC",
+      "left": 745,
+      "top": 180,
+      "width": 22,
+      "height": 9,
+      "line": "7/1/1"
+    },
+    {
+      "text": "Logged",
+      "left": 73,
+      "top": 204,
+      "width": 56,
+      "height": 34,
+      "line": "9/1/1"
+    },
+    {
+      "text": "1:51:01",
+      "left": 139,
+      "top": 204,
+      "width": 52,
+      "height": 34,
+      "line": "9/1/1"
+    },
+    {
+      "text": "Required",
+      "left": 219,
+      "top": 204,
+      "width": 71,
+      "height": 34,
+      "line": "9/1/1"
+    },
+    {
+      "text": "80:00",
+      "left": 298,
+      "top": 215,
+      "width": 39,
+      "height": 13,
+      "line": "9/1/1"
+    },
+    {
+      "text": "_",
+      "left": 349,
+      "top": 204,
+      "width": 9,
+      "height": 34,
+      "line": "9/1/1"
+    },
+    {
+      "text": "Balance",
+      "left": 364,
+      "top": 204,
+      "width": 57,
+      "height": 34,
+      "line": "9/1/1"
+    },
+    {
+      "text": "-78:08:59",
+      "left": 429,
+      "top": 215,
+      "width": 72,
+      "height": 13,
+      "line": "9/1/1"
+    },
+    {
+      "text": "ll,",
+      "left": 29,
+      "top": 254,
+      "width": 9,
+      "height": 9,
+      "line": "10/1/1"
+    },
+    {
+      "text": "CapEx",
+      "left": 73,
+      "top": 244,
+      "width": 34,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "1:51:01",
+      "left": 112,
+      "top": 244,
+      "width": 37,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Non-CapEx",
+      "left": 170,
+      "top": 244,
+      "width": 63,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "0:00",
+      "left": 237,
+      "top": 244,
+      "width": 25,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "Unclassified",
+      "left": 277,
+      "top": 253,
+      "width": 168,
+      "height": 13,
+      "line": "10/1/1"
+    },
+    {
+      "text": "0:00",
+      "left": 348,
+      "top": 244,
+      "width": 23,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "-",
+      "left": 375,
+      "top": 244,
+      "width": 6,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "0",
+      "left": 385,
+      "top": 244,
+      "width": 3,
+      "height": 29,
+      "line": "10/1/1"
+    },
+    {
+      "text": "worklogs",
+      "left": 394,
+      "top": 253,
+      "width": 51,
+      "height": 13,
+      "line": "10/1/1"
+    },
+    {
+      "text": "o",
+      "left": 26,
+      "top": 301,
+      "width": 14,
+      "height": 12,
+      "line": "12/1/1"
+    },
+    {
+      "text": "\u00ae",
+      "left": 85,
+      "top": 293,
+      "width": 14,
+      "height": 14,
+      "line": "12/1/1"
+    },
+    {
+      "text": "Use",
+      "left": 107,
+      "top": 300,
+      "width": 21,
+      "height": 9,
+      "line": "12/1/1"
+    },
+    {
+      "text": "Today",
+      "left": 131,
+      "top": 299,
+      "width": 80,
+      "height": 13,
+      "line": "12/1/1"
+    },
+    {
+      "text": "or",
+      "left": 171,
+      "top": 289,
+      "width": 12,
+      "height": 27,
+      "line": "12/1/1"
+    },
+    {
+      "text": "load",
+      "left": 186,
+      "top": 299,
+      "width": 24,
+      "height": 13,
+      "line": "12/1/1"
+    },
+    {
+      "text": "a",
+      "left": 215,
+      "top": 302,
+      "width": 6,
+      "height": 7,
+      "line": "12/1/1"
+    },
+    {
+      "text": "whole",
+      "left": 225,
+      "top": 299,
+      "width": 34,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "month",
+      "left": 263,
+      "top": 299,
+      "width": 37,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "before",
+      "left": 305,
+      "top": 299,
+      "width": 37,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "using",
+      "left": 346,
+      "top": 299,
+      "width": 30,
+      "height": 13,
+      "line": "12/1/1"
+    },
+    {
+      "text": "month",
+      "left": 380,
+      "top": 299,
+      "width": 37,
+      "height": 10,
+      "line": "12/1/1"
+    },
+    {
+      "text": "navigation.",
+      "left": 422,
+      "top": 300,
+      "width": 62,
+      "height": 12,
+      "line": "12/1/1"
+    },
+    {
+      "text": "From",
+      "left": 73,
+      "top": 346,
+      "width": 28,
+      "height": 9,
+      "line": "14/1/1"
+    },
+    {
+      "text": "Q",
+      "left": 26,
+      "top": 348,
+      "width": 14,
+      "height": 14,
+      "line": "15/1/1"
+    },
+    {
+      "text": "2026-10-05",
+      "left": 83,
+      "top": 372,
+      "width": 71,
+      "height": 10,
+      "line": "16/1/1"
+    },
+    {
+      "text": "a",
+      "left": 25,
+      "top": 396,
+      "width": 16,
+      "height": 14,
+      "line": "18/1/1"
+    },
+    {
+      "text": "Timesheet",
+      "left": 83,
+      "top": 415,
+      "width": 63,
+      "height": 10,
+      "line": "19/1/1"
+    },
+    {
+      "text": "Timeline",
+      "left": 177,
+      "top": 415,
+      "width": 52,
+      "height": 10,
+      "line": "19/1/1"
+    },
+    {
+      "text": "\u00a9)",
+      "left": 25,
+      "top": 443,
+      "width": 16,
+      "height": 16,
+      "line": "20/1/1"
+    },
+    {
+      "text": "setecta",
+      "left": 72,
+      "top": 454,
+      "width": 43,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "cell",
+      "left": 120,
+      "top": 454,
+      "width": 18,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "to",
+      "left": 142,
+      "top": 455,
+      "width": 12,
+      "height": 9,
+      "line": "20/1/1"
+    },
+    {
+      "text": "log",
+      "left": 159,
+      "top": 454,
+      "width": 17,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "or",
+      "left": 181,
+      "top": 439,
+      "width": 10,
+      "height": 35,
+      "line": "20/1/1"
+    },
+    {
+      "text": "eit",
+      "left": 195,
+      "top": 454,
+      "width": 22,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "time.",
+      "left": 222,
+      "top": 455,
+      "width": 27,
+      "height": 9,
+      "line": "20/1/1"
+    },
+    {
+      "text": "Cells",
+      "left": 254,
+      "top": 454,
+      "width": 26,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "with",
+      "left": 284,
+      "top": 454,
+      "width": 23,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "multiple",
+      "left": 312,
+      "top": 454,
+      "width": 46,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "workiogs",
+      "left": 362,
+      "top": 454,
+      "width": 52,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "open",
+      "left": 418,
+      "top": 457,
+      "width": 28,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "their",
+      "left": 450,
+      "top": 454,
+      "width": 27,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "list.",
+      "left": 481,
+      "top": 454,
+      "width": 18,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "Ctl-click",
+      "left": 503,
+      "top": 454,
+      "width": 50,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "a",
+      "left": 557,
+      "top": 457,
+      "width": 5,
+      "height": 7,
+      "line": "20/1/1"
+    },
+    {
+      "text": "filed",
+      "left": 567,
+      "top": 454,
+      "width": 27,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "cell",
+      "left": 598,
+      "top": 454,
+      "width": 18,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "to",
+      "left": 620,
+      "top": 455,
+      "width": 12,
+      "height": 9,
+      "line": "20/1/1"
+    },
+    {
+      "text": "copy",
+      "left": 637,
+      "top": 457,
+      "width": 27,
+      "height": 10,
+      "line": "20/1/1"
+    },
+    {
+      "text": "its",
+      "left": 668,
+      "top": 455,
+      "width": 12,
+      "height": 9,
+      "line": "20/1/1"
+    },
+    {
+      "text": "worklogs",
+      "left": 684,
+      "top": 454,
+      "width": 52,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "to",
+      "left": 739,
+      "top": 455,
+      "width": 12,
+      "height": 9,
+      "line": "20/1/1"
+    },
+    {
+      "text": "Today,",
+      "left": 755,
+      "top": 454,
+      "width": 37,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "or",
+      "left": 797,
+      "top": 457,
+      "width": 12,
+      "height": 7,
+      "line": "20/1/1"
+    },
+    {
+      "text": "use",
+      "left": 813,
+      "top": 457,
+      "width": 19,
+      "height": 7,
+      "line": "20/1/1"
+    },
+    {
+      "text": "Copy",
+      "left": 836,
+      "top": 455,
+      "width": 29,
+      "height": 12,
+      "line": "20/1/1"
+    },
+    {
+      "text": "day.",
+      "left": 869,
+      "top": 454,
+      "width": 20,
+      "height": 13,
+      "line": "20/1/1"
+    },
+    {
+      "text": "Mon",
+      "left": 287,
+      "top": 476,
+      "width": 23,
+      "height": 29,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Tue",
+      "left": 378,
+      "top": 476,
+      "width": 19,
+      "height": 29,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Wed",
+      "left": 470,
+      "top": 476,
+      "width": 24,
+      "height": 29,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Thu",
+      "left": 558,
+      "top": 476,
+      "width": 27,
+      "height": 29,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Fi",
+      "left": 651,
+      "top": 476,
+      "width": 16,
+      "height": 29,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Sat",
+      "left": 742,
+      "top": 476,
+      "width": 25,
+      "height": 29,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Sun",
+      "left": 838,
+      "top": 486,
+      "width": 20,
+      "height": 9,
+      "line": "20/1/2"
+    },
+    {
+      "text": "Mon",
+      "left": 931,
+      "top": 486,
+      "width": 23,
+      "height": 9,
+      "line": "20/1/2"
+    },
+    {
+      "text": "QO",
+      "left": 27,
+      "top": 492,
+      "width": 12,
+      "height": 14,
+      "line": "20/1/3"
+    },
+    {
+      "text": "ssue/",
+      "left": 73,
+      "top": 497,
+      "width": 37,
+      "height": 11,
+      "line": "20/1/3"
+    },
+    {
+      "text": "day",
+      "left": 113,
+      "top": 496,
+      "width": 21,
+      "height": 13,
+      "line": "20/1/3"
+    },
+    {
+      "text": "12",
+      "left": 287,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 304,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "13",
+      "left": 379,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 396,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "14",
+      "left": 471,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 488,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "15",
+      "left": 563,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 580,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "16",
+      "left": 655,
+      "top": 508,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 672,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "17",
+      "left": 747,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 764,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "18",
+      "left": 839,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 856,
+      "top": 497,
+      "width": 20,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "19",
+      "left": 931,
+      "top": 507,
+      "width": 13,
+      "height": 9,
+      "line": "20/1/4"
+    },
+    {
+      "text": "Oct",
+      "left": 951,
+      "top": 497,
+      "width": 17,
+      "height": 29,
+      "line": "20/1/4"
+    },
+    {
+      "text": "KIT",
+      "left": 26,
+      "top": 537,
+      "width": 83,
+      "height": 17,
+      "line": "20/1/5"
+    },
+    {
+      "text": "og",
+      "left": 228,
+      "top": 526,
+      "width": 21,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "Log",
+      "left": 315,
+      "top": 526,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "0:03",
+      "left": 409,
+      "top": 526,
+      "width": 25,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "Log",
+      "left": 499,
+      "top": 526,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "1:01:01",
+      "left": 585,
+      "top": 526,
+      "width": 41,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "0:47",
+      "left": 685,
+      "top": 526,
+      "width": 26,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "Log",
+      "left": 775,
+      "top": 526,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "Log",
+      "left": 867,
+      "top": 526,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/5"
+    },
+    {
+      "text": "Log",
+      "left": 963,
+      "top": 536,
+      "width": 22,
+      "height": 13,
+      "line": "20/1/5"
+    },
+    {
+      "text": "Day",
+      "left": 69,
+      "top": 560,
+      "width": 23,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "total",
+      "left": 96,
+      "top": 560,
+      "width": 27,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "0:00",
+      "left": 282,
+      "top": 560,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "0:03",
+      "left": 374,
+      "top": 560,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "0:00",
+      "left": 466,
+      "top": 560,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "1:01:01",
+      "left": 563,
+      "top": 560,
+      "width": 38,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "047",
+      "left": 650,
+      "top": 560,
+      "width": 28,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "0:00",
+      "left": 742,
+      "top": 560,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "0:00",
+      "left": 834,
+      "top": 560,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/6"
+    },
+    {
+      "text": "0:00",
+      "left": 930,
+      "top": 571,
+      "width": 24,
+      "height": 9,
+      "line": "20/1/6"
+    },
+    {
+      "text": "\u00a9",
+      "left": 26,
+      "top": 588,
+      "width": 14,
+      "height": 14,
+      "line": "20/1/7"
+    },
+    {
+      "text": "Required",
+      "left": 73,
+      "top": 598,
+      "width": 50,
+      "height": 13,
+      "line": "20/1/7"
+    },
+    {
+      "text": "8:00",
+      "left": 282,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "8:00",
+      "left": 374,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "8:00",
+      "left": 466,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "0:00",
+      "left": 558,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "8:00",
+      "left": 650,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "0:00",
+      "left": 742,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "0:00",
+      "left": 834,
+      "top": 588,
+      "width": 30,
+      "height": 30,
+      "line": "20/1/7"
+    },
+    {
+      "text": "8:00",
+      "left": 930,
+      "top": 599,
+      "width": 24,
+      "height": 9,
+      "line": "20/1/7"
+    },
+    {
+      "text": "\u2018Copy",
+      "left": 72,
+      "top": 633,
+      "width": 30,
+      "height": 12,
+      "line": "20/1/8"
+    },
+    {
+      "text": "day",
+      "left": 105,
+      "top": 632,
+      "width": 21,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "to",
+      "left": 129,
+      "top": 633,
+      "width": 12,
+      "height": 9,
+      "line": "20/1/8"
+    },
+    {
+      "text": "Today",
+      "left": 144,
+      "top": 632,
+      "width": 36,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "\u2018Copy",
+      "left": 393,
+      "top": 632,
+      "width": 32,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "day",
+      "left": 429,
+      "top": 632,
+      "width": 22,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "\u2018Copy",
+      "left": 577,
+      "top": 632,
+      "width": 32,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "day",
+      "left": 613,
+      "top": 632,
+      "width": 22,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "\u2018Copy",
+      "left": 669,
+      "top": 632,
+      "width": 32,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "day",
+      "left": 705,
+      "top": 632,
+      "width": 22,
+      "height": 13,
+      "line": "20/1/8"
+    },
+    {
+      "text": "OPRs",
+      "left": 20,
+      "top": 765,
+      "width": 29,
+      "height": 9,
+      "line": "21/1/1"
+    },
+    {
+      "text": "schedules",
+      "left": 65,
+      "top": 765,
+      "width": 62,
+      "height": 9,
+      "line": "21/1/1"
+    },
+    {
+      "text": "Ojobs",
+      "left": 143,
+      "top": 765,
+      "width": 32,
+      "height": 12,
+      "line": "21/1/1"
+    },
+    {
+      "text": "Noh",
+      "left": 199,
+      "top": 764,
+      "width": 42,
+      "height": 12,
+      "line": "21/1/1"
+    },
+    {
+      "text": "account",
+      "left": 245,
+      "top": 754,
+      "width": 39,
+      "height": 31,
+      "line": "21/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 944,
+      "top": 763,
+      "width": 9,
+      "height": 12,
+      "line": "21/1/1"
+    },
+    {
+      "text": "0445254",
+      "left": 960,
+      "top": 763,
+      "width": 59,
+      "height": 12,
+      "line": "21/1/1"
+    }
+  ]
+}

@@ -206,17 +206,17 @@ def first_pass(driver, theme):
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
-        ("click", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
+        ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
     ], record=True)
-    github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe")
-    github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe")
+    github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
+    github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe", browser=True)
     # The page's own text and its tab title prove which page is shown. The
     # address field's dim text read in no OCR layout on Windows (run 40647223188).
-    github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK")
-    github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK")
+    github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
+    github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
 
 
 def restart_pass(driver, theme, visit):
@@ -224,7 +224,7 @@ def restart_pass(driver, theme, visit):
     flow = driver.drive(f"restart-{theme}", [
         ("wait_text", f"Visit {visit}"), ("capture", f"restored-{theme}"),
     ], record=False)
-    github.check(flow / f"restored-{theme}.png", PAGE_TEXT, f"Visit {visit}", "Buddy Probe", "Buddy Fixture OK")
+    github.check(flow / f"restored-{theme}.png", PAGE_TEXT, f"Visit {visit}", "Buddy Probe", "Buddy Fixture OK", browser=True)
 
 
 def light_pass(driver, visit):
@@ -232,11 +232,11 @@ def light_pass(driver, visit):
         ("wait_text", f"Visit {visit}"), ("capture", "page-light"),
         ("resize", 900, 650), ("sleep", 1), ("capture", "page-compact-light"),
         ("resize", 1200, 820),
-        ("click", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
+        ("workspace", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
-    github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK")
-    github.check(flow / "page-compact-light.png", PAGE_TEXT)
-    github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT)
+    github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
+    github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)
+    github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT, browser=True)
 
 
 class BrowserDriver(settings.Driver):
@@ -246,7 +246,7 @@ class BrowserDriver(settings.Driver):
         # Locate the tab while the pointer is on the page, then deliberately
         # show its tooltip. OCR must see both copies before we test the leave.
         image = directory / "tooltip-target.png"
-        label = self.locate(window, image, "click", "Buddy Probe")
+        label = self.locate(window, image, "workspace", "Buddy Probe")
         settings.run("xdotool", "mousemove", "--window", window.window,
             int(label["left"] + label["width"] / 2), int(label["top"] + label["height"] / 2))
         time.sleep(2)
@@ -274,13 +274,13 @@ def shortcut_pass(driver):
         ("hover", "page"), ("wait_text", PROBE_TEXT),
         ("tooltip_leave",),
         # Clicking a tab gives the browser the keyboard.
-        ("click", "Buddy Probe"), ("hover", "page"),
+        ("workspace", "Buddy Probe"), ("hover", "page"),
         ("shortcut", "Tab"), ("wait_text", PAGE_TEXT), ("capture", "next-tab-light"),
         ("shortcut", "shift+Tab"), ("wait_text", PROBE_TEXT),
         ("shortcut", "F4"), ("wait_text", PAGE_TEXT), ("capture", "closed-tab-light"),
     ], record=True)
-    github.check(flow / "next-tab-light.png", PAGE_TEXT, "Buddy Probe", "Buddy Fixture OK")
-    github.check(flow / "closed-tab-light.png", PAGE_TEXT, "Buddy Fixture OK")
+    github.check(flow / "next-tab-light.png", PAGE_TEXT, "Buddy Probe", "Buddy Fixture OK", browser=True)
+    github.check(flow / "closed-tab-light.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
 
 
 def saved_tabs(config):

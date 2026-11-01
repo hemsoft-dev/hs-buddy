@@ -1,0 +1,3078 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41240986684/artifacts/13059922075",
+  "captureNote": "The original locator PNG is overwritten each attempt. Pixel comparisons use adjacent recorded window frames; stability.jsonl preserves the exact four measured rectangles.",
+  "frames": [
+    {
+      "name": "frame-0384.png",
+      "sha256": "616c52796f814b2d4ca568c431bbaf7fa129b448ffe28156022559b5057c50ee"
+    },
+    {
+      "name": "frame-0385.png",
+      "sha256": "c843e1b0e38b1c625775a36ca22dd7ff4b4de19113db16e40a8711d324fd3a1c"
+    },
+    {
+      "name": "frame-0386.png",
+      "sha256": "d0904bc1ab8b8a33022d4156fe96d988771045bb7b10068645a66825021d3cb8"
+    },
+    {
+      "name": "frame-0387.png",
+      "sha256": "1377493e1f6257c8dec55a5b1a6960015bc215636c0c75741512f5d436b3143d"
+    }
+  ],
+  "regions": {
+    "toolbarRefresh": [330, 175, 411, 215],
+    "acknowledgementRefresh": [535, 275, 600, 300],
+    "sidebarAgeRings": [48, 68, 273, 200],
+    "commentCaret": [280, 575, 291, 602],
+    "footerClock": [1080, 798, 1200, 820]
+  },
+  "differences": [
+    {
+      "frames": [384, 385],
+      "changedPixels": {
+        "toolbarRefresh": 0,
+        "acknowledgementRefresh": 0,
+        "sidebarAgeRings": 5,
+        "commentCaret": 17,
+        "footerClock": 90
+      },
+      "otherPixels": 0
+    },
+    {
+      "frames": [385, 386],
+      "changedPixels": {
+        "toolbarRefresh": 0,
+        "acknowledgementRefresh": 0,
+        "sidebarAgeRings": 9,
+        "commentCaret": 17,
+        "footerClock": 0
+      },
+      "otherPixels": 0
+    },
+    {
+      "frames": [386, 387],
+      "changedPixels": {
+        "toolbarRefresh": 0,
+        "acknowledgementRefresh": 0,
+        "sidebarAgeRings": 9,
+        "commentCaret": 17,
+        "footerClock": 48
+      },
+      "otherPixels": 0
+    }
+  ],
+  "layouts": {
+    "original": [
+      {
+        "frame": 384,
+        "target": {
+          "left": 544,
+          "top": 282,
+          "width": 44,
+          "height": 10
+        },
+        "layout": "8c74fc91855e"
+      },
+      {
+        "frame": 385,
+        "target": {
+          "left": 348,
+          "top": 186,
+          "width": 47,
+          "height": 11
+        },
+        "layout": "690250c48b00"
+      },
+      {
+        "frame": 386,
+        "target": {
+          "left": 544,
+          "top": 282,
+          "width": 44,
+          "height": 10
+        },
+        "layout": "1d24df930b55"
+      },
+      {
+        "frame": 387,
+        "target": {
+          "left": 348,
+          "top": 186,
+          "width": 47,
+          "height": 11
+        },
+        "layout": "690250c48b00"
+      }
+    ],
+    "scoped": [
+      {
+        "frame": 384,
+        "target": {
+          "left": 348,
+          "top": 186,
+          "width": 47,
+          "height": 11
+        },
+        "layout": "f9f59a6920a1"
+      },
+      {
+        "frame": 385,
+        "target": {
+          "left": 348,
+          "top": 186,
+          "width": 47,
+          "height": 11
+        },
+        "layout": "16792db59819"
+      }
+    ]
+  },
+  "wordLayouts": {
+    "8c74fc91855e": [
+      {
+        "text": "a",
+        "left": 0,
+        "top": 0,
+        "width": 6,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "@@e@",
+        "left": 10,
+        "top": 11,
+        "width": 52,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": "Gy",
+        "left": 80,
+        "top": 6,
+        "width": 20,
+        "height": 20,
+        "line": "1"
+      },
+      {
+        "text": "Buddy",
+        "left": 110,
+        "top": 11,
+        "width": 34,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": "File",
+        "left": 160,
+        "top": 11,
+        "width": 18,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "Edt",
+        "left": 190,
+        "top": 11,
+        "width": 20,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "view",
+        "left": 220,
+        "top": 11,
+        "width": 26,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "Help",
+        "left": 257,
+        "top": 11,
+        "width": 24,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": ">",
+        "left": 1194,
+        "top": 0,
+        "width": 6,
+        "height": 9,
+        "line": "2"
+      },
+      {
+        "text": "#8",
+        "left": 1156,
+        "top": 10,
+        "width": 33,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "o2",
+        "left": 18,
+        "top": 51,
+        "width": 14,
+        "height": 8,
+        "line": "4"
+      },
+      {
+        "text": "\u00ab>",
+        "left": 53,
+        "top": 48,
+        "width": 2,
+        "height": 5,
+        "line": "4"
+      },
+      {
+        "text": "Githlub:",
+        "left": 76,
+        "top": 44,
+        "width": 30,
+        "height": 10,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 120,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 137,
+        "top": 44,
+        "width": 23,
+        "height": 10,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 163,
+        "top": 44,
+        "width": 36,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 203,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 261,
+        "top": 44,
+        "width": 35,
+        "height": 10,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 305,
+        "top": 46,
+        "width": 6,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 319,
+        "top": 35,
+        "width": 15,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 342,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 386,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 403,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 430,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 469,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 527,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 570,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 587,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 608,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 652,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 669,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 696,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 735,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 793,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 836,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 853,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 874,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 918,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 935,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 962,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 1001,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 1059,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 1102,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~~",
+        "left": 1119,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 1140,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 1184,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "85",
+        "left": 18,
+        "top": 57,
+        "width": 14,
+        "height": 8,
+        "line": "5"
+      },
+      {
+        "text": "\u2018Comment",
+        "left": 274,
+        "top": 282,
+        "width": 56,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "posted",
+        "left": 334,
+        "top": 282,
+        "width": 38,
+        "height": 13,
+        "line": "6"
+      },
+      {
+        "text": "-fixture-org/native-demo",
+        "left": 377,
+        "top": 282,
+        "width": 140,
+        "height": 13,
+        "line": "6"
+      },
+      {
+        "text": "#7.",
+        "left": 521,
+        "top": 282,
+        "width": 17,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "Refresh",
+        "left": 544,
+        "top": 282,
+        "width": 44,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "to",
+        "left": 592,
+        "top": 283,
+        "width": 10,
+        "height": 9,
+        "line": "6"
+      },
+      {
+        "text": "load",
+        "left": 607,
+        "top": 282,
+        "width": 23,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "the",
+        "left": 634,
+        "top": 282,
+        "width": 18,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "updated",
+        "left": 657,
+        "top": 282,
+        "width": 46,
+        "height": 13,
+        "line": "6"
+      },
+      {
+        "text": "result.",
+        "left": 707,
+        "top": 282,
+        "width": 32,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "Filter",
+        "left": 417,
+        "top": 169,
+        "width": 28,
+        "height": 10,
+        "line": "7"
+      },
+      {
+        "text": "loaded",
+        "left": 450,
+        "top": 157,
+        "width": 35,
+        "height": 32,
+        "line": "7"
+      },
+      {
+        "text": "items",
+        "left": 490,
+        "top": 157,
+        "width": 32,
+        "height": 32,
+        "line": "7"
+      },
+      {
+        "text": "es",
+        "left": 286,
+        "top": 186,
+        "width": 30,
+        "height": 11,
+        "line": "8"
+      },
+      {
+        "text": "9",
+        "left": 327,
+        "top": 182,
+        "width": 9,
+        "height": 32,
+        "line": "8"
+      },
+      {
+        "text": "Ruicen",
+        "left": 348,
+        "top": 186,
+        "width": 47,
+        "height": 11,
+        "line": "8"
+      },
+      {
+        "text": "Conversation",
+        "left": 285,
+        "top": 242,
+        "width": 82,
+        "height": 12,
+        "line": "9"
+      },
+      {
+        "text": "Reviews",
+        "left": 399,
+        "top": 242,
+        "width": 52,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Commits",
+        "left": 481,
+        "top": 242,
+        "width": 55,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Title,",
+        "left": 427,
+        "top": 200,
+        "width": 29,
+        "height": 12,
+        "line": "10"
+      },
+      {
+        "text": "author,",
+        "left": 461,
+        "top": 200,
+        "width": 41,
+        "height": 12,
+        "line": "10"
+      },
+      {
+        "text": "repository,",
+        "left": 508,
+        "top": 200,
+        "width": 62,
+        "height": 13,
+        "line": "10"
+      },
+      {
+        "text": "or",
+        "left": 576,
+        "top": 202,
+        "width": 12,
+        "height": 8,
+        "line": "10"
+      },
+      {
+        "text": "number",
+        "left": 593,
+        "top": 200,
+        "width": 46,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "Review",
+        "left": 705,
+        "top": 242,
+        "width": 45,
+        "height": 11,
+        "line": "11"
+      },
+      {
+        "text": "threads",
+        "left": 754,
+        "top": 242,
+        "width": 46,
+        "height": 11,
+        "line": "11"
+      }
+    ],
+    "690250c48b00": [
+      {
+        "text": "a",
+        "left": 0,
+        "top": 0,
+        "width": 6,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "@@e@",
+        "left": 10,
+        "top": 11,
+        "width": 52,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": "Gy",
+        "left": 80,
+        "top": 6,
+        "width": 20,
+        "height": 20,
+        "line": "1"
+      },
+      {
+        "text": "Buddy",
+        "left": 110,
+        "top": 11,
+        "width": 34,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": "File",
+        "left": 160,
+        "top": 11,
+        "width": 18,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "Edt",
+        "left": 190,
+        "top": 11,
+        "width": 20,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "view",
+        "left": 220,
+        "top": 11,
+        "width": 26,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "Help",
+        "left": 257,
+        "top": 11,
+        "width": 24,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": ">",
+        "left": 1194,
+        "top": 0,
+        "width": 6,
+        "height": 9,
+        "line": "2"
+      },
+      {
+        "text": "#8",
+        "left": 1156,
+        "top": 10,
+        "width": 33,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "o2",
+        "left": 18,
+        "top": 51,
+        "width": 14,
+        "height": 8,
+        "line": "4"
+      },
+      {
+        "text": "\u00ab>",
+        "left": 53,
+        "top": 48,
+        "width": 2,
+        "height": 5,
+        "line": "4"
+      },
+      {
+        "text": "Githlub:",
+        "left": 76,
+        "top": 44,
+        "width": 30,
+        "height": 10,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 121,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 137,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 165,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 203,
+        "top": 44,
+        "width": 93,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 261,
+        "top": 35,
+        "width": 38,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 305,
+        "top": 46,
+        "width": 6,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 319,
+        "top": 35,
+        "width": 15,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 342,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 387,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 403,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 431,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 471,
+        "top": 35,
+        "width": 52,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 527,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 570,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 587,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 608,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 653,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 669,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 697,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 737,
+        "top": 35,
+        "width": 52,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 793,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 836,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 853,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 874,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 919,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 935,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 963,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 1003,
+        "top": 35,
+        "width": 52,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 1059,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 1102,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~~",
+        "left": 1119,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 1140,
+        "top": 44,
+        "width": 57,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 1187,
+        "top": 35,
+        "width": 13,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "85",
+        "left": 18,
+        "top": 57,
+        "width": 14,
+        "height": 8,
+        "line": "5"
+      },
+      {
+        "text": "Filter",
+        "left": 417,
+        "top": 169,
+        "width": 28,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "loaded",
+        "left": 449,
+        "top": 169,
+        "width": 38,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "items",
+        "left": 492,
+        "top": 169,
+        "width": 30,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "Back",
+        "left": 286,
+        "top": 186,
+        "width": 30,
+        "height": 11,
+        "line": "7"
+      },
+      {
+        "text": "Refresh",
+        "left": 348,
+        "top": 186,
+        "width": 47,
+        "height": 11,
+        "line": "7"
+      },
+      {
+        "text": "Title,",
+        "left": 427,
+        "top": 200,
+        "width": 29,
+        "height": 12,
+        "line": "8"
+      },
+      {
+        "text": "author,",
+        "left": 461,
+        "top": 200,
+        "width": 41,
+        "height": 12,
+        "line": "8"
+      },
+      {
+        "text": "repository,",
+        "left": 508,
+        "top": 200,
+        "width": 62,
+        "height": 13,
+        "line": "8"
+      },
+      {
+        "text": "or",
+        "left": 576,
+        "top": 202,
+        "width": 12,
+        "height": 8,
+        "line": "8"
+      },
+      {
+        "text": "number",
+        "left": 593,
+        "top": 200,
+        "width": 46,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "Conversation",
+        "left": 285,
+        "top": 242,
+        "width": 82,
+        "height": 12,
+        "line": "9"
+      },
+      {
+        "text": "Reviews",
+        "left": 399,
+        "top": 242,
+        "width": 52,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Commits",
+        "left": 481,
+        "top": 242,
+        "width": 55,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Checks",
+        "left": 567,
+        "top": 242,
+        "width": 47,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Review",
+        "left": 705,
+        "top": 242,
+        "width": 45,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "threads",
+        "left": 754,
+        "top": 242,
+        "width": 46,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "\u2018Comment",
+        "left": 274,
+        "top": 282,
+        "width": 56,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "posted",
+        "left": 334,
+        "top": 282,
+        "width": 38,
+        "height": 13,
+        "line": "10"
+      },
+      {
+        "text": ":fxture-org/native-demo",
+        "left": 377,
+        "top": 282,
+        "width": 140,
+        "height": 13,
+        "line": "10"
+      },
+      {
+        "text": "#7.",
+        "left": 521,
+        "top": 282,
+        "width": 17,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "Refresh",
+        "left": 544,
+        "top": 282,
+        "width": 44,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "to",
+        "left": 592,
+        "top": 283,
+        "width": 10,
+        "height": 9,
+        "line": "10"
+      },
+      {
+        "text": "load",
+        "left": 607,
+        "top": 282,
+        "width": 23,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "the",
+        "left": 634,
+        "top": 282,
+        "width": 18,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "updated",
+        "left": 657,
+        "top": 282,
+        "width": 46,
+        "height": 13,
+        "line": "10"
+      },
+      {
+        "text": "resut.",
+        "left": 707,
+        "top": 282,
+        "width": 32,
+        "height": 10,
+        "line": "10"
+      }
+    ],
+    "1d24df930b55": [
+      {
+        "text": "a",
+        "left": 0,
+        "top": 0,
+        "width": 6,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "@@e@",
+        "left": 10,
+        "top": 11,
+        "width": 52,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": "Gy",
+        "left": 80,
+        "top": 6,
+        "width": 20,
+        "height": 20,
+        "line": "1"
+      },
+      {
+        "text": "Buddy",
+        "left": 110,
+        "top": 11,
+        "width": 34,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": "File",
+        "left": 160,
+        "top": 11,
+        "width": 18,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "Edt",
+        "left": 190,
+        "top": 11,
+        "width": 20,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "view",
+        "left": 220,
+        "top": 11,
+        "width": 26,
+        "height": 9,
+        "line": "1"
+      },
+      {
+        "text": "Help",
+        "left": 257,
+        "top": 11,
+        "width": 24,
+        "height": 12,
+        "line": "1"
+      },
+      {
+        "text": ">",
+        "left": 1194,
+        "top": 0,
+        "width": 6,
+        "height": 9,
+        "line": "2"
+      },
+      {
+        "text": "#8",
+        "left": 1156,
+        "top": 10,
+        "width": 33,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "o2",
+        "left": 18,
+        "top": 51,
+        "width": 14,
+        "height": 8,
+        "line": "4"
+      },
+      {
+        "text": "\u00ab>",
+        "left": 53,
+        "top": 48,
+        "width": 2,
+        "height": 5,
+        "line": "4"
+      },
+      {
+        "text": "Githlub:",
+        "left": 76,
+        "top": 44,
+        "width": 30,
+        "height": 10,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 121,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 137,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 165,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 203,
+        "top": 44,
+        "width": 93,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 261,
+        "top": 35,
+        "width": 38,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 305,
+        "top": 46,
+        "width": 6,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 319,
+        "top": 35,
+        "width": 15,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 342,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 387,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 403,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 431,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 471,
+        "top": 35,
+        "width": 52,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 527,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 570,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 587,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 608,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 653,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 669,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 697,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 737,
+        "top": 35,
+        "width": 52,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 793,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 836,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~-",
+        "left": 853,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 874,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 919,
+        "top": 35,
+        "width": 10,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 935,
+        "top": 35,
+        "width": 22,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 963,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 1003,
+        "top": 35,
+        "width": 52,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 1059,
+        "top": 35,
+        "width": 34,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 1102,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "~~",
+        "left": 1119,
+        "top": 47,
+        "width": 10,
+        "height": 2,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 1140,
+        "top": 44,
+        "width": 57,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 1187,
+        "top": 35,
+        "width": 13,
+        "height": 28,
+        "line": "4"
+      },
+      {
+        "text": "85",
+        "left": 18,
+        "top": 57,
+        "width": 14,
+        "height": 8,
+        "line": "5"
+      },
+      {
+        "text": "\u2018Comment",
+        "left": 274,
+        "top": 282,
+        "width": 56,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "posted",
+        "left": 334,
+        "top": 282,
+        "width": 38,
+        "height": 13,
+        "line": "6"
+      },
+      {
+        "text": "-fixture-org/native-demo",
+        "left": 377,
+        "top": 282,
+        "width": 140,
+        "height": 13,
+        "line": "6"
+      },
+      {
+        "text": "#7.",
+        "left": 521,
+        "top": 282,
+        "width": 17,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "Refresh",
+        "left": 544,
+        "top": 282,
+        "width": 44,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "to",
+        "left": 592,
+        "top": 283,
+        "width": 10,
+        "height": 9,
+        "line": "6"
+      },
+      {
+        "text": "load",
+        "left": 607,
+        "top": 282,
+        "width": 23,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "the",
+        "left": 634,
+        "top": 282,
+        "width": 18,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "updated",
+        "left": 657,
+        "top": 282,
+        "width": 46,
+        "height": 13,
+        "line": "6"
+      },
+      {
+        "text": "result.",
+        "left": 707,
+        "top": 282,
+        "width": 32,
+        "height": 10,
+        "line": "6"
+      },
+      {
+        "text": "Filter",
+        "left": 417,
+        "top": 169,
+        "width": 28,
+        "height": 10,
+        "line": "7"
+      },
+      {
+        "text": "loaded",
+        "left": 450,
+        "top": 157,
+        "width": 35,
+        "height": 32,
+        "line": "7"
+      },
+      {
+        "text": "items",
+        "left": 490,
+        "top": 157,
+        "width": 32,
+        "height": 32,
+        "line": "7"
+      },
+      {
+        "text": "es",
+        "left": 286,
+        "top": 186,
+        "width": 30,
+        "height": 11,
+        "line": "8"
+      },
+      {
+        "text": "9",
+        "left": 327,
+        "top": 182,
+        "width": 9,
+        "height": 32,
+        "line": "8"
+      },
+      {
+        "text": "Ruicen",
+        "left": 348,
+        "top": 186,
+        "width": 47,
+        "height": 11,
+        "line": "8"
+      },
+      {
+        "text": "Conversation",
+        "left": 285,
+        "top": 242,
+        "width": 82,
+        "height": 12,
+        "line": "9"
+      },
+      {
+        "text": "Reviews",
+        "left": 399,
+        "top": 242,
+        "width": 52,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Commits",
+        "left": 481,
+        "top": 242,
+        "width": 55,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Title,",
+        "left": 427,
+        "top": 200,
+        "width": 29,
+        "height": 12,
+        "line": "10"
+      },
+      {
+        "text": "author,",
+        "left": 461,
+        "top": 200,
+        "width": 41,
+        "height": 12,
+        "line": "10"
+      },
+      {
+        "text": "repository,",
+        "left": 508,
+        "top": 200,
+        "width": 62,
+        "height": 13,
+        "line": "10"
+      },
+      {
+        "text": "or",
+        "left": 576,
+        "top": 202,
+        "width": 12,
+        "height": 8,
+        "line": "10"
+      },
+      {
+        "text": "number",
+        "left": 593,
+        "top": 200,
+        "width": 46,
+        "height": 10,
+        "line": "10"
+      },
+      {
+        "text": "Review",
+        "left": 705,
+        "top": 242,
+        "width": 45,
+        "height": 11,
+        "line": "11"
+      },
+      {
+        "text": "threads",
+        "left": 754,
+        "top": 242,
+        "width": 46,
+        "height": 11,
+        "line": "11"
+      }
+    ],
+    "f9f59a6920a1": [
+      {
+        "text": "@@e@",
+        "left": 10,
+        "top": 11,
+        "width": 52,
+        "height": 12,
+        "line": "0"
+      },
+      {
+        "text": "Gy",
+        "left": 80,
+        "top": 6,
+        "width": 20,
+        "height": 20,
+        "line": "0"
+      },
+      {
+        "text": "Buddy",
+        "left": 110,
+        "top": 11,
+        "width": 34,
+        "height": 12,
+        "line": "0"
+      },
+      {
+        "text": "File",
+        "left": 160,
+        "top": 11,
+        "width": 18,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "Edt",
+        "left": 190,
+        "top": 11,
+        "width": 20,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "view",
+        "left": 220,
+        "top": 11,
+        "width": 26,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "Help",
+        "left": 257,
+        "top": 11,
+        "width": 24,
+        "height": 12,
+        "line": "0"
+      },
+      {
+        "text": "#o",
+        "left": 1156,
+        "top": 0,
+        "width": 44,
+        "height": 22,
+        "line": "1"
+      },
+      {
+        "text": "og",
+        "left": 18,
+        "top": 51,
+        "width": 14,
+        "height": 8,
+        "line": "2"
+      },
+      {
+        "text": "First",
+        "left": 669,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "3"
+      },
+      {
+        "text": "private",
+        "left": 696,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "navigation",
+        "left": 735,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "review",
+        "left": 793,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "3"
+      },
+      {
+        "text": "x",
+        "left": 836,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "3"
+      },
+      {
+        "text": "GitHub:",
+        "left": 874,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 918,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 935,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 962,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 1001,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 1059,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 1102,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 1140,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "5"
+      },
+      {
+        "text": "#7",
+        "left": 1184,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "5"
+      },
+      {
+        "text": "85",
+        "left": 18,
+        "top": 57,
+        "width": 14,
+        "height": 8,
+        "line": "6"
+      },
+      {
+        "text": "\u00ab(GARG",
+        "left": 53,
+        "top": 44,
+        "width": 53,
+        "height": 10,
+        "line": "7"
+      },
+      {
+        "text": "tegen",
+        "left": 120,
+        "top": 44,
+        "width": 191,
+        "height": 12,
+        "line": "7"
+      },
+      {
+        "text": "evo)\u00bb",
+        "left": 262,
+        "top": 24,
+        "width": 46,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "~via:",
+        "left": 322,
+        "top": 24,
+        "width": 60,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "07",
+        "left": 388,
+        "top": 24,
+        "width": 11,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "Ft",
+        "left": 406,
+        "top": 44,
+        "width": 20,
+        "height": 9,
+        "line": "7"
+      },
+      {
+        "text": "pte",
+        "left": 430,
+        "top": 24,
+        "width": 36,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "nipaton",
+        "left": 472,
+        "top": 24,
+        "width": 50,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "revo",
+        "left": 528,
+        "top": 24,
+        "width": 29,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "x",
+        "left": 570,
+        "top": 46,
+        "width": 4,
+        "height": 7,
+        "line": "7"
+      },
+      {
+        "text": "=~",
+        "left": 588,
+        "top": 24,
+        "width": 11,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "Gib",
+        "left": 608,
+        "top": 44,
+        "width": 30,
+        "height": 9,
+        "line": "7"
+      },
+      {
+        "text": "Filter",
+        "left": 417,
+        "top": 169,
+        "width": 28,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "loaded",
+        "left": 449,
+        "top": 169,
+        "width": 38,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "items",
+        "left": 492,
+        "top": 169,
+        "width": 30,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "Back",
+        "left": 286,
+        "top": 186,
+        "width": 30,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Refresh",
+        "left": 348,
+        "top": 186,
+        "width": 47,
+        "height": 11,
+        "line": "10"
+      },
+      {
+        "text": "Title,",
+        "left": 427,
+        "top": 200,
+        "width": 29,
+        "height": 12,
+        "line": "11"
+      },
+      {
+        "text": "author,",
+        "left": 461,
+        "top": 200,
+        "width": 41,
+        "height": 12,
+        "line": "11"
+      },
+      {
+        "text": "repository,",
+        "left": 508,
+        "top": 200,
+        "width": 62,
+        "height": 13,
+        "line": "11"
+      },
+      {
+        "text": "or",
+        "left": 576,
+        "top": 202,
+        "width": 12,
+        "height": 8,
+        "line": "11"
+      },
+      {
+        "text": "number",
+        "left": 593,
+        "top": 200,
+        "width": 46,
+        "height": 10,
+        "line": "11"
+      },
+      {
+        "text": "Conversation",
+        "left": 285,
+        "top": 242,
+        "width": 82,
+        "height": 12,
+        "line": "12"
+      },
+      {
+        "text": "Reviews",
+        "left": 399,
+        "top": 242,
+        "width": 52,
+        "height": 11,
+        "line": "13"
+      },
+      {
+        "text": "\u2018Commits",
+        "left": 481,
+        "top": 242,
+        "width": 55,
+        "height": 11,
+        "line": "14"
+      },
+      {
+        "text": "Checks",
+        "left": 567,
+        "top": 242,
+        "width": 47,
+        "height": 11,
+        "line": "15"
+      },
+      {
+        "text": "Files",
+        "left": 645,
+        "top": 242,
+        "width": 28,
+        "height": 11,
+        "line": "16"
+      },
+      {
+        "text": "Review",
+        "left": 705,
+        "top": 242,
+        "width": 45,
+        "height": 11,
+        "line": "17"
+      },
+      {
+        "text": "threads",
+        "left": 754,
+        "top": 242,
+        "width": 46,
+        "height": 11,
+        "line": "17"
+      },
+      {
+        "text": "History",
+        "left": 832,
+        "top": 242,
+        "width": 43,
+        "height": 14,
+        "line": "18"
+      },
+      {
+        "text": "\u2018Comment",
+        "left": 274,
+        "top": 282,
+        "width": 56,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "posted",
+        "left": 334,
+        "top": 282,
+        "width": 38,
+        "height": 13,
+        "line": "19"
+      },
+      {
+        "text": "-fixture-org/native-demo",
+        "left": 377,
+        "top": 282,
+        "width": 140,
+        "height": 13,
+        "line": "19"
+      },
+      {
+        "text": "#7.",
+        "left": 521,
+        "top": 282,
+        "width": 17,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "Refresh",
+        "left": 544,
+        "top": 282,
+        "width": 44,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "to",
+        "left": 592,
+        "top": 283,
+        "width": 10,
+        "height": 9,
+        "line": "19"
+      },
+      {
+        "text": "load",
+        "left": 607,
+        "top": 282,
+        "width": 23,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "the",
+        "left": 634,
+        "top": 282,
+        "width": 18,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "updated",
+        "left": 657,
+        "top": 282,
+        "width": 46,
+        "height": 13,
+        "line": "19"
+      },
+      {
+        "text": "result.",
+        "left": 707,
+        "top": 282,
+        "width": 32,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "5",
+        "left": 0,
+        "top": 804,
+        "width": 18,
+        "height": 16,
+        "line": "20"
+      },
+      {
+        "text": "PRs",
+        "left": 23,
+        "top": 804,
+        "width": 21,
+        "height": 9,
+        "line": "20"
+      },
+      {
+        "text": "Oschedules",
+        "left": 61,
+        "top": 804,
+        "width": 64,
+        "height": 9,
+        "line": "21"
+      },
+      {
+        "text": "0",
+        "left": 142,
+        "top": 804,
+        "width": 6,
+        "height": 9,
+        "line": "21"
+      },
+      {
+        "text": "jobs",
+        "left": 152,
+        "top": 804,
+        "width": 22,
+        "height": 12,
+        "line": "21"
+      },
+      {
+        "text": "\u2018No",
+        "left": 195,
+        "top": 804,
+        "width": 29,
+        "height": 9,
+        "line": "22"
+      },
+      {
+        "text": "gh",
+        "left": 229,
+        "top": 804,
+        "width": 10,
+        "height": 10,
+        "line": "22"
+      },
+      {
+        "text": "account",
+        "left": 245,
+        "top": 805,
+        "width": 38,
+        "height": 7,
+        "line": "22"
+      },
+      {
+        "text": "\u00a9",
+        "left": 1107,
+        "top": 804,
+        "width": 10,
+        "height": 10,
+        "line": "23"
+      },
+      {
+        "text": "1031:19PM",
+        "left": 1124,
+        "top": 804,
+        "width": 59,
+        "height": 8,
+        "line": "23"
+      }
+    ],
+    "16792db59819": [
+      {
+        "text": "@@e@",
+        "left": 10,
+        "top": 11,
+        "width": 52,
+        "height": 12,
+        "line": "0"
+      },
+      {
+        "text": "Gy",
+        "left": 80,
+        "top": 6,
+        "width": 20,
+        "height": 20,
+        "line": "0"
+      },
+      {
+        "text": "Buddy",
+        "left": 110,
+        "top": 11,
+        "width": 34,
+        "height": 12,
+        "line": "0"
+      },
+      {
+        "text": "File",
+        "left": 160,
+        "top": 11,
+        "width": 18,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "Edt",
+        "left": 190,
+        "top": 11,
+        "width": 20,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "view",
+        "left": 220,
+        "top": 11,
+        "width": 26,
+        "height": 9,
+        "line": "0"
+      },
+      {
+        "text": "Help",
+        "left": 257,
+        "top": 11,
+        "width": 24,
+        "height": 12,
+        "line": "0"
+      },
+      {
+        "text": "#o",
+        "left": 1156,
+        "top": 0,
+        "width": 44,
+        "height": 22,
+        "line": "1"
+      },
+      {
+        "text": "og",
+        "left": 18,
+        "top": 51,
+        "width": 14,
+        "height": 8,
+        "line": "2"
+      },
+      {
+        "text": "First",
+        "left": 669,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "3"
+      },
+      {
+        "text": "private",
+        "left": 696,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "navigation",
+        "left": 735,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "3"
+      },
+      {
+        "text": "review",
+        "left": 793,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "3"
+      },
+      {
+        "text": "x",
+        "left": 836,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "3"
+      },
+      {
+        "text": "GitHub:",
+        "left": 874,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "#7",
+        "left": 918,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "First",
+        "left": 935,
+        "top": 44,
+        "width": 23,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "private",
+        "left": 962,
+        "top": 44,
+        "width": 35,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "navigation",
+        "left": 1001,
+        "top": 44,
+        "width": 54,
+        "height": 12,
+        "line": "4"
+      },
+      {
+        "text": "review",
+        "left": 1059,
+        "top": 44,
+        "width": 34,
+        "height": 9,
+        "line": "4"
+      },
+      {
+        "text": "x",
+        "left": 1102,
+        "top": 46,
+        "width": 7,
+        "height": 7,
+        "line": "4"
+      },
+      {
+        "text": "GitHub:",
+        "left": 1140,
+        "top": 44,
+        "width": 40,
+        "height": 9,
+        "line": "5"
+      },
+      {
+        "text": "#7",
+        "left": 1184,
+        "top": 44,
+        "width": 13,
+        "height": 9,
+        "line": "5"
+      },
+      {
+        "text": "85",
+        "left": 18,
+        "top": 57,
+        "width": 14,
+        "height": 8,
+        "line": "6"
+      },
+      {
+        "text": "\u00ab(GARG",
+        "left": 53,
+        "top": 44,
+        "width": 53,
+        "height": 10,
+        "line": "7"
+      },
+      {
+        "text": "tegen",
+        "left": 120,
+        "top": 44,
+        "width": 191,
+        "height": 12,
+        "line": "7"
+      },
+      {
+        "text": "evo)\u00bb",
+        "left": 262,
+        "top": 24,
+        "width": 46,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "~via:",
+        "left": 322,
+        "top": 24,
+        "width": 60,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "07",
+        "left": 388,
+        "top": 24,
+        "width": 11,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "Ft",
+        "left": 406,
+        "top": 44,
+        "width": 20,
+        "height": 9,
+        "line": "7"
+      },
+      {
+        "text": "pte",
+        "left": 430,
+        "top": 24,
+        "width": 36,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "nipaton",
+        "left": 472,
+        "top": 24,
+        "width": 50,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "revo",
+        "left": 528,
+        "top": 24,
+        "width": 29,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "x",
+        "left": 570,
+        "top": 46,
+        "width": 4,
+        "height": 7,
+        "line": "7"
+      },
+      {
+        "text": "=~",
+        "left": 588,
+        "top": 24,
+        "width": 11,
+        "height": 42,
+        "line": "7"
+      },
+      {
+        "text": "Gib",
+        "left": 608,
+        "top": 44,
+        "width": 30,
+        "height": 9,
+        "line": "7"
+      },
+      {
+        "text": "Filter",
+        "left": 417,
+        "top": 169,
+        "width": 28,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "loaded",
+        "left": 449,
+        "top": 169,
+        "width": 38,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "items",
+        "left": 492,
+        "top": 169,
+        "width": 30,
+        "height": 10,
+        "line": "8"
+      },
+      {
+        "text": "Back",
+        "left": 286,
+        "top": 186,
+        "width": 30,
+        "height": 11,
+        "line": "9"
+      },
+      {
+        "text": "Refresh",
+        "left": 348,
+        "top": 186,
+        "width": 47,
+        "height": 11,
+        "line": "10"
+      },
+      {
+        "text": "Title,",
+        "left": 427,
+        "top": 200,
+        "width": 29,
+        "height": 12,
+        "line": "11"
+      },
+      {
+        "text": "author,",
+        "left": 461,
+        "top": 200,
+        "width": 41,
+        "height": 12,
+        "line": "11"
+      },
+      {
+        "text": "repository,",
+        "left": 508,
+        "top": 200,
+        "width": 62,
+        "height": 13,
+        "line": "11"
+      },
+      {
+        "text": "or",
+        "left": 576,
+        "top": 202,
+        "width": 12,
+        "height": 8,
+        "line": "11"
+      },
+      {
+        "text": "number",
+        "left": 593,
+        "top": 200,
+        "width": 46,
+        "height": 10,
+        "line": "11"
+      },
+      {
+        "text": "Conversation",
+        "left": 285,
+        "top": 242,
+        "width": 82,
+        "height": 12,
+        "line": "12"
+      },
+      {
+        "text": "Reviews",
+        "left": 399,
+        "top": 242,
+        "width": 52,
+        "height": 11,
+        "line": "13"
+      },
+      {
+        "text": "\u2018Commits",
+        "left": 481,
+        "top": 242,
+        "width": 55,
+        "height": 11,
+        "line": "14"
+      },
+      {
+        "text": "Checks",
+        "left": 567,
+        "top": 242,
+        "width": 47,
+        "height": 11,
+        "line": "15"
+      },
+      {
+        "text": "Files",
+        "left": 645,
+        "top": 242,
+        "width": 28,
+        "height": 11,
+        "line": "16"
+      },
+      {
+        "text": "Review",
+        "left": 705,
+        "top": 242,
+        "width": 45,
+        "height": 11,
+        "line": "17"
+      },
+      {
+        "text": "threads",
+        "left": 754,
+        "top": 242,
+        "width": 46,
+        "height": 11,
+        "line": "17"
+      },
+      {
+        "text": "History",
+        "left": 832,
+        "top": 242,
+        "width": 43,
+        "height": 14,
+        "line": "18"
+      },
+      {
+        "text": "\u2018Comment",
+        "left": 274,
+        "top": 282,
+        "width": 56,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "posted",
+        "left": 334,
+        "top": 282,
+        "width": 38,
+        "height": 13,
+        "line": "19"
+      },
+      {
+        "text": "-fixture-org/native-demo",
+        "left": 377,
+        "top": 282,
+        "width": 140,
+        "height": 13,
+        "line": "19"
+      },
+      {
+        "text": "#7.",
+        "left": 521,
+        "top": 282,
+        "width": 17,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "Refresh",
+        "left": 544,
+        "top": 282,
+        "width": 44,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "to",
+        "left": 592,
+        "top": 283,
+        "width": 10,
+        "height": 9,
+        "line": "19"
+      },
+      {
+        "text": "load",
+        "left": 607,
+        "top": 282,
+        "width": 23,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "the",
+        "left": 634,
+        "top": 282,
+        "width": 18,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "updated",
+        "left": 657,
+        "top": 282,
+        "width": 46,
+        "height": 13,
+        "line": "19"
+      },
+      {
+        "text": "result.",
+        "left": 707,
+        "top": 282,
+        "width": 32,
+        "height": 10,
+        "line": "19"
+      },
+      {
+        "text": "5",
+        "left": 0,
+        "top": 804,
+        "width": 18,
+        "height": 16,
+        "line": "20"
+      },
+      {
+        "text": "PRs",
+        "left": 23,
+        "top": 804,
+        "width": 21,
+        "height": 9,
+        "line": "20"
+      },
+      {
+        "text": "Oschedules",
+        "left": 61,
+        "top": 804,
+        "width": 64,
+        "height": 9,
+        "line": "21"
+      },
+      {
+        "text": "0",
+        "left": 142,
+        "top": 804,
+        "width": 6,
+        "height": 9,
+        "line": "21"
+      },
+      {
+        "text": "jobs",
+        "left": 152,
+        "top": 804,
+        "width": 22,
+        "height": 12,
+        "line": "21"
+      },
+      {
+        "text": "\u2018No",
+        "left": 195,
+        "top": 804,
+        "width": 29,
+        "height": 9,
+        "line": "22"
+      },
+      {
+        "text": "gh",
+        "left": 229,
+        "top": 804,
+        "width": 10,
+        "height": 10,
+        "line": "22"
+      },
+      {
+        "text": "account",
+        "left": 245,
+        "top": 805,
+        "width": 38,
+        "height": 7,
+        "line": "22"
+      },
+      {
+        "text": "\u00a9",
+        "left": 1107,
+        "top": 804,
+        "width": 10,
+        "height": 10,
+        "line": "23"
+      },
+      {
+        "text": "10:331:20PM",
+        "left": 1124,
+        "top": 804,
+        "width": 59,
+        "height": 8,
+        "line": "23"
+      }
+    ]
+  }
+}

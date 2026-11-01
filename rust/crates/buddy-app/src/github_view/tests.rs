@@ -532,3 +532,23 @@ fn removing_an_account_invalidates_tabs_history_and_retained_sidebar_callbacks(
         .unwrap();
     });
 }
+
+// Test-only state access for the root shell's real status-bar mouse tests.
+impl GitHubView {
+    pub(crate) fn seed_status_click_page(&mut self, cx: &mut Context<Self>) {
+        self.route = Route::Pulls(PrMode::NeedsReview);
+        self.data = Some(PageData {
+            next: Some(PageCursor::Rest(4)),
+            ..Default::default()
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn assert_status_click_reset(&self) {
+        assert_eq!(self.route, Route::Pulls(PrMode::MyPrs));
+        assert!(
+            self.data.is_none(),
+            "The retained page and its cursor must be cleared"
+        );
+    }
+}

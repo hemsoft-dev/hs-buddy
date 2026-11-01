@@ -84,14 +84,30 @@ it('keeps Spotlight off the native DMG while it is detached', () => {
 })
 
 it('gives native jobs measured headroom with a bounded hang limit', () => {
-  // A healthy Intel run on main hit the old 150-minute limit (#852).
+  // #852 exceeded 150m on Intel. #899 ARM spent 51m building/testing and
+  // 69m qualifying before cancellation; #901's completed qualification took 64m.
   const native = readFileSync('.github/workflows/rust.yml', 'utf8')
   const limit = native.match(
+    /^ {4}timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| matrix\.os == 'macos-15' && (\d+) \|\| (\d+) \}\}/m
+  )
+  const [intel, arm, other] = limit?.slice(1).map(Number) ?? []
+  expect(intel).toBeGreaterThanOrEqual(210)
+  expect(intel).toBeLessThanOrEqual(240)
+  expect(arm).toBeGreaterThanOrEqual(150)
+  expect(arm).toBeLessThanOrEqual(180)
+  expect(other).toBe(120)
+  const install = native
+    .split('- name: Install and qualify Unix package')[1]
+    ?.split('\n      - name:', 1)[0]
+  const budget = install?.match(
     /timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| (\d+) \}\}/
   )
-  expect(Number(limit?.[1])).toBeGreaterThanOrEqual(210)
-  expect(Number(limit?.[2])).toBeGreaterThanOrEqual(120)
-  expect(Number(limit?.[1])).toBeLessThanOrEqual(240)
+  // A completed 64m suite fits, and a 51m build plus the whole scene budget
+  // still leaves time for evidence staging/upload before the job's hard kill.
+  const [intelSuite, armSuite] = budget?.slice(1).map(Number) ?? []
+  expect(armSuite).toBeGreaterThan(64)
+  expect(51 + armSuite + 5).toBeLessThan(arm)
+  expect(intelSuite + 5).toBeLessThan(intel)
 })
 
 it('fails the Windows OCR install when Chocolatey installs nothing', () => {

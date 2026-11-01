@@ -166,13 +166,6 @@ impl AutomationView {
         }
     }
 
-    fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
-        self.pane = pane;
-        self.page = 0;
-        self.job_page = 0;
-        cx.notify();
-    }
-
     fn open_job(
         &mut self,
         job: Option<Job>,

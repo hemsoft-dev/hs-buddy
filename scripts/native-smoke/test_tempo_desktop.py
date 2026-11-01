@@ -19,6 +19,16 @@ spec.loader.exec_module(desktop)
 
 
 class FixtureScenarios(unittest.TestCase):
+    def test_view_clicks_are_content_scoped_before_reaching_each_platform_driver(self):
+        for session in ('macos', 'x11', 'windows'):
+            with self.subTest(session=session):
+                driver = object.__new__(desktop.TempoDriver)
+                driver.session = session
+                actions = [('click', 'Timesheet'), ('click', 'Timeline'), ('click', 'Refresh'), ('wait_text', 'Tempo timesheet')]
+                with patch.object(desktop.settings.Driver, 'drive', return_value='owned') as drive:
+                    self.assertEqual(driver.drive('scene', actions), 'owned')
+                self.assertEqual(drive.call_args.args[1], [('content', 'Timesheet'), ('content', 'Timeline'), ('content', 'Refresh'), ('wait_text', 'Tempo timesheet')])
+
     def test_real_http_preflight_counts_only_mutations_after_recorded_reads(self):
         with desktop.ScenarioFixture() as api:
             api.preflight_after_lookup = True
@@ -151,6 +161,41 @@ class FixtureScenarios(unittest.TestCase):
 
 
 class CellInput(unittest.TestCase):
+    def test_real_windows_today_capture_requires_the_toolbar_scope_on_every_platform(self):
+        fixture = json.loads(Path(desktop.__file__).with_name('fixtures').joinpath('tempo-windows-today-scope.json').read_text())
+        ocr = desktop.settings.ocr
+        for name, words in fixture['layouts'].items():
+            with self.subTest(layout=name):
+                target = ocr.find_label(words, fixture['target'], between=fixture['anchors'])
+                self.assertEqual(target, dict(left=210, top=140, width=38, height=13))
+                # Competing toolbar controls must still fail, even though
+                # Today in warning/help prose below the totals is excluded.
+                duplicate = words + [dict(target, text='Today', line='duplicate', left=400)]
+                with self.assertRaises(ocr.AmbiguousLabel):
+                    ocr.find_label(duplicate, fixture['target'], between=fixture['anchors'])
+                with self.assertRaises(RuntimeError):
+                    ocr.find_label(words, fixture['target'], between=('Missing heading', 'Logged'))
+        # The Windows path first misses the menu in sparse Tesseract, then
+        # correctly rejects four Today matches in block mode. Replay that
+        # exact engine order rather than assuming every engine sees a collision.
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / 'owned.png'
+            image.write_bytes(b'owned capture')
+            sparse = fixture['layouts']['settings-locator.ocr-11.json']
+            with patch.object(ocr.shutil, 'which', return_value='tesseract'), \
+                    patch.object(ocr, 'recognize', side_effect=[sparse, fixture['ambiguousWords']]):
+                with self.assertRaisesRegex(ocr.AmbiguousLabel, '4 visible matches'):
+                    ocr.locate_image(image, 'Today', content=True)
+            with patch.object(ocr.shutil, 'which', return_value='tesseract'), \
+                    patch.object(ocr, 'recognize', return_value=sparse) as recognize:
+                self.assertEqual(ocr.locate_image(image, 'Today', between=fixture['anchors']),
+                    dict(left=210, top=140, width=38, height=13))
+                recognize.assert_called_once_with(image, 11)
+        for session in ('windows', 'macos', 'x11'):
+            actions = self.driven('range-navigation-dark', session)
+            today, = [action for action in actions if len(action) > 1 and action[1] == 'Today']
+            self.assertEqual(today, ('between', 'Today', *fixture['anchors']))
+
     @staticmethod
     def stage_actions(stage, session):
         tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))
@@ -181,7 +226,7 @@ class CellInput(unittest.TestCase):
             driver.drive(stage, CellInput.stage_actions(stage, session))
         return drive.call_args.args[2]
 
-    def test_every_mac_tempo_editor_gets_one_bounded_offset_and_other_sessions_are_unchanged(self):
+    def test_every_mac_tempo_editor_gets_one_bounded_offset_and_other_sessions_preserve_inputs(self):
         stages = ('connect-dark', 'range-navigation-dark', 'grid-navigation-dark', 'template-dark', 'denied-write-dark')
         for stage in stages:
             mac = [action for action in self.driven(stage, 'macos') if action[0] == 'input']
@@ -195,7 +240,9 @@ class CellInput(unittest.TestCase):
                 self.assertEqual(sum(isinstance(item, dict) for item in action), 1, action[:2])
                 self.assertEqual(action[-1], {'labelBottomOffset': 30}, action[:2])
             for session in ('windows', 'x11'):
-                self.assertEqual(self.driven(stage, session), self.stage_actions(stage, session))
+                expected = [('content', *action[1:]) if action[0] == 'click' else action
+                    for action in self.stage_actions(stage, session)]
+                self.assertEqual(self.driven(stage, session), expected)
         start, = [action for action in self.driven('denied-write-dark', 'macos')
             if action[:2] == ('input', 'Start time in the account timezone')]
         self.assertEqual(start[3:], ({'labelBottomOffset': 30},))

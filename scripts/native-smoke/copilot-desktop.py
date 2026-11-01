@@ -16,6 +16,7 @@ import uuid
 from desktop import fixture
 import importlib.util
 HERE = Path(__file__).resolve().parent
+SESSION_SOURCE_ERROR = 'The selected VS Code session directory is unavailable.'
 
 def load(name):
     spec = importlib.util.spec_from_file_location(name.replace('-', '_'), HERE / (name + '.py'))
@@ -305,13 +306,13 @@ def qualify(executable, output, session, version, backend, api):
                 ('capture', 'session-detail-light'), ('resize', 900, 650), ('capture', 'session-compact-light'),
                 ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
                 ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('content', 'Scan folder'),
-                ('wait_text', 'unavailable'), ('content', 'Next requests'),
+                ('wait_content', SESSION_SOURCE_ERROR), ('content', 'Next requests'),
                 ('wait_scroll_above', 'Final synthetic request twenty one', 'Next requests'), ('capture', 'session-error-light'),
                 ('content', 'Previous requests'), ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
-                ('wait_text', 'unavailable'),
+                ('wait_content', SESSION_SOURCE_ERROR),
             ])
             github.check(sessions / 'session-detail-light.png', '100 prompt tokens', '25 output tokens', '0.25')
-            github.check(sessions / 'session-error-light.png', 'unavailable', 'Loaded source')
+            github.check(sessions / 'session-error-light.png', SESSION_SOURCE_ERROR, 'Loaded source')
             terminal.verify_sentinel(sentinel, 'all native Copilot app shutdowns')
             assert_no_owned_children(output)
             (output / 'requests.json').write_text(json.dumps(api.requests, indent=2))

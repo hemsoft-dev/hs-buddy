@@ -14,6 +14,57 @@ fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
+#[gpui_kit::test]
+fn shell_totals_follow_unfiltered_snapshots_and_preserve_stale_counts(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = AutomationView::new(window, cx);
+                assert_eq!(view.status_totals(), (None, None, false));
+                // A profile failure never creates a dispatcher or a snapshot.
+                view.error = Some("Automation has not started.".into());
+                assert_eq!(view.status_totals(), (None, None, true));
+                view.error = None;
+                // A dispatcher can also fail while opening its coordinator.
+                view.snapshot.error = Some("Cannot open automation journal".into());
+                assert_eq!(view.status_totals(), (None, None, true));
+                view.snapshot.error = None;
+                assert_eq!(view.status_totals(), (None, None, false));
+                view.snapshot.connection_error = Some("Offline".into());
+                assert_eq!(view.status_totals(), (None, None, true));
+                view.snapshot = sample();
+                view.snapshot.loaded = true;
+                view.snapshot.connected = true;
+                let totals = (
+                    Some(view.snapshot.jobs.len() as u64),
+                    Some(view.snapshot.schedules.len() as u64),
+                    false,
+                );
+                assert_eq!(view.status_totals(), totals);
+                view.snapshot.connected = false;
+                assert_eq!(view.status_totals(), (totals.0, totals.1, true));
+                view.snapshot.jobs.clear();
+                view.snapshot.schedules.clear();
+                view.snapshot.connected = true;
+                assert_eq!(view.status_totals(), (Some(0), Some(0), false));
+                for (schedules, expected) in [(true, Pane::Schedules), (false, Pane::Jobs)] {
+                    view.page = 3;
+                    view.job_page = 2;
+                    view.show_status_list(schedules, cx);
+                    assert!(view.pane == expected);
+                    assert_eq!((view.page, view.job_page), (0, 0));
+                }
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
 fn job_spec<'a>(original: &'a Value, target: Option<&'a str>, worker: WorkerType) -> DraftSpec<'a> {
     DraftSpec {
         kind: FormKind::Job,
@@ -628,4 +679,26 @@ fn an_unchanged_tick_does_not_advance_the_redraw_sequence() {
     running.output = Some(("run-1".into(), "more output".into()));
     assert!(publish_into(&target, running));
     assert_eq!(target.lock().unwrap().sequence, first + 1);
+}
+
+// Test-only state access for the root shell's real status-bar mouse tests.
+impl AutomationView {
+    pub(crate) fn seed_status_click_page(&mut self, cx: &mut Context<Self>) {
+        self.pane = Pane::History;
+        self.page = 3;
+        self.job_page = 2;
+        cx.notify();
+    }
+
+    pub(crate) fn assert_status_click_reset(&self, schedules: bool) {
+        assert!(
+            self.pane
+                == if schedules {
+                    Pane::Schedules
+                } else {
+                    Pane::Jobs
+                }
+        );
+        assert_eq!((self.page, self.job_page), (0, 0));
+    }
 }

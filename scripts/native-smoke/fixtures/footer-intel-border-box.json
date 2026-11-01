@@ -1,0 +1,124 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41236333315/artifacts/13056343657",
+  "image": "settings/appearance-controls/locator.png",
+  "sha256": "b37eb096bc66873199781cface6420e5a040e8be9a9f1ef8bfcaf00f836b9731",
+  "footerWords": [
+    {
+      "text": "PRs",
+      "left": 0,
+      "top": 804,
+      "width": 33,
+      "height": 16,
+      "line": "42/1/1"
+    },
+    {
+      "text": "unavailable",
+      "left": 38,
+      "top": 794,
+      "width": 64,
+      "height": 26,
+      "line": "42/1/1"
+    },
+    {
+      "text": "0",
+      "left": 115,
+      "top": 804,
+      "width": 5,
+      "height": 9,
+      "line": "42/1/1"
+    },
+    {
+      "text": "schedules",
+      "left": 125,
+      "top": 804,
+      "width": 54,
+      "height": 9,
+      "line": "42/1/1"
+    },
+    {
+      "text": "0",
+      "left": 196,
+      "top": 804,
+      "width": 6,
+      "height": 9,
+      "line": "42/1/1"
+    },
+    {
+      "text": "jobs",
+      "left": 206,
+      "top": 804,
+      "width": 22,
+      "height": 12,
+      "line": "42/1/1"
+    },
+    {
+      "text": "&",
+      "left": 250,
+      "top": 804,
+      "width": 11,
+      "height": 9,
+      "line": "43/1/1"
+    },
+    {
+      "text": "No",
+      "left": 267,
+      "top": 804,
+      "width": 12,
+      "height": 8,
+      "line": "43/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 283,
+      "top": 804,
+      "width": 11,
+      "height": 10,
+      "line": "43/1/1"
+    },
+    {
+      "text": "account",
+      "left": 299,
+      "top": 805,
+      "width": 38,
+      "height": 7,
+      "line": "43/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 1107,
+      "top": 804,
+      "width": 7,
+      "height": 10,
+      "line": "44/1/1"
+    },
+    {
+      "text": "08:30:06PM",
+      "left": 1120,
+      "top": 804,
+      "width": 63,
+      "height": 10,
+      "line": "44/1/1"
+    }
+  ],
+  "footer": {
+    "top": 794,
+    "height": 26,
+    "left": 0,
+    "right": 228
+  },
+  "scale": 1,
+  "width": 1200,
+  "height": 820,
+  "metadata": {
+    "kCGWindowBounds": {
+      "Height": 820,
+      "Width": 1200,
+      "X": 80,
+      "Y": 80
+    },
+    "capturePixelSize": [1200, 820],
+    "capturePixelsPerWindowPoint": 1.0
+  },
+  "pixels": "eJzt3LFxAzEMBdFOFJ4DRccvBXej/utyBcjowQreV8KfTRgQCcvjDxzHsda6ruujbxaY7aGute77Ps/z+Xz+6JsFZm+o7/f79Xp1b6w9ArMx1LWWoU4SmF2hHsdx33f3utopQ1tda53n2b2udsrQVq/r8jE1TIa2+vl8uqfVZoGxVVUCY6uqBMZWVQmMraoSGFtVJTC2qkpgbFWVwNiqKoGxVVUCY6uqBMZWVQmMraoSGFtVJTC2qkpgbFWVwNiqKoGxVVUytFX/sMyToa36N3CeDG3VP9fzZGir3rKYJ3Nb9UbQMBndqrfXJsn0Vr1pOUb+QauaITDde4grMN17iCsw3XuIKzDde4grMN17iCsw3XuIKzDde4grMN17iCsw3XuIKzDde4grMN17iCsw3XuIKzDde4grMN17iCsw3XuIKzDde4grMN17iCsw3XuIKzDde+iB9QvL3Q4U",
+  "expectedContentHeight": 798
+}

@@ -1,0 +1,230 @@
+{
+  "artifact": 13031391704,
+  "description": "Original OCR words from failed #899 Copilot session capture; only menu/tab rows, content error and status footer retained.",
+  "words": [
+    {
+      "text": "Buddy",
+      "left": 43,
+      "top": 11,
+      "width": 37,
+      "height": 13,
+      "line": "1/1/1"
+    },
+    {
+      "text": "File",
+      "left": 96,
+      "top": 11,
+      "width": 19,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 127,
+      "top": 11,
+      "width": 22,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "View",
+      "left": 160,
+      "top": 12,
+      "width": 28,
+      "height": 9,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 200,
+      "top": 11,
+      "width": 26,
+      "height": 13,
+      "line": "1/1/1"
+    },
+    {
+      "text": "#8",
+      "left": 856,
+      "top": 11,
+      "width": 33,
+      "height": 11,
+      "line": "2/1/1"
+    },
+    {
+      "text": "88",
+      "left": 63,
+      "top": 44,
+      "width": 12,
+      "height": 12,
+      "line": "3/1/1"
+    },
+    {
+      "text": "Dashboard",
+      "left": 85,
+      "top": 45,
+      "width": 63,
+      "height": 10,
+      "line": "3/1/1"
+    },
+    {
+      "text": "The",
+      "left": 64,
+      "top": 595,
+      "width": 24,
+      "height": 11,
+      "line": "28/1/1"
+    },
+    {
+      "text": "selected",
+      "left": 93,
+      "top": 595,
+      "width": 53,
+      "height": 11,
+      "line": "28/1/1"
+    },
+    {
+      "text": "VS",
+      "left": 151,
+      "top": 597,
+      "width": 17,
+      "height": 9,
+      "line": "28/1/1"
+    },
+    {
+      "text": "Code",
+      "left": 173,
+      "top": 595,
+      "width": 32,
+      "height": 11,
+      "line": "28/1/1"
+    },
+    {
+      "text": "session",
+      "left": 211,
+      "top": 599,
+      "width": 46,
+      "height": 7,
+      "line": "28/1/1"
+    },
+    {
+      "text": "directory",
+      "left": 263,
+      "top": 595,
+      "width": 57,
+      "height": 14,
+      "line": "28/1/1"
+    },
+    {
+      "text": "is",
+      "left": 325,
+      "top": 599,
+      "width": 9,
+      "height": 7,
+      "line": "28/1/1"
+    },
+    {
+      "text": "unavailable.",
+      "left": 340,
+      "top": 595,
+      "width": 77,
+      "height": 11,
+      "line": "28/1/1"
+    },
+    {
+      "text": "PRs",
+      "left": 13,
+      "top": 635,
+      "width": 20,
+      "height": 9,
+      "line": "29/1/1"
+    },
+    {
+      "text": "unavailable",
+      "left": 38,
+      "top": 634,
+      "width": 69,
+      "height": 10,
+      "line": "29/1/1"
+    },
+    {
+      "text": "0",
+      "left": 124,
+      "top": 635,
+      "width": 7,
+      "height": 9,
+      "line": "29/1/1"
+    },
+    {
+      "text": "schedules",
+      "left": 136,
+      "top": 634,
+      "width": 59,
+      "height": 10,
+      "line": "29/1/1"
+    },
+    {
+      "text": "0",
+      "left": 212,
+      "top": 635,
+      "width": 7,
+      "height": 9,
+      "line": "30/1/1"
+    },
+    {
+      "text": "jobs",
+      "left": 223,
+      "top": 634,
+      "width": 25,
+      "height": 13,
+      "line": "30/1/1"
+    },
+    {
+      "text": "2",
+      "left": 269,
+      "top": 634,
+      "width": 11,
+      "height": 9,
+      "line": "31/1/1"
+    },
+    {
+      "text": "No",
+      "left": 286,
+      "top": 635,
+      "width": 14,
+      "height": 8,
+      "line": "31/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 304,
+      "top": 634,
+      "width": 13,
+      "height": 11,
+      "line": "31/1/1"
+    },
+    {
+      "text": "account",
+      "left": 322,
+      "top": 635,
+      "width": 43,
+      "height": 8,
+      "line": "31/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 799,
+      "top": 634,
+      "width": 10,
+      "height": 10,
+      "line": "32/1/1"
+    },
+    {
+      "text": "05:09:19AM",
+      "left": 816,
+      "top": 635,
+      "width": 67,
+      "height": 8,
+      "line": "32/1/1"
+    }
+  ]
+}

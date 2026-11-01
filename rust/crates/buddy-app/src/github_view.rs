@@ -35,6 +35,9 @@ pub enum GitHubEvent {
 }
 impl gpui_kit::EventEmitter<GitHubEvent> for GitHubView {}
 impl GitHubView {
+    pub(crate) fn show_status_prs(&mut self, cx: &mut Context<Self>) {
+        self.navigate(Route::Pulls(PrMode::MyPrs), cx);
+    }
     pub(crate) fn terminal_context(
         &self,
         cx: &App,

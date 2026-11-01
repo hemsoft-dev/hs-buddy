@@ -1,0 +1,238 @@
+{
+  "artifact": 13032341256,
+  "description": "Original OCR words from failed #899 Copilot session capture; only menu/tab rows, content error and status footer retained.",
+  "words": [
+    {
+      "text": "Buddy",
+      "left": 51,
+      "top": 12,
+      "width": 33,
+      "height": 12,
+      "line": "1/1/1"
+    },
+    {
+      "text": "File",
+      "left": 99,
+      "top": 12,
+      "width": 17,
+      "height": 9,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Edit",
+      "left": 127,
+      "top": 12,
+      "width": 19,
+      "height": 9,
+      "line": "1/1/1"
+    },
+    {
+      "text": "View",
+      "left": 157,
+      "top": 12,
+      "width": 26,
+      "height": 9,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 194,
+      "top": 12,
+      "width": 24,
+      "height": 12,
+      "line": "1/1/1"
+    },
+    {
+      "text": "#8",
+      "left": 746,
+      "top": 11,
+      "width": 33,
+      "height": 11,
+      "line": "2/1/1"
+    },
+    {
+      "text": "a",
+      "left": 836,
+      "top": 11,
+      "width": 10,
+      "height": 10,
+      "line": "3/1/1"
+    },
+    {
+      "text": "x",
+      "left": 871,
+      "top": 12,
+      "width": 8,
+      "height": 8,
+      "line": "4/1/1"
+    },
+    {
+      "text": "88",
+      "left": 71,
+      "top": 44,
+      "width": 12,
+      "height": 12,
+      "line": "5/1/1"
+    },
+    {
+      "text": "Dashboard",
+      "left": 93,
+      "top": 46,
+      "width": 56,
+      "height": 9,
+      "line": "5/1/1"
+    },
+    {
+      "text": "\u2018The",
+      "left": 72,
+      "top": 589,
+      "width": 21,
+      "height": 10,
+      "line": "24/1/1"
+    },
+    {
+      "text": "selected",
+      "left": 97,
+      "top": 589,
+      "width": 46,
+      "height": 10,
+      "line": "24/1/1"
+    },
+    {
+      "text": "VS",
+      "left": 147,
+      "top": 590,
+      "width": 14,
+      "height": 9,
+      "line": "24/1/1"
+    },
+    {
+      "text": "Code",
+      "left": 166,
+      "top": 589,
+      "width": 29,
+      "height": 10,
+      "line": "24/1/1"
+    },
+    {
+      "text": "session",
+      "left": 200,
+      "top": 592,
+      "width": 40,
+      "height": 7,
+      "line": "24/1/1"
+    },
+    {
+      "text": "directory",
+      "left": 245,
+      "top": 589,
+      "width": 50,
+      "height": 13,
+      "line": "24/1/1"
+    },
+    {
+      "text": "is",
+      "left": 300,
+      "top": 592,
+      "width": 7,
+      "height": 7,
+      "line": "24/1/1"
+    },
+    {
+      "text": "unavailable.",
+      "left": 312,
+      "top": 589,
+      "width": 63,
+      "height": 10,
+      "line": "24/1/1"
+    },
+    {
+      "text": "PRs",
+      "left": 21,
+      "top": 617,
+      "width": 17,
+      "height": 28,
+      "line": "25/1/1"
+    },
+    {
+      "text": "unavailable",
+      "left": 43,
+      "top": 627,
+      "width": 59,
+      "height": 9,
+      "line": "25/1/1"
+    },
+    {
+      "text": "O",
+      "left": 118,
+      "top": 627,
+      "width": 6,
+      "height": 9,
+      "line": "26/1/1"
+    },
+    {
+      "text": "schedules",
+      "left": 128,
+      "top": 627,
+      "width": 51,
+      "height": 9,
+      "line": "26/1/1"
+    },
+    {
+      "text": "2",
+      "left": 249,
+      "top": 626,
+      "width": 10,
+      "height": 8,
+      "line": "27/1/1"
+    },
+    {
+      "text": "No",
+      "left": 266,
+      "top": 628,
+      "width": 12,
+      "height": 8,
+      "line": "27/1/1"
+    },
+    {
+      "text": "gh",
+      "left": 283,
+      "top": 628,
+      "width": 11,
+      "height": 10,
+      "line": "27/1/1"
+    },
+    {
+      "text": "account",
+      "left": 299,
+      "top": 628,
+      "width": 38,
+      "height": 8,
+      "line": "27/1/1"
+    },
+    {
+      "text": "\u00a9",
+      "left": 801,
+      "top": 626,
+      "width": 10,
+      "height": 10,
+      "line": "28/1/1"
+    },
+    {
+      "text": "053615aM",
+      "left": 817,
+      "top": 628,
+      "width": 58,
+      "height": 8,
+      "line": "28/1/1"
+    },
+    {
+      "text": "Ojobs",
+      "left": 196,
+      "top": 627,
+      "width": 32,
+      "height": 12,
+      "line": "29/1/1"
+    }
+  ]
+}

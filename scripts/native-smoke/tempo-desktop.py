@@ -157,6 +157,9 @@ class TempoDriver(settings.Driver):
     """
 
     def drive(self, name, actions, concurrent=False, record=False):
+        # Every Tempo click addresses retained-view content, including controls
+        # whose names also occur in global tab titles (Timesheet, Timeline).
+        actions = [('content', *action[1:]) if action[0] == 'click' else action for action in actions]
         if self.session == 'macos':
             actions = [action + ({'labelBottomOffset': 30},)
                 if action[0] == 'input' and action[1] not in ('From', 'Through')
@@ -266,7 +269,8 @@ def qualify(executable, output, session, version, source, backend):
                     ('click', 'Load date range'), ('wait_text', 'Date range loaded'),
                     ('click', 'Previous month'), ('wait_scroll_up', 'whole month'),
                     ('capture', 'custom-range-retained-dark'),
-                    ('click', 'Today'), ('wait_text', 'Loaded the current account month'),
+                    ('between', 'Today', 'Tempo timesheet', 'Logged'),
+                    ('wait_text', 'Loaded the current account month'),
                 ])
                 github.check(custom / 'custom-range-retained-dark.png', '2026-10-05', '2026-10-19', 'whole month')
                 require_writes(api, 0)

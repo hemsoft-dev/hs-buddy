@@ -54,10 +54,10 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # Healthy runs on main fd961edf (#852): Intel 134-146 minutes, Apple silicon
-    # 84, Windows 74, Ubuntu 69, before automation qualification was added.
-    # These limits keep at least 30 minutes of headroom and still stop a hang.
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 210 || 120 }}
+    # #901 ARM qualification took 64m; #899 reached Crew after 69m, with 51m
+    # already spent building/testing. Allow the full suite plus evidence upload.
+    # Unix qualification and each Mac scene have separate, shorter budgets.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 210 || matrix.os == 'macos-15' && 150 || 120 }}
     strategy:
       fail-fast: false
       matrix:
@@ -271,11 +271,18 @@ jobs:
 
       - name: Install and qualify Unix package
         if: runner.os != 'Windows'
+        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 140 || 90 }}
         working-directory: .
         shell: bash
         env:
           PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
         run: bash scripts/native-smoke/install-unix.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence"
+
+      - name: Stage native evidence without fixture symlinks
+        if: always()
+        working-directory: .
+        shell: bash
+        run: python scripts/native-smoke/prepare-evidence.py "$RUNNER_TEMP/native-evidence" "$RUNNER_TEMP/native-upload"
 
       - name: Upload native packages and qualification evidence
         if: always()
@@ -287,7 +294,7 @@ jobs:
             release/native/**/*.exe
             release/native/**/*.deb
             release/native/**/*.dmg
-            ${{ runner.temp }}/native-evidence/**
+            ${{ runner.temp }}/native-upload/**
             ${{ runner.temp }}/buddy-settings-backend-*/backend.log
           if-no-files-found: error
 

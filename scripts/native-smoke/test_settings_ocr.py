@@ -61,6 +61,46 @@ class SessionInputRow(unittest.TestCase):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_real_intel_copilot_target_uses_measured_chrome_and_native_geometry(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('copilot-intel-content-scope.json').read_text())
+        native, chrome = fixture['visionWords'], fixture['chromeWords']
+        with self.assertRaisesRegex(RuntimeError, 'menu row'):
+            ocr.find_label(native, fixture['target'], content=True)
+        expected = ocr.find_label(native, fixture['target'])
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / 'capture.png'
+            image.write_bytes(b'owned capture')
+            with patch.object(ocr, 'recognize_macos', return_value=native), patch.object(ocr, 'recognize', return_value=chrome):
+                self.assertEqual(ocr.locate_image(image, fixture['target'], native_macos=True, content=True), expected)
+            self.assertEqual(json.loads(image.with_suffix('.chrome-ocr.json').read_text()), chrome)
+        # Neither an absent header nor competing view controls may pass.
+        with self.assertRaises(RuntimeError):
+            ocr.content_words(native, [])
+        duplicate = native + [dict(expected, text=fixture['target'], line='duplicate', top=300)]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.locate_label(ocr.content_words(duplicate, chrome), fixture['target'])
+        for target in ('File', 'Dashboard'):
+            with self.assertRaises(RuntimeError):
+                ocr.locate_label(ocr.content_words(native, chrome), target)
+
+    def test_failed_native_match_retains_the_exact_word_layout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / 'capture.png'
+            image.write_bytes(b'owned capture')
+            words = [word('Scan', 1102, 214, 'row')]
+            with patch.object(ocr, 'recognize_macos', return_value=words), self.assertRaises(RuntimeError):
+                ocr.locate_image(image, 'Scan folder', native_macos=True, content=False)
+            self.assertEqual(json.loads(image.with_suffix('.ocr-darwin.json').read_text()), words)
+
+    def test_mac_measurements_use_one_native_engine_without_cross_engine_fallback(self):
+        words = [word("History", 120, 155, "history")]
+        with tempfile.TemporaryDirectory() as directory, patch.object(ocr, "recognize_macos", return_value=words) as native, patch.object(ocr, "recognize", side_effect=AssertionError("cross-engine comparison")):
+            image = Path(directory) / "capture.png"
+            self.assertEqual(ocr.locate_image(image, "History", native_macos=True), ocr.find_label(words, "History"))
+            native.assert_called_once_with(image)
+        with patch.object(ocr, "recognize_macos", return_value=[]), self.assertRaises(RuntimeError):
+            ocr.locate_image(Path("missing.png"), "History", native_macos=True)
+
     def test_workspace_rename_is_bounded_by_the_two_visible_field_labels(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('terminal-workspace-rename-words.json').read_text())
         with self.assertRaises(ocr.AmbiguousLabel):

@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from unittest.mock import MagicMock, Mock, patch
 
 spec = importlib.util.spec_from_file_location("settings_desktop", Path(__file__).with_name("settings-desktop.py"))
@@ -182,6 +183,26 @@ class DesktopLimits(unittest.TestCase):
                         self.assertEqual(len(moves), 2)
                         self.assertLess(clock['now'], 15)
 
+    def test_linux_scroll_batch_reaches_request_twenty_before_another_slow_ocr_pass(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('linux-session-clipped-request.json').read_text())
+        for layout in fixture['layouts']:
+            with self.assertRaises(RuntimeError):
+                desktop.ocr.locate_label(layout['words'], fixture['target'])
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'x11'
+        driver.scroll_anchor = Mock(return_value=(547, 529))
+        clock, moves = {'now': 0}, []
+        driver.scroll = lambda *args, **kwargs: moves.append((args, kwargs))
+        def recognize(_image, text):
+            clock['now'] += 20
+            if len(moves) < 2:
+                raise RuntimeError('Captured page ends at Request 20 header; prompt is clipped')
+            return dict(left=340, top=520, width=180, height=14)
+        with patch.object(desktop.ocr, 'locate_image', side_effect=recognize), patch.object(desktop.time, 'monotonic', side_effect=lambda: clock['now']), patch.object(desktop.time, 'sleep'):
+            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Inspect synthetic request 20', 'Next requests', above_anchor=True)
+        self.assertEqual(len(moves), 2)
+        self.assertTrue(all(args[1:] == (-1200, (547, 529)) and kwargs == dict(precise=False) for args, kwargs in moves))
+
     def test_an_already_visible_request_does_not_measure_an_offscreen_anchor_or_scroll(self):
         driver = object.__new__(desktop.Driver)
         driver.session = 'macos'
@@ -253,7 +274,7 @@ class DesktopLimits(unittest.TestCase):
         with patch.object(desktop, "wait_visible", side_effect=lambda _w, _d, _t, *, scroll: (scroll(), scroll())):
             driver.wait_scrolled(window, directory, "Inspect synthetic request 20", "Next requests", above_anchor=True)
         driver.scroll_anchor.assert_called_once_with(window, directory, "Next requests", above=True)
-        self.assertEqual(driver.scroll.call_count, 2)
+        self.assertEqual(driver.scroll.call_count, 4)
         driver.scroll.assert_called_with(window, -1200, (536, 524), precise=False)
         with self.assertRaises(RuntimeError):
             driver.wait_scrolled(window, directory, "Missing", above_anchor=True)
@@ -861,9 +882,13 @@ class WindowsScrollAnchors(unittest.TestCase):
             self.assertIn("waitcontent64:" + desktop.b64("The Crew"), commands)
             for session in ("x11", "macos"):
                 driver.session = session
+                image = directory / "locator.png"
+                image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', 1200, 820))
                 with patch.object(desktop.ocr, "locate_image", return_value=dict(left=100, top=100, width=30, height=12)) as locate, \
-                        patch.object(desktop, "record_measurement"):
-                    driver.locate(Mock(), directory / "locator.png", "content", "Jobs")
+                        patch.object(desktop, "record_measurement"), \
+                        patch.object(desktop.ocr, "status_content_image", return_value=image), \
+                        patch.object(desktop.ocr, "crop_content_image", return_value=image):
+                    driver.locate(Mock(), image, "content", "Jobs")
                 self.assertTrue(locate.call_args.kwargs["content"])
 
     def test_row_boundaries_reach_windows_and_unix_without_becoming_input_text(self):
@@ -1089,10 +1114,205 @@ class WindowsScrollAnchors(unittest.TestCase):
 
 
 class MacStabilityTests(unittest.TestCase):
+    def delete_fixture(self):
+        return json.loads(Path(__file__).with_name('fixtures').joinpath('automation-intel-delete-engines.json').read_text())
+
+    def test_real_intel_delete_miss_pins_sparse_ocr_and_resets_prior_engine_measurement(self):
+        fixture = self.delete_fixture()
+        with self.assertRaises(RuntimeError):
+            desktop.ocr.locate_label(fixture['nativeWords'], 'Delete', content=True)
+        correct = [dict(word, text='Delete', **fixture['expected']) if word['text'] == 'JDelete' else dict(word)
+            for word in fixture['nativeWords']]
+        for initial_match in (False, True):
+            with self.subTest(initial_match=initial_match), tempfile.TemporaryDirectory() as root:
+                image = Path(root) / 'capture.png'
+                window = Mock()
+                window.screenshot.side_effect = lambda path: path.write_bytes(b'\x89PNG\r\n\x1a\n' + bytes(8) + struct.pack('>II', 1200, 820))
+                readings = ([correct] if initial_match else []) + [fixture['nativeWords']]
+                with patch.object(desktop.ocr, 'recognize_macos', side_effect=readings) as native, \
+                        patch.object(desktop.ocr, 'recognize', return_value=fixture['sparseWords']) as sparse, \
+                        patch.object(desktop.ocr, 'status_content_image', side_effect=lambda path, *a, **k: path), \
+                        patch.object(desktop.ocr, 'crop_content_image', side_effect=lambda path, *a, **k: path):
+                    self.assertEqual(self.driver().locate(window, image, 'content', 'Delete'), fixture['expected'])
+                self.assertEqual(native.call_count, 2 if initial_match else 1)
+                self.assertEqual(sparse.call_count, 2)
+                self.assertEqual(window.screenshot.call_count, 3 if initial_match else 2)
+                self.assertTrue(all(call.args[1] == 11 for call in sparse.call_args_list))
+                receipts = [json.loads(line) for line in (Path(root) / 'stability.jsonl').read_text().splitlines()]
+                self.assertTrue(all(row['scope'].get('sparse_only') for row in receipts[-2:]))
+
+    def test_sparse_fallback_still_rejects_a_moving_control_within_four_captures(self):
+        fixture = self.delete_fixture()
+        readings = [[dict(word, top=word['top'] + (40 if index % 2 else 0)) if word['text'] == 'Delete' else dict(word)
+            for word in fixture['sparseWords']] for index in range(4)]
+        with tempfile.TemporaryDirectory() as root:
+            image, window = Path(root) / 'capture.png', Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(bytes(16) + struct.pack('>II', 1200, 820))
+            with patch.object(desktop.ocr, 'recognize_macos', return_value=fixture['nativeWords']) as native, \
+                    patch.object(desktop.ocr, 'recognize', side_effect=readings), \
+                    patch.object(desktop.ocr, 'status_content_image', side_effect=lambda path, *a, **k: path), \
+                    patch.object(desktop.ocr, 'crop_content_image', side_effect=lambda path, *a, **k: path):
+                with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                    self.driver().locate(window, image, 'content', 'Delete')
+            self.assertEqual(native.call_count, 1)
+            self.assertEqual(window.screenshot.call_count, 4)
+
+    def test_ambiguous_native_controls_never_try_another_engine(self):
+        fixture = self.delete_fixture()
+        words = [dict(word, text='Delete') if word['text'] == 'JDelete' else dict(word) for word in fixture['nativeWords']]
+        words.append(dict(fixture['expected'], text='Delete', top=350, line='duplicate'))
+        with tempfile.TemporaryDirectory() as root:
+            image, window = Path(root) / 'capture.png', Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(bytes(16) + struct.pack('>II', 1200, 820))
+            with patch.object(desktop.ocr, 'recognize_macos', return_value=words), \
+                    patch.object(desktop.ocr, 'recognize', side_effect=AssertionError('Ambiguity cannot fall back')), \
+                    patch.object(desktop.ocr, 'status_content_image', side_effect=lambda path, *a, **k: path):
+                with self.assertRaises(desktop.ocr.AmbiguousLabel):
+                    self.driver().locate(window, image, 'content', 'Delete')
+            self.assertEqual(window.screenshot.call_count, 1)
+
+    def test_captured_history_engine_switch_cannot_invalidate_stationary_mac_control(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('automation-history-engines.json').read_text())
+        boxes = [frame['recordedBox'] for frame in fixture['frames']]
+        self.assertTrue(all(not desktop.stable(a, b) for a, b in zip(boxes, boxes[1:])))
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / 'locator.png'
+            window = Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(b'captured OCR input')
+            with patch.object(desktop.ocr, 'locate_image', side_effect=boxes):
+                with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                    self.driver().locate(window, image, 'click', 'History')
+            window.reset_mock()
+            with patch.object(desktop.ocr, 'recognize_macos', side_effect=[frame['nativeWords'] for frame in fixture['frames']]) as native, patch.object(desktop.ocr, 'recognize', side_effect=AssertionError('Cross-engine guard measurement')):
+                label = self.driver().locate(window, image, 'click', 'History')
+            self.assertGreater(label['width'], 40)
+            self.assertEqual(native.call_count, 2)
+            self.assertEqual(window.screenshot.call_count, 2)
+
     def driver(self):
         driver = object.__new__(desktop.Driver)
         driver.session = "macos"
         return driver
+
+    def footer_replay(self, directory, *, moving=False, resizing=False, no_border=False):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('bookmarks-macos-stability.json').read_text())
+        def header(width, height):
+            return b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', width, height)
+        window = Mock()
+        window.captures = 0
+        def screenshot(image):
+            width = fixture['width'] + (window.captures % 2 if resizing else 0)
+            image.write_bytes(header(width, fixture['height']))
+            window.captures += 1
+        window.screenshot.side_effect = screenshot
+        crops = []
+        def run(*args, **kwargs):
+            source = Path(args[args.index('-i') + 1])
+            width, height = struct.unpack('>II', source.read_bytes()[16:24])
+            filters = args[args.index('-vf') + 1]
+            if 'rawvideo' in args:
+                pixels = zlib.decompress(base64.b64decode(fixture['footerPixelsZlibBase64']))
+                Path(args[-1]).write_bytes(bytes(len(pixels)) if no_border else pixels)
+            else:
+                if filters.startswith('crop='):
+                    height = int(filters.split(':')[1]); crops.append(height)
+                else:
+                    width *= 3; height *= 3
+                Path(args[-1]).write_bytes(header(width, height))
+            return ''
+        def recognize(image, mode):
+            return next((row['words'] for row in fixture['footerLayouts'] if row['image'] == image.name and row['mode'] == mode), [])
+        def locate(image, *args, **kwargs):
+            height = struct.unpack('>II', image.read_bytes()[16:24])[1]
+            index = window.captures - 1
+            if height != fixture['contentHeight']:
+                return fixture['observed'][index]
+            target = dict(fixture['scopedTarget'])
+            if moving: target['top'] += 40 * (index % 2)
+            return target
+        return fixture, window, crops, run, recognize, locate
+
+    def test_actual_macos_footer_frames_fail_unscoped_and_pass_in_two_scoped_measurements(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            for scoped in (False, True):
+                fixture, window, crops, run, recognize, locate = self.footer_replay(directory)
+                image = directory / 'locator.png'
+                with patch.object(desktop, 'run', side_effect=run), \
+                        patch.object(desktop.ocr, 'recognize', side_effect=recognize), \
+                        patch.object(desktop.ocr, 'locate_image', side_effect=locate):
+                    if scoped:
+                        target = self.driver().locate(window, image, 'content', 'Add bookmark')
+                        self.assertEqual(target, fixture['scopedTarget'])
+                        self.assertEqual(window.captures, 2)
+                        self.assertEqual(crops, [fixture['contentHeight']] * 2)
+                    else:
+                        with patch.object(desktop.ocr, 'status_content_image', return_value=image), \
+                                patch.object(desktop.ocr, 'crop_content_image', return_value=image):
+                            with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                                self.driver().locate(window, image, 'content', 'Add bookmark')
+                        self.assertEqual(window.captures, 4)
+
+    def test_footer_exclusion_still_rejects_moving_controls_and_window_resizes(self):
+        with tempfile.TemporaryDirectory() as root:
+            for moving, resizing in ((True, False), (False, True)):
+                _, window, _, run, recognize, locate = self.footer_replay(Path(root), moving=moving, resizing=resizing)
+                with patch.object(desktop, 'run', side_effect=run), \
+                        patch.object(desktop.ocr, 'recognize', side_effect=recognize), \
+                        patch.object(desktop.ocr, 'locate_image', side_effect=locate):
+                    with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                        self.driver().locate(window, Path(root) / 'locator.png', 'content', 'Add bookmark')
+                self.assertEqual(window.captures, 4)
+
+    def test_a_missing_painted_footer_border_fails_before_locating_a_control(self):
+        with tempfile.TemporaryDirectory() as root:
+            _, window, _, run, recognize, _ = self.footer_replay(Path(root), no_border=True)
+            with patch.object(desktop, 'run', side_effect=run), \
+                    patch.object(desktop.ocr, 'recognize', side_effect=recognize), \
+                    patch.object(desktop.ocr, 'locate_image') as locate:
+                with self.assertRaisesRegex(RuntimeError, 'no visible separator'):
+                    self.driver().locate(window, Path(root) / 'locator.png', 'content', 'Add bookmark')
+                locate.assert_not_called()
+
+    def test_each_failed_measurement_preserves_its_exact_input_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            image = directory / 'locator.png'
+            window = Mock()
+            frames = [b'first', b'second', b'third', b'fourth']
+            capture = iter(frames)
+            window.screenshot.side_effect = lambda path: path.write_bytes(next(capture))
+            readings = [dict(left=10), dict(left=80)] * 2
+            with patch.object(desktop.ocr, 'locate_image', side_effect=readings):
+                with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                    self.driver().locate(window, image, 'click', 'Refresh')
+            receipts = [json.loads(line) for line in (directory / 'stability.jsonl').read_text().splitlines()]
+            self.assertEqual([row['measurement'] for row in receipts], readings)
+            self.assertEqual([(directory / row['ocrCapture']).read_bytes() for row in receipts], frames)
+            self.assertEqual(len({row['ocrCapture'] for row in receipts}), 4)
+
+    def test_measurement_preserves_both_raw_and_scoped_frames_and_receipt(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            raw, scoped = directory / 'raw.png', directory / 'scoped.png'
+            raw.write_bytes(b'raw footer and caret'); scoped.write_bytes(b'scoped caret')
+            raw.with_suffix('.window.json').write_text('{"capturePixelsPerWindowPoint": 1}')
+            desktop.record_measurement(directory, 'Refresh', dict(left=348), capture=scoped, raw=raw,
+                scope=dict(between=['Filter loaded items', 'Conversation']))
+            receipt = json.loads((directory / 'stability.jsonl').read_text())
+            self.assertEqual((directory / receipt['rawCapture']).read_bytes(), raw.read_bytes())
+            self.assertEqual((directory / receipt['ocrCapture']).read_bytes(), scoped.read_bytes())
+            self.assertEqual((directory / receipt['windowReceipt']).read_bytes(), raw.with_suffix('.window.json').read_bytes())
+            with patch.object(desktop.shutil, 'copyfile', side_effect=OSError('capture copy failed')):
+                desktop.record_measurement(directory, 'Refresh', dict(left=348), capture=scoped, raw=raw)
+            last = json.loads((directory / 'stability.jsonl').read_text().splitlines()[-1])
+            self.assertEqual(last['measurement'], dict(left=348))
+            self.assertEqual(last['captureError'], 'OSError')
+            raw.unlink()
+            desktop.record_measurement(directory, 'Refresh', dict(left=348), capture=scoped, raw=raw)
+            last = json.loads((directory / 'stability.jsonl').read_text().splitlines()[-1])
+            self.assertNotIn('rawCapture', last)
+            self.assertEqual(last['captureError'], 'RawCaptureMissing')
 
     def test_pixel_jitter_counts_as_the_same_target(self):
         a = dict(left=340, top=450, width=180, height=13, row_control=dict(left=900, top=448))

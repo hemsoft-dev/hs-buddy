@@ -4,11 +4,15 @@ import csv
 import json
 import math
 import os
+import struct
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 
+
+# shell/status_bar.rs uses this height at 100% native zoom.
+STATUS_BAR_HEIGHT = 22.0
 
 class AmbiguousLabel(RuntimeError):
     """A later OCR mode must not hide competing visible controls."""
@@ -16,6 +20,243 @@ class AmbiguousLabel(RuntimeError):
 
 def normalize(text):
     return "".join(character for character in text.casefold() if character.isalnum())
+
+
+def status_footer(words):
+    """Measure the unique ordered totals row at the bottom of an OCR layout."""
+    bottom = max((word["top"] + word["height"] for word in words), default=0)
+    def status_label(word, label):
+        text = normalize(word["text"])
+        if text == label:
+            return True
+        # The captured Windows OCR joins zero and jobs as "Ojobs".
+        prefix = text[:-len(label)] if text.endswith(label) else ""
+        return bool(prefix) and all(c.isdecimal() or c == "o" for c in prefix)
+
+    footers = []
+    for candidate in (word for word in words if status_label(word, "prs")):
+        row = [word for word in words if abs(word["top"] - candidate["top"])
+            <= max(word["height"], candidate["height"]) / 2]
+        labels = [[word for word in row if status_label(word, label)]
+            for label in ("prs", "schedules", "jobs")]
+        if not all(len(matches) == 1 for matches in labels):
+            continue
+        positions = [matches[0]["left"] for matches in labels]
+        height = max(word["height"] for word in row)
+        if positions == sorted(set(positions)) and candidate["top"] >= bottom - 2 * height:
+            footers.append(dict(top=min(word["top"] for word in row), height=height,
+                left=min(matches[0]["left"] for matches in labels),
+                right=max(matches[0]["left"] + matches[0]["width"] for matches in labels)))
+    if len(footers) > 1:
+        raise AmbiguousLabel("More than one native status footer is visible")
+    return footers[0] if footers else None
+
+
+def analysis_images(path, run):
+    yield path
+    # Analysis copy only; the original window capture is never edited.
+    image = path.with_suffix(".ocr-scale3.png")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", "scale=iw*3:ih*3:flags=neighbor", "-frames:v", "1", image)
+    yield image
+    # Mixed dark shell chrome and a light hosted page can segment separately.
+    # Keep one-layout matching, but offer the same contrast analysis as locators.
+    image = path.with_suffix(".ocr-scale3-inverted.png")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate", "-frames:v", "1", image)
+    yield image
+
+
+def crop_content_image(path, bottom, run, suffix=".content-ocr.png"):
+    height = struct.unpack(">II", path.read_bytes()[16:24])[1]
+    if not 0 < bottom < height:
+        raise RuntimeError("The status footer leaves invalid content bounds")
+    image = path.with_suffix(suffix)
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", f"crop=iw:{bottom}:0:0:exact=1", "-frames:v", "1", image)
+    return image
+
+
+def known_footer_top(path, footer, scale, zoom=1.0):
+    """Use the native layout contract only with an owned capture's scale receipt."""
+    receipt = path.with_suffix(".window.json")
+    if not receipt.is_file():
+        return None
+    try:
+        metadata = json.loads(receipt.read_text(encoding="utf-8"))
+        width, height = struct.unpack(">II", path.read_bytes()[16:24])
+        backing = metadata["capturePixelsPerWindowPoint"]
+        bounds = metadata["kCGWindowBounds"]
+        numbers = (backing, zoom, scale, bounds["Width"], bounds["Height"])
+        if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value <= 0 for value in numbers):
+            raise ValueError("Invalid scale")
+        if metadata["capturePixelSize"] != [width, height] or not all((
+                math.isclose(bounds["Width"] * backing, width, abs_tol=1),
+                math.isclose(bounds["Height"] * backing, height, abs_tol=1))):
+            raise ValueError("Mismatched capture dimensions")
+        top = round(height - STATUS_BAR_HEIGHT * backing * zoom)
+        band_top = footer["top"] / scale
+        band_bottom = (footer["top"] + footer["height"]) / scale
+        if not (0 < top < height and 0 <= band_top < band_bottom <= height
+                and band_bottom > top and band_top >= top - (height - top)):
+            raise ValueError("The measured text does not overlap the known footer")
+        return top
+    except (KeyError, TypeError, ValueError, OverflowError, struct.error) as error:
+        raise RuntimeError("The native footer fallback has invalid capture metadata") from error
+
+
+def footer_border(path, footer, scale, run, zoom=1.0):
+    """Find the painted separator above the measured labels, across their span."""
+    left = math.floor(footer["left"] / scale)
+    right = math.ceil(footer["right"] / scale)
+    top = math.floor((footer["top"] - 2 * footer["height"]) / scale)
+    end = math.floor(footer["top"] / scale)
+    width, height = struct.unpack(">II", path.read_bytes()[16:24])
+    if not (0 <= left < right <= width and 0 <= top < end <= height):
+        raise RuntimeError("The status footer has invalid capture bounds")
+    raw = path.with_suffix(".footer-rgb")
+    run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
+        "-vf", f"crop={right-left}:{end-top}:{left}:{top}:exact=1,format=rgb24",
+        "-f", "rawvideo", "-frames:v", "1", raw)
+    pixels = raw.read_bytes()
+    stride = (right - left) * 3
+    if len(pixels) != stride * (end - top):
+        raise RuntimeError("The footer analysis has invalid pixel dimensions")
+    previous_uniform = True
+    for offset in range(end - top):
+        row = pixels[offset * stride:(offset + 1) * stride]
+        uniform = row == row[:3] * (right - left)
+        if uniform and not previous_uniform:
+            return top + offset
+        previous_uniform = uniform
+    # OCR may absorb the painted border into a label, ending the scan above
+    # the line. A validated backing-scale receipt can still bound the footer.
+    fallback = known_footer_top(path, footer, scale, zoom)
+    if fallback is not None:
+        return fallback
+    raise RuntimeError("The measured native status footer has no visible separator")
+
+
+def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoom=1.0):
+    """Measure and exclude the shared footer from an untouched capture."""
+    width = struct.unpack(">II", path.read_bytes()[16:24])[0]
+    for analysis in analysis_images(path, run):
+        scale = struct.unpack(">II", analysis.read_bytes()[16:24])[0] / width
+        for mode in (11, 3, 6):
+            words = recognize(analysis, mode=mode)
+            footer = status_footer(words)
+            if footer:
+                bottom = (footer_border(path, footer, scale, run, zoom) if border else
+                    int((footer["top"] - footer["height"] / 2) / scale))
+                return crop_content_image(path, bottom, run, suffix)
+    raise RuntimeError("The content screenshot has no unique native status footer")
+
+
+def chrome_rows(words):
+    """Measure the menu bottom and following workspace-tab row bottom."""
+    chrome = words
+    chrome = [word for word in chrome if normalize(word["text"])]
+    menus = []
+    for candidate in (word for word in chrome if normalize(word["text"]) == "file"):
+        row = [word for word in chrome if abs(word["top"] - candidate["top"])
+            <= max(word["height"], candidate["height"]) / 2]
+        labels = [[word for word in row if normalize(word["text"]) == label]
+            for label in ("file", "view", "help")]
+        if all(len(matches) == 1 for matches in labels):
+            positions = [matches[0]["left"] for matches in labels]
+            if positions == sorted(set(positions)):
+                menus.append(candidate)
+    if len(menus) > 1:
+        raise AmbiguousLabel("More than one native menu row is visible")
+    if not menus:
+        raise RuntimeError("The native File/Edit/View/Help menu row is not visible")
+    menu = menus[0]
+    below_menu = [word for word in chrome if word["top"] > menu["top"] + menu["height"]]
+    if not below_menu:
+        raise RuntimeError("The workspace tab row is not visible")
+    row_top = min(word["top"] for word in below_menu)
+    if row_top > menu["top"] + 5 * menu["height"]:
+        raise RuntimeError("The workspace tab row is not visible")
+    row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
+    row_bottom = max(word["top"] + word["height"] for word in row)
+    return menu["top"] + menu["height"], row_bottom
+
+
+def workspace_words(words):
+    """Keep workspace titles above the view and below the custom menu."""
+    top, bottom = chrome_rows(words)
+    return [word for word in words if top < word["top"] <= bottom]
+
+
+def workspace_geometry(image):
+    """Measure the shell's two painted bands when OCR cannot read its menu.
+
+    The blank right portion of the title and tab bars spans the sampled strip.
+    Require two adjacent, similarly sized uniform bands starting at the window
+    top; clipped, textured or incomplete chrome must fail closed.
+    """
+    width, height = struct.unpack(">II", image.read_bytes()[16:24])
+    scan = height // 3
+    result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(image),
+        "-vf", f"crop={width//4}:{scan}:{width*3//5}:0:exact=1,scale=5:{scan}:flags=neighbor,format=rgb24",
+        "-f", "rawvideo", "-frames:v", "1", "pipe:1"], capture_output=True, check=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    pixels = result.stdout
+    image.with_suffix('.workspace-bands.rgb').write_bytes(pixels)
+    if len(pixels) != scan * 15:
+        raise RuntimeError("The workspace geometry has invalid pixel dimensions")
+    keys = [pixels[y*15:y*15+3] if pixels[y*15:(y+1)*15] == pixels[y*15:y*15+3]*5 else None for y in range(scan)]
+    runs, start = [], 0
+    for end in range(1, scan + 1):
+        if end == scan or keys[end] != keys[start]:
+            if keys[start] is not None and end - start >= 8:
+                runs.append((start, end))
+            start = end
+    if len(runs) < 2:
+        raise RuntimeError("The workspace has no measured chrome bands")
+    menu, tabs = runs[:2]
+    menu_height, tab_height = menu[1] - menu[0], tabs[1] - tabs[0]
+    if not (menu[0] <= 2 and 0 < tabs[0] - menu[1] <= 3 and .85 <= tab_height/menu_height <= 1.2):
+        raise RuntimeError("The workspace chrome bands do not match the shell layout")
+    image.with_suffix('.workspace-band.json').write_text(json.dumps(dict(
+        captureSize=[width, height], menu=menu, workspace=tabs)), encoding='utf-8')
+    return tabs
+
+
+def workspace_target(image, labels):
+    engine = recognize_windows if sys.platform == 'win32' else lambda path: recognize(path, 11)
+    words = engine(image)
+    if image.is_file():
+        image.with_suffix('.workspace-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+    try:
+        return locate_label(workspace_words(words), labels)
+    except AmbiguousLabel:
+        raise
+    except RuntimeError:
+        top, bottom = workspace_geometry(image)
+        cropped = image.with_suffix('.workspace-band.png')
+        subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
+            "-vf", f"crop=iw:{bottom-top}:0:{top}:exact=1", "-frames:v", "1", str(cropped)],
+            capture_output=True, check=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        words = engine(cropped)
+        cropped.with_suffix('.ocr.json').write_text(json.dumps(words), encoding='utf-8')
+        label = locate_label(words, labels)
+        return dict(label, top=label['top'] + top)
+
+
+def content_words(words, chrome=None):
+    """Keep view controls below workspace tabs and above status totals."""
+    _, row_bottom = chrome_rows(words if chrome is None else chrome)
+    words = [word for word in words if word["top"] > row_bottom]
+    # The shared totals footer is chrome too. Identify its three ordered
+    # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
+    # Older captures without totals retain the existing upper-bound scope.
+    footer = status_footer(words)
+    if footer:
+        words = [word for word in words if word["top"] < footer["top"]]
+    return words
 
 
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
@@ -26,36 +267,7 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
     # span can count one word twice, such as Interrupt and Interrupt + '('.
     words = [word for word in words if normalize(word["text"])]
     if content:
-        # Explicit scene scope: the menu row and the following workspace-tab
-        # row are chrome, not controls in the retained view. Measure both from
-        # the untouched capture rather than assuming a DPI or window origin.
-        # View/Help identify the menu context even when field labels also
-        # contain File. Do not require Edit: the captured Windows OCR reads
-        # that menu label as Eat. All candidate rows must still be unique.
-        menus = []
-        for candidate in (word for word in words if normalize(word["text"]) == "file"):
-            row = [word for word in words if abs(word["top"] - candidate["top"])
-                <= max(word["height"], candidate["height"]) / 2]
-            labels = [[word for word in row if normalize(word["text"]) == label]
-                for label in ("file", "view", "help")]
-            if all(len(matches) == 1 for matches in labels):
-                positions = [matches[0]["left"] for matches in labels]
-                if positions == sorted(set(positions)):
-                    menus.append(candidate)
-        if len(menus) > 1:
-            raise AmbiguousLabel("More than one native menu row is visible")
-        if not menus:
-            raise RuntimeError("The native File/Edit/View/Help menu row is not visible")
-        menu = menus[0]
-        below_menu = [word for word in words if word["top"] > menu["top"] + menu["height"]]
-        if not below_menu:
-            raise RuntimeError("The workspace tab row is not visible")
-        row_top = min(word["top"] for word in below_menu)
-        if row_top > menu["top"] + 5 * menu["height"]:
-            raise RuntimeError("The workspace tab row is not visible")
-        row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
-        row_bottom = max(word["top"] + word["height"] for word in row)
-        words = [word for word in words if word["top"] > row_bottom]
+        words = content_words(words)
     if between is not None:
         # A scene may name the two visible field labels bounding a row.
         # Use their tops: OCR can absorb an input border into a label's height.
@@ -255,7 +467,45 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False, sparse_only=False):
+    if sparse_only:
+        words = recognize(image, 11)
+        image.with_suffix('.sparse-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+        return locate_label(words, labels, navigation, field, tab, content=content, between=between)
+    if workspace:
+        # Global tab titles are shell chrome, not view controls. Keep their
+        # measurements on one engine per platform. Sparse Tesseract reads
+        # Mac titles that Vision replaces with Cyrillic lookalikes; Windows
+        # OCR reads the 100% DPI titles that sparse Tesseract fragments.
+        return workspace_target(image, labels)
+    if native_macos:
+        # Stability measurements must not alternate Tesseract glyph boxes
+        # with Vision's line boxes for the same stationary control.
+        words = recognize_macos(image)
+        # Preserve missing/ambiguous native tokens too, before matching can
+        # raise; raw captures alone cannot reproduce another OS's Vision model.
+        if image.is_file():
+            image.with_suffix('.ocr-darwin.json').write_text(json.dumps(words), encoding='utf-8')
+        if content:
+            # Vision on Intel can omit the File menu while reading every view
+            # control. A missing header may use Tesseract's chrome boundary,
+            # but target boxes always remain Vision's. Competing headers must
+            # still fail rather than being hidden by another engine.
+            try:
+                words = content_words(words)
+            except AmbiguousLabel:
+                raise
+            except RuntimeError:
+                chrome = recognize(image)
+                if image.is_file():
+                    image.with_suffix('.chrome-ocr.json').write_text(json.dumps(chrome), encoding='utf-8')
+                words = content_words(words, chrome)
+        label = locate_label(words, labels, navigation, field, tab, content=False, between=between)
+        if save_row:
+            label["save"] = aligned_save(words, label)
+        if row_control is not None:
+            label["row_control"] = aligned_control(words, label, row_control)
+        return label
     # Compact Mac forms put a focus border just above the next label. Sparse
     # segmentation can absorb that border into its glyph box (#886). The
     # original-image block pass reads the label alone in the failed artifacts.
@@ -330,8 +580,9 @@ def main():
     parser.add_argument("--tab", action="store_true")
     parser.add_argument("--content", action="store_true")
     parser.add_argument("--between-labels", nargs=2)
+    parser.add_argument("--workspace", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels, workspace=args.workspace)))
 
 
 if __name__ == "__main__":

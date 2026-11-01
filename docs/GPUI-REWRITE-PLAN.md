@@ -264,8 +264,10 @@ take the lock.
   directory or the executable, then the localhost default. The Workspace
   Pulse card shows the connection status until data arrives. Diagnostic:
   `cargo test -p buddy-core convex_live -- --ignored --nocapture`.
-- Not shown until their sources are ported: Active PRs (needs the pull
-  request views), status-bar PR and job counts, and the View menu zoom items.
+- The dashboard and status bar share Active PR totals. The status bar also
+  reads job/schedule totals from the automation dispatcher. Custom View menu
+  zoom and Reload Configuration actions are implemented. See
+  [menus and status qualification](NATIVE-MENUS-STATUS.md) for remaining gates.
 - Native-only settings live under a `native` key in the shared `config.json`
   (currently `native.autoRefresh.<cardId>` minutes, 0 = off). Electron's
   schema tolerates unknown top-level keys, so the section round-trips.

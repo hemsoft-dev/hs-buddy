@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import time
 import uuid
@@ -102,12 +103,37 @@ def stable(current, previous, slack=STABLE_SLACK):
     return current == previous
 
 
-def record_measurement(directory, name, value):
-    """Keeps every Mac stability measurement, so a failure shows what moved."""
+def record_measurement(directory, name, value, *, capture=None, raw=None, scope=None):
+    """Bind each Mac measurement to its exact OCR input and raw window capture."""
     if not isinstance(directory, Path) or not directory.is_dir():
         return
+    entry = dict(target=name, measurement=value)
+    if scope is not None:
+        entry["scope"] = scope
+    if capture is not None and capture.is_file():
+        token = "stability-" + uuid.uuid4().hex
+        try:
+            saved = directory / (token + "-ocr.png")
+            shutil.copyfile(capture, saved)
+            entry["ocrCapture"] = saved.name
+            if raw is None or raw == capture:
+                entry["rawCapture"] = saved.name
+            elif raw.is_file():
+                saved = directory / (token + "-raw.png")
+                shutil.copyfile(raw, saved)
+                entry["rawCapture"] = saved.name
+            else:
+                entry["captureError"] = "RawCaptureMissing"
+            receipt = (raw or capture).with_suffix(".window.json")
+            if receipt.is_file():
+                saved = directory / (token + ".window.json")
+                shutil.copyfile(receipt, saved)
+                entry["windowReceipt"] = saved.name
+        except OSError as error:
+            # Diagnostics must not replace a stable target or its real failure.
+            entry["captureError"] = type(error).__name__
     with (directory / "stability.jsonl").open("a", encoding="utf-8") as log:
-        log.write(json.dumps(dict(target=name, measurement=value)) + "\n")
+        log.write(json.dumps(entry) + "\n")
 
 
 def b64(value):
@@ -229,7 +255,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -323,7 +349,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -419,9 +445,9 @@ class Driver:
             else:
                 # Measure the owning content, retaining the ordinary coarse
                 # step. Fine reveal gestures are for nearby chat feedback.
-                # A Mac OCR miss can consume most of the wait. Reach the
+                # An OCR miss can consume most of the wait. Reach the
                 # bounded request page's end before inspecting another frame.
-                for _ in range(2 if above_anchor and self.session == "macos" else 1):
+                for _ in range(2 if above_anchor else 1):
                     self.scroll(window, 1200 if up else -1200, point, precise=False)
 
         wait_visible(window, directory, text, scroll=move)
@@ -441,11 +467,18 @@ class Driver:
 
     def locate(self, window, image, kind, text, row_control=None, between=None):
         previous = None
+        content_bounds = None
+        content_height = None
+        sparse_only = False
         for _ in range(4 if self.session == "macos" else 1):
             window.screenshot(image)
             options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            if self.session == "macos" and kind in ("content", "nav", "click", "tab", "between"):
+                options["sparse_only" if sparse_only else "native_macos"] = True
+            if kind == "workspace":
+                options["workspace"] = True
             if kind in ("content", "nav"):
                 options["content"] = True
             if between is not None:
@@ -457,10 +490,43 @@ class Driver:
                 options["block_first"] = True
             if row_control is not None:
                 options["row_control"] = row_control
-            label = ocr.locate_image(image, text, **options)
+            scoped = image
+            if self.session == "macos" and kind in ("content", "nav"):
+                bounds = struct.unpack(">II", image.read_bytes()[16:24])
+                if bounds != content_bounds:
+                    # A resize needs a new footer boundary and two fresh
+                    # control measurements. Clock/caret changes must not
+                    # change the analysis dimensions between measurements.
+                    previous = None
+                    content_bounds = bounds
+                    zoom = 1.0
+                    config = getattr(self, "config", None)
+                    zoom_path = config.with_name("zoom-level.json") if isinstance(config, Path) else None
+                    if zoom_path is not None and zoom_path.is_file():
+                        zoom = json.loads(zoom_path.read_text(encoding="utf-8-sig")).get("zoomFactor", 1.0)
+                    scoped = ocr.status_content_image(image, run, border=True, zoom=zoom)
+                    content_height = struct.unpack(">II", scoped.read_bytes()[16:24])[1]
+                else:
+                    scoped = ocr.crop_content_image(image, content_height, run)
+            try:
+                label = ocr.locate_image(scoped, text, **options)
+            except ocr.AmbiguousLabel:
+                raise
+            except RuntimeError:
+                if not options.get("native_macos"):
+                    raise
+                # A missing Vision label may be legible in sparse OCR, but
+                # never compare boxes across engines. Pin this lookup to one
+                # Tesseract mode and require two fresh matching measurements
+                # within the original four-capture budget.
+                sparse_only = True
+                previous = None
+                options.pop("native_macos")
+                options["sparse_only"] = True
+                label = ocr.locate_image(scoped, text, **options)
             if self.session != "macos":
                 return label
-            record_measurement(image.parent, text, label)
+            record_measurement(image.parent, text, label, capture=scoped, raw=image, scope=options)
             # A pending save can insert feedback while OCR runs, moving every
             # content control. Measure twice before emitting any Mac input.
             if stable(label, previous):

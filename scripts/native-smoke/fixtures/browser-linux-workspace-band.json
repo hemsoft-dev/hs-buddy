@@ -1,0 +1,197 @@
+{
+  "sourceCommit": "8eb9b173bdf4779eef61e18a208716e9869408ee",
+  "jobUrl": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41283125375/job/124779476081",
+  "captureSha256": "a37ffd877ec029bc888ee547f36d354e3efe58a5efe01b9354585299214be8ec",
+  "width": 1200,
+  "height": 820,
+  "band": [34, 68],
+  "pixelsBase64": "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzPDw8PDw8PDw8PDw8PDw8JSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmPDw8PDw8PDw8PDw8PDw8Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmJSUmHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4ePDw8PDw8PDw8PDw8PDw8TExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExATExA3Nyq3Nyq3Nyq3Nyq3Nyq////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////",
+  "sparseWords": [
+    {
+      "text": "Buddy",
+      "left": 43,
+      "top": 11,
+      "width": 35,
+      "height": 13,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Help",
+      "left": 201,
+      "top": 12,
+      "width": 20,
+      "height": 12,
+      "line": "2/1/1"
+    },
+    {
+      "text": "http",
+      "left": 149,
+      "top": 81,
+      "width": 19,
+      "height": 13,
+      "line": "3/1/1"
+    },
+    {
+      "text": "1:33431/prob",
+      "left": 236,
+      "top": 81,
+      "width": 75,
+      "height": 10,
+      "line": "4/1/1"
+    },
+    {
+      "text": "I",
+      "left": 1132,
+      "top": 118,
+      "width": 5,
+      "height": 11,
+      "line": "5/1/1"
+    },
+    {
+      "text": "PROBE",
+      "left": 84,
+      "top": 193,
+      "width": 129,
+      "height": 30,
+      "line": "6/1/1"
+    },
+    {
+      "text": "PAGE",
+      "left": 232,
+      "top": 193,
+      "width": 98,
+      "height": 30,
+      "line": "6/1/1"
+    },
+    {
+      "text": "PROBE",
+      "left": 84,
+      "top": 279,
+      "width": 129,
+      "height": 30,
+      "line": "7/1/1"
+    },
+    {
+      "text": "DONE",
+      "left": 232,
+      "top": 279,
+      "width": 111,
+      "height": 30,
+      "line": "7/1/1"
+    },
+    {
+      "text": "J",
+      "left": 80,
+      "top": 358,
+      "width": 243,
+      "height": 43,
+      "line": "8/1/1"
+    }
+  ],
+  "bandWords": [
+    {
+      "text": "ps",
+      "left": 18,
+      "top": 17,
+      "width": 14,
+      "height": 8,
+      "line": "1/1/1"
+    },
+    {
+      "text": "<>",
+      "left": 52,
+      "top": 15,
+      "width": 4,
+      "height": 5,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Dashboard",
+      "left": 79,
+      "top": 10,
+      "width": 64,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 153,
+      "top": 13,
+      "width": 8,
+      "height": 7,
+      "line": "1/1/1"
+    },
+    {
+      "text": "~-",
+      "left": 170,
+      "top": 1,
+      "width": 15,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Bookmarks:",
+      "left": 193,
+      "top": 10,
+      "width": 88,
+      "height": 10,
+      "line": "1/1/1"
+    },
+    {
+      "text": "All",
+      "left": 268,
+      "top": 1,
+      "width": 17,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 291,
+      "top": 13,
+      "width": 8,
+      "height": 7,
+      "line": "1/1/1"
+    },
+    {
+      "text": "--",
+      "left": 308,
+      "top": 1,
+      "width": 14,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Browser:",
+      "left": 331,
+      "top": 11,
+      "width": 42,
+      "height": 9,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Buddy",
+      "left": 389,
+      "top": 1,
+      "width": 34,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "Probe)",
+      "left": 429,
+      "top": 1,
+      "width": 38,
+      "height": 28,
+      "line": "1/1/1"
+    },
+    {
+      "text": "x",
+      "left": 472,
+      "top": 13,
+      "width": 8,
+      "height": 7,
+      "line": "1/1/1"
+    }
+  ]
+}
