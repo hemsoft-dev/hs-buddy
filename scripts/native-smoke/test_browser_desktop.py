@@ -19,6 +19,40 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_real_mac_workspace_title_is_exact_and_excludes_page_footer_and_menu(self):
+        from unittest.mock import Mock
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-macos-workspace-title.json').read_text())
+        ocr = desktop.settings.ocr
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(fixture['nativeWords'], fixture['target'])
+        expected = dict(left=182, top=44, width=78, height=9)
+        words = fixture['words']
+        # The same title in page or footer text must not compete with a tab.
+        copies = [dict(text=fixture['target'], left=182, top=top, width=78, height=9, line=str(top))
+            for top in (200, 808)]
+        self.assertEqual(ocr.locate_label(ocr.workspace_words(words + copies), fixture['target']), expected)
+        row_id = next(word['line'] for word in words if word['text'] == 'Bookmarks:')
+        duplicate = [dict(word, left=word['left'] + 400, line='duplicate') for word in words if word['line'] == row_id]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.locate_label(ocr.workspace_words(words + duplicate), fixture['target'])
+        self.assertLess(ocr.locate_label(ocr.workspace_words(words), 'Buddy Probe')['top'], 70)
+        for label in ('File', 'PROBE PAGE', 'jobs'):
+            with self.assertRaises(RuntimeError):
+                ocr.locate_label(ocr.workspace_words(words), label)
+        with self.assertRaises(RuntimeError):
+            ocr.workspace_words([])
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / 'capture.png'
+            window = Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(b'owned capture')
+            driver = object.__new__(desktop.BrowserDriver)
+            driver.session = 'macos'
+            with patch.object(ocr, 'recognize', return_value=words) as sparse, \
+                    patch.object(ocr, 'recognize_macos', side_effect=AssertionError('Mixed target engines')):
+                self.assertEqual(driver.locate(window, image, 'workspace', fixture['target']), expected)
+            self.assertEqual(window.screenshot.call_count, 2)
+            self.assertTrue(all(call.args[1] == 11 for call in sparse.call_args_list))
+
     def test_recorded_mac_browser_returns_through_the_global_bookmarks_tab(self):
         words = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-global-bookmarks-words.json').read_text())
 
@@ -52,9 +86,10 @@ class BrowserDesktopTests(unittest.TestCase):
         shortcuts = [action[1] for action in driver.actions if action[0] == "shortcut"]
         self.assertEqual(shortcuts, ["Tab", "shift+Tab", "F4"])
         # The last thing before the first shortcut that moves the pointer is a hover.
-        moves = [kind for kind in kinds[:first] if kind in ("hover", "click")]
+        moves = [kind for kind in kinds[:first] if kind in ("hover", "click", "workspace")]
         self.assertEqual(moves[-1], "hover")
         self.assertNotIn("click", kinds[first:])
+        self.assertNotIn("workspace", kinds[first:])
         self.assertEqual(driver.actions[kinds.index("hover")][1:], ("page",))
         self.assertIn(("tooltip_leave",), driver.actions[:first])
         self.assertNotIn(("hover", "title"), driver.actions)

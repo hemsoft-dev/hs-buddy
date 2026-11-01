@@ -206,7 +206,7 @@ def first_pass(driver, theme):
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
-        ("click", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
+        ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
@@ -232,7 +232,7 @@ def light_pass(driver, visit):
         ("wait_text", f"Visit {visit}"), ("capture", "page-light"),
         ("resize", 900, 650), ("sleep", 1), ("capture", "page-compact-light"),
         ("resize", 1200, 820),
-        ("click", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
+        ("workspace", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
     github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
     github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)
@@ -246,7 +246,7 @@ class BrowserDriver(settings.Driver):
         # Locate the tab while the pointer is on the page, then deliberately
         # show its tooltip. OCR must see both copies before we test the leave.
         image = directory / "tooltip-target.png"
-        label = self.locate(window, image, "click", "Buddy Probe")
+        label = self.locate(window, image, "workspace", "Buddy Probe")
         settings.run("xdotool", "mousemove", "--window", window.window,
             int(label["left"] + label["width"] / 2), int(label["top"] + label["height"] / 2))
         time.sleep(2)
@@ -274,7 +274,7 @@ def shortcut_pass(driver):
         ("hover", "page"), ("wait_text", PROBE_TEXT),
         ("tooltip_leave",),
         # Clicking a tab gives the browser the keyboard.
-        ("click", "Buddy Probe"), ("hover", "page"),
+        ("workspace", "Buddy Probe"), ("hover", "page"),
         ("shortcut", "Tab"), ("wait_text", PAGE_TEXT), ("capture", "next-tab-light"),
         ("shortcut", "shift+Tab"), ("wait_text", PROBE_TEXT),
         ("shortcut", "F4"), ("wait_text", PAGE_TEXT), ("capture", "closed-tab-light"),

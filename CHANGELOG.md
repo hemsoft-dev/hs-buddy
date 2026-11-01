@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1607] - 2026-11-01
+
+### Changed
+
+- Scope browser workspace tabs separately from page content
+
 ## [0.1.1606] - 2026-11-01
 
 ### Changed

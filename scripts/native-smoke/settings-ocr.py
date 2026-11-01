@@ -153,15 +153,9 @@ def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoo
     raise RuntimeError("The content screenshot has no unique native status footer")
 
 
-def content_words(words, chrome=None):
-    """Bound view labels using a measured menu and workspace-tab row."""
-    # Explicit scene scope: the menu row and the following workspace-tab
-    # row are chrome, not controls in the retained view. Measure both from
-    # the untouched capture rather than assuming a DPI or window origin.
-    # View/Help identify the menu context even when field labels also
-    # contain File. Do not require Edit: the captured Windows OCR reads
-    # that menu label as Eat. All candidate rows must still be unique.
-    chrome = words if chrome is None else chrome
+def chrome_rows(words):
+    """Measure the menu bottom and following workspace-tab row bottom."""
+    chrome = words
     chrome = [word for word in chrome if normalize(word["text"])]
     menus = []
     for candidate in (word for word in chrome if normalize(word["text"]) == "file"):
@@ -186,6 +180,18 @@ def content_words(words, chrome=None):
         raise RuntimeError("The workspace tab row is not visible")
     row = [word for word in below_menu if word["top"] < row_top + menu["height"]]
     row_bottom = max(word["top"] + word["height"] for word in row)
+    return menu["top"] + menu["height"], row_bottom
+
+
+def workspace_words(words):
+    """Keep workspace titles above the view and below the custom menu."""
+    top, bottom = chrome_rows(words)
+    return [word for word in words if top < word["top"] <= bottom]
+
+
+def content_words(words, chrome=None):
+    """Keep view controls below workspace tabs and above status totals."""
+    _, row_bottom = chrome_rows(words if chrome is None else chrome)
     words = [word for word in words if word["top"] > row_bottom]
     # The shared totals footer is chrome too. Identify its three ordered
     # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
@@ -397,7 +403,15 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False):
+    if workspace:
+        # Global tab titles are shell chrome, not view controls. Keep their
+        # measurements on sparse Tesseract: full-frame Vision can replace
+        # Latin fixture titles with Cyrillic lookalikes on macOS.
+        words = recognize(image, 11)
+        if image.is_file():
+            image.with_suffix('.workspace-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+        return locate_label(workspace_words(words), labels)
     if native_macos:
         # Stability measurements must not alternate Tesseract glyph boxes
         # with Vision's line boxes for the same stationary control.
@@ -500,8 +514,9 @@ def main():
     parser.add_argument("--tab", action="store_true")
     parser.add_argument("--content", action="store_true")
     parser.add_argument("--between-labels", nargs=2)
+    parser.add_argument("--workspace", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels, workspace=args.workspace)))
 
 
 if __name__ == "__main__":

@@ -112,6 +112,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     $arguments = @((Join-Path $PSScriptRoot 'settings-ocr.py'), '--image', $image, '--label', $label)
     if ($Mode -eq 'navigation') { $arguments += '--navigation' }
     if ($Mode -in @('content', 'navigation')) { $arguments += '--content' }
+    if ($Mode -eq 'workspace') { $arguments += '--workspace' }
     if ($Mode -eq 'tab') { $arguments += '--tab' }
     if ($BetweenLabels.Count -ne 0) {
         if ($BetweenLabels.Count -ne 2) { throw 'A row needs two visible boundary labels' }
@@ -293,8 +294,8 @@ try {
                 $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
                 Click-OwnedPoint $point.X $point.Y
             }
-            { $_ -in 'nav64', 'tab64', 'click64', 'content64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
-                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'content64' {'content'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
+            { $_ -in 'nav64', 'tab64', 'click64', 'content64', 'workspace64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
+                $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'content64' {'content'} 'workspace64' {'workspace'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }
                 $offset = 20
                 if ($mode -eq 'input' -and $parts.Count -gt 3) {
                     if ($parts.Count -ne 4 -or -not [int]::TryParse($parts[3], [ref]$offset)) { throw 'Owned input offset is invalid' }

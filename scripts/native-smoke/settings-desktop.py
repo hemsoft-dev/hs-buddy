@@ -255,7 +255,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -349,7 +349,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -476,6 +476,8 @@ class Driver:
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
             if self.session == "macos" and kind in ("content", "nav", "click", "tab", "between"):
                 options["native_macos"] = True
+            if kind == "workspace":
+                options["workspace"] = True
             if kind in ("content", "nav"):
                 options["content"] = True
             if between is not None:
