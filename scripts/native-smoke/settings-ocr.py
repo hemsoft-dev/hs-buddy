@@ -148,8 +148,15 @@ def recognize_macos(image):
     helper = Path(os.environ.get("BUDDY_SETTINGS_OCR_HELPER", ""))
     if not helper.is_absolute() or not helper.is_file():
         raise RuntimeError("macOS OCR requires an existing absolute compiled helper")
-    result = subprocess.run([str(helper), str(image)],
-        capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    try:
+        result = subprocess.run([str(helper), str(image)],
+            capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    except subprocess.CalledProcessError as error:
+        # Preserve the exact failed capture before the status wait recaptures it.
+        shutil.copyfile(image, image.with_suffix(".ocr-error.png"))
+        details = dict(exitCode=error.returncode, stderr=error.stderr or "")
+        image.with_suffix(".ocr-error.json").write_text(json.dumps(details), encoding="utf-8")
+        raise RuntimeError(f"macOS OCR helper exited {error.returncode}: {details['stderr'].strip()}") from error
     return json.loads(result.stdout)
 
 
