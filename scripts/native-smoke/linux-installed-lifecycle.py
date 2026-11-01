@@ -210,7 +210,7 @@ def app_environment(profile, backend):
 
 
 @contextlib.contextmanager
-def running(executable, args, environment, directory):
+def running(executable, args, environment, directory, *, electron=False):
     directory.mkdir(parents=True)
     desktop = load(HERE / "desktop.py")
     with (directory / "app.log").open("w", encoding="utf-8") as log:
@@ -234,7 +234,12 @@ def running(executable, args, environment, directory):
                     raise RuntimeError("The installed application did not show its owned window")
                 time.sleep(.2)
             yield process, window
-            window.key("q")
+            if electron:
+                # Linux Electron has no Ctrl+Q binding. Openbox's Alt+F4
+                # requests a normal window close and preserves app shutdown.
+                window.key("alt+F4", control=False)
+            else:
+                window.key("q")
             if process.wait(timeout=25) != 0:
                 raise RuntimeError("The installed application did not exit cleanly")
         finally:
@@ -266,7 +271,7 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
     environment["BUDDY_DEBUG_PORT"] = str(port)
     directory = output / name
     arguments = [f"--user-data-dir={profile}", f"--proxy-server={browser['proxy']}", "--proxy-bypass-list=127.0.0.1;localhost;[::1]"]
-    with running(executable, arguments, environment, directory) as (process, window), recorded(window, directory):
+    with running(executable, arguments, environment, directory, electron=True) as (process, window), recorded(window, directory):
         import psutil
         cdp = paired.CDP(port, psutil.Process(process.pid))
         try:

@@ -59,6 +59,8 @@ route that [BookmarkList](../src/components/bookmarks/BookmarkList.tsx) opens.
 The shell `openInAppBrowser` API opens a separate window and cannot supply the
 main renderer's `BrowserTabView` webview. A Node event-dispatch regression
 requires the app-tab route and rejects the shell-window path.
+Electron closes through its supported Linux Alt+F4 window-close path; native
+uses Ctrl+Q. Both require a zero process exit before restarting the profile.
 
 The embedded browser fixture uses the documentation-only `203.0.113.1` origin
 through a process-local HTTP proxy on `127.0.0.1`. It supplies no real website,

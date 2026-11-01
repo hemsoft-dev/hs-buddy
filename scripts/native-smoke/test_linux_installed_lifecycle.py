@@ -8,6 +8,8 @@ import unittest
 import urllib.request
 import contextlib
 import json
+import ast
+import inspect
 from urllib.parse import unquote
 from unittest.mock import patch
 
@@ -23,6 +25,41 @@ def restored():
 
 
 class BrowserRoutingControl(unittest.TestCase):
+    def test_clean_shutdown_uses_electron_close_and_native_quit_bindings(self):
+        for electron in (True, False):
+            with self.subTest(electron=electron), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                executable = root / "fixture-app"
+                executable.write_bytes(b"fixture executable")
+                closed = []
+                expected = ("alt+F4", False) if electron else ("q", True)
+
+                def key(value, control=True):
+                    if (value, control) == expected:
+                        closed.append(True)
+
+                window = unittest.mock.Mock(ready=lambda: True, key=key)
+                process = unittest.mock.Mock(pid=123, poll=lambda: 0 if closed else None)
+                def wait(timeout):
+                    if not closed:
+                        raise subprocess.TimeoutExpired("fixture-app", timeout)
+                    return 0
+                process.wait.side_effect = wait
+                module = unittest.mock.Mock(UnixWindow=lambda *_: window)
+                with patch.object(lifecycle, "load", return_value=module), \
+                        patch.object(lifecycle.subprocess, "Popen", return_value=process), \
+                        patch.object(lifecycle.os, "killpg", create=True):
+                    with lifecycle.running(executable, [], dict(BUDDY_CONFIG_PATH=str(root / "config.json"),
+                            BUDDY_CONVEX_URL="http://127.0.0.1:9"), root / "scene", electron=electron):
+                        pass
+                self.assertTrue(closed)
+                process.wait.assert_called_once_with(timeout=25)
+        # The actual installed Electron path must select the tested branch.
+        calls = [node for node in ast.walk(ast.parse(inspect.getsource(lifecycle.electron_pass)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "running"]
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(any(k.arg == "electron" and isinstance(k.value, ast.Constant) and k.value.value is True for k in calls[0].keywords))
+
     def test_main_renderer_receives_the_actual_bookmark_tab_route(self):
         class Renderer:
             def evaluate(self, expression):
