@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1617] - 2026-11-01
+
+### Changed
+
+- Validate installed Crew restoration through real route
+
 ## [0.1.1616] - 2026-11-01
 
 ### Changed

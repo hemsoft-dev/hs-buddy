@@ -62,6 +62,16 @@ requires the app-tab route and rejects the shell-window path.
 Electron closes through its supported Linux Alt+F4 window-close path; native
 uses Ctrl+Q. Both require a zero process exit before restarting the profile.
 
+Crew restoration selects `crew-project:<project-id>`, the supported
+[AppContentRouter](../src/components/AppContentRouter.tsx) project route. It
+requires the project's rendered heading, retained conversation and error banner.
+The regression feeds the harness's actual CDP expressions through the real
+tab listener, router and Crew view with synthetic preload readbacks. The old
+`crew-projects` placeholder cannot satisfy it. Portable package failure controls
+inject the OS receipt returned by the strict Ubuntu guard and deliberately deny
+access to a host `/etc/os-release`; real execution still requires that file and
+the supported OS before any installation.
+
 The embedded browser fixture uses the documentation-only `203.0.113.1` origin
 through a process-local HTTP proxy on `127.0.0.1`. It supplies no real website,
 account or external service. Electron's private-URL checks and Chromium sandbox

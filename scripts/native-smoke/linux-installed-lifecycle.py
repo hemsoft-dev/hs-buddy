@@ -60,7 +60,8 @@ def require_runner(output):
             or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1"
             or platform.machine() != "x86_64"):
         raise RuntimeError("Installed lifecycle requires an owned Ubuntu x64 CI runner")
-    release = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines() if "=" in line)
+    release_text = Path("/etc/os-release").read_text(encoding="utf-8")
+    release = dict(line.split("=", 1) for line in release_text.splitlines() if "=" in line)
     if release.get("ID", "").strip('"') != "ubuntu" or release.get("VERSION_ID", "").strip('"') != "24.04":
         raise RuntimeError("Installed lifecycle qualifies Ubuntu 24.04 only")
     root = Path(os.environ["RUNNER_TEMP"]).resolve()
@@ -68,6 +69,7 @@ def require_runner(output):
         raise RuntimeError("A fresh evidence directory under RUNNER_TEMP is required")
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") or not os.environ.get("DISPLAY"):
         raise RuntimeError("The isolated Secret Service and X11 session are required")
+    return release_text
 
 
 def require_subset(expected, actual, label="data"):
@@ -197,6 +199,15 @@ def open_browser_tab(cdp, page):
     cdp.evaluate("window.dispatchEvent(new CustomEvent('app:navigate',{detail:{viewId:" + json.dumps(route) + "}}))")
 
 
+def open_crew_project(cdp):
+    route = "crew-project:" + PROJECT
+    cdp.evaluate("window.dispatchEvent(new CustomEvent('app:navigate',{detail:{viewId:" + json.dumps(route) + "}}))")
+
+
+def crew_visible(cdp):
+    return cdp.evaluate(f"[...document.querySelectorAll('h2')].some(h=>h.textContent==={json.dumps(PROJECT)}) && document.body.innerText.includes({json.dumps(MESSAGE)}) && document.body.innerText.includes('Session encountered an error')")
+
+
 def app_environment(profile, backend):
     allowed = {"PATH", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG", "LD_LIBRARY_PATH"}
     environment = {key: value for key, value in os.environ.items() if key in allowed}
@@ -293,10 +304,10 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             value = cdp.evaluate(f"(async()=>({{projects:await window.crew.listProjects(),session:await window.crew.getSession({json.dumps(PROJECT)}),cache:await window.ipcRenderer.invoke('cache:read',{json.dumps(CACHE_KEY)}),viewMode:localStorage.getItem('viewMode:pr-my-prs'),config:await window.ipcRenderer.invoke('config:get-config')}}))()")
             restored_state(value)
             write(directory / "restored-state.json", value)
-            cdp.evaluate("window.dispatchEvent(new CustomEvent('app:navigate',{detail:{viewId:'crew-projects'}}))")
-            paired.wait_for(lambda: cdp.evaluate(f"document.body.innerText.includes({json.dumps(PROJECT)})"), psutil.Process(process.pid))
+            open_crew_project(cdp)
+            paired.wait_for(lambda: crew_visible(cdp), psutil.Process(process.pid))
             window.screenshot(directory / "crew-restored.png")
-            github.check(directory / "crew-restored.png", PROJECT)
+            github.check(directory / "crew-restored.png", PROJECT, MESSAGE, "Session encountered an error")
             page = browser["url"] + ("?seed=1" if seed else "")
             open_browser_tab(cdp, page)
             paired.wait_for(lambda: cdp.evaluate("(()=>{try{const w=document.querySelector('webview');return Boolean(w?.getURL().startsWith('http://203.0.113.1:'))&&!w.isLoading()}catch{return false}})()"), psutil.Process(process.pid))
@@ -349,7 +360,7 @@ def build_electron(packages, backend):
 
 
 def qualify(native_package_directory, output):
-    require_runner(output)
+    os_release = require_runner(output)
     output.mkdir(parents=True)
     packages = Packages(output)
     manifest = read(native_package_directory / "build.json")
@@ -367,7 +378,7 @@ def qualify(native_package_directory, output):
     github = load(HERE / "github-desktop.py")
     profile = output / "profile"
     profile.mkdir()
-    report = dict(sourceSha=head, osRelease=Path("/etc/os-release").read_text(),
+    report = dict(sourceSha=head, osRelease=os_release,
         nativeManifest=manifest, cutoverQualified=False, secrets="isolated Secret Service; migration not qualified",
         limitation="Same-head Electron runtime rollback, not an older published-version downgrade")
     write(output / "qualification.json", dict(report, result="incomplete"))

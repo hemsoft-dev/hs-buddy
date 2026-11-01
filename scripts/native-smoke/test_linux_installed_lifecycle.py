@@ -25,6 +25,12 @@ def restored():
 
 
 class BrowserRoutingControl(unittest.TestCase):
+    def test_installed_electron_pass_uses_the_consumer_tested_crew_navigation_and_wait(self):
+        calls = [node.func.id for node in ast.walk(ast.parse(inspect.getsource(lifecycle.electron_pass)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
+        self.assertEqual(calls.count("open_crew_project"), 1)
+        self.assertEqual(calls.count("crew_visible"), 1)
+
     def test_clean_shutdown_uses_electron_close_and_native_quit_bindings(self):
         for electron in (True, False):
             with self.subTest(electron=electron), tempfile.TemporaryDirectory() as raw:
@@ -138,7 +144,16 @@ class CanonicalPackageControls(unittest.TestCase):
             lifecycle.write(root / "build.json", dict(sourceDirty=False, sourceSha="head", profile="release",
                 target="x86_64-unknown-linux-gnu", binarySha256=digest, package=dict(file="native.deb", sha256=digest)))
             packages = lifecycle.Packages(root)
-            with patch.object(lifecycle, "require_runner"), \
+            os_receipt = 'ID=ubuntu\nVERSION_ID="24.04"\n'
+            original_read = Path.read_text
+
+            def without_host_os_file(path, *args, **kwargs):
+                if path.as_posix() == "/etc/os-release":
+                    raise FileNotFoundError("No host OS receipt in this portable failure control")
+                return original_read(path, *args, **kwargs)
+
+            with patch.object(lifecycle, "require_runner", return_value=os_receipt), \
+                    patch.object(Path, "read_text", without_host_os_file), \
                     patch.object(lifecycle, "digest", return_value=digest), \
                     patch.object(lifecycle, "load", return_value=unittest.mock.MagicMock()), \
                     patch.object(lifecycle, "browser_fixture", return_value=contextlib.nullcontext({})), \
@@ -150,7 +165,22 @@ class CanonicalPackageControls(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "early build failure"):
                     lifecycle.qualify(root, root / "evidence")
             remove.assert_not_called()
-            self.assertEqual(lifecycle.read(root / "evidence/qualification.json")["result"], "failed")
+            report = lifecycle.read(root / "evidence/qualification.json")
+            self.assertEqual(report["result"], "failed")
+            self.assertEqual(report["osRelease"], os_receipt)
+
+    def test_real_runner_guard_still_requires_the_supported_host_os_receipt(self):
+        with patch.dict(os.environ, GITHUB_ACTIONS="true", BUDDY_SETTINGS_FIXTURE="1"), \
+                patch.object(lifecycle.platform, "machine", return_value="x86_64"), \
+                patch.object(lifecycle.subprocess, "run") as run:
+            with patch.object(Path, "read_text", side_effect=FileNotFoundError("absent host OS file")):
+                with self.assertRaisesRegex(FileNotFoundError, "absent host OS file"):
+                    lifecycle.require_runner(Path("unused"))
+            for receipt in ('ID=ubuntu\nVERSION_ID="22.04"\n', 'ID=debian\nVERSION_ID="24.04"\n'):
+                with self.subTest(receipt=receipt), patch.object(Path, "read_text", return_value=receipt):
+                    with self.assertRaisesRegex(RuntimeError, "Ubuntu 24.04 only"):
+                        lifecycle.require_runner(Path("unused"))
+            run.assert_not_called()
 
     def test_real_apt_install_must_match_the_deb_version(self):
         with tempfile.TemporaryDirectory() as raw:
