@@ -1,14 +1,14 @@
 //! macOS application roles complement the frameless window's custom menus.
 use gpui_kit::base::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui_kit::{App, Div, InteractiveElement, KeyBinding, Menu, MenuItem, OsAction};
+use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{NSApplication, NSMenu, NSMenuDelegate};
-use objc2_foundation::{NSObject, NSObjectProtocol};
+use objc2_app_kit::NSApplication;
 
 use crate::app::{About, Quit, ToggleFullScreen};
 use crate::settings::Settings;
+
+mod edit;
 
 gpui_kit::actions!(
     macos,
@@ -99,11 +99,12 @@ fn menus(window_open: bool) -> Vec<Menu> {
 
 pub fn install(cx: &mut App) {
     cx.on_action(|_: &OpenSettings, cx| {
-        if Settings::update(cx, |config| {
+        let _ = Settings::update(cx, |config| {
             config.native.active_section = Some("settings".into())
-        }) {
-            show_window(cx);
-        }
+        });
+        // A failed save keeps save_error for the visible status bar. Always
+        // reopen so a windowless app can display that error and recover.
+        show_window(cx);
     });
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
@@ -116,55 +117,9 @@ pub fn refresh(cx: &mut App) {
     install_responder_roles(cx);
 }
 
-struct EditDelegateState {
-    original: Option<Retained<ProtocolObject<dyn NSMenuDelegate>>>,
-    gpui_view: Option<usize>,
-}
-
-define_class!(
-    #[unsafe(super(NSObject))]
-    #[name = "BuddyEditMenuDelegate"]
-    #[thread_kind = MainThreadOnly]
-    #[ivars = EditDelegateState]
-    struct EditMenuDelegate;
-
-    unsafe impl NSObjectProtocol for EditMenuDelegate {}
-
-    unsafe impl NSMenuDelegate for EditMenuDelegate {
-        #[unsafe(method(menuWillOpen:))]
-        fn menu_will_open(&self, menu: &NSMenu) {
-            // Preserve GPUI's clearing of pending keyboard chords.
-            if let Some(original) = &self.ivars().original {
-                original.menuWillOpen(menu);
-            }
-            let app = NSApplication::sharedApplication(self.mtm());
-            let native_input = app
-                .keyWindow()
-                .and_then(|window| window.firstResponder())
-                .is_some_and(|responder| {
-                    self.ivars().gpui_view != Some(Retained::as_ptr(&responder) as usize)
-                });
-            for (index, native_action) in [(0, sel!(undo:)), (1, sel!(redo:))] {
-                if let Some(item) = menu.itemAtIndex(index) {
-                    // SAFETY: standard one-argument menu selectors, with the
-                    // existing nil target. Native text views use their undo
-                    // manager; GPUI inputs use its registered action tags.
-                    unsafe {
-                        item.setAction(Some(if native_input {
-                            native_action
-                        } else {
-                            sel!(handleGPUIMenuItem:)
-                        }))
-                    };
-                }
-            }
-        }
-    }
-);
-
 // NSMenu holds its delegate weakly. Keep the adapter alive with the app.
 struct MenuDelegateOwner {
-    _delegate: Retained<EditMenuDelegate>,
+    _delegate: Retained<edit::EditMenuDelegate>,
 }
 impl gpui_kit::Global for MenuDelegateOwner {}
 
@@ -196,14 +151,7 @@ fn install_responder_roles(cx: &mut App) {
         }
     }
     if let Some(menu) = bar.itemAtIndex(1).and_then(|item| item.submenu()) {
-        let delegate = EditMenuDelegate::alloc(app.mtm()).set_ivars(EditDelegateState {
-            original: menu.delegate(),
-            gpui_view,
-        });
-        // SAFETY: NSObject's init initializes our allocated subclass; its
-        // Rust ivars were installed above and it has no additional invariants.
-        let delegate: Retained<EditMenuDelegate> = unsafe { msg_send![super(delegate), init] };
-        menu.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        let delegate = edit::EditMenuDelegate::new(&menu, gpui_view);
         cx.set_global(MenuDelegateOwner {
             _delegate: delegate,
         });

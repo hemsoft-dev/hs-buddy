@@ -20,12 +20,19 @@ full-screen and tiling entries in the registered Window menu; the app does not
 duplicate them. Closing the last window leaves the app running; Dock activation,
 About and Settings reopen a window. Window commands disable while no window is
 open. Closing a window flushes its observed placement before releasing the view.
+Settings also reopens after a persistence failure, exposing the retained save
+error in the status bar without overwriting unreadable configuration.
 
 Edit uses AppKit's responder chain for native text and embedded web views. GPUI
-inputs receive the component library's actions. The adapter preserves GPUI's menu
-opening callback and chooses the Undo/Redo selector from the actual GPUI raw view
-handle. Always using AppKit's Undo selector disables Undo in GPUI inputs; always
-using GPUI's selector prevents native text views from handling it. Services is
+inputs receive the component library's actions. A stable menu target resolves the
+current responder for every validation, click and key equivalent. It passes a
+copy with the routed selector and original action tag to native validators,
+without changing the installed proxy. The actual GPUI raw view handle distinguishes
+GPUI from native responders. GPUI's menu-opening callback is preserved; routing
+does not depend on that callback, which AppKit does not send for key equivalents.
+Shifted letter equivalents use AppKit's uppercase form. Always using AppKit's Undo
+selector disables Undo in GPUI inputs; always using GPUI's selector prevents native
+text views from handling it. Services is
 registered with the actual `NSMenu`, correcting the pinned GPUI API's item/menu
 argument mismatch without changing the dependency's code.
 
@@ -83,7 +90,10 @@ The [menu qualification](../scripts/native-smoke/macos-menus.py) runs only on
 disposable macOS CI desktops, with a fresh profile under `RUNNER_TEMP` and an
 offline loopback backend. It validates native menu labels and accelerator
 modifiers, captures the owned popup rectangle, closes the last window, reopens
-Settings and quits. The receipt records source and executable identities plus
+Settings after both failed and successful configuration saves, and quits. The
+failure case preserves the unreadable disposable profile. A native AppKit test
+exercises Cmd+Z/Cmd+Shift+Z across responder changes without opening menus or
+creating windows, plus click dispatch and current-target validation. The receipt records source and executable identities plus
 image hashes. Both macOS architectures retain their installed qualification gates.
 Local GUI checks use CUA and short, isolated runs when the Mac is idle. CUA can
 capture the app window but cannot capture its open native menus; shell Screen

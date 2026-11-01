@@ -136,6 +136,12 @@ def wait_window(window, expected):
     raise RuntimeError('Native window lifecycle did not reach its expected state') from last_error
 
 
+def open_settings(window):
+    run('osascript', '-e', window.apple('click menu bar item "Buddy Native" of menu bar 1'))
+    run('osascript', '-e', window.apple('click menu item "Settings…" of menu 1 of menu bar item "Buddy Native" of menu bar 1'))
+    wait_window(window, 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--executable', type=Path, required=True)
@@ -170,11 +176,20 @@ def main():
                 wait_window(window, 0)
                 receipts.append(dict(theme=theme, **capture(window, 'Window',
                     directory / 'window-no-window.png', window_open=False)))
+                # A read failure must preserve the corrupt file and still
+                # reopen a window, where Settings.save_error is visible.
+                saved_config = config.read_text()
+                config.write_text('{invalid synthetic fixture')
+                open_settings(window)
+                window.screenshot(directory / 'settings-save-error.png')
+                if config.read_text() != '{invalid synthetic fixture':
+                    raise RuntimeError('Settings failure overwrote the unreadable profile')
+                window.key('w')
+                wait_window(window, 0)
+                config.write_text(saved_config)
                 # The app menu remains usable with no windows. Settings must
                 # create exactly one real window, rather than exit or duplicate.
-                run('osascript', '-e', window.apple('click menu bar item "Buddy Native" of menu bar 1'))
-                run('osascript', '-e', window.apple('click menu item "Settings…" of menu 1 of menu bar item "Buddy Native" of menu bar 1'))
-                wait_window(window, 1)
+                open_settings(window)
                 window.screenshot(directory / 'settings-reopened.png')
                 window.key('q')
                 if process.wait(timeout=20) != 0:
@@ -185,7 +200,8 @@ def main():
                     process.wait(timeout=10)
     (output / 'qualification.json').write_text(json.dumps(dict(result='passed', sourceSha=args.source_sha,
         version=args.version, executableSha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
-        menus=receipts, closeKeepsApplication=True, settingsReopensWindow=True), indent=2))
+        menus=receipts, closeKeepsApplication=True, settingsReopensWindow=True,
+        settingsSaveFailureReopensWindow=True), indent=2))
 
 
 if __name__ == '__main__':
