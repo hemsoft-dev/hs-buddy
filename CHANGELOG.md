@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1603] - 2026-11-01
+
+### Fixed
+
+- Stabilize Mac controls and complete Linux request scrolling
+
 ## [0.1.1602] - 2026-10-31
 
 ### Fixed

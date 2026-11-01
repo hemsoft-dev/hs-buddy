@@ -445,9 +445,9 @@ class Driver:
             else:
                 # Measure the owning content, retaining the ordinary coarse
                 # step. Fine reveal gestures are for nearby chat feedback.
-                # A Mac OCR miss can consume most of the wait. Reach the
+                # An OCR miss can consume most of the wait. Reach the
                 # bounded request page's end before inspecting another frame.
-                for _ in range(2 if above_anchor and self.session == "macos" else 1):
+                for _ in range(2 if above_anchor else 1):
                     self.scroll(window, 1200 if up else -1200, point, precise=False)
 
         wait_visible(window, directory, text, scroll=move)
@@ -474,6 +474,8 @@ class Driver:
             options = dict(navigation=kind == "nav",
                 field=kind in ("input", "field", "box", "leftfield", "rightfield", "save"),
                 save_row=self.session == "macos" and kind in ("field", "save"), tab=kind == "tab")
+            if self.session == "macos" and kind in ("content", "nav", "click", "tab", "between"):
+                options["native_macos"] = True
             if kind in ("content", "nav"):
                 options["content"] = True
             if between is not None:

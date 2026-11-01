@@ -389,7 +389,17 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False):
+    if native_macos:
+        # Stability measurements must not alternate Tesseract glyph boxes
+        # with Vision's line boxes for the same stationary control.
+        words = recognize_macos(image)
+        label = locate_label(words, labels, navigation, field, tab, content=content, between=between)
+        if save_row:
+            label["save"] = aligned_save(words, label)
+        if row_control is not None:
+            label["row_control"] = aligned_control(words, label, row_control)
+        return label
     # Compact Mac forms put a focus border just above the next label. Sparse
     # segmentation can absorb that border into its glyph box (#886). The
     # original-image block pass reads the label alone in the failed artifacts.

@@ -1,0 +1,3363 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41252664926/artifacts/13063457652",
+  "imageSha256": "80c6e76b64bc65d344a3ea73ede60b36282e3726f41fc2cf52d52307fa589f94",
+  "window": [900, 650],
+  "target": "Inspect synthetic request 20",
+  "layouts": [
+    {
+      "name": "wait-status.ocr-11.json",
+      "words": [
+        {
+          "text": "request",
+          "left": 341,
+          "top": 327,
+          "width": 52,
+          "height": 8,
+          "line": "18/1/1"
+        },
+        {
+          "text": "47",
+          "left": 398,
+          "top": 327,
+          "width": 13,
+          "height": 5,
+          "line": "18/1/1"
+        },
+        {
+          "text": "vs",
+          "left": 427,
+          "top": 327,
+          "width": 22,
+          "height": 5,
+          "line": "19/1/1"
+        },
+        {
+          "text": "uv",
+          "left": 454,
+          "top": 327,
+          "width": 7,
+          "height": 5,
+          "line": "19/1/1"
+        },
+        {
+          "text": "wrens",
+          "left": 467,
+          "top": 327,
+          "width": 41,
+          "height": 5,
+          "line": "19/1/1"
+        },
+        {
+          "text": "vy",
+          "left": 522,
+          "top": 327,
+          "width": 7,
+          "height": 5,
+          "line": "20/1/1"
+        },
+        {
+          "text": "wu!",
+          "left": 535,
+          "top": 327,
+          "width": 22,
+          "height": 5,
+          "line": "20/1/1"
+        },
+        {
+          "text": "cans",
+          "left": 563,
+          "top": 327,
+          "width": 28,
+          "height": 5,
+          "line": "20/1/1"
+        },
+        {
+          "text": "wus",
+          "left": 605,
+          "top": 327,
+          "width": 26,
+          "height": 5,
+          "line": "21/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 356,
+          "width": 46,
+          "height": 12,
+          "line": "23/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 354,
+          "width": 59,
+          "height": 14,
+          "line": "23/1/1"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 356,
+          "width": 49,
+          "height": 12,
+          "line": "23/1/1"
+        },
+        {
+          "text": "17",
+          "left": 510,
+          "top": 356,
+          "width": 15,
+          "height": 9,
+          "line": "23/1/1"
+        },
+        {
+          "text": "+",
+          "left": 597,
+          "top": 393,
+          "width": 2,
+          "height": 2,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0.08",
+          "left": 605,
+          "top": 389,
+          "width": 26,
+          "height": 9,
+          "line": "24/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 389,
+          "width": 52,
+          "height": 12,
+          "line": "25/1/1"
+        },
+        {
+          "text": "18",
+          "left": 398,
+          "top": 389,
+          "width": 15,
+          "height": 9,
+          "line": "25/1/1"
+        },
+        {
+          "text": "-",
+          "left": 417,
+          "top": 377,
+          "width": 8,
+          "height": 31,
+          "line": "25/1/1"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "25/1/1"
+        },
+        {
+          "text": "+",
+          "left": 442,
+          "top": 391,
+          "width": 4,
+          "height": 5,
+          "line": "25/1/1"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "25/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 387,
+          "width": 42,
+          "height": 11,
+          "line": "25/1/1"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 393,
+          "width": 2,
+          "height": 2,
+          "line": "25/1/1"
+        },
+        {
+          "text": "0",
+          "left": 523,
+          "top": 389,
+          "width": 3,
+          "height": 9,
+          "line": "25/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 387,
+          "width": 23,
+          "height": 11,
+          "line": "25/1/1"
+        },
+        {
+          "text": "calls,",
+          "left": 563,
+          "top": 387,
+          "width": 28,
+          "height": 11,
+          "line": "25/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 422,
+          "width": 46,
+          "height": 12,
+          "line": "26/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 420,
+          "width": 59,
+          "height": 14,
+          "line": "26/1/1"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 422,
+          "width": 49,
+          "height": 12,
+          "line": "26/1/1"
+        },
+        {
+          "text": "18",
+          "left": 510,
+          "top": 422,
+          "width": 15,
+          "height": 9,
+          "line": "26/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 455,
+          "width": 52,
+          "height": 12,
+          "line": "27/1/1"
+        },
+        {
+          "text": "19",
+          "left": 398,
+          "top": 455,
+          "width": 15,
+          "height": 9,
+          "line": "27/1/1"
+        },
+        {
+          "text": "-",
+          "left": 417,
+          "top": 443,
+          "width": 8,
+          "height": 31,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "27/1/1"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 457,
+          "width": 10,
+          "height": 5,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "27/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 453,
+          "width": 42,
+          "height": 11,
+          "line": "27/1/1"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 459,
+          "width": 2,
+          "height": 2,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0",
+          "left": 523,
+          "top": 455,
+          "width": 3,
+          "height": 9,
+          "line": "27/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 453,
+          "width": 23,
+          "height": 11,
+          "line": "27/1/1"
+        },
+        {
+          "text": "calls,",
+          "left": 563,
+          "top": 453,
+          "width": 28,
+          "height": 11,
+          "line": "27/1/1"
+        },
+        {
+          "text": "+",
+          "left": 597,
+          "top": 459,
+          "width": 2,
+          "height": 2,
+          "line": "28/1/1"
+        },
+        {
+          "text": "0.08",
+          "left": 605,
+          "top": 455,
+          "width": 26,
+          "height": 9,
+          "line": "28/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 488,
+          "width": 46,
+          "height": 12,
+          "line": "29/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 486,
+          "width": 59,
+          "height": 14,
+          "line": "29/1/1"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 488,
+          "width": 49,
+          "height": 12,
+          "line": "29/1/1"
+        },
+        {
+          "text": "19",
+          "left": 510,
+          "top": 488,
+          "width": 15,
+          "height": 9,
+          "line": "29/1/1"
+        },
+        {
+          "text": "+",
+          "left": 597,
+          "top": 525,
+          "width": 2,
+          "height": 2,
+          "line": "30/1/1"
+        },
+        {
+          "text": "0.08",
+          "left": 605,
+          "top": 521,
+          "width": 26,
+          "height": 9,
+          "line": "30/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 521,
+          "width": 52,
+          "height": 12,
+          "line": "31/1/1"
+        },
+        {
+          "text": "20",
+          "left": 398,
+          "top": 521,
+          "width": 15,
+          "height": 9,
+          "line": "31/1/1"
+        },
+        {
+          "text": "-",
+          "left": 419,
+          "top": 509,
+          "width": 6,
+          "height": 31,
+          "line": "31/1/1"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "31/1/1"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 523,
+          "width": 10,
+          "height": 5,
+          "line": "31/1/1"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "31/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 519,
+          "width": 42,
+          "height": 11,
+          "line": "31/1/1"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 525,
+          "width": 2,
+          "height": 2,
+          "line": "31/1/1"
+        },
+        {
+          "text": "0",
+          "left": 523,
+          "top": 521,
+          "width": 3,
+          "height": 9,
+          "line": "31/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 519,
+          "width": 23,
+          "height": 11,
+          "line": "31/1/1"
+        },
+        {
+          "text": "calls,",
+          "left": 563,
+          "top": 519,
+          "width": 28,
+          "height": 11,
+          "line": "31/1/1"
+        },
+        {
+          "text": "Next",
+          "left": 507,
+          "top": 557,
+          "width": 31,
+          "height": 10,
+          "line": "32/1/1"
+        },
+        {
+          "text": "requests",
+          "left": 544,
+          "top": 557,
+          "width": 59,
+          "height": 13,
+          "line": "32/1/1"
+        }
+      ]
+    },
+    {
+      "name": "wait-status.ocr-3.json",
+      "words": [
+        {
+          "text": "eee",
+          "left": 341,
+          "top": 327,
+          "width": 70,
+          "height": 8,
+          "line": "11/1/1"
+        },
+        {
+          "text": "ELAN",
+          "left": 467,
+          "top": 327,
+          "width": 164,
+          "height": 5,
+          "line": "11/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 356,
+          "width": 46,
+          "height": 12,
+          "line": "11/1/2"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 354,
+          "width": 59,
+          "height": 14,
+          "line": "11/1/2"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 356,
+          "width": 49,
+          "height": 12,
+          "line": "11/1/2"
+        },
+        {
+          "text": "17",
+          "left": 510,
+          "top": 356,
+          "width": 15,
+          "height": 9,
+          "line": "11/1/2"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 389,
+          "width": 52,
+          "height": 12,
+          "line": "11/1/3"
+        },
+        {
+          "text": "18",
+          "left": 398,
+          "top": 389,
+          "width": 15,
+          "height": 9,
+          "line": "11/1/3"
+        },
+        {
+          "text": "-",
+          "left": 417,
+          "top": 377,
+          "width": 8,
+          "height": 31,
+          "line": "11/1/3"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "11/1/3"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 391,
+          "width": 10,
+          "height": 5,
+          "line": "11/1/3"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "11/1/3"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 387,
+          "width": 42,
+          "height": 11,
+          "line": "11/1/3"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 393,
+          "width": 2,
+          "height": 2,
+          "line": "11/1/3"
+        },
+        {
+          "text": "0",
+          "left": 523,
+          "top": 389,
+          "width": 3,
+          "height": 9,
+          "line": "11/1/3"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 387,
+          "width": 23,
+          "height": 11,
+          "line": "11/1/3"
+        },
+        {
+          "text": "calls",
+          "left": 563,
+          "top": 387,
+          "width": 28,
+          "height": 11,
+          "line": "11/1/3"
+        },
+        {
+          "text": "-",
+          "left": 597,
+          "top": 393,
+          "width": 2,
+          "height": 2,
+          "line": "11/1/3"
+        },
+        {
+          "text": "0.05",
+          "left": 605,
+          "top": 389,
+          "width": 26,
+          "height": 9,
+          "line": "11/1/3"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 422,
+          "width": 46,
+          "height": 12,
+          "line": "11/1/4"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 420,
+          "width": 59,
+          "height": 14,
+          "line": "11/1/4"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 422,
+          "width": 49,
+          "height": 12,
+          "line": "11/1/4"
+        },
+        {
+          "text": "18",
+          "left": 510,
+          "top": 422,
+          "width": 15,
+          "height": 9,
+          "line": "11/1/4"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 455,
+          "width": 52,
+          "height": 12,
+          "line": "11/1/5"
+        },
+        {
+          "text": "19",
+          "left": 398,
+          "top": 455,
+          "width": 15,
+          "height": 9,
+          "line": "11/1/5"
+        },
+        {
+          "text": "-",
+          "left": 417,
+          "top": 443,
+          "width": 8,
+          "height": 31,
+          "line": "11/1/5"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "11/1/5"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 457,
+          "width": 10,
+          "height": 5,
+          "line": "11/1/5"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "11/1/5"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 453,
+          "width": 42,
+          "height": 11,
+          "line": "11/1/5"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 459,
+          "width": 2,
+          "height": 2,
+          "line": "11/1/5"
+        },
+        {
+          "text": "0",
+          "left": 523,
+          "top": 455,
+          "width": 3,
+          "height": 9,
+          "line": "11/1/5"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 453,
+          "width": 23,
+          "height": 11,
+          "line": "11/1/5"
+        },
+        {
+          "text": "calls",
+          "left": 563,
+          "top": 453,
+          "width": 28,
+          "height": 11,
+          "line": "11/1/5"
+        },
+        {
+          "text": "-",
+          "left": 597,
+          "top": 459,
+          "width": 2,
+          "height": 2,
+          "line": "11/1/5"
+        },
+        {
+          "text": "0.05",
+          "left": 605,
+          "top": 455,
+          "width": 26,
+          "height": 9,
+          "line": "11/1/5"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 488,
+          "width": 46,
+          "height": 12,
+          "line": "11/1/6"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 486,
+          "width": 59,
+          "height": 14,
+          "line": "11/1/6"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 488,
+          "width": 49,
+          "height": 12,
+          "line": "11/1/6"
+        },
+        {
+          "text": "19",
+          "left": 510,
+          "top": 488,
+          "width": 15,
+          "height": 9,
+          "line": "11/1/6"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 521,
+          "width": 52,
+          "height": 12,
+          "line": "11/1/7"
+        },
+        {
+          "text": "20",
+          "left": 398,
+          "top": 521,
+          "width": 15,
+          "height": 9,
+          "line": "11/1/7"
+        },
+        {
+          "text": "-",
+          "left": 419,
+          "top": 509,
+          "width": 4,
+          "height": 31,
+          "line": "11/1/7"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "11/1/7"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 523,
+          "width": 10,
+          "height": 5,
+          "line": "11/1/7"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "11/1/7"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 519,
+          "width": 42,
+          "height": 11,
+          "line": "11/1/7"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 525,
+          "width": 2,
+          "height": 2,
+          "line": "11/1/7"
+        },
+        {
+          "text": "0",
+          "left": 523,
+          "top": 521,
+          "width": 3,
+          "height": 9,
+          "line": "11/1/7"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 519,
+          "width": 23,
+          "height": 11,
+          "line": "11/1/7"
+        },
+        {
+          "text": "calls",
+          "left": 563,
+          "top": 519,
+          "width": 28,
+          "height": 11,
+          "line": "11/1/7"
+        },
+        {
+          "text": "-",
+          "left": 597,
+          "top": 525,
+          "width": 2,
+          "height": 2,
+          "line": "11/1/7"
+        },
+        {
+          "text": "0.05",
+          "left": 605,
+          "top": 521,
+          "width": 26,
+          "height": 9,
+          "line": "11/1/7"
+        },
+        {
+          "text": "Next",
+          "left": 507,
+          "top": 557,
+          "width": 31,
+          "height": 10,
+          "line": "12/1/1"
+        },
+        {
+          "text": "requests",
+          "left": 544,
+          "top": 557,
+          "width": 59,
+          "height": 13,
+          "line": "12/1/1"
+        }
+      ]
+    },
+    {
+      "name": "wait-status.ocr-6.json",
+      "words": [
+        {
+          "text": "eee",
+          "left": 341,
+          "top": 327,
+          "width": 70,
+          "height": 8,
+          "line": "1/1/7"
+        },
+        {
+          "text": "ELAN",
+          "left": 467,
+          "top": 327,
+          "width": 164,
+          "height": 5,
+          "line": "1/1/7"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 356,
+          "width": 46,
+          "height": 12,
+          "line": "1/1/8"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 354,
+          "width": 59,
+          "height": 14,
+          "line": "1/1/8"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 356,
+          "width": 49,
+          "height": 12,
+          "line": "1/1/8"
+        },
+        {
+          "text": "17",
+          "left": 510,
+          "top": 356,
+          "width": 15,
+          "height": 9,
+          "line": "1/1/8"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 389,
+          "width": 52,
+          "height": 12,
+          "line": "1/1/9"
+        },
+        {
+          "text": "18",
+          "left": 398,
+          "top": 389,
+          "width": 15,
+          "height": 9,
+          "line": "1/1/9"
+        },
+        {
+          "text": "-",
+          "left": 419,
+          "top": 378,
+          "width": 6,
+          "height": 30,
+          "line": "1/1/9"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/9"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 391,
+          "width": 10,
+          "height": 5,
+          "line": "1/1/9"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/9"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 387,
+          "width": 42,
+          "height": 11,
+          "line": "1/1/9"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 393,
+          "width": 2,
+          "height": 2,
+          "line": "1/1/9"
+        },
+        {
+          "text": "0",
+          "left": 522,
+          "top": 389,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/9"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 387,
+          "width": 23,
+          "height": 11,
+          "line": "1/1/9"
+        },
+        {
+          "text": "calls",
+          "left": 563,
+          "top": 387,
+          "width": 28,
+          "height": 11,
+          "line": "1/1/9"
+        },
+        {
+          "text": "0.0s",
+          "left": 605,
+          "top": 389,
+          "width": 26,
+          "height": 9,
+          "line": "1/1/9"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 422,
+          "width": 46,
+          "height": 12,
+          "line": "1/1/10"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 420,
+          "width": 59,
+          "height": 14,
+          "line": "1/1/10"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 422,
+          "width": 49,
+          "height": 12,
+          "line": "1/1/10"
+        },
+        {
+          "text": "18",
+          "left": 510,
+          "top": 422,
+          "width": 15,
+          "height": 9,
+          "line": "1/1/10"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 455,
+          "width": 52,
+          "height": 12,
+          "line": "1/1/11"
+        },
+        {
+          "text": "19",
+          "left": 398,
+          "top": 455,
+          "width": 15,
+          "height": 9,
+          "line": "1/1/11"
+        },
+        {
+          "text": "-",
+          "left": 417,
+          "top": 444,
+          "width": 8,
+          "height": 30,
+          "line": "1/1/11"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/11"
+        },
+        {
+          "text": "+",
+          "left": 442,
+          "top": 457,
+          "width": 5,
+          "height": 5,
+          "line": "1/1/11"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/11"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 453,
+          "width": 42,
+          "height": 11,
+          "line": "1/1/11"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 459,
+          "width": 2,
+          "height": 2,
+          "line": "1/1/11"
+        },
+        {
+          "text": "0",
+          "left": 522,
+          "top": 455,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/11"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 453,
+          "width": 23,
+          "height": 11,
+          "line": "1/1/11"
+        },
+        {
+          "text": "calls",
+          "left": 563,
+          "top": 453,
+          "width": 28,
+          "height": 11,
+          "line": "1/1/11"
+        },
+        {
+          "text": "-",
+          "left": 597,
+          "top": 459,
+          "width": 2,
+          "height": 2,
+          "line": "1/1/11"
+        },
+        {
+          "text": "0.0s",
+          "left": 605,
+          "top": 455,
+          "width": 26,
+          "height": 9,
+          "line": "1/1/11"
+        },
+        {
+          "text": "Inspect",
+          "left": 341,
+          "top": 488,
+          "width": 46,
+          "height": 12,
+          "line": "1/1/12"
+        },
+        {
+          "text": "synthetic",
+          "left": 392,
+          "top": 486,
+          "width": 59,
+          "height": 14,
+          "line": "1/1/12"
+        },
+        {
+          "text": "request",
+          "left": 456,
+          "top": 488,
+          "width": 49,
+          "height": 12,
+          "line": "1/1/12"
+        },
+        {
+          "text": "19",
+          "left": 510,
+          "top": 488,
+          "width": 15,
+          "height": 9,
+          "line": "1/1/12"
+        },
+        {
+          "text": "Request",
+          "left": 341,
+          "top": 521,
+          "width": 52,
+          "height": 12,
+          "line": "1/1/13"
+        },
+        {
+          "text": "20",
+          "left": 398,
+          "top": 521,
+          "width": 15,
+          "height": 9,
+          "line": "1/1/13"
+        },
+        {
+          "text": "-",
+          "left": 419,
+          "top": 510,
+          "width": 6,
+          "height": 30,
+          "line": "1/1/13"
+        },
+        {
+          "text": "0",
+          "left": 427,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/13"
+        },
+        {
+          "text": "+",
+          "left": 439,
+          "top": 523,
+          "width": 10,
+          "height": 5,
+          "line": "1/1/13"
+        },
+        {
+          "text": "0",
+          "left": 454,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/13"
+        },
+        {
+          "text": "tokens",
+          "left": 466,
+          "top": 519,
+          "width": 42,
+          "height": 11,
+          "line": "1/1/13"
+        },
+        {
+          "text": "-",
+          "left": 514,
+          "top": 525,
+          "width": 2,
+          "height": 2,
+          "line": "1/1/13"
+        },
+        {
+          "text": "0",
+          "left": 522,
+          "top": 521,
+          "width": 7,
+          "height": 9,
+          "line": "1/1/13"
+        },
+        {
+          "text": "tool",
+          "left": 534,
+          "top": 519,
+          "width": 23,
+          "height": 11,
+          "line": "1/1/13"
+        },
+        {
+          "text": "calls",
+          "left": 563,
+          "top": 519,
+          "width": 28,
+          "height": 11,
+          "line": "1/1/13"
+        },
+        {
+          "text": "-",
+          "left": 597,
+          "top": 525,
+          "width": 2,
+          "height": 2,
+          "line": "1/1/13"
+        },
+        {
+          "text": "0.0",
+          "left": 605,
+          "top": 521,
+          "width": 26,
+          "height": 9,
+          "line": "1/1/13"
+        },
+        {
+          "text": "Next",
+          "left": 507,
+          "top": 557,
+          "width": 31,
+          "height": 10,
+          "line": "1/1/14"
+        },
+        {
+          "text": "requests",
+          "left": 544,
+          "top": 557,
+          "width": 59,
+          "height": 13,
+          "line": "1/1/14"
+        }
+      ]
+    },
+    {
+      "name": "wait-status.ocr-analysis-3x-inverted.ocr-11.json",
+      "words": [
+        {
+          "text": "MF",
+          "left": 1281,
+          "top": 981,
+          "width": 63,
+          "height": 15,
+          "line": "15/1/1"
+        },
+        {
+          "text": "LRT",
+          "left": 1401,
+          "top": 981,
+          "width": 123,
+          "height": 15,
+          "line": "15/1/1"
+        },
+        {
+          "text": "LW)",
+          "left": 1566,
+          "top": 981,
+          "width": 105,
+          "height": 15,
+          "line": "16/1/1"
+        },
+        {
+          "text": "Lei",
+          "left": 1689,
+          "top": 981,
+          "width": 84,
+          "height": 15,
+          "line": "16/1/1"
+        },
+        {
+          "text": "Wa",
+          "left": 1815,
+          "top": 981,
+          "width": 75,
+          "height": 15,
+          "line": "17/1/1"
+        },
+        {
+          "text": "ReyVquese",
+          "left": 1023,
+          "top": 981,
+          "width": 153,
+          "height": 24,
+          "line": "18/1/1"
+        },
+        {
+          "text": "is",
+          "left": 1197,
+          "top": 981,
+          "width": 36,
+          "height": 15,
+          "line": "18/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1068,
+          "width": 138,
+          "height": 36,
+          "line": "20/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1062,
+          "width": 174,
+          "height": 42,
+          "line": "20/1/1"
+        },
+        {
+          "text": "request",
+          "left": 1371,
+          "top": 1068,
+          "width": 144,
+          "height": 36,
+          "line": "20/1/1"
+        },
+        {
+          "text": "17",
+          "left": 1530,
+          "top": 1068,
+          "width": 42,
+          "height": 27,
+          "line": "20/1/1"
+        },
+        {
+          "text": "\u20180.05",
+          "left": 1791,
+          "top": 1167,
+          "width": 99,
+          "height": 27,
+          "line": "21/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1167,
+          "width": 153,
+          "height": 36,
+          "line": "22/1/1"
+        },
+        {
+          "text": "18",
+          "left": 1197,
+          "top": 1167,
+          "width": 42,
+          "height": 27,
+          "line": "22/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "22/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1167,
+          "width": 18,
+          "height": 27,
+          "line": "22/1/1"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1176,
+          "width": 27,
+          "height": 9,
+          "line": "22/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "22/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1161,
+          "width": 126,
+          "height": 33,
+          "line": "22/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1545,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "22/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "22/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1161,
+          "width": 69,
+          "height": 33,
+          "line": "22/1/1"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1161,
+          "width": 84,
+          "height": 33,
+          "line": "22/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1266,
+          "width": 138,
+          "height": 36,
+          "line": "23/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1260,
+          "width": 174,
+          "height": 42,
+          "line": "23/1/1"
+        },
+        {
+          "text": "request",
+          "left": 1371,
+          "top": 1266,
+          "width": 144,
+          "height": 36,
+          "line": "23/1/1"
+        },
+        {
+          "text": "18",
+          "left": 1530,
+          "top": 1266,
+          "width": 45,
+          "height": 27,
+          "line": "23/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1365,
+          "width": 153,
+          "height": 36,
+          "line": "24/1/1"
+        },
+        {
+          "text": "19",
+          "left": 1197,
+          "top": 1365,
+          "width": 42,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1365,
+          "width": 18,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1374,
+          "width": 27,
+          "height": 9,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1359,
+          "width": 126,
+          "height": 33,
+          "line": "24/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1545,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1359,
+          "width": 69,
+          "height": 33,
+          "line": "24/1/1"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1359,
+          "width": 84,
+          "height": 33,
+          "line": "24/1/1"
+        },
+        {
+          "text": "\u20180.05",
+          "left": 1791,
+          "top": 1365,
+          "width": 99,
+          "height": 27,
+          "line": "25/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1464,
+          "width": 138,
+          "height": 36,
+          "line": "26/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1458,
+          "width": 174,
+          "height": 42,
+          "line": "26/1/1"
+        },
+        {
+          "text": "request",
+          "left": 1371,
+          "top": 1464,
+          "width": 144,
+          "height": 36,
+          "line": "26/1/1"
+        },
+        {
+          "text": "19",
+          "left": 1530,
+          "top": 1464,
+          "width": 45,
+          "height": 27,
+          "line": "26/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1563,
+          "width": 153,
+          "height": 36,
+          "line": "27/1/1"
+        },
+        {
+          "text": "20",
+          "left": 1194,
+          "top": 1563,
+          "width": 45,
+          "height": 27,
+          "line": "27/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1563,
+          "width": 18,
+          "height": 27,
+          "line": "27/1/1"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1572,
+          "width": 27,
+          "height": 9,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "27/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1557,
+          "width": 126,
+          "height": 33,
+          "line": "27/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1545,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "27/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1557,
+          "width": 69,
+          "height": 33,
+          "line": "27/1/1"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1557,
+          "width": 84,
+          "height": 33,
+          "line": "27/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "27/1/1"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1563,
+          "width": 75,
+          "height": 27,
+          "line": "27/1/1"
+        },
+        {
+          "text": "Next",
+          "left": 1521,
+          "top": 1671,
+          "width": 93,
+          "height": 30,
+          "line": "28/1/1"
+        },
+        {
+          "text": "requests",
+          "left": 1632,
+          "top": 1671,
+          "width": 177,
+          "height": 39,
+          "line": "28/1/1"
+        }
+      ]
+    },
+    {
+      "name": "wait-status.ocr-analysis-3x-inverted.ocr-6.json",
+      "words": [
+        {
+          "text": "Reyutst",
+          "left": 1023,
+          "top": 981,
+          "width": 153,
+          "height": 24,
+          "line": "1/1/7"
+        },
+        {
+          "text": "ae",
+          "left": 1197,
+          "top": 981,
+          "width": 36,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "uy",
+          "left": 1281,
+          "top": 981,
+          "width": 102,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "LURES",
+          "left": 1401,
+          "top": 981,
+          "width": 147,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "Luu!",
+          "left": 1605,
+          "top": 981,
+          "width": 66,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "LoS",
+          "left": 1689,
+          "top": 981,
+          "width": 84,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "\u00a9",
+          "left": 1791,
+          "top": 981,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/7"
+        },
+        {
+          "text": "ues",
+          "left": 1815,
+          "top": 981,
+          "width": 75,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1068,
+          "width": 138,
+          "height": 36,
+          "line": "1/1/9"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1062,
+          "width": 174,
+          "height": 42,
+          "line": "1/1/9"
+        },
+        {
+          "text": "request",
+          "left": 1371,
+          "top": 1068,
+          "width": 144,
+          "height": 36,
+          "line": "1/1/9"
+        },
+        {
+          "text": "17",
+          "left": 1530,
+          "top": 1068,
+          "width": 42,
+          "height": 27,
+          "line": "1/1/9"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1167,
+          "width": 153,
+          "height": 36,
+          "line": "1/1/10"
+        },
+        {
+          "text": "18",
+          "left": 1197,
+          "top": 1167,
+          "width": 42,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1167,
+          "width": 18,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1176,
+          "width": 27,
+          "height": 9,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1161,
+          "width": 126,
+          "height": 33,
+          "line": "1/1/10"
+        },
+        {
+          "text": "-",
+          "left": 1545,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1161,
+          "width": 69,
+          "height": 33,
+          "line": "1/1/10"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1161,
+          "width": 84,
+          "height": 33,
+          "line": "1/1/10"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1167,
+          "width": 75,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1266,
+          "width": 138,
+          "height": 36,
+          "line": "1/1/11"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1260,
+          "width": 174,
+          "height": 42,
+          "line": "1/1/11"
+        },
+        {
+          "text": "request",
+          "left": 1371,
+          "top": 1266,
+          "width": 144,
+          "height": 36,
+          "line": "1/1/11"
+        },
+        {
+          "text": "18",
+          "left": 1530,
+          "top": 1266,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/11"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1365,
+          "width": 153,
+          "height": 36,
+          "line": "1/1/12"
+        },
+        {
+          "text": "19",
+          "left": 1197,
+          "top": 1365,
+          "width": 42,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1365,
+          "width": 18,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1374,
+          "width": 27,
+          "height": 9,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1359,
+          "width": 126,
+          "height": 33,
+          "line": "1/1/12"
+        },
+        {
+          "text": "-",
+          "left": 1545,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1359,
+          "width": 69,
+          "height": 33,
+          "line": "1/1/12"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1359,
+          "width": 84,
+          "height": 33,
+          "line": "1/1/12"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1365,
+          "width": 75,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1464,
+          "width": 138,
+          "height": 36,
+          "line": "1/1/13"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1458,
+          "width": 174,
+          "height": 42,
+          "line": "1/1/13"
+        },
+        {
+          "text": "request",
+          "left": 1371,
+          "top": 1464,
+          "width": 144,
+          "height": 36,
+          "line": "1/1/13"
+        },
+        {
+          "text": "19",
+          "left": 1530,
+          "top": 1464,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/13"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1563,
+          "width": 153,
+          "height": 36,
+          "line": "1/1/14"
+        },
+        {
+          "text": "20",
+          "left": 1194,
+          "top": 1563,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1563,
+          "width": 18,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1572,
+          "width": 27,
+          "height": 9,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1557,
+          "width": 126,
+          "height": 33,
+          "line": "1/1/14"
+        },
+        {
+          "text": "-",
+          "left": 1545,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1557,
+          "width": 69,
+          "height": 33,
+          "line": "1/1/14"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1557,
+          "width": 84,
+          "height": 33,
+          "line": "1/1/14"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1563,
+          "width": 75,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "Next",
+          "left": 1521,
+          "top": 1671,
+          "width": 93,
+          "height": 30,
+          "line": "1/1/15"
+        },
+        {
+          "text": "requests",
+          "left": 1632,
+          "top": 1671,
+          "width": 177,
+          "height": 39,
+          "line": "1/1/15"
+        }
+      ]
+    },
+    {
+      "name": "wait-status.ocr-analysis-3x.ocr-11.json",
+      "words": [
+        {
+          "text": "re",
+          "left": 1281,
+          "top": 981,
+          "width": 102,
+          "height": 15,
+          "line": "15/1/1"
+        },
+        {
+          "text": "WIRE",
+          "left": 1401,
+          "top": 977,
+          "width": 74,
+          "height": 29,
+          "line": "16/1/1"
+        },
+        {
+          "text": "TS",
+          "left": 1485,
+          "top": 981,
+          "width": 39,
+          "height": 15,
+          "line": "16/1/1"
+        },
+        {
+          "text": "ww",
+          "left": 1566,
+          "top": 981,
+          "width": 21,
+          "height": 15,
+          "line": "17/1/1"
+        },
+        {
+          "text": "Ww",
+          "left": 1605,
+          "top": 981,
+          "width": 66,
+          "height": 15,
+          "line": "18/1/1"
+        },
+        {
+          "text": "Laci",
+          "left": 1689,
+          "top": 981,
+          "width": 84,
+          "height": 15,
+          "line": "19/1/1"
+        },
+        {
+          "text": "Ue",
+          "left": 1811,
+          "top": 977,
+          "width": 17,
+          "height": 29,
+          "line": "20/1/1"
+        },
+        {
+          "text": "PL",
+          "left": 1839,
+          "top": 977,
+          "width": 18,
+          "height": 29,
+          "line": "20/1/1"
+        },
+        {
+          "text": "=]",
+          "left": 1851,
+          "top": 981,
+          "width": 42,
+          "height": 15,
+          "line": "20/1/1"
+        },
+        {
+          "text": "Reyquese",
+          "left": 1023,
+          "top": 981,
+          "width": 156,
+          "height": 24,
+          "line": "21/1/1"
+        },
+        {
+          "text": "1s",
+          "left": 1194,
+          "top": 981,
+          "width": 39,
+          "height": 15,
+          "line": "21/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1068,
+          "width": 138,
+          "height": 36,
+          "line": "23/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1062,
+          "width": 177,
+          "height": 42,
+          "line": "23/1/1"
+        },
+        {
+          "text": "request",
+          "left": 1368,
+          "top": 1068,
+          "width": 147,
+          "height": 36,
+          "line": "23/1/1"
+        },
+        {
+          "text": "17",
+          "left": 1530,
+          "top": 1068,
+          "width": 45,
+          "height": 27,
+          "line": "23/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1167,
+          "width": 156,
+          "height": 36,
+          "line": "24/1/1"
+        },
+        {
+          "text": "18",
+          "left": 1194,
+          "top": 1167,
+          "width": 45,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1173,
+          "width": 30,
+          "height": 15,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1161,
+          "width": 126,
+          "height": 33,
+          "line": "24/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1542,
+          "top": 1179,
+          "width": 6,
+          "height": 6,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1161,
+          "width": 69,
+          "height": 33,
+          "line": "24/1/1"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1161,
+          "width": 84,
+          "height": 33,
+          "line": "24/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1179,
+          "width": 6,
+          "height": 6,
+          "line": "24/1/1"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1167,
+          "width": 78,
+          "height": 27,
+          "line": "24/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1266,
+          "width": 138,
+          "height": 36,
+          "line": "25/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1260,
+          "width": 177,
+          "height": 42,
+          "line": "25/1/1"
+        },
+        {
+          "text": "request",
+          "left": 1368,
+          "top": 1266,
+          "width": 147,
+          "height": 36,
+          "line": "25/1/1"
+        },
+        {
+          "text": "18",
+          "left": 1530,
+          "top": 1266,
+          "width": 45,
+          "height": 27,
+          "line": "25/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1365,
+          "width": 156,
+          "height": 36,
+          "line": "26/1/1"
+        },
+        {
+          "text": "19",
+          "left": 1194,
+          "top": 1365,
+          "width": 45,
+          "height": 27,
+          "line": "26/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "26/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "26/1/1"
+        },
+        {
+          "text": ">",
+          "left": 1327,
+          "top": 1371,
+          "width": 13,
+          "height": 15,
+          "line": "26/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "26/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1359,
+          "width": 126,
+          "height": 33,
+          "line": "26/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1542,
+          "top": 1377,
+          "width": 6,
+          "height": 6,
+          "line": "26/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "26/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1359,
+          "width": 69,
+          "height": 33,
+          "line": "26/1/1"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1359,
+          "width": 84,
+          "height": 33,
+          "line": "26/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1377,
+          "width": 6,
+          "height": 6,
+          "line": "26/1/1"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1365,
+          "width": 78,
+          "height": 27,
+          "line": "26/1/1"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1464,
+          "width": 138,
+          "height": 36,
+          "line": "27/1/1"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1458,
+          "width": 177,
+          "height": 42,
+          "line": "27/1/1"
+        },
+        {
+          "text": "request",
+          "left": 1368,
+          "top": 1464,
+          "width": 147,
+          "height": 36,
+          "line": "27/1/1"
+        },
+        {
+          "text": "19",
+          "left": 1530,
+          "top": 1464,
+          "width": 45,
+          "height": 27,
+          "line": "27/1/1"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1563,
+          "width": 156,
+          "height": 36,
+          "line": "28/1/1"
+        },
+        {
+          "text": "20",
+          "left": 1194,
+          "top": 1563,
+          "width": 45,
+          "height": 27,
+          "line": "28/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "28/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "28/1/1"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1569,
+          "width": 30,
+          "height": 15,
+          "line": "28/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "28/1/1"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1557,
+          "width": 126,
+          "height": 33,
+          "line": "28/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1542,
+          "top": 1575,
+          "width": 6,
+          "height": 6,
+          "line": "28/1/1"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "28/1/1"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1557,
+          "width": 69,
+          "height": 33,
+          "line": "28/1/1"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1557,
+          "width": 84,
+          "height": 33,
+          "line": "28/1/1"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1575,
+          "width": 6,
+          "height": 6,
+          "line": "28/1/1"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1563,
+          "width": 78,
+          "height": 27,
+          "line": "28/1/1"
+        },
+        {
+          "text": "Next",
+          "left": 1521,
+          "top": 1671,
+          "width": 93,
+          "height": 30,
+          "line": "29/1/1"
+        },
+        {
+          "text": "requests",
+          "left": 1632,
+          "top": 1671,
+          "width": 177,
+          "height": 39,
+          "line": "29/1/1"
+        }
+      ]
+    },
+    {
+      "name": "wait-status.ocr-analysis-3x.ocr-6.json",
+      "words": [
+        {
+          "text": "Reyuest",
+          "left": 1023,
+          "top": 981,
+          "width": 156,
+          "height": 24,
+          "line": "1/1/7"
+        },
+        {
+          "text": "ae",
+          "left": 1194,
+          "top": 981,
+          "width": 39,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "uy",
+          "left": 1281,
+          "top": 981,
+          "width": 102,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "LURES",
+          "left": 1401,
+          "top": 981,
+          "width": 123,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "Luu!",
+          "left": 1566,
+          "top": 981,
+          "width": 105,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "can",
+          "left": 1689,
+          "top": 981,
+          "width": 84,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "\u00a9",
+          "left": 1791,
+          "top": 981,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/7"
+        },
+        {
+          "text": "uu",
+          "left": 1815,
+          "top": 981,
+          "width": 78,
+          "height": 15,
+          "line": "1/1/7"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1068,
+          "width": 138,
+          "height": 36,
+          "line": "1/1/9"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1062,
+          "width": 177,
+          "height": 42,
+          "line": "1/1/9"
+        },
+        {
+          "text": "request",
+          "left": 1368,
+          "top": 1068,
+          "width": 147,
+          "height": 36,
+          "line": "1/1/9"
+        },
+        {
+          "text": "17",
+          "left": 1530,
+          "top": 1068,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/9"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1167,
+          "width": 156,
+          "height": 36,
+          "line": "1/1/10"
+        },
+        {
+          "text": "18",
+          "left": 1194,
+          "top": 1167,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1179,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1173,
+          "width": 30,
+          "height": 15,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1161,
+          "width": 126,
+          "height": 33,
+          "line": "1/1/10"
+        },
+        {
+          "text": "-",
+          "left": 1542,
+          "top": 1179,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1167,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1161,
+          "width": 69,
+          "height": 33,
+          "line": "1/1/10"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1161,
+          "width": 84,
+          "height": 33,
+          "line": "1/1/10"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1179,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/10"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1167,
+          "width": 78,
+          "height": 27,
+          "line": "1/1/10"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1266,
+          "width": 138,
+          "height": 36,
+          "line": "1/1/11"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1260,
+          "width": 177,
+          "height": 42,
+          "line": "1/1/11"
+        },
+        {
+          "text": "request",
+          "left": 1368,
+          "top": 1266,
+          "width": 147,
+          "height": 36,
+          "line": "1/1/11"
+        },
+        {
+          "text": "18",
+          "left": 1530,
+          "top": 1266,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/11"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1365,
+          "width": 156,
+          "height": 36,
+          "line": "1/1/12"
+        },
+        {
+          "text": "19",
+          "left": 1194,
+          "top": 1365,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1377,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": ">",
+          "left": 1327,
+          "top": 1371,
+          "width": 13,
+          "height": 15,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1359,
+          "width": 126,
+          "height": 33,
+          "line": "1/1/12"
+        },
+        {
+          "text": "-",
+          "left": 1542,
+          "top": 1377,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1365,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1359,
+          "width": 69,
+          "height": 33,
+          "line": "1/1/12"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1359,
+          "width": 84,
+          "height": 33,
+          "line": "1/1/12"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1377,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/12"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1365,
+          "width": 78,
+          "height": 27,
+          "line": "1/1/12"
+        },
+        {
+          "text": "Inspect",
+          "left": 1023,
+          "top": 1464,
+          "width": 138,
+          "height": 36,
+          "line": "1/1/13"
+        },
+        {
+          "text": "synthetic",
+          "left": 1176,
+          "top": 1458,
+          "width": 177,
+          "height": 42,
+          "line": "1/1/13"
+        },
+        {
+          "text": "request",
+          "left": 1368,
+          "top": 1464,
+          "width": 147,
+          "height": 36,
+          "line": "1/1/13"
+        },
+        {
+          "text": "19",
+          "left": 1530,
+          "top": 1464,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/13"
+        },
+        {
+          "text": "Request",
+          "left": 1023,
+          "top": 1563,
+          "width": 156,
+          "height": 36,
+          "line": "1/1/14"
+        },
+        {
+          "text": "20",
+          "left": 1194,
+          "top": 1563,
+          "width": 45,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "-",
+          "left": 1257,
+          "top": 1575,
+          "width": 3,
+          "height": 6,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0",
+          "left": 1281,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": ">",
+          "left": 1317,
+          "top": 1569,
+          "width": 30,
+          "height": 15,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0",
+          "left": 1362,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "tokens",
+          "left": 1398,
+          "top": 1557,
+          "width": 126,
+          "height": 33,
+          "line": "1/1/14"
+        },
+        {
+          "text": "-",
+          "left": 1542,
+          "top": 1575,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0",
+          "left": 1566,
+          "top": 1563,
+          "width": 21,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "tool",
+          "left": 1602,
+          "top": 1557,
+          "width": 69,
+          "height": 33,
+          "line": "1/1/14"
+        },
+        {
+          "text": "calls",
+          "left": 1689,
+          "top": 1557,
+          "width": 84,
+          "height": 33,
+          "line": "1/1/14"
+        },
+        {
+          "text": "-",
+          "left": 1791,
+          "top": 1575,
+          "width": 6,
+          "height": 6,
+          "line": "1/1/14"
+        },
+        {
+          "text": "0.0s",
+          "left": 1815,
+          "top": 1563,
+          "width": 78,
+          "height": 27,
+          "line": "1/1/14"
+        },
+        {
+          "text": "Next",
+          "left": 1521,
+          "top": 1671,
+          "width": 93,
+          "height": 30,
+          "line": "1/1/15"
+        },
+        {
+          "text": "requests",
+          "left": 1632,
+          "top": 1671,
+          "width": 177,
+          "height": 39,
+          "line": "1/1/15"
+        }
+      ]
+    }
+  ]
+}

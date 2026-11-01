@@ -183,6 +183,26 @@ class DesktopLimits(unittest.TestCase):
                         self.assertEqual(len(moves), 2)
                         self.assertLess(clock['now'], 15)
 
+    def test_linux_scroll_batch_reaches_request_twenty_before_another_slow_ocr_pass(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('linux-session-clipped-request.json').read_text())
+        for layout in fixture['layouts']:
+            with self.assertRaises(RuntimeError):
+                desktop.ocr.locate_label(layout['words'], fixture['target'])
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'x11'
+        driver.scroll_anchor = Mock(return_value=(547, 529))
+        clock, moves = {'now': 0}, []
+        driver.scroll = lambda *args, **kwargs: moves.append((args, kwargs))
+        def recognize(_image, text):
+            clock['now'] += 20
+            if len(moves) < 2:
+                raise RuntimeError('Captured page ends at Request 20 header; prompt is clipped')
+            return dict(left=340, top=520, width=180, height=14)
+        with patch.object(desktop.ocr, 'locate_image', side_effect=recognize), patch.object(desktop.time, 'monotonic', side_effect=lambda: clock['now']), patch.object(desktop.time, 'sleep'):
+            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Inspect synthetic request 20', 'Next requests', above_anchor=True)
+        self.assertEqual(len(moves), 2)
+        self.assertTrue(all(args[1:] == (-1200, (547, 529)) and kwargs == dict(precise=False) for args, kwargs in moves))
+
     def test_an_already_visible_request_does_not_measure_an_offscreen_anchor_or_scroll(self):
         driver = object.__new__(desktop.Driver)
         driver.session = 'macos'
@@ -254,7 +274,7 @@ class DesktopLimits(unittest.TestCase):
         with patch.object(desktop, "wait_visible", side_effect=lambda _w, _d, _t, *, scroll: (scroll(), scroll())):
             driver.wait_scrolled(window, directory, "Inspect synthetic request 20", "Next requests", above_anchor=True)
         driver.scroll_anchor.assert_called_once_with(window, directory, "Next requests", above=True)
-        self.assertEqual(driver.scroll.call_count, 2)
+        self.assertEqual(driver.scroll.call_count, 4)
         driver.scroll.assert_called_with(window, -1200, (536, 524), precise=False)
         with self.assertRaises(RuntimeError):
             driver.wait_scrolled(window, directory, "Missing", above_anchor=True)
@@ -1065,6 +1085,24 @@ class WindowsScrollAnchors(unittest.TestCase):
 
 
 class MacStabilityTests(unittest.TestCase):
+    def test_captured_history_engine_switch_cannot_invalidate_stationary_mac_control(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('automation-history-engines.json').read_text())
+        boxes = [frame['recordedBox'] for frame in fixture['frames']]
+        self.assertTrue(all(not desktop.stable(a, b) for a, b in zip(boxes, boxes[1:])))
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / 'locator.png'
+            window = Mock()
+            window.screenshot.side_effect = lambda path: path.write_bytes(b'captured OCR input')
+            with patch.object(desktop.ocr, 'locate_image', side_effect=boxes):
+                with self.assertRaisesRegex(RuntimeError, 'did not become stable'):
+                    self.driver().locate(window, image, 'click', 'History')
+            window.reset_mock()
+            with patch.object(desktop.ocr, 'recognize_macos', side_effect=[frame['nativeWords'] for frame in fixture['frames']]) as native, patch.object(desktop.ocr, 'recognize', side_effect=AssertionError('Cross-engine guard measurement')):
+                label = self.driver().locate(window, image, 'click', 'History')
+            self.assertGreater(label['width'], 40)
+            self.assertEqual(native.call_count, 2)
+            self.assertEqual(window.screenshot.call_count, 2)
+
     def driver(self):
         driver = object.__new__(desktop.Driver)
         driver.session = "macos"

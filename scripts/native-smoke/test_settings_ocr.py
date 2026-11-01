@@ -61,6 +61,15 @@ class SessionInputRow(unittest.TestCase):
 
 
 class LabelGuards(unittest.TestCase):
+    def test_mac_measurements_use_one_native_engine_without_cross_engine_fallback(self):
+        words = [word("History", 120, 155, "history")]
+        with tempfile.TemporaryDirectory() as directory, patch.object(ocr, "recognize_macos", return_value=words) as native, patch.object(ocr, "recognize", side_effect=AssertionError("cross-engine comparison")):
+            image = Path(directory) / "capture.png"
+            self.assertEqual(ocr.locate_image(image, "History", native_macos=True), ocr.find_label(words, "History"))
+            native.assert_called_once_with(image)
+        with patch.object(ocr, "recognize_macos", return_value=[]), self.assertRaises(RuntimeError):
+            ocr.locate_image(Path("missing.png"), "History", native_macos=True)
+
     def test_workspace_rename_is_bounded_by_the_two_visible_field_labels(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath('terminal-workspace-rename-words.json').read_text())
         with self.assertRaises(ocr.AmbiguousLabel):
