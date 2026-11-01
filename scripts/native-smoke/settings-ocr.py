@@ -189,6 +189,63 @@ def workspace_words(words):
     return [word for word in words if top < word["top"] <= bottom]
 
 
+def workspace_geometry(image):
+    """Measure the shell's two painted bands when OCR cannot read its menu.
+
+    The blank right portion of the title and tab bars spans the sampled strip.
+    Require two adjacent, similarly sized uniform bands starting at the window
+    top; clipped, textured or incomplete chrome must fail closed.
+    """
+    width, height = struct.unpack(">II", image.read_bytes()[16:24])
+    scan = height // 3
+    result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(image),
+        "-vf", f"crop={width//4}:{scan}:{width*3//5}:0:exact=1,scale=5:{scan}:flags=neighbor,format=rgb24",
+        "-f", "rawvideo", "-frames:v", "1", "pipe:1"], capture_output=True, check=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    pixels = result.stdout
+    image.with_suffix('.workspace-bands.rgb').write_bytes(pixels)
+    if len(pixels) != scan * 15:
+        raise RuntimeError("The workspace geometry has invalid pixel dimensions")
+    keys = [pixels[y*15:y*15+3] if pixels[y*15:(y+1)*15] == pixels[y*15:y*15+3]*5 else None for y in range(scan)]
+    runs, start = [], 0
+    for end in range(1, scan + 1):
+        if end == scan or keys[end] != keys[start]:
+            if keys[start] is not None and end - start >= 8:
+                runs.append((start, end))
+            start = end
+    if len(runs) < 2:
+        raise RuntimeError("The workspace has no measured chrome bands")
+    menu, tabs = runs[:2]
+    menu_height, tab_height = menu[1] - menu[0], tabs[1] - tabs[0]
+    if not (menu[0] <= 2 and 0 < tabs[0] - menu[1] <= 3 and .85 <= tab_height/menu_height <= 1.2):
+        raise RuntimeError("The workspace chrome bands do not match the shell layout")
+    image.with_suffix('.workspace-band.json').write_text(json.dumps(dict(
+        captureSize=[width, height], menu=menu, workspace=tabs)), encoding='utf-8')
+    return tabs
+
+
+def workspace_target(image, labels):
+    engine = recognize_windows if sys.platform == 'win32' else lambda path: recognize(path, 11)
+    words = engine(image)
+    if image.is_file():
+        image.with_suffix('.workspace-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+    try:
+        return locate_label(workspace_words(words), labels)
+    except AmbiguousLabel:
+        raise
+    except RuntimeError:
+        top, bottom = workspace_geometry(image)
+        cropped = image.with_suffix('.workspace-band.png')
+        subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
+            "-vf", f"crop=iw:{bottom-top}:0:{top}:exact=1", "-frames:v", "1", str(cropped)],
+            capture_output=True, check=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        words = engine(cropped)
+        cropped.with_suffix('.ocr.json').write_text(json.dumps(words), encoding='utf-8')
+        label = locate_label(words, labels)
+        return dict(label, top=label['top'] + top)
+
+
 def content_words(words, chrome=None):
     """Keep view controls below workspace tabs and above status totals."""
     _, row_bottom = chrome_rows(words if chrome is None else chrome)
@@ -409,10 +466,7 @@ def locate_image(image, labels, navigation=False, field=False, save_row=False, t
         # measurements on one engine per platform. Sparse Tesseract reads
         # Mac titles that Vision replaces with Cyrillic lookalikes; Windows
         # OCR reads the 100% DPI titles that sparse Tesseract fragments.
-        words = recognize_windows(image) if sys.platform == 'win32' else recognize(image, 11)
-        if image.is_file():
-            image.with_suffix('.workspace-ocr.json').write_text(json.dumps(words), encoding='utf-8')
-        return locate_label(workspace_words(words), labels)
+        return workspace_target(image, labels)
     if native_macos:
         # Stability measurements must not alternate Tesseract glyph boxes
         # with Vision's line boxes for the same stationary control.

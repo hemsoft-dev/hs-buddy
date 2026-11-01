@@ -1,8 +1,11 @@
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
 import tempfile
+import struct
+import subprocess
 import unittest
 from unittest.mock import patch
 import urllib.request
@@ -19,6 +22,38 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_linux_capture_recovers_missing_chrome_and_titles_from_measured_bands(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-linux-workspace-band.json').read_text())
+        ocr = desktop.settings.ocr
+        pixels = base64.b64decode(fixture['pixelsBase64'])
+        with self.assertRaisesRegex(RuntimeError, 'menu row'):
+            ocr.workspace_words(fixture['sparseWords'])
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / 'capture.png'
+            def header(scale=1):
+                return b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', fixture['width']*scale, fixture['height']*scale)
+            for scale in (1, 2):
+                image.write_bytes(header(scale))
+                scaled = b''.join(pixels[y:y+15]*scale for y in range(0, len(pixels), 15))
+                with patch.object(ocr.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, scaled)):
+                    self.assertEqual(ocr.workspace_geometry(image), tuple(value*scale for value in fixture['band']))
+            image.write_bytes(header())
+            with patch.object(ocr.sys, 'platform', 'linux'), \
+                    patch.object(ocr, 'recognize', side_effect=[fixture['sparseWords'], fixture['bandWords']]) as recognize, \
+                    patch.object(ocr.subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 0, pixels), subprocess.CompletedProcess([], 0, b'')]) as run:
+                self.assertEqual(ocr.locate_image(image, 'Bookmarks: All', workspace=True),
+                    dict(left=193, top=35, width=92, height=28))
+                self.assertTrue(all(call.args[1] == 11 for call in recognize.call_args_list))
+                self.assertIn('crop=iw:34:0:34:exact=1', run.call_args_list[1].args[0])
+            for invalid in (pixels[:-1], bytes(len(pixels)), pixels[20*15:] + bytes(20*15)):
+                with patch.object(ocr.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, invalid)):
+                    with self.assertRaises(RuntimeError):
+                        ocr.workspace_geometry(image)
+        # Cropping does not permit choosing between duplicate tab titles.
+        duplicate = [dict(word, left=word['left']+400, line='duplicate') for word in fixture['bandWords']]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.locate_label(fixture['bandWords'] + duplicate, 'Bookmarks: All')
+
     def test_windows_workspace_uses_native_geometry_and_the_workspace_command(self):
         from unittest.mock import Mock
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-windows-workspace-title.json').read_text())
