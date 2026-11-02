@@ -1,5 +1,7 @@
 //! The loaded configuration as a GPUI global, shared by the shell and views.
 
+pub(crate) mod sound_diagnostic;
+
 use buddy_core::application_settings::SettingsError;
 use buddy_core::config::{AppConfig, UiConfig, config_path};
 use buddy_core::config_lock::{ConfigLock, DEFAULT_TIMEOUT};
@@ -176,6 +178,12 @@ impl Settings {
             config.native.active_section = Some(section.clone());
         }
         let appearance_changed = appearance_differs(&cx.global::<Self>().config.ui, &config.ui);
+        sound_diagnostic::record(
+            "install",
+            config.notifications.play_sound_on_review_complete,
+            None,
+            None,
+        );
         cx.global_mut::<Self>().config = config;
         if appearance_changed {
             let config = cx.global::<Self>().config.clone();
@@ -188,6 +196,12 @@ impl Settings {
     pub fn replace(cx: &mut App, config: AppConfig) {
         let settings = cx.global_mut::<Self>();
         settings.pending_native_section = None;
+        sound_diagnostic::record(
+            "replace",
+            config.notifications.play_sound_on_review_complete,
+            None,
+            None,
+        );
         settings.config = config;
     }
 }

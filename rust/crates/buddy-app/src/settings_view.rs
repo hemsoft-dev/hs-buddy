@@ -193,7 +193,34 @@ impl SettingsView {
     }
 
     fn local(&mut self, edit: LocalEdit, cx: &mut Context<Self>) {
+        let sound_request = if let LocalEdit::NotificationEnabled(value) = &edit {
+            Some(*value)
+        } else {
+            None
+        };
+        if let Some(value) = sound_request {
+            crate::settings::sound_diagnostic::record(
+                "local-enter",
+                Settings::global(cx)
+                    .config
+                    .notifications
+                    .play_sound_on_review_complete,
+                Some(value),
+                None,
+            );
+        }
         let result = Settings::try_update(cx, |config| edit.apply(config));
+        if let Some(value) = sound_request {
+            crate::settings::sound_diagnostic::record(
+                "local-result",
+                Settings::global(cx)
+                    .config
+                    .notifications
+                    .play_sound_on_review_complete,
+                Some(value),
+                Some(result.is_ok()),
+            );
+        }
         self.status = Some(match result {
             Ok(()) => {
                 if matches!(edit, LocalEdit::Theme(_)) {
@@ -945,11 +972,45 @@ impl SettingsView {
     }
 
     fn notifications(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        crate::settings::sound_diagnostic::record(
+            "panel-render",
+            Settings::global(cx)
+                .config
+                .notifications
+                .play_sound_on_review_complete,
+            None,
+            None,
+        );
         let enabled = Settings::global(cx)
             .config
             .notifications
             .play_sound_on_review_complete;
         v_flex()
+            .when(crate::settings::sound_diagnostic::enabled(), |surface| {
+                surface
+                    .capture_any_mouse_down(|event, _, cx| {
+                        crate::settings::sound_diagnostic::mouse(
+                            "mouse-down-capture",
+                            f32::from(event.position.x),
+                            f32::from(event.position.y),
+                            Settings::global(cx)
+                                .config
+                                .notifications
+                                .play_sound_on_review_complete,
+                        );
+                    })
+                    .capture_any_mouse_up(|event, _, cx| {
+                        crate::settings::sound_diagnostic::mouse(
+                            "mouse-up-capture",
+                            f32::from(event.position.x),
+                            f32::from(event.position.y),
+                            Settings::global(cx)
+                                .config
+                                .notifications
+                                .play_sound_on_review_complete,
+                        );
+                    })
+            })
             .gap_4()
             .child(
                 Button::new("review-sound-enabled")
@@ -960,6 +1021,15 @@ impl SettingsView {
                     })
                     .selected(enabled)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        crate::settings::sound_diagnostic::record(
+                            "callback",
+                            Settings::global(cx)
+                                .config
+                                .notifications
+                                .play_sound_on_review_complete,
+                            Some(!enabled),
+                            None,
+                        );
                         this.local(LocalEdit::NotificationEnabled(!enabled), cx)
                     })),
             )

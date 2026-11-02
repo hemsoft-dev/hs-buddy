@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1631] - 2026-11-02
+
+### Changed
+
+- Observe sound callback and persistence boundaries
+
 ## [0.1.1630] - 2026-11-02
 
 ### Fixed
