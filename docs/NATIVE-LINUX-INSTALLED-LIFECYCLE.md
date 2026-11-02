@@ -28,7 +28,7 @@ than adopted. Attempt/failure/removal receipts retain those ownership decisions.
 The sequence uses real `apt-get install` and `apt-get remove` operations:
 
 1. Launch the already installed current-head native binary against a missing
-   config in a fresh synthetic profile. Require its visible Dashboard.
+   config in a fresh synthetic profile. Require the rendered Dashboard body.
 2. Remove native and install an Electron deb made by the normal Vite and
    electron-builder commands, with publishing disabled. This is the same-head
    Electron control, not a renamed native package or an extracted binary.
@@ -66,6 +66,17 @@ main renderer's `BrowserTabView` webview. A Node event-dispatch regression
 requires the app-tab route and rejects the shell-window path.
 Electron closes through its supported Linux Alt+F4 window-close path; native
 uses Ctrl+Q. Both require a zero process exit before restarting the profile.
+
+Fresh native readiness waits for `Customize` within the content region. The
+saved screenshot must also contain `Your Universal Productivity Companion` and
+`Customize` together in one body-scoped OCR layout, below workspace tabs and
+above status totals. A `Dashboard` tab alone is never body proof. These header
+markers are unconditional; the general desktop helper's card/account-specific
+markers do not fit this connected fixture. Raw OCR attempts and the accepted
+body words remain beside `fresh.png`. Synthetic coordinate regressions exercise
+the actual fresh pass and real content filter at two scales, rejecting tab-only,
+incorrect-body, ambiguous and cross-layout marker combinations. They are not
+installed captures.
 
 Crew restoration selects `crew-project:<project-id>`, the supported
 [AppContentRouter](../src/components/AppContentRouter.tsx) project route. It
@@ -203,7 +214,7 @@ Electron deb. An incomplete or failed exercise cannot emit a passed receipt.
 On Mini, the non-input regression command is:
 
 ```sh
-python3 -m unittest discover -s scripts/native-smoke -p test_linux_installed_lifecycle.py
+python3 -m unittest discover -s scripts/native-smoke -p 'test_linux*py'
 ```
 
 The controls reject lost unknown fields, projects, conversation/recovery

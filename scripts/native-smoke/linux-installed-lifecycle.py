@@ -23,6 +23,7 @@ PROJECT = "lifecycle-project"
 MESSAGE = "Retained lifecycle conversation and recovery"
 CACHE_KEY = "pr:lifecycle-fixture"
 MARKER = "installed-lifecycle-marker"
+FRESH_DASHBOARD_BODY = ("Customize", "Your Universal Productivity Companion")
 
 
 def load(path):
@@ -356,16 +357,38 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             cdp.ws.close()
 
 
+def check_fresh_dashboard_body(path, settings):
+    """Require unconditional header controls in one captured body OCR layout."""
+    missing = None
+    for image in settings.ocr.analysis_images(path, settings.run):
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            write(image.with_suffix(f".dashboard-ocr-{mode}.json"), words)
+            try:
+                body = settings.ocr.content_words(words)
+                for marker in FRESH_DASHBOARD_BODY:
+                    settings.ocr.locate_label(body, marker)
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as failure:
+                missing = failure
+                continue
+            write(path.with_suffix(".dashboard-body.json"), dict(mode=mode, analysisImage=image.name,
+                markers=list(FRESH_DASHBOARD_BODY), bodyWords=body))
+            return
+    raise RuntimeError("The fresh native screenshot does not show the dashboard body") from missing
+
+
 def native_pass(executable, profile, backend, output, name, *, fresh=False):
     settings = load(HERE / "settings-desktop.py")
-    github = load(HERE / "github-desktop.py")
     if fresh:
         directory = output / name
         with running(executable, [], app_environment(profile, backend), directory) as (_, window):
-            settings.wait_visible(window, directory, "Dashboard", content=True)
+            settings.wait_visible(window, directory, "Customize", content=True)
             window.screenshot(directory / "fresh.png")
-            github.check(directory / "fresh.png", "Dashboard")
+            check_fresh_dashboard_body(directory / "fresh.png", settings)
         return
+    github = load(HERE / "github-desktop.py")
     directory = output / name
     with running(executable, [], app_environment(profile, backend), directory) as (_, window):
         settings.wait_visible(window, directory, "No projects yet", content=True)
