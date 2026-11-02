@@ -44,9 +44,11 @@ class BoundaryEvidence(unittest.TestCase):
     def test_mac_capture_has_no_effect_outside_the_fixture(self):
         driver = object.__new__(settings.Driver)
         window = Mock()
-        with patch.dict(os.environ, GITHUB_ACTIONS="false", BUDDY_SETTINGS_FIXTURE="1"):
-            driver.capture_click_boundary(window, Path("unowned"), "input", "Organization", [1, 2])
-        window.screenshot.assert_not_called()
+        for actions, fixture in (("false", "1"), ("true", "0")):
+            with self.subTest(actions=actions, fixture=fixture), \
+                    patch.dict(os.environ, GITHUB_ACTIONS=actions, BUDDY_SETTINGS_FIXTURE=fixture):
+                driver.capture_click_boundary(window, Path("unowned"), "rightfield", "Organization", [1, 2])
+            window.screenshot.assert_not_called()
 
     def test_actual_mac_interact_captures_before_replacement_without_retry(self):
         with tempfile.TemporaryDirectory() as raw:
