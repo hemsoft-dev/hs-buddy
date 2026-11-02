@@ -32,6 +32,9 @@ def load(path):
     return module
 
 
+LAYOUT = load(HERE / "linux-lifecycle-layout.py")
+
+
 def read(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
@@ -91,13 +94,17 @@ def require_subset(expected, actual, label="data"):
         raise RuntimeError(f"Changed {label}")
 
 
-def electron_config_baseline(original, actual):
-    """Measure one known Electron normalization before any native work.
+def electron_config_baseline(original, actual, *, layout=None, phase=None):
+    """Measure known Electron normalizations before native uses this profile.
 
     This exception is never used for native or rollback comparisons. Preserve
     every other seeded key, including unknown keys in and outside accounts.
     """
     expected = copy.deepcopy(original)
+    layout_changes = []
+    if layout is not None or original.get("ui", {}).get("paneSizes") != actual.get("ui", {}).get("paneSizes"):
+        layout_changes = LAYOUT.startup_normalization(original, actual, layout, phase)
+        expected["ui"]["paneSizes"] = copy.deepcopy(actual["ui"]["paneSizes"])
     removals = []
     accounts = actual.get("github", {}).get("accounts", [])
     for index, account in enumerate(expected.get("github", {}).get("accounts", [])):
@@ -107,8 +114,8 @@ def electron_config_baseline(original, actual):
                 before=account.pop("futureAccount"), after="absent",
                 cause="Electron connected account snapshot retains supported account fields only"))
     require_subset(expected, actual, "Electron startup config")
-    return dict(config=copy.deepcopy(actual), observedRemovals=removals,
-        nativeWorkStarted=False,
+    return dict(config=copy.deepcopy(actual), observedRemovals=removals, layoutNormalization=layout_changes,
+        layoutObservation=copy.deepcopy(layout), nativeWorkStarted=False, profileScope="shared synthetic lifecycle profile",
         unqualifiedBoundary="Unknown GitHub account extensions are not qualified for preservation by Electron's connected mirror")
 
 
@@ -297,6 +304,7 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
     # Reuse the production-package performance CDP client, not a fake renderer.
     paired = load(ROOT / "perf/native-comparison.py")
     github = load(HERE / "github-desktop.py")
+    original_config = read(profile / "config.json")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -339,6 +347,10 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             window.screenshot(directory / "browser-restored.png")
             github.check(directory / "browser-restored.png", "Lifecycle browser", MARKER, browser=True)
             write(directory / "browser-state.json", page_state)
+            value["layout"] = LAYOUT.collect(cdp, psutil.Process(process.pid), paired.wait_for,
+                original_config, directory, name, write)
+            value["config"] = value["layout"]["samples"][-1]["config"]
+            write(directory / "restored-state.json", value)
             return value
         finally:
             cdp.ws.close()
@@ -449,19 +461,21 @@ def qualify(native_package_directory, output):
             write(profile / "window-state.json", dict(x=40, y=40, width=1200, height=820, isMaximized=False))
             write(profile / "zoom-level.json", dict(zoomFactor=1.0))
             write(profile / "crew/projects.json", [dict(id=PROJECT, displayName=PROJECT, localPath=str(profile), gitRoot=str(profile), githubSlug="fixture-org/lifecycle", defaultBranch="main", lastOpenedAt=1, lastActiveAt=1)])
-            electron_pass(electron_exe, profile, backend, output, "electron-seed", browser_url, seed=True)
+            first = electron_pass(electron_exe, profile, backend, output, "electron-seed", browser_url, seed=True)
             seeded = read(profile / "config.json")
             write(output / "config-after-electron-seed.json", seeded)
-            seed_baseline = electron_config_baseline(fixture, seeded)
+            seed_baseline = electron_config_baseline(fixture, seeded, layout=first["layout"], phase="electron-seed")
             write(output / "electron-seed-normalization.json", seed_baseline)
-            electron_pass(electron_exe, profile, backend, output, "electron-restart", browser_url)
+            restart = electron_pass(electron_exe, profile, backend, output, "electron-restart", browser_url)
             config_baseline = read(profile / "config.json")
             write(output / "config-before-native.json", config_baseline)
-            restart_baseline = electron_config_baseline(seed_baseline["config"], config_baseline)
+            restart_baseline = electron_config_baseline(seed_baseline["config"], config_baseline,
+                layout=restart["layout"], phase="electron-restart")
             write(output / "electron-restart-normalization.json", restart_baseline)
             report["electronBaseline"] = dict(
                 seedReceipt="electron-seed-normalization.json", restartReceipt="electron-restart-normalization.json",
                 observedRemovals=seed_baseline["observedRemovals"] + restart_baseline["observedRemovals"],
+                layoutNormalization=seed_baseline["layoutNormalization"] + restart_baseline["layoutNormalization"],
                 unqualifiedBoundary=restart_baseline["unqualifiedBoundary"])
             write(output / "profile-before-native.json", profile_manifest(profile))
             shared = {key: backend.query(key) for key in ("bookmarks:list", "schedules:list", "jobs:list")}
@@ -501,6 +515,7 @@ def qualify(native_package_directory, output):
             write(output / "config-after-rollback.json", after_rollback)
             require_subset(config_baseline, final["config"], "qualified pre-native config through rollback IPC")
             require_subset(config_baseline, after_rollback, "qualified pre-native config after rollback")
+            LAYOUT.require_restored(restart["layout"], final["layout"])
             write(output / "profile-after-rollback.json", profile_manifest(profile))
             report.update(result="passed-with-unmet-migration-criteria", restoredElectronData=True,
                 unmetCriteria=["Native cannot restore Electron Crew projects/conversations/recovery",

@@ -97,10 +97,12 @@ The original input stays in `config-synthetic-input.json`, including that
 extension. `config-after-electron-seed.json` and `config-before-native.json`
 retain the measured pre-native states. `electron-seed-normalization.json` and
 `electron-restart-normalization.json` record the exact observed removal, its
-original value, the Electron cause and `nativeWorkStarted: false`. Only absence
-of this specific seeded extension is accepted during those baseline phases.
-A changed value, lost identity/provider/setting, or any other missing unknown
-field still fails. If the extension survives, it remains part of the baseline.
+original value, the Electron cause and `nativeWorkStarted: false`. For account
+records, only absence of this specific seeded extension is accepted during
+those baseline phases. A changed value, lost identity/provider, unrelated
+setting change or other missing unknown field still fails. If the extension
+survives, it remains part of the baseline. The layout normalization below has
+its own measured bounds.
 
 The fixture selects Copilot explicitly in both the connected synthetic account
 and local account snapshot. It uses no interim local provider override, which
@@ -115,6 +117,47 @@ renderer mirror, IPC parser and config replacement with an in-memory store and
 mocked OS boundaries. It proves the old full-input expectation fails, the
 measured baseline passes and unexpected identity/provider/settings/unknown-field
 loss still fails. It does not qualify an installed run or a credential adapter.
+
+## Measured Electron layout baseline
+
+The original two-entry `ui.paneSizes` remains in the synthetic input receipt.
+It cannot be treated as an exact persisted pixel vector after startup.
+[Allotment v1.20.5](https://github.com/johnwalley/allotment/blob/v1.20.5/src/split-view/split-view.ts)
+reports measured view widths during layout, including initial resize.
+[useAppLayout](../src/hooks/useAppLayout.ts) retains a hidden assistant size and
+persists the three-entry vector after a 300ms debounce. The activity rail also
+takes space from the seeded 1200 by 820 window.
+
+The harness measures the actual main-renderer DOM rectangles and config IPC
+twice, at least 350ms apart, after startup has settled. Each Electron phase
+keeps `layout-latest.json` and the validated `layout-observation.json`; failed
+settling retains the latest observations and fails within a ten-second budget.
+The pre-native normalization receipts also embed these observations.
+
+Only seed/restart before native touches the shared profile may normalize the
+pane vector. Checks require two visible panes, finite positive sizes, the
+unchanged closed-assistant state, the source-defined hidden assistant default
+or retained size, both pane minimums, proportional reflow from the original
+visible sizes, matching persisted and measured widths, contiguous rectangles
+filling the measured split, and viewport/backing-scale/window consistency.
+Pixel comparisons allow one CSS pixel for rounding; outer-window restoration
+remains checked separately. A three-entry fixture or missing observation does
+not bypass these checks. Other settings and unknown keys remain strict.
+
+After native, config preservation still uses the full measured baseline with
+no layout exception. Installed Electron rollback must retain that baseline in
+IPC and on disk and restore the observed pre-native pane geometry. This records
+normal Electron reflow, not native layout migration or preservation of the
+original incompatible pixel vector. Native consumption of terminal/global
+layout remains unqualified.
+
+The non-input regression renders the real pinned Allotment consumer and layout
+hook, then persists through the real config IPC handler. Only DOM/OS geometry
+and storage boundaries are synthetic. The old account-only baseline rejects
+the resulting vector; the measured contract accepts it. Malformed vectors,
+unsupported reflow, invalid or unsettled geometry, wrong phases, unrelated
+unknown-field loss and new post-baseline losses remain rejected. These unit
+controls do not replace hosted installed observations.
 
 ## Results must distinguish preservation from parity
 
