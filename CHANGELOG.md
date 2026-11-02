@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1633] - 2026-11-02
+
+### Fixed
+
+- Register GPUI probe test bounds selector
+
 ## [0.1.1632] - 2026-11-02
 
 ### Changed

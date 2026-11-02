@@ -223,6 +223,7 @@ mod tests {
                         "surface",
                         div()
                             .id("probe-surface")
+                            .debug_selector(|| "probe-surface".into())
                             .w(gpui_kit::px(100.))
                             .h(gpui_kit::px(60.))
                             .capture_any_mouse_down(|_, _, cx| {
