@@ -1,6 +1,7 @@
 //! The loaded configuration as a GPUI global, shared by the shell and views.
 
 pub(crate) mod sound_diagnostic;
+pub(crate) mod sound_probe;
 
 use buddy_core::application_settings::SettingsError;
 use buddy_core::config::{AppConfig, UiConfig, config_path};

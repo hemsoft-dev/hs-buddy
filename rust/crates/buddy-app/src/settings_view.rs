@@ -985,102 +985,106 @@ impl SettingsView {
             .config
             .notifications
             .play_sound_on_review_complete;
-        v_flex()
-            .when(crate::settings::sound_diagnostic::enabled(), |surface| {
-                surface
-                    .capture_any_mouse_down(|event, _, cx| {
-                        crate::settings::sound_diagnostic::mouse(
-                            "mouse-down-capture",
-                            f32::from(event.position.x),
-                            f32::from(event.position.y),
-                            Settings::global(cx)
-                                .config
-                                .notifications
-                                .play_sound_on_review_complete,
-                        );
-                    })
-                    .capture_any_mouse_up(|event, _, cx| {
-                        crate::settings::sound_diagnostic::mouse(
-                            "mouse-up-capture",
-                            f32::from(event.position.x),
-                            f32::from(event.position.y),
-                            Settings::global(cx)
-                                .config
-                                .notifications
-                                .play_sound_on_review_complete,
-                        );
-                    })
-            })
-            .gap_4()
-            .child(
-                Button::new("review-sound-enabled")
-                    .label(if enabled {
-                        "Review completion sound: on"
-                    } else {
-                        "Review completion sound: off"
-                    })
-                    .selected(enabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        crate::settings::sound_diagnostic::record(
-                            "callback",
-                            Settings::global(cx)
-                                .config
-                                .notifications
-                                .play_sound_on_review_complete,
-                            Some(!enabled),
-                            None,
-                        );
-                        this.local(LocalEdit::NotificationEnabled(!enabled), cx)
-                    })),
-            )
-            .child(self.field(
-                "sound",
-                "Notification audio file",
-                |this, value, cx| this.save_sound(value, cx),
-                cx,
-            ))
-            .child("MP3, WAV, OGG, FLAC, AAC, or M4A. Maximum 5 MiB.")
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("choose-sound")
-                            .label("Choose audio file")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.choose_path("sound".into(), false, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("preview-sound")
-                            .label(if self.preview_playing {
-                                "Playing…"
-                            } else {
-                                "Preview"
-                            })
-                            .disabled(self.busy || self.preview_playing)
-                            .on_click(cx.listener(|this, _, _, cx| this.preview_sound(cx))),
-                    )
-                    .child(
-                        Button::new("stop-sound")
-                            .label("Stop")
-                            .disabled(!self.preview_playing)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.stop_preview();
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("clear-sound")
-                            .label("Clear sound")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.stop_preview();
-                                this.local(LocalEdit::NotificationSound(String::new()), cx);
-                                this.pending_fields.push(("sound".into(), String::new()));
-                            })),
-                    ),
-            )
+        crate::settings::sound_probe::observe(
+            "notifications",
+            v_flex()
+                .when(crate::settings::sound_diagnostic::enabled(), |surface| {
+                    surface
+                        .capture_any_mouse_down(|event, _, cx| {
+                            crate::settings::sound_diagnostic::mouse(
+                                "mouse-down-capture",
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                Settings::global(cx)
+                                    .config
+                                    .notifications
+                                    .play_sound_on_review_complete,
+                            );
+                        })
+                        .capture_any_mouse_up(|event, _, cx| {
+                            crate::settings::sound_diagnostic::mouse(
+                                "mouse-up-capture",
+                                f32::from(event.position.x),
+                                f32::from(event.position.y),
+                                Settings::global(cx)
+                                    .config
+                                    .notifications
+                                    .play_sound_on_review_complete,
+                            );
+                        })
+                })
+                .gap_4()
+                .child(crate::settings::sound_probe::observe(
+                    "sound-button",
+                    Button::new("review-sound-enabled")
+                        .label(if enabled {
+                            "Review completion sound: on"
+                        } else {
+                            "Review completion sound: off"
+                        })
+                        .selected(enabled)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            crate::settings::sound_diagnostic::record(
+                                "callback",
+                                Settings::global(cx)
+                                    .config
+                                    .notifications
+                                    .play_sound_on_review_complete,
+                                Some(!enabled),
+                                None,
+                            );
+                            this.local(LocalEdit::NotificationEnabled(!enabled), cx)
+                        })),
+                ))
+                .child(self.field(
+                    "sound",
+                    "Notification audio file",
+                    |this, value, cx| this.save_sound(value, cx),
+                    cx,
+                ))
+                .child("MP3, WAV, OGG, FLAC, AAC, or M4A. Maximum 5 MiB.")
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("choose-sound")
+                                .label("Choose audio file")
+                                .disabled(self.busy)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.choose_path("sound".into(), false, cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("preview-sound")
+                                .label(if self.preview_playing {
+                                    "Playing…"
+                                } else {
+                                    "Preview"
+                                })
+                                .disabled(self.busy || self.preview_playing)
+                                .on_click(cx.listener(|this, _, _, cx| this.preview_sound(cx))),
+                        )
+                        .child(
+                            Button::new("stop-sound")
+                                .label("Stop")
+                                .disabled(!self.preview_playing)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.stop_preview();
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("clear-sound")
+                                .label("Clear sound")
+                                .disabled(self.busy)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.stop_preview();
+                                    this.local(LocalEdit::NotificationSound(String::new()), cx);
+                                    this.pending_fields.push(("sound".into(), String::new()));
+                                })),
+                        ),
+                ),
+        )
     }
 
     fn load_key_status(&mut self, cx: &mut Context<Self>) {
@@ -1194,59 +1198,62 @@ impl Render for SettingsView {
             Panel::Weather => self.weather(cx).into_any_element(),
             Panel::Advanced => self.advanced(cx).into_any_element(),
         };
-        v_flex()
-            .id("application-settings")
-            .size_full()
-            .min_h_0()
-            .gap_4()
-            .p_6()
-            .text_color(cx.theme().foreground)
-            .child(
-                h_flex()
-                    .gap_4()
-                    .justify_between()
-                    .child(div().text_size(zpx(24.0)).child("Settings"))
-                    .child(
-                        Button::new("reload-synced-settings")
-                            .label("Reload synced settings")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.load_backend(cx))),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .children(PANELS.into_iter().map(|(panel, label)| {
-                        Button::new(format!("settings-panel-{label}"))
-                            .label(label)
-                            .selected(self.panel == panel)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.select_panel(panel);
-                                cx.notify();
-                            }))
-                    })),
-            )
-            .children(
-                self.backend_warning
-                    .clone()
-                    .map(|warning| div().child(warning)),
-            )
-            .children(
-                self.status
-                    .clone()
-                    .filter(|status| Some(status) != self.backend_warning.as_ref())
-                    .map(|status| div().child(status)),
-            )
-            .child(
-                v_flex()
-                    .id("settings-panel-content")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .gap_4()
-                    .child(panel),
-            )
+        crate::settings::sound_probe::observe(
+            "settings-root",
+            v_flex()
+                .id("application-settings")
+                .size_full()
+                .min_h_0()
+                .gap_4()
+                .p_6()
+                .text_color(cx.theme().foreground)
+                .child(
+                    h_flex()
+                        .gap_4()
+                        .justify_between()
+                        .child(div().text_size(zpx(24.0)).child("Settings"))
+                        .child(
+                            Button::new("reload-synced-settings")
+                                .label("Reload synced settings")
+                                .disabled(self.busy)
+                                .on_click(cx.listener(|this, _, _, cx| this.load_backend(cx))),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .flex_wrap()
+                        .gap_2()
+                        .children(PANELS.into_iter().map(|(panel, label)| {
+                            Button::new(format!("settings-panel-{label}"))
+                                .label(label)
+                                .selected(self.panel == panel)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.select_panel(panel);
+                                    cx.notify();
+                                }))
+                        })),
+                )
+                .children(
+                    self.backend_warning
+                        .clone()
+                        .map(|warning| div().child(warning)),
+                )
+                .children(
+                    self.status
+                        .clone()
+                        .filter(|status| Some(status) != self.backend_warning.as_ref())
+                        .map(|status| div().child(status)),
+                )
+                .child(
+                    v_flex()
+                        .id("settings-panel-content")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scrollbar()
+                        .gap_4()
+                        .child(panel),
+                ),
+        )
     }
 }
 

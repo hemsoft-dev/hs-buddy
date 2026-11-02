@@ -72,3 +72,40 @@ outside/missing config and each fixture flag negative controls. Source consumer
 checks lock the observer around the real callback/edit/install paths. These are
 not a locally executed GPUI consumer proof: full app compilation and actual
 Mac event/callback/config correlation remain hosted gates owned by Home.
+
+## After the actual bac943cb ARM trace
+
+The observer activated (29 Notifications panel-render records, all Off), but
+recorded no surface mouse events, callback or local edit. This does not evidence
+a save failure or later reset. In the pinned GPUI implementation, element
+capture listeners run only when `hitbox.is_hovered(window)`; they are not raw
+window-delivery observers. Ranked, falsifiable next boundaries are:
+
+1. Hover/hit-testing or cursor/event-coordinate mismatch: raw dispatch at the
+   measured button with a different GPUI cursor would distinguish this from
+   wholly absent dispatch. Compare eventPosition, cursorPosition and bounds.
+2. Surface geometry/occlusion or child propagation: compare root, surface and
+   button paint bounds and capture/bubble records. A root capture record without
+   a child capture record narrows the gap; it does not identify the canceller.
+3. Upstream window routing, focus or posting: no raw root event despite paint
+   records leaves this boundary open, including earlier ancestor cancellation.
+   It still does not prove an OS posting failure. Existing frontmost/posting
+   permission telemetry is not GPUI delivery acknowledgment.
+
+The new `buddy-sound-dispatch` observer delegates the child's EXACT layout ID,
+prepaint and paint. It creates no layout parent, hitbox, id or input action.
+Only the existing disposable Mac fixture guard enables it. Before child paint
+it registers raw frame mouse down/up listeners without hover filtering and logs
+both phases, window-local event/cursor points and measured bounds for Settings
+root, Notifications surface and sound button. No account contents, errors,
+configuration contents, event flags or process/environment dumps are logged.
+
+A real GPUI visual test uses the same Probe with an in-memory sink and a real
+Button. An outside-surface click must reach the raw probe while the ordinary
+hover-gated listener and callback remain silent; an inside click must reach
+both and call the Button exactly once with unchanged bounds. Suppressing the
+raw event observation makes the outside-click assertion fail. This is a
+red-capable runtime regression, not another source-token assertion, but it has
+NOT been executed locally: GPUI compilation and this visual test are hosted
+gates. No local app UI or heavy Rust build is authorized. No Mac repair or
+runtime RED/GREEN result is inferred before that evidence exists.
