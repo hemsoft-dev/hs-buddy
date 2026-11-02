@@ -138,7 +138,7 @@ def browser_fixture():
             pass
 
         def do_GET(self):
-            body = ("<!doctype html><title>Lifecycle browser</title><body style='font:24px monospace'><h1>Lifecycle browser</h1>"
+            body = ("<!doctype html><title>Lifecycle browser</title><body style='font:24px monospace;color:#000;background:#fff'><h1>Lifecycle browser</h1>"
                 "<script>if(location.search==='?seed=1'){localStorage.setItem('lifecycle','" + MARKER + "');"
                 "document.cookie='lifecycle=" + MARKER + ";path=/;max-age=3600'}"
                 "document.body.append(document.createTextNode(localStorage.getItem('lifecycle')||'missing'));"
@@ -238,46 +238,64 @@ def crew_visible(cdp):
     return cdp.evaluate(f"[...document.querySelectorAll('h2')].some(h=>h.textContent==={json.dumps(PROJECT)}) && document.body.innerText.includes({json.dumps(MESSAGE)}) && document.body.innerText.includes('Session encountered an error')")
 
 
-def capture_crew(cdp, window, paired, process, directory, github):
+def capture_visible(visible, window, paired, process, directory, github, name, markers, *, browser=False):
     # DOM readiness can precede the compositor's painted frame. Require the
     # same strict markers in an owned-window capture within the existing wait.
     attempts = []
-    receipt = directory / "crew-capture-attempts.json"
+    receipt = directory / f"{name}-capture-attempts.json"
     write(receipt, attempts)
 
     def captured():
-        if not crew_visible(cdp):
+        if not visible():
             return False
-        image = directory / "crew-captures" / f"{len(attempts):03}" / "crew-restored.png"
+        image = directory / f"{name}-captures" / f"{len(attempts):03}" / f"{name}-restored.png"
         attempt = dict(image=image.relative_to(directory).as_posix(), result="capture-error")
         attempts.append(attempt)
         try:
             image.parent.mkdir(parents=True)
             window.screenshot(image)
             try:
-                github.check(image, PROJECT, MESSAGE, "Session encountered an error")
+                github.check(image, *markers, **(dict(browser=True) if browser else {}))
             except RuntimeError as failure:
                 if not isinstance(failure.__cause__, github.settings.MissingVisibleText):
                     attempt["result"] = "ocr-error"
                     raise
                 attempt["result"] = "missing-visible-text"
                 return False
-            if not crew_visible(cdp):
+            if not visible():
                 attempt["result"] = "dom-changed"
                 return False
-            (directory / "crew-restored.png").write_bytes(image.read_bytes())
-            (directory / "crew-restored.ocr.txt").write_bytes(image.with_suffix(".ocr.txt").read_bytes())
+            (directory / f"{name}-restored.png").write_bytes(image.read_bytes())
+            (directory / f"{name}-restored.ocr.txt").write_bytes(image.with_suffix(".ocr.txt").read_bytes())
             attempt["result"] = "accepted"
             return True
         except OSError as failure:
-            raise RuntimeError("Owned Crew capture or evidence IO failed") from failure
+            raise RuntimeError(f"Owned {name.title()} capture or evidence IO failed") from failure
         finally:
             try:
                 write(receipt, attempts)
             except OSError as failure:
-                raise RuntimeError("Owned Crew capture receipt IO failed") from failure
+                raise RuntimeError(f"Owned {name.title()} capture receipt IO failed") from failure
 
     paired.wait_for(captured, process)
+
+
+
+def capture_crew(cdp, window, paired, process, directory, github):
+    capture_visible(lambda: crew_visible(cdp), window, paired, process, directory, github,
+        "crew", (PROJECT, MESSAGE, "Session encountered an error"))
+
+
+def capture_browser(cdp, window, paired, process, directory, github):
+    def visible():
+        state = browser_readback(cdp)
+        write(directory / "browser-state.json", state)
+        if state.get("marker") != MARKER or "lifecycle=" + MARKER not in state.get("cookie", ""):
+            raise RuntimeError("The installed Electron browser did not restore its localStorage/cookie")
+        return state.get("readyState") == "complete" and state.get("visibility") == "visible" and all(
+            marker in state.get("text", "") for marker in ("Lifecycle browser", MARKER))
+    capture_visible(visible, window, paired, process, directory, github,
+        "browser", ("Lifecycle browser", MARKER), browser=True)
 
 
 def browser_readback(cdp):
@@ -406,12 +424,7 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             page = browser["url"] + ("?seed=1" if seed else "")
             open_browser_tab(cdp, page)
             paired.wait_for(lambda: cdp.evaluate("(()=>{try{const w=document.querySelector('webview');return Boolean(w?.getURL().startsWith('http://203.0.113.1:'))&&!w.isLoading()}catch{return false}})()"), psutil.Process(process.pid))
-            page_state = browser_readback(cdp)
-            write(directory / "browser-state.json", page_state)
-            if page_state.get("marker") != MARKER or "lifecycle=" + MARKER not in page_state.get("cookie", ""):
-                raise RuntimeError("The installed Electron browser did not restore its localStorage/cookie")
-            window.screenshot(directory / "browser-restored.png")
-            github.check(directory / "browser-restored.png", "Lifecycle browser", MARKER, browser=True)
+            capture_browser(cdp, window, paired, psutil.Process(process.pid), directory, github)
             value["layout"] = LAYOUT.collect(cdp, psutil.Process(process.pid), paired.wait_for,
                 original_config, directory, name, write)
             value["config"] = value["layout"]["samples"][-1]["config"]

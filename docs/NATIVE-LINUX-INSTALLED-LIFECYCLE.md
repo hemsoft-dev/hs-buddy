@@ -241,3 +241,28 @@ The loading and painted fixture images are unedited captures of the synthetic pr
 ### X11 capture surface
 
 The X11 driver uses `import -screen -window <owned-id>` to capture visible screen pixels within the selected owned window rectangle. Direct client-window capture can omit overlapping rendered surfaces. A private Xvfb regression creates two process-owned surfaces and proves the actual driver retains their visible colors within the original 200×150 window bounds; the old camera returns black where the visible surface is green. No full-desktop image is retained. Footer, page-content and ambiguity checks stay unchanged. This camera control is independent of installed app qualification; the current hosted native browser and Electron diagnostic results must still be evaluated.
+
+### Browser fixture paint and contrast
+
+The browser page declares black text on an opaque white body. The failed
+[d3d75540 installed run](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41399142085/job/125128518990)
+retained a ready guest DOM with valid storage and nonzero geometry, an early
+blank capture, and later black text on the dark embedded canvas. The strict
+mixed-window OCR rejected every inspected frame. An isolated page OCR probe
+could read the same low-contrast HTML; it did not reproduce the full-window
+failure and is not presented as installed proof.
+
+Browser capture now uses the same bounded painted-frame collector as Crew.
+It retains raw attempts and OCR under `browser-captures/` and outcomes in
+`browser-capture-attempts.json`. Only missing visible text may retry within the
+existing readiness deadline. Engine, capture and receipt errors fail. Before
+capture and again before acceptance, real guest readback must retain both
+storage markers, visible complete document and both text markers. Storage
+loss fails, and `browser-state.json` remains available on failure. Only an
+accepted unchanged frame becomes `browser-restored.png`.
+
+The served-HTML contrast control, controlled missing/painted frames, unchanged
+strict oracle, permanent blank, storage-loss and engine/IO failure controls
+are source-level evidence. The new hosted installed run must still qualify
+browser restart and Electron rollback. No production browser style, route,
+profile, storage policy or migration behavior changed.

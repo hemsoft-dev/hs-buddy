@@ -149,15 +149,16 @@ class CrewCaptureControls(unittest.TestCase):
         # The image is real. Geometry below is explicitly synthetic: the failed
         # hosted run did not retain these fields, which this regression repairs.
         state = dict(marker=lifecycle.MARKER, cookie="lifecycle=" + lifecycle.MARKER,
-            text="Lifecycle browser " + lifecycle.MARKER,
+            text="Lifecycle browser " + lifecycle.MARKER, readyState="complete", visibility="visible",
             host=dict(bounds=dict(x=350, y=100, width=800, height=600)),
             viewport=dict(width=800, height=600))
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            with self.assertRaisesRegex(RuntimeError, "GitHub screenshot does not show"):
+            with self.assertRaisesRegex(TimeoutError, "Controlled readiness deadline"):
                 self.exercise(root, [HERE / "fixtures/linux-lifecycle-crew-painted.png",
                     HERE / "fixtures/linux-lifecycle-browser-blank.png"],
                     stop_browser=False, browser_state=state)
+            self.assertFalse((root / "electron-seed/browser-restored.png").exists())
             self.assertEqual(lifecycle.read(root / "electron-seed/browser-state.json"), state)
-            self.assertEqual((root / "electron-seed/browser-restored.png").read_bytes(),
+            self.assertEqual((root / "electron-seed/browser-captures/002/browser-restored.png").read_bytes(),
                 (HERE / "fixtures/linux-lifecycle-browser-blank.png").read_bytes())

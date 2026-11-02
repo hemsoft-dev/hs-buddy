@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1627] - 2026-11-02
+
+### Changed
+
+- Require painted high-contrast browser fixture
+
 ## [0.1.1626] - 2026-11-02
 
 ### Changed
