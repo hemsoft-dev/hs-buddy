@@ -25,6 +25,38 @@ def restored():
         cache=dict(data=dict(fixture=lifecycle.MARKER)), viewMode="list")
 
 
+class AppEnvironmentControls(unittest.TestCase):
+    def test_existing_xauthority_path_survives_isolated_home_without_file_access(self):
+        with tempfile.TemporaryDirectory() as raw:
+            profile = Path(raw) / "profile"
+            authority = str(Path(raw) / "session" / "Xauthority")
+            inherited = dict(PATH="/usr/bin", DISPLAY=":93", XAUTHORITY=authority,
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/fixture/bus", HOME="/fixture/original-home")
+            with patch.dict(lifecycle.os.environ, inherited, clear=True), \
+                    patch.object(Path, "read_bytes", side_effect=AssertionError("Must not read authorization data")), \
+                    patch.object(Path, "read_text", side_effect=AssertionError("Must not read authorization data")):
+                environment = lifecycle.app_environment(profile, unittest.mock.Mock(url="http://127.0.0.1:9"))
+            self.assertEqual(environment["XAUTHORITY"], authority)
+            self.assertEqual(environment["DISPLAY"], ":93")
+            self.assertEqual(environment["DBUS_SESSION_BUS_ADDRESS"], inherited["DBUS_SESSION_BUS_ADDRESS"])
+            self.assertEqual(environment["HOME"], str(profile / "home"))
+            self.assertFalse(Path(authority).exists())
+            self.assertEqual(list((profile / "home").iterdir()), [])
+
+    def test_absent_xauthority_is_not_invented_and_unrelated_secrets_are_excluded(self):
+        with tempfile.TemporaryDirectory() as raw:
+            profile = Path(raw) / "profile"
+            excluded = ("GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "UNRELATED_VARIABLE")
+            inherited = dict.fromkeys(excluded, "synthetic-do-not-forward")
+            inherited.update(PATH="/usr/bin", DISPLAY=":94", HOME="/fixture/original-home")
+            with patch.dict(lifecycle.os.environ, inherited, clear=True):
+                environment = lifecycle.app_environment(profile, unittest.mock.Mock(url="http://127.0.0.1:9"))
+            self.assertNotIn("XAUTHORITY", environment)
+            for key in excluded:
+                self.assertNotIn(key, environment)
+            self.assertEqual(environment["HOME"], str(profile / "home"))
+
+
 class BrowserRoutingControl(unittest.TestCase):
     def test_installed_electron_pass_uses_the_consumer_tested_crew_navigation_and_wait(self):
         calls = [node.func.id for node in ast.walk(ast.parse(inspect.getsource(lifecycle.electron_pass)))

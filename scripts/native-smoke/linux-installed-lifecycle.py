@@ -239,7 +239,7 @@ def crew_visible(cdp):
 
 
 def app_environment(profile, backend):
-    allowed = {"PATH", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG", "LD_LIBRARY_PATH"}
+    allowed = {"PATH", "DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG", "LD_LIBRARY_PATH"}
     environment = {key: value for key, value in os.environ.items() if key in allowed}
     for name in ("home", "cache", "empty-gh"):
         (profile / name).mkdir(exist_ok=True, parents=True)
