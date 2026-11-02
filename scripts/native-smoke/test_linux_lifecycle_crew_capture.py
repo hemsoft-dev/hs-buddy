@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -66,7 +67,7 @@ class CrewCaptureControls(unittest.TestCase):
                 patch.object(lifecycle, "running", return_value=contextlib.nullcontext((process, window))), \
                 patch.object(lifecycle, "recorded", return_value=contextlib.nullcontext()), \
                 patch.object(lifecycle.subprocess, "check_output", side_effect=check_output), \
-                patch("psutil.Process", return_value=process), \
+                patch.dict(sys.modules, {"psutil": types.SimpleNamespace(Process=lambda *_: process)}), \
                 patch.object(github, "check", side_effect=check), \
                 patch.object(lifecycle, "open_browser_tab", side_effect=ReachedBrowser):
             try:
