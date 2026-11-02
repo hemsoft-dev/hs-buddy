@@ -353,7 +353,9 @@ class UnixWindow:
             window["capturePixelsPerWindowPoint"] = pixels[0] / window["kCGWindowBounds"]["Width"]
             path.with_suffix(".window.json").write_text(json.dumps(window), encoding="utf-8")
         elif self.session == "x11":
-            run("import", "-window", self.window, path)
+            # Read visible screen pixels within the owned window bounds. A
+            # direct XGetImage of the client can omit overlapping surfaces.
+            run("import", "-screen", "-window", self.window, path)
         else:
             # Ask the compositor to capture this owned window region directly,
             # like the window-only captures on the other platforms. No PNG edit.

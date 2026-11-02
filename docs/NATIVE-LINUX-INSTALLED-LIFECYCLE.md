@@ -237,3 +237,7 @@ The loading and painted fixture images are unedited captures of the synthetic pr
 ### Failed browser diagnostics
 
 `browser-state.json` is written before storage validation and screenshot OCR. It retains the synthetic guest text/storage/cookie, URL/readiness, guest viewport/body bounds and colors, and host webview bounds/display/visibility/loading state. These values are diagnostics only: the unchanged owned-window screenshot and strict OCR must still pass. The blank fixture is an unedited capture from [failed head 53b7f0e5](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41383809561/job/125080452731); its geometry was not retained in that run. The regression uses explicitly synthetic geometry to verify retention on the real caller failure path. It is not installed browser or rollback qualification.
+
+### X11 capture surface
+
+The X11 driver uses `import -screen -window <owned-id>` to capture visible screen pixels within the selected owned window rectangle. Direct client-window capture can omit overlapping rendered surfaces. A private Xvfb regression creates two process-owned surfaces and proves the actual driver retains their visible colors within the original 200×150 window bounds; the old camera returns black where the visible surface is green. No full-desktop image is retained. Footer, page-content and ambiguity checks stay unchanged. This camera control is independent of installed app qualification; the current hosted native browser and Electron diagnostic results must still be evaluated.

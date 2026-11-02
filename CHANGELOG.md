@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1626] - 2026-11-02
+
+### Changed
+
+- Capture visible X11 surfaces within owned bounds
+
 ## [0.1.1625] - 2026-11-02
 
 ### Changed
