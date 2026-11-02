@@ -17,7 +17,7 @@ reqwest-otel = { package = "reqwest", version = "0.13", default-features = false
 # Share the existing Ring provider with Convex and reqwest 0.12.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
-github-copilot-sdk = "=1.0.23-preview.2"
+github-copilot-sdk = "=1.0.28"
 cap-std = "=4.0.3"
 cap-fs-ext = "=4.0.3"
 tempfile = "3"
