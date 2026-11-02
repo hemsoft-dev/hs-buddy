@@ -542,6 +542,34 @@ class Driver:
                 value["clickTrace"] = trace
             receipt.write(json.dumps(value) + "\n")
 
+    def capture_click_boundary(self, window, directory, kind, label, target):
+        """Retain the owned frame before typing can conceal a missed focus click.
+
+        Only the already-guarded Mac fixture calls this. A posted mouse event
+        is not a GPUI delivery acknowledgment; do not retry it or infer focus.
+        """
+        if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1":
+            return
+        if not ((kind == "rightfield" and "Organization" in label.split("|"))
+                or (kind == "content" and label.casefold() == "review completion sound: off")):
+            return
+        path = directory / "click-boundaries.jsonl"
+        with path.open("a", encoding="utf-8") as receipt:
+            with path.open(encoding="utf-8") as previous:
+                index = sum(1 for _ in previous)
+            capture = directory / f"after-click-{index:03d}.png"
+            window.screenshot(capture)
+            value = dict(kind=kind, label=label, target=target, capture=capture.name,
+                callbackDelivered=None, beforeTyping=True)
+            # This is explicitly the isolated fixture's config, not AX values
+            # or another application's field contents. The final config alone
+            # cannot distinguish no callback from a later reset.
+            config = getattr(self, "config", None)
+            if isinstance(config, Path) and config.is_file():
+                current = json.loads(config.read_text(encoding="utf-8-sig"))
+                value["soundEnabled"] = current.get("notifications", {}).get("playSoundOnReviewComplete")
+            receipt.write(json.dumps(value) + "\n")
+
     def interact_cell(self, window, directory, values):
         if len(values) != 2 or not all(isinstance(value, str) and value for value in values):
             raise RuntimeError("A cell needs its visible row and date labels")
@@ -663,6 +691,7 @@ class Driver:
                     failure.add_note(f"Input diagnostic failed: {type(diagnostic_error).__name__}")
                 raise
             self.input_receipt(helper, directory, "after-click", kind, values[0], target)
+            self.capture_click_boundary(window, directory, kind, values[0], target)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
