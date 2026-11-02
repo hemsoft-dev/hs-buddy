@@ -122,6 +122,36 @@ class BrowserRoutingControl(unittest.TestCase):
             subprocess.check_output(["node", "-e", "global.window={};window.shell.openInAppBrowser('fixture')"], stderr=subprocess.PIPE)
 
 
+    def test_browser_readback_preserves_guest_and_host_measurements_including_zero_height(self):
+        class Renderer:
+            def __init__(self, height):
+                self.height = height
+
+            def evaluate(self, expression):
+                script = """
+const vm=require('node:vm');
+const rect={x:350,y:100,width:800,height:""" + str(self.height) + """};
+const body={innerText:'Lifecycle browser installed-lifecycle-marker',getBoundingClientRect:()=>rect};
+const style={display:'flex',visibility:'visible',opacity:'1',color:'rgb(0, 0, 0)',backgroundColor:'rgb(255, 255, 255)'};
+const guest={document:{body,cookie:'lifecycle=installed-lifecycle-marker',readyState:'complete',visibilityState:'visible'},
+    location:{href:'http://203.0.113.1:9/?seed=1'},localStorage:{getItem:()=> 'installed-lifecycle-marker'},
+    innerWidth:800,innerHeight:""" + str(self.height) + """,devicePixelRatio:1,getComputedStyle:()=>style};
+const view={getBoundingClientRect:()=>rect,getURL:()=>guest.location.href,isLoading:()=>false,
+    executeJavaScript:source=>Promise.resolve(vm.runInNewContext(source,guest))};
+global.document={querySelector:()=>view};global.getComputedStyle=()=>style;
+Promise.resolve(eval(""" + json.dumps(expression) + """)).then(value=>console.log(JSON.stringify(value)));
+"""
+                return json.loads(subprocess.check_output(["node", "-e", script], text=True))
+
+        for height in (0, 480):
+            value = lifecycle.browser_readback(Renderer(height))
+            self.assertEqual(value["marker"], lifecycle.MARKER)
+            self.assertEqual(value["host"]["bounds"]["height"], height)
+            self.assertEqual(value["viewport"]["height"], height)
+            self.assertEqual(value["body"]["background"], "rgb(255, 255, 255)")
+            self.assertEqual(value["host"]["display"], "flex")
+
+
 class DataFailureControls(unittest.TestCase):
     def test_electron_baseline_records_only_the_known_extension_removal(self):
         original = lifecycle.config_fixture()

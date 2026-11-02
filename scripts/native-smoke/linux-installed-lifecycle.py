@@ -280,6 +280,30 @@ def capture_crew(cdp, window, paired, process, directory, github):
     paired.wait_for(captured, process)
 
 
+def browser_readback(cdp):
+    # Keep guest state and actual host/guest geometry even if visible proof
+    # fails. These diagnostics never substitute for the owned-window OCR.
+    guest = """(() => {
+        const r = document.body.getBoundingClientRect();
+        const style = getComputedStyle(document.body);
+        return {marker:localStorage.getItem('lifecycle'), cookie:document.cookie,
+            text:document.body.innerText, url:location.href, readyState:document.readyState,
+            visibility:document.visibilityState,
+            viewport:{width:innerWidth,height:innerHeight,scale:devicePixelRatio},
+            body:{x:r.x,y:r.y,width:r.width,height:r.height,
+                color:style.color,background:style.backgroundColor}};
+    })()"""
+    return cdp.evaluate("""(async () => {
+        const view = document.querySelector('webview');
+        const state = await view.executeJavaScript(""" + json.dumps(guest) + """);
+        const r = view.getBoundingClientRect();
+        const style = getComputedStyle(view);
+        return {...state,host:{url:view.getURL(),loading:view.isLoading(),
+            bounds:{x:r.x,y:r.y,width:r.width,height:r.height},
+            display:style.display,visibility:style.visibility,opacity:style.opacity}};
+    })()""")
+
+
 def app_environment(profile, backend):
     allowed = {"PATH", "DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG", "LD_LIBRARY_PATH"}
     environment = {key: value for key, value in os.environ.items() if key in allowed}
@@ -382,12 +406,12 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             page = browser["url"] + ("?seed=1" if seed else "")
             open_browser_tab(cdp, page)
             paired.wait_for(lambda: cdp.evaluate("(()=>{try{const w=document.querySelector('webview');return Boolean(w?.getURL().startsWith('http://203.0.113.1:'))&&!w.isLoading()}catch{return false}})()"), psutil.Process(process.pid))
-            page_state = cdp.evaluate("document.querySelector('webview').executeJavaScript(\"({marker:localStorage.getItem('lifecycle'),cookie:document.cookie,text:document.body.innerText})\")")
+            page_state = browser_readback(cdp)
+            write(directory / "browser-state.json", page_state)
             if page_state.get("marker") != MARKER or "lifecycle=" + MARKER not in page_state.get("cookie", ""):
                 raise RuntimeError("The installed Electron browser did not restore its localStorage/cookie")
             window.screenshot(directory / "browser-restored.png")
             github.check(directory / "browser-restored.png", "Lifecycle browser", MARKER, browser=True)
-            write(directory / "browser-state.json", page_state)
             value["layout"] = LAYOUT.collect(cdp, psutil.Process(process.pid), paired.wait_for,
                 original_config, directory, name, write)
             value["config"] = value["layout"]["samples"][-1]["config"]

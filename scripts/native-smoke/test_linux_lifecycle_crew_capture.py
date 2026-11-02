@@ -23,7 +23,7 @@ class ReachedBrowser(Exception):
 
 
 class CrewCaptureControls(unittest.TestCase):
-    def exercise(self, root, frames, *, checker=None, visible=True, capture_error=None):
+    def exercise(self, root, frames, *, checker=None, visible=True, capture_error=None, stop_browser=True, browser_state=None):
         profile = root / "profile"
         profile.mkdir()
         (root / "electron-seed").mkdir()
@@ -32,6 +32,8 @@ class CrewCaptureControls(unittest.TestCase):
             session=dict(status="error", conversationHistory=[dict(content=lifecycle.MESSAGE)]),
             cache=dict(data=dict(fixture=lifecycle.MARKER)), viewMode="list")
         def evaluate(expression):
+            if "executeJavaScript" in expression:
+                return browser_state
             if "config:get-store-path" in expression:
                 return str(profile / "config.json")
             if expression.startswith("(async()=>({"):
@@ -69,7 +71,7 @@ class CrewCaptureControls(unittest.TestCase):
                 patch.object(lifecycle.subprocess, "check_output", side_effect=check_output), \
                 patch.dict(sys.modules, {"psutil": types.SimpleNamespace(Process=lambda *_: process)}), \
                 patch.object(github, "check", side_effect=check), \
-                patch.object(lifecycle, "open_browser_tab", side_effect=ReachedBrowser):
+                patch.object(lifecycle, "open_browser_tab", side_effect=ReachedBrowser if stop_browser else None):
             try:
                 lifecycle.electron_pass(Path("synthetic-executable"), profile,
                     types.SimpleNamespace(url="http://127.0.0.1:9"), root, "electron-seed",
@@ -141,3 +143,21 @@ class CrewCaptureControls(unittest.TestCase):
             attempts = lifecycle.read(root / "electron-seed/crew-capture-attempts.json")
             self.assertEqual(len(attempts), 1)
             self.assertEqual(attempts[0]["result"], "capture-error")
+
+    @unittest.skipUnless(shutil.which("tesseract"), "Captured Linux OCR replay needs Tesseract")
+    def test_browser_failure_retains_readback_before_strict_window_ocr(self):
+        # The image is real. Geometry below is explicitly synthetic: the failed
+        # hosted run did not retain these fields, which this regression repairs.
+        state = dict(marker=lifecycle.MARKER, cookie="lifecycle=" + lifecycle.MARKER,
+            text="Lifecycle browser " + lifecycle.MARKER,
+            host=dict(bounds=dict(x=350, y=100, width=800, height=600)),
+            viewport=dict(width=800, height=600))
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            with self.assertRaisesRegex(RuntimeError, "GitHub screenshot does not show"):
+                self.exercise(root, [HERE / "fixtures/linux-lifecycle-crew-painted.png",
+                    HERE / "fixtures/linux-lifecycle-browser-blank.png"],
+                    stop_browser=False, browser_state=state)
+            self.assertEqual(lifecycle.read(root / "electron-seed/browser-state.json"), state)
+            self.assertEqual((root / "electron-seed/browser-restored.png").read_bytes(),
+                (HERE / "fixtures/linux-lifecycle-browser-blank.png").read_bytes())

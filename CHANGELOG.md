@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1625] - 2026-11-02
+
+### Changed
+
+- Retain browser geometry before visual checks
+
 ## [0.1.1624] - 2026-11-02
 
 ### Changed
