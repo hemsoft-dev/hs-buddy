@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1623] - 2026-11-02
+
+### Changed
+
+- Wait for painted Crew lifecycle capture
+
 ## [0.1.1622] - 2026-11-02
 
 ### Changed

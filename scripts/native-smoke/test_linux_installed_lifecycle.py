@@ -62,7 +62,7 @@ class BrowserRoutingControl(unittest.TestCase):
         calls = [node.func.id for node in ast.walk(ast.parse(inspect.getsource(lifecycle.electron_pass)))
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
         self.assertEqual(calls.count("open_crew_project"), 1)
-        self.assertEqual(calls.count("crew_visible"), 1)
+        self.assertEqual(calls.count("capture_crew"), 1)
 
     def test_clean_shutdown_uses_electron_close_and_native_quit_bindings(self):
         for electron in (True, False):

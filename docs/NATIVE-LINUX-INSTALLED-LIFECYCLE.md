@@ -227,3 +227,9 @@ the hosted installed run.
 Current-head hosted receipts and captures must be inspected before reporting
 actual package qualification. The broader [migration limits](NATIVE-CONFIG-MIGRATION.md)
 still apply even when the lifecycle harness succeeds.
+
+### Installed Crew capture readiness
+
+The installed Crew check requires both the real DOM predicate and the same project, retained conversation and recovery banner in one OCR layout of the owned window. DOM readiness may precede compositor paint. The existing readiness deadline now includes capture and strict OCR; missing visible text may retry, while OCR engine and evidence IO errors fail. Each raw capture and OCR attempt is retained under `crew-captures/`, with outcomes in `crew-capture-attempts.json`. Only an accepted capture is copied unchanged to `crew-restored.png`.
+
+The loading and painted fixture images are unedited captures of the synthetic profile from [failed hosted run 41371175622](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41371175622/job/125041902950), head `23339adc310636afa599a7e83f90c3fe1a13fd70`. The real caller fails on the first capture without the readiness fix and accepts only the later painted capture with it. This replay proves the capture regression; it does not qualify installation, native migration or the remaining rollback stages on a new head.

@@ -238,6 +238,48 @@ def crew_visible(cdp):
     return cdp.evaluate(f"[...document.querySelectorAll('h2')].some(h=>h.textContent==={json.dumps(PROJECT)}) && document.body.innerText.includes({json.dumps(MESSAGE)}) && document.body.innerText.includes('Session encountered an error')")
 
 
+def capture_crew(cdp, window, paired, process, directory, github):
+    # DOM readiness can precede the compositor's painted frame. Require the
+    # same strict markers in an owned-window capture within the existing wait.
+    attempts = []
+    receipt = directory / "crew-capture-attempts.json"
+    write(receipt, attempts)
+
+    def captured():
+        if not crew_visible(cdp):
+            return False
+        image = directory / "crew-captures" / f"{len(attempts):03}" / "crew-restored.png"
+        attempt = dict(image=image.relative_to(directory).as_posix(), result="capture-error")
+        attempts.append(attempt)
+        try:
+            image.parent.mkdir(parents=True)
+            window.screenshot(image)
+            try:
+                github.check(image, PROJECT, MESSAGE, "Session encountered an error")
+            except RuntimeError as failure:
+                if not isinstance(failure.__cause__, github.settings.MissingVisibleText):
+                    attempt["result"] = "ocr-error"
+                    raise
+                attempt["result"] = "missing-visible-text"
+                return False
+            if not crew_visible(cdp):
+                attempt["result"] = "dom-changed"
+                return False
+            (directory / "crew-restored.png").write_bytes(image.read_bytes())
+            (directory / "crew-restored.ocr.txt").write_bytes(image.with_suffix(".ocr.txt").read_bytes())
+            attempt["result"] = "accepted"
+            return True
+        except OSError as failure:
+            raise RuntimeError("Owned Crew capture or evidence IO failed") from failure
+        finally:
+            try:
+                write(receipt, attempts)
+            except OSError as failure:
+                raise RuntimeError("Owned Crew capture receipt IO failed") from failure
+
+    paired.wait_for(captured, process)
+
+
 def app_environment(profile, backend):
     allowed = {"PATH", "DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "LANG", "LD_LIBRARY_PATH"}
     environment = {key: value for key, value in os.environ.items() if key in allowed}
@@ -336,9 +378,7 @@ def electron_pass(executable, profile, backend, output, name, browser, *, seed=F
             restored_state(value)
             write(directory / "restored-state.json", value)
             open_crew_project(cdp)
-            paired.wait_for(lambda: crew_visible(cdp), psutil.Process(process.pid))
-            window.screenshot(directory / "crew-restored.png")
-            github.check(directory / "crew-restored.png", PROJECT, MESSAGE, "Session encountered an error")
+            capture_crew(cdp, window, paired, psutil.Process(process.pid), directory, github)
             page = browser["url"] + ("?seed=1" if seed else "")
             open_browser_tab(cdp, page)
             paired.wait_for(lambda: cdp.evaluate("(()=>{try{const w=document.querySelector('webview');return Boolean(w?.getURL().startsWith('http://203.0.113.1:'))&&!w.isLoading()}catch{return false}})()"), psutil.Process(process.pid))
