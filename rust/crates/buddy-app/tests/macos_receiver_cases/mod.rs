@@ -1,7 +1,6 @@
 //! Real local AppKit monitor consumer; hidden windows, no global input posting.
 #[path = "../../src/settings/fixture_guard.rs"]
 mod fixture_guard;
-mod queue_coverage;
 mod queue_first_use;
 #[path = "../../src/macos_receiver.rs"]
 mod receiver;
@@ -327,7 +326,6 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
         println!(
             "PASS real local AppKit receiver: registration/owned filtering/rejection privacy/exact pointer/downstream once/removal/lifetime; no visible windows or global input"
         );
-        queue_coverage::run(mtm);
     } else {
         println!("PASS canonical guard refused local monitor; no visible windows or global input");
     }

@@ -343,74 +343,62 @@ CoreGraphics runtime proof. Actual installed sound/account outcomes remain
 HOSTED gates. All-match readback would narrow the gap after construction but
 would not prove posting delivery or exclude application dispatch paths.
 
-## Owned queue-consumption coverage experiment
+## Historical design: optional consuming queue experiment
 
-The existing macos_menu_native canonical positive-fixture branch now has a
-separate test-only queue_coverage module. All preceding functional, privacy,
-downstream, guard-refusal and lifetime assertions remain unchanged. This is a
-COVERAGE experiment, not an installed receiving repair.
+The [81cb2bee optional debug experiment](https://github.com/hemsoft-dev/hs-buddy/commit/81cb2beeef464234523591015c9edf2325d6dbf2)
+added a test-only queue_coverage module to the existing positive fixture. Its
+prediction compared one retained synthetic LeftMouseUp through application
+sendEvent and explicit tracking-mode queue consumption: direct receive=1,
+queue consumer=1 and monitor receive/filter=0. It required exact object identity
+before dequeue and kept fixed-message refusal on an unexpected object. Its
+misroute, duplicate and omitted-consumer controls depended on that precondition.
 
-One retained owned synthetic LeftMouseUp object is compared through direct
-NSApplication.sendEvent and explicit application-queue consumption requesting
-NSEventTrackingRunLoopMode. It uses pinned objc2-app-kit0.3.2
-postEvent_atStart and nextEventMatchingMask_untilDate_inMode_dequeue, plus the
-already-enabled NSDate::distantPast. No feature/dependency change is needed.
-The deadline is already expired: no waiting, sleeping or new timeout budget.
-This does not enter NSWindow.trackEvents or prove a nested tracking loop was
-active; a queued object can be retrieved without running a loop.
+Neither Apple's [postEvent contract](https://developer.apple.com/documentation/appkit/nsapplication/postevent(_:atstart:))
+nor [nextEvent contract](https://developer.apple.com/documentation/appkit/nsapplication/nextevent(matching:until:inmode:dequeue:))
+guarantees preservation of the exact posted NSEvent instance. The controlled
+first-use results below demonstrate that this prediction fails even without
+prior direct dispatch. No supported provenance or atomic consume-this-instance
+capability was established. The safety guard correctly refused unknown
+provenance; replacing it with equal public fields would not prove ownership.
 
-The test inserts its own retained object at the queue head. Non-dequeuing peeks
-must preserve exact pointer identity and leave monitor counts unchanged.
-Identity is validated BEFORE the immediate same-main-thread dequeue; only that
-owned object's properties are inspected. Unexpected head/identity fails with a
-fixed message, never its fields or pointer value. No competing producer, event
-loop or callback is installed by the test. This is not general queue isolation.
-Normal cleanup removes ONLY the still-pending owned at-head object. If a foreign
-head prevents safe cleanup during failure, the isolated failing child exits;
-the test does not drain foreign events behind or ahead of it.
+The initiating parent therefore withdrew the ENTIRE optional consuming module
+and its two integration lines after reviewing its origin, native evidence and
+[issue823 criteria](https://github.com/hemsoft-dev/hs-buddy/issues/823). This
+removes the unsupported synthetic consumer instead of weakening its guard,
+catching its panic as PASS or making mismatch an expected product contract.
+The historical f350 Rust failures remain failures and their records remain
+unqualified. This is not a product-input repair or a passing queue-consumption
+result; the local monitor's documented tracking-coverage limit remains open.
 
-Prediction: direct application dispatch reaches the actual receiver once;
-exactly one queue consumer reads the unchanged owned object with zero accepted
-or filtered monitor records. Real-AppKit negative paths dequeue then sendEvent,
-enqueue/consume the same object twice, or omit the consumer; the SAME count
-oracle must reject each. Omitted consumption is measured before owned-only
-cleanup. No manual receiver Block invocation manufactures these counts.
-The native cases assert property/pointer preservation, no phantom dispatch or
-queued duplicate, unchanged hidden/key/application-active state, monitor
-stop/drop/removal and weak-state release after autoreleases drain.
-
-Apple documents the local monitor's application-sendEvent boundary and its
-[tracking-loop limitation](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:)).
-A successful controlled queue case would establish the coverage distinction,
-not that the installed sound/account failures used that path, and not a
-producer-to-WindowServer-to-application acceptance result.
-
-Portable execution of the EXACT shared count oracle passed; a private mutant
-accepting monitored queue dispatch failed. rustfmt/locked metadata are source
-checks. The new native queue consumer is UNCOMPILED and UNEXECUTED locally;
-actual AppKit counts, lifetime and visibility assertions remain HOSTED gates.
-No local native RED/GREEN, installed PASS, input fix or cutover is claimed.
-The experiment does not change the application input or monitor behavior.
-The exact shared count oracle is also checked with the native target
-harness=false cfg(test) lint configuration; this is not AppKit compilation.
+The pre-existing receiver exercise is byte-for-byte identical to 2ac6d040 after
+the withdrawal, SHA256
+1dd3de3ca8ab98329356b527319b3475f2825bd76cf45a3d6b5afad2a5731dd1.
+All functional, owned-window/privacy/pointer/downstream/guard/removal/lifetime
+assertions remain. Non-dequeuing measurements and actual installed sound/account
+assertions remain. No test is ignored, quarantined or made continue-on-error;
+the complete next-head Rust matrix must pass, and fresh installed receipts and
+media must still be inspected. Removing this failed debug experiment does not
+qualify native parity, migration, actual input delivery or cutover.
 
 ## First-use versus prior-dispatch measurement
 
-The b567 ARM and Intel native runs both failed the first strict queue peek:
-Some returned, but its underlying object address differed. This establishes
-neither foreign provenance nor copying. The original queue_coverage.rs remains
-BYTE-IDENTICAL, including guard, counts, consumers, negative controls and all
-assertions. Its SHA256 is
+The historical b567 ARM and Intel runs failed the first strict queue peek:
+Some returned, but its underlying object address differed. At f350 the optional
+queue_coverage.rs was still byte-identical, including its guard, counts,
+consumers, negative controls and assertions, SHA256
 97439aa0ea3a7e5eb6d4848ef61a0ec22293f4d619de75cff45f3e5bc1b087a1.
+This is historical provenance for the withdrawn module, not current source or
+a passing identity contract. Neither failure establishes copying or foreign
+provenance. The separate non-dequeuing measurement remains in the test target.
 
-The candidate adds minimal early diagnostic-child routing BEFORE all menu and
+The measurement adds minimal early diagnostic-child routing BEFORE all menu and
 receiver exercises. The existing original parent and original fixture children
 still execute those exercises. Before starting their original loop, the parent
 runs two separate genuine-CI canonical-fixture child processes and retains both
 statuses. One creates its owned synthetic LeftMouseUp and posts atStart=true
 without direct dispatch; the other creates an equivalent new owned event in a
 separate process and first calls app.sendEvent. Neither shares a queue/window/
-event with the other scenario or the original strict fixture.
+event with the other scenario or the original receiver fixture.
 
 The same existing mask, tracking run-loop-mode argument and expired distantPast
 are used for preflight and two post non-dequeuing peeks. No loop is run. Fetched
@@ -434,11 +422,12 @@ contents are serialized.
 
 Fresh create-new receipts are fsynced under the canonical hosted
 RUNNER_TEMP/native-evidence/queue-first-use directory, with symlink/containment
-checks. This is outside the temporary original fixture profile, so later strict
-failure/profile cleanup does not remove them. They are also emitted with a
-fixed log prefix. Diagnostic child statuses do not short-circuit each other;
-the original strict fixtures still run afterward and still fail if their exact
-identity guard fails. The diagnostics cannot turn that failure into success.
+checks. This is outside the temporary original fixture profile, so profile
+cleanup does not remove them. Historical f350 strict failures also retained
+these receipts. A fixed log prefix duplicates the observations. Diagnostic
+child statuses do not short-circuit each other; all original receiver/guard
+fixtures run afterward. A measurement cannot qualify consumption or repair
+the actual installed input behavior.
 
 Portable execution uses the EXACT new routing, measurement and schema
 consumers with fake native backends. None/mismatch/matching cases, both routes,
@@ -453,5 +442,34 @@ dependent invariant failure. Both false leaves normalization/interleaving/other
 AppKit behavior unresolved; preflight presence does not establish provenance.
 Neither observation guarantees ownership of a different instance, proves
 installed tracking/WindowServer delivery or authorizes relaxed identity.
-Native compilation and both observations remain UNEXECUTED locally. Hosted
-execution is required, and the existing strict queue gate stays unresolved.
+No AppKit framework/runtime was executed locally. Actual f350 hosted results
+are recorded below; new-head full native tests and installed proof remain gates.
+
+## Hosted f350 observations and withdrawal disposition
+
+Both [ARM](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41664452235/job/126016867772)
+and [Intel](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41664452235/job/126016867308)
+passed full Clippy and both measurement children. Four receipt JSONs per
+architecture were CRC/hash-checked against their actual logs. Every observed
+field matched across architectures and scenarios: preflightPresent=false;
+firstPresent/secondPresent=true; firstMatchesOriginal/secondMatchesOriginal/
+repeatedPeekSame=false; originalPropertiesUnchanged/protectedStateUnchanged=true;
+both childSucceeded=true; every coverageQualified=false. The compared peek
+objects were retained simultaneously, so dropping the first object and reusing
+its address does not explain these comparisons.
+
+The first-use observation shows prior direct dispatch is not necessary for the
+mismatch. Preflight absence is not provenance or proof against later changes.
+Normalization/copying/unrelated events remain unproven. The original receiver
+assertions then passed before the optional exact-instance guard refused the
+first peek. Take, queue count oracle and its negative controls were unreached;
+PTY/package/installed tests were skipped. No native queue-consumption PASS or
+installed sound/account repair follows from withdrawing that optional module.
+
+Source review and source CI passes remain distinct from actual qualification.
+Next-head Rust formatting, full Clippy, workspace tests, audit and release
+builds must run on every declared target. Existing installed settings/input and
+Ubuntu lifecycle tests must then execute unchanged; current-head receipts/media
+must be evaluated. Electron remains primary, issue823 remains open, and the
+bounded lifecycle receipt still separates same-head Electron rollback from
+unmet native migration with cutoverQualified=false.
