@@ -448,8 +448,7 @@ fn output_directory() -> PathBuf {
             ),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 std::fs::create_dir(&directory)
-                    .ok()
-                    .expect("Could not create measurement directory")
+                    .unwrap_or_else(|_| panic!("Could not create measurement directory"))
             }
             Err(_) => panic!("Could not validate measurement directory"),
         }
@@ -468,17 +467,13 @@ fn retain(path: &Path, record: &str) {
         .write(true)
         .create_new(true)
         .open(path)
-        .ok()
-        .expect("Fresh measurement receipt required");
+        .unwrap_or_else(|_| panic!("Fresh measurement receipt required"));
     file.write_all(record.as_bytes())
-        .ok()
-        .expect("Could not retain measurement receipt");
+        .unwrap_or_else(|_| panic!("Could not retain measurement receipt"));
     file.write_all(b"\n")
-        .ok()
-        .expect("Could not retain measurement newline");
+        .unwrap_or_else(|_| panic!("Could not retain measurement newline"));
     file.sync_all()
-        .ok()
-        .expect("Could not sync measurement receipt");
+        .unwrap_or_else(|_| panic!("Could not sync measurement receipt"));
 }
 pub(super) fn early_child() -> bool {
     let raw = std::env::var("BUDDY_QUEUE_MEASUREMENT_CHILD").ok();
@@ -505,8 +500,7 @@ pub(super) fn admit(config: &Path) -> bool {
     protocol::admit(|scenario| {
         let success = std::process::Command::new(
             std::env::current_exe()
-                .ok()
-                .expect("Native test executable unavailable"),
+                .unwrap_or_else(|_| panic!("Native test executable unavailable")),
         )
         .env_remove("GH_TOKEN")
         .env_remove("GITHUB_TOKEN")
