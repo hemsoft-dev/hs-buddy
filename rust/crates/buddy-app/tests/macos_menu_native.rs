@@ -7,6 +7,9 @@ mod macos_receiver_cases;
 
 #[cfg(target_os = "macos")]
 fn main() {
+    if macos_receiver_cases::measurement_child() {
+        return;
+    }
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, ProtocolObject};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};

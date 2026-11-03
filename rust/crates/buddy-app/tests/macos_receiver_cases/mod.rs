@@ -2,6 +2,7 @@
 #[path = "../../src/settings/fixture_guard.rs"]
 mod fixture_guard;
 mod queue_coverage;
+mod queue_first_use;
 #[path = "../../src/macos_receiver.rs"]
 mod receiver;
 use block2::RcBlock;
@@ -99,6 +100,10 @@ fn assert_unowned_rejection(rows: &Rc<RefCell<Vec<serde_json::Value>>>) {
     assert!(row["sequence"].is_u64() && row["millis"].is_u64());
 }
 
+pub fn measurement_child() -> bool {
+    queue_first_use::early_child()
+}
+
 pub fn run(mtm: MainThreadMarker) {
     if let Ok(mode) = std::env::var("BUDDY_RECEIVER_NATIVE_CHILD") {
         exercise(mtm, mode == "fixture");
@@ -118,6 +123,7 @@ pub fn run(mtm: MainThreadMarker) {
     let outside = directory.path().join("outside.json");
     std::fs::write(&config, "{}").unwrap();
     std::fs::write(&outside, "{}").unwrap();
+    let measurements_ok = queue_first_use::admit(&config);
     for mode in ["ordinary", "missing-fixture", "outside", "fixture"] {
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .env_remove("GH_TOKEN")
@@ -141,6 +147,7 @@ pub fn run(mtm: MainThreadMarker) {
             .unwrap();
         assert!(status.success(), "Native receiver case {mode} failed");
     }
+    assert!(measurements_ok, "Queue measurement child failed");
 }
 
 fn exercise(mtm: MainThreadMarker, expected: bool) {

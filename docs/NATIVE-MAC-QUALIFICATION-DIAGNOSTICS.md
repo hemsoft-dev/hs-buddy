@@ -393,3 +393,65 @@ No local native RED/GREEN, installed PASS, input fix or cutover is claimed.
 The experiment does not change the application input or monitor behavior.
 The exact shared count oracle is also checked with the native target
 harness=false cfg(test) lint configuration; this is not AppKit compilation.
+
+## Unpublished first-use versus prior-dispatch measurement
+
+The b567 ARM and Intel native runs both failed the first strict queue peek:
+Some returned, but its underlying object address differed. This establishes
+neither foreign provenance nor copying. The original queue_coverage.rs remains
+BYTE-IDENTICAL, including guard, counts, consumers, negative controls and all
+assertions. Its SHA256 is
+97439aa0ea3a7e5eb6d4848ef61a0ec22293f4d619de75cff45f3e5bc1b087a1.
+
+The candidate adds minimal early diagnostic-child routing BEFORE all menu and
+receiver exercises. The existing original parent and original fixture children
+still execute those exercises. Before starting their original loop, the parent
+runs two separate genuine-CI canonical-fixture child processes and retains both
+statuses. One creates its owned synthetic LeftMouseUp and posts atStart=true
+without direct dispatch; the other creates an equivalent new owned event in a
+separate process and first calls app.sendEvent. Neither shares a queue/window/
+event with the other scenario or the original strict fixture.
+
+The same existing mask, tracking run-loop-mode argument and expired distantPast
+are used for preflight and two post non-dequeuing peeks. No loop is run. Fetched
+objects are opaque: only presence and identity booleans are computed, never
+their fields, including on correct identity. Separate Owned/Peek types keep
+original-property reads on the retained original only. The protected-state
+check closes ONLY the owned hidden window and verifies no key/visible/active
+change. No dequeue, discard or drain exists, including cleanup. Child exit owns
+pending queue lifetime; no general native queue cleanup is claimed.
+
+Rigid measurement receipts contain fixed phase/scenario names and nine
+boolean/nullable fields: preflight/first/second presence; first/second-original
+and repeated-peek identity; original-properties/protected-state preservation;
+coverageQualified=false. Missing objects have present=false and corresponding
+identity=null, not fabricated mismatches. Identity and property observations
+are DATA, not forced outcomes. A protected-state violation still fails.
+Child-exit receipts have only fixed phase/scenario, childSucceeded boolean and
+coverageQualified=false. Unknown scenario/schema keys or qualification claims
+are rejected. No raw pointers/IDs/coords/timestamps/numbers/keys/text/error
+contents are serialized.
+
+Fresh create-new receipts are fsynced under the canonical hosted
+RUNNER_TEMP/native-evidence/queue-first-use directory, with symlink/containment
+checks. This is outside the temporary original fixture profile, so later strict
+failure/profile cleanup does not remove them. They are also emitted with a
+fixed log prefix. Diagnostic child statuses do not short-circuit each other;
+the original strict fixtures still run afterward and still fail if their exact
+identity guard fails. The diagnostics cannot turn that failure into success.
+
+Portable execution uses the EXACT new routing, measurement and schema
+consumers with fake native backends. None/mismatch/matching cases, both routes,
+guard-before-factory, ordinary-parent bypass, both-child admission and schema
+privacy are checked. Mutating peek to dequeue=true fails; removing schema
+validation fails; attempting original-properties access on an opaque fetched
+type fails compilation. These are portable consumer/capability controls, NOT
+actual AppKit runtime or two-process native proof.
+
+Fresh-first-use identity=true with prior-dispatch=false would support a reuse-
+dependent invariant failure. Both false leaves normalization/interleaving/other
+AppKit behavior unresolved; preflight presence does not establish provenance.
+Neither observation guarantees ownership of a different instance, proves
+installed tracking/WindowServer delivery or authorizes relaxed identity.
+The candidate remains unpublished; native compilation and both observations
+are UNEXECUTED locally, and the existing strict queue gate stays unresolved.
