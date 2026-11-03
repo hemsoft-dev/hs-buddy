@@ -284,7 +284,7 @@ fn install_fixture_receiver(window: &mut gpui_kit::Window, cx: &mut App) {
     if !settings::sound_diagnostic::enabled() {
         return;
     }
-    let id = window.window_handle().window_id();
+    let id = gpui_kit::Window::window_handle(window).window_id();
     if cx.has_global::<FixtureReceivers>() && cx.global::<FixtureReceivers>().0.contains_key(&id) {
         return;
     }

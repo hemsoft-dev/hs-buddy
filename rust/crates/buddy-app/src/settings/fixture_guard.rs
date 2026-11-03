@@ -27,25 +27,24 @@ pub(crate) fn enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[test]
     fn both_flags_and_an_existing_owned_config_are_required() {
         let root = std::env::temp_dir().join(format!("buddy-sound-guard-{}", std::process::id()));
         std::fs::create_dir_all(root.join("fixture")).unwrap();
         let config = root.join("fixture/config.json");
         std::fs::write(&config, "{}").unwrap();
-        assert!(allowed("true", "1", &config, &root.join("fixture")));
-        assert!(!allowed("false", "1", &config, &root));
-        assert!(!allowed("true", "0", &config, &root));
-        assert!(!allowed("true", "1", &root.join("absent"), &root));
-        assert!(!allowed(
+        assert!(super::allowed("true", "1", &config, &root.join("fixture")));
+        assert!(!super::allowed("false", "1", &config, &root));
+        assert!(!super::allowed("true", "0", &config, &root));
+        assert!(!super::allowed("true", "1", &root.join("absent"), &root));
+        assert!(!super::allowed(
             "true",
             "1",
             &config,
             &root.join("fixture/config.json")
         ));
         std::fs::write(root.join("outside.json"), "{}").unwrap();
-        assert!(!allowed(
+        assert!(!super::allowed(
             "true",
             "1",
             &root.join("outside.json"),
@@ -57,6 +56,6 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn non_mac_is_disabled() {
-        assert!(!enabled());
+        assert!(!super::enabled());
     }
 }
