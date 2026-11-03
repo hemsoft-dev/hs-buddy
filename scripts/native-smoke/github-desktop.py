@@ -3,6 +3,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import sys
 import os
 from pathlib import Path
 import urllib.request
@@ -67,7 +68,7 @@ def analysis_images(path):
 
 def browser_analysis(path):
     image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png")
-    yield from analysis_images(image)
+    yield from settings.ocr.analysis_images(image, settings.run, smooth_inverted=sys.platform == "linux")
 
 
 def check(path, *markers, absent=(), browser=False):

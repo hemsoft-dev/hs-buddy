@@ -52,7 +52,7 @@ def status_footer(words):
     return footers[0] if footers else None
 
 
-def analysis_images(path, run):
+def analysis_images(path, run, *, smooth_inverted=False):
     yield path
     # Analysis copy only; the original window capture is never edited.
     image = path.with_suffix(".ocr-scale3.png")
@@ -61,9 +61,10 @@ def analysis_images(path, run):
     yield image
     # Mixed dark shell chrome and a light hosted page can segment separately.
     # Keep one-layout matching, but offer the same contrast analysis as locators.
-    image = path.with_suffix(".ocr-scale3-inverted.png")
+    image = path.with_suffix(".ocr-scale2-inverted.png" if smooth_inverted else ".ocr-scale3-inverted.png")
     run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", path,
-        "-vf", "scale=iw*3:ih*3:flags=neighbor,format=gray,negate", "-frames:v", "1", image)
+        "-vf", ("scale=iw*2:ih*2:flags=lanczos,format=gray,negate" if smooth_inverted
+         else "scale=iw*3:ih*3:flags=neighbor,format=gray,negate"), "-frames:v", "1", image)
     yield image
 
 

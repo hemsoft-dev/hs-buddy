@@ -72,7 +72,9 @@ impl Element for Probe {
         cx: &mut App,
     ) {
         let label = self.label;
-        (self.sink)(serde_json::json!({"kind":"paint", "label":label, "bounds":rectangle(bounds)}));
+        (self.sink)(
+            serde_json::json!({"kind":"paint", "label":label, "bounds":rectangle(bounds), "active":window.is_window_active()}),
+        );
         // Raw frame listeners deliberately do NOT use hitbox.is_hovered.
         // Register before painting children, so child capture cancellation
         // cannot erase this ancestor's initial observation.
@@ -86,6 +88,7 @@ impl Element for Probe {
                 bounds,
                 event.position,
                 window.mouse_position(),
+                window.is_window_active(),
             );
         });
         let sink = self.sink.clone();
@@ -98,6 +101,7 @@ impl Element for Probe {
                 bounds,
                 event.position,
                 window.mouse_position(),
+                window.is_window_active(),
             );
         });
         self.child.paint(window, cx);
@@ -119,9 +123,10 @@ fn emit_event(
     bounds: Bounds<Pixels>,
     position: gpui_kit::Point<Pixels>,
     cursor: gpui_kit::Point<Pixels>,
+    active: bool,
 ) {
     sink(
-        serde_json::json!({"kind":"event", "label":label, "event":event, "capture":capture,
+        serde_json::json!({"kind":"event", "active":active, "label":label, "event":event, "capture":capture,
         "bounds":rectangle(bounds), "eventPosition":[f32::from(position.x),f32::from(position.y)],
         "cursorPosition":[f32::from(cursor.x),f32::from(cursor.y)],
         "eventInside":bounds.contains(&position), "cursorInside":bounds.contains(&cursor)}),
@@ -164,12 +169,15 @@ mod tests {
             let records = records.clone();
             Rc::new(move |v| records.borrow_mut().push(v))
         };
-        let (window, _root) = cx.update(|cx| {
+        let (window, root) = cx.update(|cx| {
             gpui_kit::init(cx);
             crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
             cx.set_global(Counts::default());
             gpui_kit::open_window(Default::default(), cx, |_, cx| {
-                cx.new(|_| TestView { sink: sink.clone() })
+                cx.new(|_| TestView {
+                    sink: sink.clone(),
+                    cancel: false,
+                })
             })
             .unwrap()
         });
@@ -204,9 +212,38 @@ mod tests {
             && v["capture"] == true
             && v["eventInside"] == true));
         assert_eq!(visual.debug_bounds("probe-surface").unwrap(), before);
+        // Controlled ancestor cancellation reproduces the actual observation
+        // gap WITHOUT dropping OS events or changing the production callback.
+        root.update(&mut visual, |view, cx| {
+            view.cancel = true;
+            cx.notify();
+        });
+        visual.run_until_parked();
+        records.borrow_mut().clear();
+        visual.simulate_click(
+            before.origin + point(px(50.), px(20.)),
+            Modifiers::default(),
+        );
+        assert!(
+            records
+                .borrow()
+                .iter()
+                .any(|v| v["label"] == "root" && v["event"] == "down" && v["capture"] == true)
+        );
+        assert!(
+            !records
+                .borrow()
+                .iter()
+                .any(|v| v["label"] == "surface" && v["kind"] == "event")
+        );
+        visual.update(|_, cx| {
+            assert_eq!(cx.global::<Counts>().surface_down, 1);
+            assert_eq!(cx.global::<Counts>().clicks, 1);
+        });
     }
     struct TestView {
         sink: Sink,
+        cancel: bool,
     }
     impl gpui_kit::Render for TestView {
         fn render(&mut self, _: &mut Window, _: &mut gpui_kit::Context<Self>) -> impl IntoElement {
@@ -215,9 +252,20 @@ mod tests {
                 child,
                 sink: self.sink.clone(),
             };
+            let cancel = self.cancel;
             wrap(
                 "root",
                 div()
+                    .capture_any_mouse_down(move |_, _, cx| {
+                        if cancel {
+                            cx.stop_propagation();
+                        }
+                    })
+                    .capture_any_mouse_up(move |_, _, cx| {
+                        if cancel {
+                            cx.stop_propagation();
+                        }
+                    })
                     .size_full()
                     .child(wrap(
                         "surface",

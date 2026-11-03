@@ -1044,75 +1044,75 @@ impl Render for BuddyApp {
         let shell = v_flex();
         #[cfg(target_os = "macos")]
         let shell = crate::macos_menu::window_actions(shell);
-        shell
-            .key_context("BuddyApp")
-            .on_action(cx.listener(|this, _: &NextGlobalTab, window, cx| {
-                this.tabs.cycle(true);
-                this.restore_tab(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &PreviousGlobalTab, window, cx| {
-                this.tabs.cycle(false);
-                this.restore_tab(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &CloseGlobalTab, window, cx| {
-                if let Some(key) = this.tabs.active.clone() {
-                    this.tabs.close(&key);
-                }
-                this.restore_tab(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &NavigationBack, window, cx| {
-                this.tabs.travel(false);
-                this.restore_tab(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &NavigationForward, window, cx| {
-                this.tabs.travel(true);
-                this.restore_tab(window, cx);
-            }))
-            .on_action(cx.listener(Self::open_folder))
-            .on_action(
-                cx.listener(|this, _: &ToggleTerminal, window, cx| {
+        let content =
+            shell
+                .key_context("BuddyApp")
+                .on_action(cx.listener(|this, _: &NextGlobalTab, window, cx| {
+                    this.tabs.cycle(true);
+                    this.restore_tab(window, cx);
+                }))
+                .on_action(cx.listener(|this, _: &PreviousGlobalTab, window, cx| {
+                    this.tabs.cycle(false);
+                    this.restore_tab(window, cx);
+                }))
+                .on_action(cx.listener(|this, _: &CloseGlobalTab, window, cx| {
+                    if let Some(key) = this.tabs.active.clone() {
+                        this.tabs.close(&key);
+                    }
+                    this.restore_tab(window, cx);
+                }))
+                .on_action(cx.listener(|this, _: &NavigationBack, window, cx| {
+                    this.tabs.travel(false);
+                    this.restore_tab(window, cx);
+                }))
+                .on_action(cx.listener(|this, _: &NavigationForward, window, cx| {
+                    this.tabs.travel(true);
+                    this.restore_tab(window, cx);
+                }))
+                .on_action(cx.listener(Self::open_folder))
+                .on_action(cx.listener(|this, _: &ToggleTerminal, window, cx| {
                     this.toggle_terminal(window, cx)
-                }),
-            )
-            .on_action(|_: &ToggleAssistant, _, cx| Self::toggle_assistant(cx))
-            .track_focus(&self.focus)
-            .size_full()
-            .font_family(font_family)
-            .text_size(zpx(13.0))
-            .bg(background)
-            .text_color(foreground)
-            .child(title_bar::render(self, window, cx))
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .child(activity_bar::render(self, cx))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .child(tab_bar::render(self, window, cx))
-                            .child(
-                                div().flex().flex_col().flex_1().min_h_0().w_full().child(
-                                    h_flex()
-                                        .size_full()
-                                        .child(self.render_navigation(cx))
-                                        .child(
-                                            v_flex()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .min_h_0()
-                                                .h_full()
-                                                .child(self.render_workspace(cx)),
-                                        ),
+                }))
+                .on_action(|_: &ToggleAssistant, _, cx| Self::toggle_assistant(cx))
+                .track_focus(&self.focus)
+                .size_full()
+                .font_family(font_family)
+                .text_size(zpx(13.0))
+                .bg(background)
+                .text_color(foreground)
+                .child(title_bar::render(self, window, cx))
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_h_0()
+                        .w_full()
+                        .child(activity_bar::render(self, cx))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .child(tab_bar::render(self, window, cx))
+                                .child(
+                                    div().flex().flex_col().flex_1().min_h_0().w_full().child(
+                                        h_flex()
+                                            .size_full()
+                                            .child(self.render_navigation(cx))
+                                            .child(
+                                                v_flex()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .min_h_0()
+                                                    .h_full()
+                                                    .child(self.render_workspace(cx)),
+                                            ),
+                                    ),
                                 ),
-                            ),
-                    ),
-            )
-            .child(status_bar::render(self, cx))
-            .child(zoom::wheel_listener())
+                        ),
+                )
+                .child(status_bar::render(self, cx))
+                .child(zoom::wheel_listener());
+        crate::settings::sound_probe::observe("app-root", content)
     }
 }
 

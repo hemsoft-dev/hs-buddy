@@ -1,0 +1,10 @@
+{
+  "sourceHead": "73dc2acda90b6bcf02f6893f6b476e18ff51ad3e",
+  "job": 125586253147,
+  "artifact": 13187737837,
+  "sha256": "713796c84d364d4d5caeaec62a227d4054dafc30be6aca73be6e017182478071",
+  "stage": "Untouched hosted content crop, not raw window or new-head UI proof",
+  "hostedEngine": "5.3.4-1build5",
+  "controlledEngine": "5.5.0",
+  "limits": "Original raw github.check replay already passes on Mini; RED/GREEN pertains only to this exact analysis input, hosted engine result remains pending."
+}

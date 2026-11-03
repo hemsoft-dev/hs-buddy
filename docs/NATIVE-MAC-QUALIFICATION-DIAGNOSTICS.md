@@ -109,3 +109,49 @@ red-capable runtime regression, not another source-token assertion, but it has
 NOT been executed locally: GPUI compilation and this visual test are hosted
 gates. No local app UI or heavy Rust build is authorized. No Mac repair or
 runtime RED/GREEN result is inferred before that evidence exists.
+
+## Combined 73dc2acd continuation
+
+The corrected GPUI raw-probe regression actually passed on hosted ARM, Intel
+and Ubuntu. That validates in-memory dispatch and exactly-one-callback/bounds
+controls, not OS-posted input. ARM's sound click and Intel's second Organization
+click still had no Settings-root raw events, despite earlier/later clicks
+appearing. Intel's immediate capture showed Username retaining focus before
+replacement; typing team then overwrote that username. A common cause is not
+proven. No callback/save/reset failure has been demonstrated for those clicks.
+
+The SAME guarded probe now wraps the application shell before child paint and
+records GPUI window activation with paint/events. This is earlier than Settings
+ancestors. Its real GPUI test retains all original controls and adds controlled
+ancestor cancellation: raw outer capture must survive while inner events and
+callback disappear. This new case is unexecuted locally and awaits hosted proof.
+The application probe is still below GPUI Kit's window Root; no records there
+cannot distinguish earlier cancellation, frame/window routing or OS delivery.
+An active/frontmost flag alone is not callback proof. No click or wait changed.
+
+## Ubuntu captured-input OCR regression
+
+The original full raw capture replay ALREADY passed on Mini, so it is not a
+local baseline RED. On the retained EXACT 1200x793 hosted content crop, the real
+Tesseract5.5 analysis replay produced no complete layout with the old three
+candidates/modes. Replacing ONLY Linux browser's third (inverted) candidate with
+2x Lanczos instead of 3x nearest-neighbour produced all FOUR required markers
+together in modes11 and3. No text was unioned. The first two candidates, three
+modes, absent-account checks, other platforms and non-browser analysis remain
+unchanged. No OCR dependency, scene budget or retry was changed.
+
+The retained PNG and provenance JSON under fixtures/ubuntu-73d-browser-content
+are the hosted content-crop bytes, not a new-head screenshot. Recorded old
+layouts are the actual hosted5.3.4 receipts; new recorded layouts are controlled
+Mini5.5 output. Consumer tests reject every missing marker and forbidden account
+text. They do not substitute for real-engine results.
+
+`replay-browser-analysis.py --output NEW_DIRECTORY` runs real ffmpeg/Tesseract
+against the immutable crop and retains every individual layout/hash and engine
+version in analysis-replay.json. The existing Ubuntu disposable runtime calls
+it after installing OCR tools, bounded to60s, before UI scenes. A target engine
+unable to read a complete new layout fails with its receipt; old success is
+allowed and is not relabelled as RED. Actual5.3.4/new-head browser and installed
+lifecycle acceptance remain hosted gates. Engine/model/crop/segmentation root
+causality is still not isolated; this is an evidenced analysis correction, not
+an installed migration or broad OCR/platform qualification.
