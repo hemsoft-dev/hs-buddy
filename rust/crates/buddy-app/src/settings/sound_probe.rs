@@ -87,8 +87,7 @@ impl Element for Probe {
                 phase.capture(),
                 bounds,
                 event.position,
-                window.mouse_position(),
-                window.is_window_active(),
+                window,
             );
         });
         let sink = self.sink.clone();
@@ -100,8 +99,7 @@ impl Element for Probe {
                 phase.capture(),
                 bounds,
                 event.position,
-                window.mouse_position(),
-                window.is_window_active(),
+                window,
             );
         });
         self.child.paint(window, cx);
@@ -122,9 +120,10 @@ fn emit_event(
     capture: bool,
     bounds: Bounds<Pixels>,
     position: gpui_kit::Point<Pixels>,
-    cursor: gpui_kit::Point<Pixels>,
-    active: bool,
+    window: &Window,
 ) {
+    let cursor = window.mouse_position();
+    let active = window.is_window_active();
     sink(
         serde_json::json!({"kind":"event", "active":active, "label":label, "event":event, "capture":capture,
         "bounds":rectangle(bounds), "eventPosition":[f32::from(position.x),f32::from(position.y)],

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1635] - 2026-11-03
+
+### Fixed
+
+- Keep dispatch formatter within argument limit
+
 ## [0.1.1634] - 2026-11-03
 
 ### Changed
