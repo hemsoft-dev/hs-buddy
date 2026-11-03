@@ -155,3 +155,44 @@ allowed and is not relabelled as RED. Actual5.3.4/new-head browser and installed
 lifecycle acceptance remain hosted gates. Engine/model/crop/segmentation root
 causality is still not isolated; this is an evidenced analysis correction, not
 an installed migration or broad OCR/platform qualification.
+
+## d5644c3c external/receiving correlation limit
+
+Current Intel repeats the missing second Organization event above BOTH roots;
+its last root paint is active=true. ARM later paints inactive. Those are two
+actual failures, not retries; a common activation cause is not established.
+Preferences recording and companion are disabled. The retained camera-race
+experiment is out of scene and MUST NOT be applied as this failure's repair.
+
+The pinned objc2-app-kit0.3.2 NSEvent.rs1172-1182 supported local monitor API
+requires a block2 DynBlock callback and the block2 feature. Buddy has no direct
+block2 dependency to construct/retain that callback. A new production dependency
+or hand-built unsafe Block ABI is outside this bounded measurement. The pinned
+gpui-fast-macos0.1.11 window.rs2007 on_input setter REPLACES its single native
+callback; it is not a read-only subscription. Vendor interception, global event
+monitors or replacing that callback would widen scope/change event behavior.
+No such observer or dependency has been added, and no AppKit runtime proof is
+claimed. The existing app-root observer remains below reception/conversion and
+any earlier capture cancellation.
+
+Smallest lawful measurement: existing Mac receipts now retain wallMillis
+(epoch ms, joinable to the native trace) and monotonicNanos (duration/order
+within Python). Each actual CGEventPost call has a start/end span in clickTrace;
+it still posts exactly move/down/up once. An end stamp also survives a thrown
+post call; it does NOT mean the call succeeded or the OS delivered an event.
+Existing focus_state observations are bracketed separately, capture spans are
+in the existing window metadata, and action-start stamps bound locator work.
+No additional UI/state query, screenshot, focus/activation call, sleep or retry is added.
+No other-platform receipt or behavior changes. Native callbackDelivered is
+still null. Wall-clock adjustments are retained, not normalized into causal
+order; compare monotonic durations and treat inconsistent joins as unknown.
+
+Real consumer RED/GREEN tests exercise OwnedMacInput.click/post,
+Driver.input_receipt and UnixWindow.screenshot with only OS calls mocked.
+They reject missing spans, preserve exactly-three post/two camera-command counts,
+keep the original post exception/release and retain a regressing wall clock.
+These prove measurement propagation, NOT AppKit/OS reception. The lower native
+receiving boundary still requires hosted proof with an explicitly supported
+non-consuming observer; these fields only make posting/observer/frame timing
+comparisons possible. No Mac fix, installed PASS or common ARM/Intel cause is
+inferred from timestamps.

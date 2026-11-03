@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1636] - 2026-11-03
+
+### Changed
+
+- Correlate Mac posting and observation timings
+
 ## [0.1.1635] - 2026-11-03
 
 ### Fixed

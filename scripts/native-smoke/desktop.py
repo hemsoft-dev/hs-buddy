@@ -20,6 +20,7 @@ import struct
 import sys
 import time
 from threading import Event
+from receipt_clock import stamp
 
 
 HERE = Path(__file__).resolve().parent
@@ -343,12 +344,14 @@ class UnixWindow:
 
     def screenshot(self, path):
         if self.session == "macos":
+            started = stamp()
             # Capture the owned app window only. No full-monitor recording.
             window = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", self.process.pid))
             # Exclude the OS shadow so PNG pixels / window points measures the
             # backing scale, rather than accidentally counting shadow margins.
             run("screencapture", "-x", "-o", "-l", window["kCGWindowNumber"], path)
             pixels = struct.unpack(">II", path.read_bytes()[16:24])
+            window["captureTiming"] = dict(start=started, end=stamp())
             window["capturePixelSize"] = pixels
             window["capturePixelsPerWindowPoint"] = pixels[0] / window["kCGWindowBounds"]["Width"]
             path.with_suffix(".window.json").write_text(json.dumps(window), encoding="utf-8")

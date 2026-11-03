@@ -14,6 +14,7 @@ import struct
 import sys
 import time
 import uuid
+from receipt_clock import stamp
 
 from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run
 
@@ -348,8 +349,11 @@ class Driver:
                 with recording(window, directory / "frames") if record else nullcontext():
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
-                            receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
+                            action = dict(index=index, kind=kind,
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)
+                            if self.session == "macos":
+                                action["started"] = stamp()
+                            receipt.write(json.dumps(action) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -536,7 +540,10 @@ class Driver:
 
     def input_receipt(self, helper, directory, stage, kind, label, target):
         with (directory / "input-state.jsonl").open("a", encoding="utf-8") as receipt:
-            value = dict(stage=stage, kind=kind, label=label, target=target, state=helper.focus_state())
+            started = stamp()
+            state = helper.focus_state()
+            value = dict(stage=stage, kind=kind, label=label, target=target, state=state,
+                focusObservation=dict(start=started, end=stamp()))
             trace = getattr(helper, "last_click_trace", None)
             if isinstance(trace, list):
                 value["clickTrace"] = trace

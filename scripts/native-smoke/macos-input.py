@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import time
+from receipt_clock import stamp
 
 COMBINED_SESSION = 0
 MODIFIER_MASK = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
@@ -74,7 +75,11 @@ class OwnedMacInput:
             # This stream exists ONLY on the disposable, guarded CI desktop.
             # https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)
             self.graphics.CGEventSetFlags(event, 0)
-            self.graphics.CGEventPost(0, event)
+            self.last_post_timing = dict(start=stamp())
+            try:
+                self.graphics.CGEventPost(0, event)
+            finally:
+                self.last_post_timing["end"] = stamp()
         finally:
             self.core.CFRelease(event)
 
@@ -112,7 +117,11 @@ class OwnedMacInput:
             except Exception:
                 # Ancillary telemetry must not interrupt the down/up sequence.
                 down = None
-            self.last_click_trace.append(dict(eventType=kind, leftButtonDown=down))
+            phase = dict(eventType=kind, leftButtonDown=down)
+            timing = getattr(self, "last_post_timing", None)
+            if isinstance(timing, dict):
+                phase["postCall"] = timing
+            self.last_click_trace.append(phase)
 
     def replace_text(self, text):
         self.release_modifiers()
