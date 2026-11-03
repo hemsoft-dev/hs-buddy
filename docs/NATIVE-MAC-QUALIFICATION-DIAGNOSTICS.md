@@ -394,7 +394,7 @@ The experiment does not change the application input or monitor behavior.
 The exact shared count oracle is also checked with the native target
 harness=false cfg(test) lint configuration; this is not AppKit compilation.
 
-## Unpublished first-use versus prior-dispatch measurement
+## First-use versus prior-dispatch measurement
 
 The b567 ARM and Intel native runs both failed the first strict queue peek:
 Some returned, but its underlying object address differed. This establishes
@@ -453,5 +453,5 @@ dependent invariant failure. Both false leaves normalization/interleaving/other
 AppKit behavior unresolved; preflight presence does not establish provenance.
 Neither observation guarantees ownership of a different instance, proves
 installed tracking/WindowServer delivery or authorizes relaxed identity.
-The candidate remains unpublished; native compilation and both observations
-are UNEXECUTED locally, and the existing strict queue gate stays unresolved.
+Native compilation and both observations remain UNEXECUTED locally. Hosted
+execution is required, and the existing strict queue gate stays unresolved.

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1645] - 2026-11-03
+
+### Changed
+
+- Prepare queue measurement publication
+
 ## [0.1.1644] - 2026-11-03
 
 ### Changed
