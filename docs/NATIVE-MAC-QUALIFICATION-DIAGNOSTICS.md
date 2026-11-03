@@ -495,3 +495,101 @@ scene must run again on the new head; retained words are diagnostic evidence,
 not qualification. Portable controls exercise the actual consumer with fake
 OCR and verify failure retention, competing-footer refusal, unchanged successful
 crop/call count and failed writes. No live Windows engine or app ran locally.
+
+## Owned-process candidate, V2
+
+The retained owner stopped at the Python-only control boundary in continuation
+105. The parent then authorized the test-only native bridge and a 15-second
+total controller deadline. This candidate has not been compiled or executed
+against AppKit, CoreGraphics or the installed application locally.
+
+The Python controller owns the canonical hidden native test child as its own
+Popen. Private inherited pipes bracket the existing direct-sendEvent exercise
+with ready, attachment, dispatch and quiescence acknowledgments. Other menu,
+guard and measurement cases, event counts, pointer assertions and removal checks
+remain in place. Fixed frames reject EOF, partial, oversized or out-of-order
+input. One controller deadline covers child startup, protocol and cleanup.
+One second of that same allowance is reserved for cleanup, without extending
+the installed scene or CI job.
+
+The observer uses only the public process-specific PID tap, listenOnly, for
+move/left-down/left-up. No permission request or global/PSN fallback exists.
+The callback returns the borrowed original pointer and reads only its timestamp.
+A bounded CF reader owns the port, source and callback together. It stops and
+wakes its run loop, invalidates its own resources, and joins before teardown
+can be considered safe. Failed quiescence is an error, never successful cleanup.
+Unavailable admission retains a separate unqualified diagnostic result while
+the original native functional assertions still execute.
+
+Direct sendEvent is a boundary negative, not a WindowServer positive. No
+CGEventPost producer records exist in that control, so incidental tap records
+cannot become producer joins and no zero raw-event count is forced. Existing
+post-removal dispatches exercise unavailable classification; they do not alone
+prove asynchronous callback lifetime safety. Native teardown and pass-through
+still require hosted validation.
+
+Installed input commands, event source, three posts, release order, focus,
+timings and visual/disk assertions are preserved. Separate timestamp receipts
+do not change the seven-field constructed-event contract. The correlation
+consumer requires unique timestamp matches against the process tap and AppKit,
+plus root-coordinate/phase evidence for down/up. Missing, duplicate or unhealthy
+observations stay unknown. Timestamp correspondence must first be demonstrated
+on actual accepted scene pairs. Its output remains unqualified for parent
+inspection; it cannot infer OS loss or replace the sound/account oracle.
+
+Portable tests exercise actual callback, reader, protocol, controller subprocess
+and correlation consumers with fake native APIs, including malformed phases,
+missing/duplicate timestamps, overflow, EOF and getter failures. These are
+orchestration controls only. Hosted native compilation, permission/effective-mask
+admission, genuine positive joins, native lifetime and strict installed
+sound/account outcomes remain pending. Instrumented success would not establish
+a production repair or native cutover.
+
+## Candidate repair after parent inspection
+
+The parent reproduced four portable defects before publication. Desired-contract
+tests failed on the old implementation. Correlation now filters the actual
+after-click receipt contract and validates ordered action/target identity and
+unique post traces. Before-click and after-typing receipts cannot lend stale
+traces. Count, identity or malformed alignment failures produce unknown entries
+for the whole target list, preserving final sound and Organization actions.
+
+The Rust launcher captures the original CI temporary root before overriding
+the canonical fixture child's root. Python allocates unique regular evidence
+under that original root's native-evidence/process-receive directory. Exclusive
+creation and directory descriptors refuse overwrite and symlink traversal.
+The structured receipt outlives the config profile and the actual staging
+consumer copies it. Fixture admission still uses its separate canonical root.
+
+All waits for normal controller completion use the work deadline, preserving
+cleanup within the same total fifteen seconds. Cleanup kills and reaps only
+owned children before joining the reader, dividing the remaining allowance
+between reaping and quiescence. Driver cleanup shares its existing ten seconds
+in the same order, preserves an original app exception and adds fixed cleanup
+notes. No cleanup failure can report functional or diagnostic success.
+
+Startup checks the deadline before creating a reader. Admission failure is
+sticky, including installation completing after timeout. The reader rechecks
+the guarded startup state, and callbacks cannot emit records until admission
+succeeds. Late resources are removed on their owner thread before safe join.
+
+Tests use retained ARM and Intel receipt projections with synthetic timestamps
+and receiving records, real OS subprocesses/threads/pipes, and the actual
+evidence staging consumer. They establish orchestration repairs only. Native
+compilation, Mac lifetime/permission admission and installed acceptance remain
+pending, with no OS-delivery cause or product repair established.
+
+### Parent integration checks after capacity recovery
+
+The installed driver supplies its already selected app config explicitly to the
+observer guard. The controller environment need not contain `BUDDY_CONFIG_PATH`;
+the genuine Mac CI/fixture flags and canonical containment under `RUNNER_TEMP`
+remain mandatory. Native-test controls keep using their canonical child environment.
+No process environment or permissions are changed to admit observation.
+
+Correlation also rejects repeated producer kind/timestamp identities across actions.
+A single receiving record cannot establish two producer joins, even when separate
+AppKit/root records could otherwise match. Desired-contract controls failed against
+the prior candidate and pass after these changes. They use actual driver, guard,
+correlator, Popen and reader consumers with fake native APIs and synthetic timestamps.
+They do not establish CoreGraphics access, WindowServer delivery or installed success.

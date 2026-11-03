@@ -35,6 +35,13 @@ class ConstructedMouse(unittest.TestCase):
         self.assertEqual([call.args for call in value.core.CFRelease.call_args_list], [(5,), (1,), (2,)])
         self.assertEqual(value.graphics.CGEventCreateMouseEvent.call_count, 3)
 
+    def test_timestamp_read_failure_preserves_required_posts_and_releases(self):
+        value = self.helper()
+        value.graphics.CGEventGetTimestamp.side_effect = RuntimeError("private")
+        self.click(value)
+        self.assertTrue(all(row["producerTimestamp"] == {"status": "unavailable"}
+            for row in value.last_click_trace))
+
     def test_actual_created_event_readback_reaches_actual_receipt(self):
         value = self.helper()
         self.click(value)

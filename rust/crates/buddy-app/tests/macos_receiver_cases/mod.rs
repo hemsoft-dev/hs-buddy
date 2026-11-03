@@ -1,6 +1,7 @@
 //! Real local AppKit monitor consumer; hidden windows, no global input posting.
 #[path = "../../src/settings/fixture_guard.rs"]
 mod fixture_guard;
+mod process_control;
 mod queue_first_use;
 #[path = "../../src/macos_receiver.rs"]
 mod receiver;
@@ -124,7 +125,15 @@ pub fn run(mtm: MainThreadMarker) {
     std::fs::write(&outside, "{}").unwrap();
     let measurements_ok = queue_first_use::admit(&config);
     for mode in ["ordinary", "missing-fixture", "outside", "fixture"] {
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
+        let mut command = std::process::Command::new(if mode == "fixture" {
+            std::ffi::OsString::from("python3")
+        } else {
+            std::env::current_exe().unwrap().into_os_string()
+        });
+        if mode == "fixture" {
+            process_control::launch(&mut command);
+        }
+        let status = command
             .env_remove("GH_TOKEN")
             .env_remove("GITHUB_TOKEN")
             .env_remove("BUDDY_CONVEX_URL")
@@ -150,6 +159,7 @@ pub fn run(mtm: MainThreadMarker) {
 }
 
 fn exercise(mtm: MainThreadMarker, expected: bool) {
+    let mut bridge = process_control::Bridge::open();
     let app = NSApplication::sharedApplication(mtm);
     assert!(app.windows().is_empty());
     // Drain autoreleased AppKit tokens before testing Block/state release.
@@ -241,6 +251,9 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
                 assert_unowned_rejection(&rows);
             }
         }
+        if let Some(bridge) = bridge.as_mut() {
+            bridge.attach();
+        }
         // REAL NSApplication.sendEvent: invokes the installed local monitor.
         // Missing registration or duplicate callbacks fail these counts.
         for kind in [
@@ -286,6 +299,9 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
                 .count(),
             1
         );
+        if let Some(bridge) = bridge.as_mut() {
+            bridge.teardown();
+        }
         let stopped_rows = rows.borrow().len();
         let event = mouse(&owned, NSEventType::LeftMouseDown);
         assert_eq!(
@@ -322,6 +338,9 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
         "AppKit retained observer after removal/drop"
     );
     assert!(app.windows().is_empty());
+    if let Some(bridge) = bridge.as_mut() {
+        bridge.complete();
+    }
     if expected {
         println!(
             "PASS real local AppKit receiver: registration/owned filtering/rejection privacy/exact pointer/downstream once/removal/lifetime; no visible windows or global input"

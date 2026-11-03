@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1652] - 2026-11-04
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1651] - 2026-11-04
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1650] - 2026-11-03
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1649] - 2026-11-03
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
 ## [0.1.1648] - 2026-11-03
 
 ### Changed

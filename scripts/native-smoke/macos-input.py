@@ -39,6 +39,8 @@ class OwnedMacInput:
         self.graphics.CGEventPost.argtypes = [c.c_uint32, c.c_void_p]
         self.graphics.CGEventGetType.argtypes = [c.c_void_p]
         self.graphics.CGEventGetType.restype = c.c_uint32
+        self.graphics.CGEventGetTimestamp.argtypes = [c.c_void_p]
+        self.graphics.CGEventGetTimestamp.restype = c.c_uint64
         self.graphics.CGEventGetFlags.argtypes = [c.c_void_p]
         self.graphics.CGEventGetFlags.restype = c.c_uint64
         self.graphics.CGEventGetIntegerValueField.argtypes = [c.c_void_p, c.c_uint32]
@@ -103,6 +105,11 @@ class OwnedMacInput:
             self.graphics.CGEventSetFlags(event, 0)
             if mouse is not None:
                 self.last_constructed_mouse = self.constructed_mouse(event, *mouse)
+                try:
+                    self.last_producer_timestamp = dict(status="observed",
+                        value=int(self.graphics.CGEventGetTimestamp(event)))
+                except Exception:
+                    self.last_producer_timestamp = dict(status="unavailable")
             self.last_post_timing = dict(start=stamp())
             try:
                 self.graphics.CGEventPost(0, event)
@@ -150,6 +157,7 @@ class OwnedMacInput:
             timing = getattr(self, "last_post_timing", None)
             if isinstance(timing, dict):
                 phase["postCall"] = timing
+            phase["producerTimestamp"] = self.last_producer_timestamp
             self.last_click_trace.append(phase)
 
     def replace_text(self, text):

@@ -32,6 +32,7 @@ def load(name):
 ocr = load("settings-ocr")
 SettingsBackend = load("settings-backend").SettingsBackend
 OwnedMacInput = load("macos-input").OwnedMacInput
+process_receive = load("macos-process-receive")
 
 
 @contextmanager
@@ -319,6 +320,7 @@ class Driver:
         if self.session == "x11":
             environment.pop("WAYLAND_DISPLAY", None)
         companion = None
+        observer = None
         with (directory / "app.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen([str(self.executable)], cwd=directory, env=environment, stdout=log, stderr=log)
             try:
@@ -337,6 +339,13 @@ class Driver:
                     raise RuntimeError("Installed settings window did not appear")
                 time.sleep(4)
                 window.resize(*self.large_size)
+                if self.session == "macos":
+                    try:
+                        observer = process_receive.Observer(process, self.executable, window=window, fixture_config=self.config)
+                        observer.start(deadline)
+                    except Exception:
+                        (directory / "process-receive-unavailable.json").write_text(
+                            json.dumps(dict(status="unqualified", reason="admission-unavailable")), encoding="utf-8")
                 if concurrent:
                     companion = subprocess.Popen([self.electron, str(self.profile)], cwd=self.profile,
                         env=environment, stdout=log, stderr=log)
@@ -383,6 +392,8 @@ class Driver:
                             self.interact(window, directory, kind, values)
                 if companion is not None:
                     stop_companion(self.profile)
+                if observer is not None:
+                    observer.request_stop()
                 if self.session == "macos":
                     state = OwnedMacInput(process).release_modifiers()
                     (directory / "exit-input-state.json").write_text(json.dumps(state), encoding="utf-8")
@@ -407,10 +418,26 @@ class Driver:
                 if companion is not None and companion.wait(timeout=30) != 0:
                     raise RuntimeError("Electron config companion failed")
             finally:
-                for child in (companion, process):
-                    if child is not None and child.poll() is None:
-                        child.kill()
-                        child.wait(timeout=10)
+                # Share the existing ten-second owned cleanup allowance.
+                cleanup_deadline = time.monotonic() + 10
+                primary = sys.exc_info()[1]
+                errors = process_receive.cleanup_owned([companion, process], observer, cleanup_deadline)
+                try:
+                    if observer is not None and observer.finished.is_set():
+                        received = observer.receipt()
+                        (directory / "process-receive.json").write_text(json.dumps(received), encoding="utf-8")
+                        try:
+                            correlation = process_receive.correlate(directory, received)
+                        except Exception:
+                            correlation = dict(status="unqualified", reason="correlation-unavailable")
+                        (directory / "process-correlation.json").write_text(json.dumps(correlation), encoding="utf-8")
+                except Exception:
+                    errors.append("evidence-write-failed")
+                if errors:
+                    if primary is not None:
+                        primary.add_note("Owned cleanup failed: " + ",".join(errors))
+                    else:
+                        raise RuntimeError("Owned cleanup failed")
 
     def scroll_anchor(self, window, directory, text, *, above=False):
         image = directory / "settings-scroll-anchor.png"
