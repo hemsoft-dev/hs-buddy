@@ -264,3 +264,48 @@ call sites use it; unrecorded ARM preferences and X11/Wayland do not acquire it.
 There is no new event, focus action, retry, sleep, timeout or raised budget.
 This is harness scheduling isolation, not production concurrency or a root-cause
 claim; actual receiving/installed outcomes still require hosted evidence.
+
+## After the actual 6f66d0c8 receiving trace
+
+Both hosted Mac jobs passed full Clippy/Test, the GPUI regression and the real
+local AppKit registration/filter/pointer/removal/lifetime consumer. Installed
+ARM still failed sound On; Intel still failed exact account identities. The
+retained Intel config contains two accounts, but the second username is the
+team value after the Organization click left Username focused. No input fix,
+production callback change or installed PASS follows from the consumer tests.
+
+In ARM's complete ten-click correlation, all seven GPUI capture down/up pairs
+also have matching accepted AppKit receives. The other three clicks, including
+sound, have neither down nor up at either boundary, although their moves arrive.
+Reaching a later Saved wait or typing step does not prove the preceding click
+worked: the full final assertions were not reached. Inactivity alone also has
+successful-click counterexamples. This narrows the measurement gap without
+proving a common OS, focus, filtering or persistence cause.
+
+The existing disposable-fixture LOCAL monitor now classifies rejection before
+its silent ownership returns. This is a narrow extension of diagnostic logging,
+not monitor scope or event behavior: no new monitor, event type or permission.
+A filtered record contains only a fixed mouse kind/reason, numberMatches,
+windowResolved/identityMatches booleans or null, sequence and epoch milliseconds.
+It carries NO rejected window number, pointer, coordinates, contents or key data.
+An unknown later comparison stays null rather than being guessed false.
+Accepted records retain their existing owned-window fields.
+
+The existing real native consumer now requires an unowned mouse event to
+produce exactly that restricted key set, remain unaccepted, preserve the
+original pointer/properties and reach the downstream monitor once. Unsupported
+events still produce no record. Stopped and dropped observers must produce no
+records of either kind. False-guard and lifetime assertions remain unchanged.
+Five portable controls execute the actual rejection formatter and this same
+native privacy assertion helper without AppKit. Omitted records, foreign
+metadata and guessed unknown comparisons are rejected. Adding a foreign
+windowNumber to the actual formatter fails the privacy oracle; restoring it
+passes. This is formatter/oracle proof, not local AppKit filtering or delivery.
+The new native assertions are unexecuted locally; hosted compilation and
+execution remain gates.
+
+Join receive and filtered records to the existing one-click spans. A filtered
+record can establish the precise ownership rejection; no record leaves earlier
+process-local dispatch/monitor delivery open. Neither case alone proves OS
+delivery failure. No click, focus operation, retry, wait, qualification check,
+dependency, production settings behavior or fixture guard changed.

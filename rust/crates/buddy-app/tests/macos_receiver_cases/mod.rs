@@ -58,6 +58,46 @@ fn event_count(rows: &Rc<RefCell<Vec<serde_json::Value>>>) -> usize {
         .count()
 }
 
+fn filtered_count(rows: &Rc<RefCell<Vec<serde_json::Value>>>) -> usize {
+    rows.borrow()
+        .iter()
+        .filter(|row| row["phase"] == "filtered")
+        .count()
+}
+fn assert_unowned_rejection(rows: &Rc<RefCell<Vec<serde_json::Value>>>) {
+    let rows = rows.borrow();
+    let row = rows
+        .iter()
+        .rev()
+        .find(|row| row["phase"] == "filtered")
+        .unwrap();
+    let mut keys = row
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "identityMatches",
+            "kind",
+            "millis",
+            "numberMatches",
+            "phase",
+            "reason",
+            "sequence",
+            "windowResolved",
+        ]
+    );
+    assert_eq!(row["kind"], "down");
+    assert_eq!(row["reason"], "window-number");
+    assert_eq!(row["numberMatches"], false);
+    assert!(row["windowResolved"].is_null() && row["identityMatches"].is_null());
+    assert!(row["sequence"].is_u64() && row["millis"].is_u64());
+}
+
 pub fn run(mtm: MainThreadMarker) {
     if let Ok(mode) = std::env::var("BUDDY_RECEIVER_NATIVE_CHILD") {
         exercise(mtm, mode == "fixture");
@@ -155,13 +195,14 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
         };
         // Directly test the ACTUAL Block consumer's exact return for owned,
         // unowned and unsupported events, independent of monitor chain order.
-        for (window, kind, expected) in [
-            (&*owned, NSEventType::LeftMouseDown, 1),
-            (&*unowned, NSEventType::LeftMouseDown, 0),
-            (&*owned, NSEventType::RightMouseDown, 0),
+        for (window, kind, expected, filtered) in [
+            (&*owned, NSEventType::LeftMouseDown, 1, 0),
+            (&*unowned, NSEventType::LeftMouseDown, 0, 1),
+            (&*owned, NSEventType::RightMouseDown, 0, 0),
         ] {
             let event = mouse(window, kind);
             let before = event_count(&rows);
+            let filtered_before = filtered_count(&rows);
             let snapshot = (
                 event.r#type(),
                 event.windowNumber(),
@@ -188,6 +229,10 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
                 )
             );
             assert_eq!(event_count(&rows) - before, expected);
+            assert_eq!(filtered_count(&rows) - filtered_before, filtered);
+            if filtered == 1 {
+                assert_unowned_rejection(&rows);
+            }
         }
         // REAL NSApplication.sendEvent: invokes the installed local monitor.
         // Missing registration or duplicate callbacks fail these counts.
@@ -209,12 +254,17 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
         }
         let other = mouse(&unowned, NSEventType::LeftMouseDown);
         let before = event_count(&rows);
+        let filtered_before = filtered_count(&rows);
+        let downstream_before = pointers.borrow().len();
         app.sendEvent(&other);
         assert_eq!(
             event_count(&rows),
             before,
-            "Unowned window must emit nothing"
+            "Unowned window must not be accepted"
         );
+        assert_eq!(filtered_count(&rows) - filtered_before, 1);
+        assert_unowned_rejection(&rows);
+        assert_eq!(pointers.borrow().len() - downstream_before, 1);
         assert_eq!(
             pointers.borrow().last().copied(),
             Some(Retained::as_ptr(&other) as usize)
@@ -229,6 +279,7 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
                 .count(),
             1
         );
+        let stopped_rows = rows.borrow().len();
         let event = mouse(&owned, NSEventType::LeftMouseDown);
         assert_eq!(
             monitor.observer.receive(NonNull::from(&*event)),
@@ -240,6 +291,7 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
             before,
             "Stopped observer must emit nothing"
         );
+        assert_eq!(rows.borrow().len(), stopped_rows);
         assert_eq!(
             pointers.borrow().last().copied(),
             Some(Retained::as_ptr(&event) as usize)
@@ -248,6 +300,7 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
         let downstream_before = pointers.borrow().len();
         app.sendEvent(&event);
         assert_eq!(event_count(&rows), before, "Dropped observer must not log");
+        assert_eq!(rows.borrow().len(), stopped_rows);
         assert_eq!(pointers.borrow().len() - downstream_before, 1);
         // If removeMonitor is omitted, AppKit retains the Block/state; the
         // weak check after this pool drains MUST fail, even with active=false.
@@ -264,7 +317,7 @@ fn exercise(mtm: MainThreadMarker, expected: bool) {
     assert!(app.windows().is_empty());
     if expected {
         println!(
-            "PASS real local AppKit receiver: registration/owned filtering/exact pointer/downstream once/removal/lifetime; no visible windows or global input"
+            "PASS real local AppKit receiver: registration/owned filtering/rejection privacy/exact pointer/downstream once/removal/lifetime; no visible windows or global input"
         );
     } else {
         println!("PASS canonical guard refused local monitor; no visible windows or global input");

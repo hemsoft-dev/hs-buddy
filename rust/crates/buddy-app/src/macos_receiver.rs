@@ -7,6 +7,28 @@ use std::{cell::Cell, ptr::NonNull, rc::Rc};
 pub(crate) type Sink = Rc<dyn Fn(serde_json::Value)>;
 pub(crate) type Handler = RcBlock<dyn Fn(NonNull<NSEvent>) -> *mut NSEvent>;
 
+enum FilterReason {
+    WindowNumber,
+    WindowUnavailable,
+    WindowIdentity,
+}
+impl FilterReason {
+    // This shape cannot carry a rejected window identifier, point or text.
+    fn record(self, kind: &'static str) -> serde_json::Value {
+        let (reason, number_matches, window_resolved, identity_matches) = match self {
+            Self::WindowNumber => ("window-number", false, None, None),
+            Self::WindowUnavailable => ("window-unavailable", true, Some(false), None),
+            Self::WindowIdentity => ("window-identity", true, Some(true), Some(false)),
+        };
+        serde_json::json!({
+            "phase": "filtered", "kind": kind, "reason": reason,
+            "numberMatches": number_matches,
+            "windowResolved": window_resolved,
+            "identityMatches": identity_matches,
+        })
+    }
+}
+
 pub(crate) struct Observer {
     window: Retained<NSWindow>,
     window_number: isize,
@@ -54,12 +76,15 @@ impl Observer {
             _ => return original,
         };
         if incoming.windowNumber() != self.window_number {
+            self.emit(FilterReason::WindowNumber.record(kind));
             return original;
         }
         let Some(target) = incoming.window(self.mtm) else {
+            self.emit(FilterReason::WindowUnavailable.record(kind));
             return original;
         };
         if !std::ptr::eq(&*target, &*self.window) {
+            self.emit(FilterReason::WindowIdentity.record(kind));
             return original;
         }
         let point = incoming.locationInWindow();

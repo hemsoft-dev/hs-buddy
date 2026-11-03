@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1639] - 2026-11-03
+
+### Changed
+
+- Classify filtered fixture mouse events
+
 ## [0.1.1638] - 2026-11-03
 
 ### Fixed
