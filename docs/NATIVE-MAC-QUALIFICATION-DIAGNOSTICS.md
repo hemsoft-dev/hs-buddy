@@ -473,3 +473,25 @@ Ubuntu lifecycle tests must then execute unchanged; current-head receipts/media
 must be evaluated. Electron remains primary, issue823 remains open, and the
 bounded lifecycle receipt still separates same-head Electron rollback from
 unmet native migration with cutoverQualified=false.
+
+## Windows footer-analysis evidence retention
+
+The f350 [Windows2025 installed browser job](https://github.com/hemsoft-dev/hs-buddy/actions/runs/41664452235/job/126016866997)
+failed before content-marker checks because no OCR layout supplied a unique
+native totals footer. The raw page-dark capture has a visible footer; replaying
+the unchanged consumer with Mini Tesseract5.5 succeeds on its existing inverted
+candidate/mode3. This is a local PASS, not a reproduced Windows failure or an
+installed fix. Exact target OCR layouts were not retained, so the Windows
+engine/preprocessing/segmentation difference remains unresolved.
+
+The footer consumer now retains each attempted layout's exact words as
+`<analysis-stem>.footer-ocr-<mode>.json` before applying the unchanged predicate.
+This includes missing and ambiguous layouts. Original images, candidate/mode
+order/counts, crop bounds, matching, input and timeouts are unchanged. Receipt
+write failure fails closed; missing/competing footer still fails and cannot be
+hidden by later modes. No extra OCR invocation, engine change, field tolerance,
+marker exemption or screenshot retry is added. The complete Windows installed
+scene must run again on the new head; retained words are diagnostic evidence,
+not qualification. Portable controls exercise the actual consumer with fake
+OCR and verify failure retention, competing-footer refusal, unchanged successful
+crop/call count and failed writes. No live Windows engine or app ran locally.

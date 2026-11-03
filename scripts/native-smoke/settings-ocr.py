@@ -146,6 +146,7 @@ def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoo
         scale = struct.unpack(">II", analysis.read_bytes()[16:24])[0] / width
         for mode in (11, 3, 6):
             words = recognize(analysis, mode=mode)
+            analysis.with_suffix(f".footer-ocr-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
             footer = status_footer(words)
             if footer:
                 bottom = (footer_border(path, footer, scale, run, zoom) if border else

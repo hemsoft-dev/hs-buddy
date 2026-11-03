@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1648] - 2026-11-03
+
+### Changed
+
+- Retain exact footer OCR failure layouts
+
 ## [0.1.1647] - 2026-11-03
 
 ### Changed
