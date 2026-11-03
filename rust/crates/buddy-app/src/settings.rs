@@ -1,5 +1,6 @@
 //! The loaded configuration as a GPUI global, shared by the shell and views.
 
+pub(crate) mod fixture_guard;
 pub(crate) mod sound_diagnostic;
 pub(crate) mod sound_probe;
 

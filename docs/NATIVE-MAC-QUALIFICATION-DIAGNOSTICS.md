@@ -196,3 +196,71 @@ receiving boundary still requires hosted proof with an explicitly supported
 non-consuming observer; these fields only make posting/observer/frame timing
 comparisons possible. No Mac fix, installed PASS or common ARM/Intel cause is
 inferred from timestamps.
+
+## Authorized owned-window local AppKit receiver
+
+The earlier direct-dependency limitation is superseded ONLY for this fixture
+observer: block2 is pinned to existing0.6.2 (alloc only), and objc2-app-kit adds
+its block2 feature. Cargo's generated lock change is only buddy-app's edge to
+that existing record; all1,110 package versions/checksums and async-executor1.14.1
+remain unchanged. No vendor patch, callback replacement, global monitor or new
+permission is involved. The implementation uses the supported
+[local monitor API](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/MonitoringEvents/MonitoringEvents.html)
+and typed heap [RcBlock](https://docs.rs/block2/0.6.2/block2/struct.RcBlock.html).
+
+The EXACT existing canonical guard was moved without semantic changes into
+settings/fixture_guard.rs and reused by both application and native test.
+Ordinary runs resolve no receiver handle, construct no Block and register no
+monitor/lifecycle hooks. Guarded startup resolves only GPUI's raw owned NSView
+and retains its NSWindow. The process-local monitor accepts only move/left-down/
+left-up for that exact NSWindow identity AND number. Every path returns the
+original NSEvent pointer, including unowned/unsupported/stopped cases.
+
+`buddy-appkit-receive` logs installed/unavailable/receive/removed, sequence,
+epoch ms, owned window number, content dimensions, window-local x/yFromBottom,
+event uptime, key-window and NSApp-active booleans. No text, keys, flags, process
+arguments/environment, account/config/error contents are read or logged. The
+Block/state are !Send/!Sync; AppKit calls and removal occur on main thread.
+GPUI window-close removes that window's owner; app-quit clears all owners.
+Stop marks inactive before removeMonitor, then releases the Block; Drop is an
+idempotent fallback. A retained queued Block cannot access freed Rust state or
+log after stop. Installation must be observed with valid owned bounds and
+matching window IDs before missing receives are interpreted. Earlier known
+GPUI-positive clicks must also appear in this receiver trace in the SAME
+installed scene; absence without that positive receiving baseline is unknown.
+
+The existing macos_menu_native main-thread target adds real AppKit cases using
+hidden windows, no global posting. Isolated test processes inherit genuine CI;
+false-CI, missing-fixture and outside-config controls exercise the FULL shared
+guard. The positive case tests registration via NSApplication.sendEvent, owned/
+unowned filtering, direct ACTUAL Block return identity and unchanged event
+properties, downstream callback exactly once, idempotent stop, post-drop sends
+and state release after draining autoreleases. Missing registration, changed
+return and omitted removal must fail different assertions. All existing menu
+and GPUI/cancellation assertions remain. These new AppKit cases are UNEXECUTED
+LOCALLY: compilation/runtime are hosted gates, not claimed local RED/GREEN.
+Only the portable std guard controls were run locally.
+
+A receiver event without a GPUI-root event narrows downstream conversion/frame/
+capture routing. No receiver event leaves posting/window routing upstream open;
+it is NOT proof of OS delivery failure. Observer timing effects remain possible.
+No Mac repair/installed PASS or shared ARM/Intel cause is claimed.
+
+## Actual recorded Intel account isolation
+
+New2e Intel evidence is a RECORDED accounts scene. A retained camera interval
+overlaps mouse-up but begins96ms AFTER the observed activation drop; it cannot
+explain that earlier drop or the entire absent-event interval. ARM preferences
+is unrecorded, so the old out-of-scene experiment remains unapplied.
+
+Fresh tests execute the actual accounts recipe through Driver.drive (record=True
+and an explicit false control), and the actual recording worker, right-field
+Driver.interact, OwnedMacInput.click/post and UnixWindow.screenshot with fake OS
+only. Current source is RED for camera execution between move/down/up. Fresh
+isolation is GREEN: three posts/one text replacement and at least two frames,
+plus reentrancy/failure-release/unrecorded/other-platform controls. Only an
+actively RECORDED owned Mac window shares the camera/input lock. Both click
+call sites use it; unrecorded ARM preferences and X11/Wayland do not acquire it.
+There is no new event, focus action, retry, sleep, timeout or raised budget.
+This is harness scheduling isolation, not production concurrency or a root-cause
+claim; actual receiving/installed outcomes still require hosted evidence.

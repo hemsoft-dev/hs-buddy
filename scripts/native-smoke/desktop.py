@@ -7,7 +7,7 @@ Screenshots contain real OS window pixels; OCR must find dashboard content.
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import math
@@ -19,7 +19,7 @@ import subprocess
 import struct
 import sys
 import time
-from threading import Event
+from threading import Event, RLock
 from receipt_clock import stamp
 
 
@@ -130,13 +130,21 @@ def recording(window, directory):
         if index < 2:
             raise RuntimeError("Interaction recording captured fewer than two frames")
     with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(capture)
+        owned_mac = isinstance(window, UnixWindow) and window.session == "macos"
+        was_recording = window._recording if owned_mac else False
+        if owned_mac:
+            window._recording = True
         try:
-            yield
+            future = executor.submit(capture)
+            try:
+                yield
+            finally:
+                primary = sys.exc_info()[1]
+                stop.set()
+                finish_cleanup(lambda: future.result(timeout=15), primary, "Interaction recording")
         finally:
-            primary = sys.exc_info()[1]
-            stop.set()
-            finish_cleanup(lambda: future.result(timeout=15), primary, "Interaction recording")
+            if owned_mac:
+                window._recording = was_recording
 
 
 def encode_recording(directory):
@@ -235,6 +243,8 @@ class UnixWindow:
         self.process = process
         self.session = session
         self.window = None
+        self._recording = False
+        self._recording_input_lock = RLock()
 
     def ready(self):
         if self.session == "macos":
@@ -343,6 +353,10 @@ class UnixWindow:
             finish_cleanup(stop_keyboard, sys.exc_info()[1], "Virtual keyboard shutdown")
 
     def screenshot(self, path):
+        with mac_input_guard(self):
+            self._screenshot(path)
+
+    def _screenshot(self, path):
         if self.session == "macos":
             started = stamp()
             # Capture the owned app window only. No full-monitor recording.
@@ -365,6 +379,13 @@ class UnixWindow:
             rect = self.wayland_rect()
             run("grim", "-g", f'{rect["x"]},{rect["y"]} {rect["width"]}x{rect["height"]}', path)
             path.with_suffix(".window.json").write_text(json.dumps(rect), encoding="utf-8")
+
+
+def mac_input_guard(window):
+    """Only a recorded owned Mac window excludes its camera during a click."""
+    if isinstance(window, UnixWindow) and window.session == "macos" and window._recording:
+        return window._recording_input_lock
+    return nullcontext()
 
 
 @contextmanager

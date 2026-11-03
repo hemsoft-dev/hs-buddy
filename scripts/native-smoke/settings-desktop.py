@@ -16,7 +16,7 @@ import time
 import uuid
 from receipt_clock import stamp
 
-from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run
+from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run, mac_input_guard
 
 
 HERE = Path(__file__).resolve().parent
@@ -610,7 +610,8 @@ class Driver:
             run("osascript", "-e", window.apple("set frontmost to true"))
             helper = OwnedMacInput(window.process)
             try:
-                helper.click(*target)
+                with mac_input_guard(window):
+                    helper.click(*target)
             except Exception as failure:
                 try:
                     self.input_receipt(helper, directory, "failed-click", "cell", values, target)
@@ -689,7 +690,8 @@ class Driver:
             helper = OwnedMacInput(window.process)
             target = [origin[0] + x, origin[1] + y]
             try:
-                helper.click(*target)
+                with mac_input_guard(window):
+                    helper.click(*target)
             except Exception as failure:
                 try:
                     self.input_receipt(helper, directory, "failed-click", kind, values[0], target)
