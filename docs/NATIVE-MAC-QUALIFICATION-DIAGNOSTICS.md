@@ -343,7 +343,7 @@ CoreGraphics runtime proof. Actual installed sound/account outcomes remain
 HOSTED gates. All-match readback would narrow the gap after construction but
 would not prove posting delivery or exclude application dispatch paths.
 
-## Unpublished owned queue-consumption coverage candidate
+## Owned queue-consumption coverage experiment
 
 The existing macos_menu_native canonical positive-fixture branch now has a
 separate test-only queue_coverage module. All preceding functional, privacy,
@@ -390,4 +390,6 @@ accepting monitored queue dispatch failed. rustfmt/locked metadata are source
 checks. The new native queue consumer is UNCOMPILED and UNEXECUTED locally;
 actual AppKit counts, lifetime and visibility assertions remain HOSTED gates.
 No local native RED/GREEN, installed PASS, input fix or cutover is claimed.
-This candidate is deliberately unpublished pending parent inspection.
+The experiment does not change the application input or monitor behavior.
+The exact shared count oracle is also checked with the native target
+harness=false cfg(test) lint configuration; this is not AppKit compilation.

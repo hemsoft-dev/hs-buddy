@@ -11,37 +11,36 @@ mod contract {
     }
     #[cfg(test)]
     mod tests {
-        use super::*;
         #[test]
         fn exactly_one_unmonitored_consumer_is_required() {
-            assert!(accepts(Counts {
+            assert!(super::accepts(super::Counts {
                 consumed: 1,
                 received: 0,
                 filtered: 0
             }));
             for counts in [
-                Counts {
+                super::Counts {
                     consumed: 0,
                     received: 0,
                     filtered: 0,
                 },
-                Counts {
+                super::Counts {
                     consumed: 2,
                     received: 0,
                     filtered: 0,
                 },
-                Counts {
+                super::Counts {
                     consumed: 1,
                     received: 1,
                     filtered: 0,
                 },
-                Counts {
+                super::Counts {
                     consumed: 1,
                     received: 0,
                     filtered: 1,
                 },
             ] {
-                assert!(!accepts(counts));
+                assert!(!super::accepts(counts));
             }
         }
     }
