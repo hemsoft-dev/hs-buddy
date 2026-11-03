@@ -342,3 +342,52 @@ This is a measurement-contract regression, NOT an input-fix RED/GREEN or actual
 CoreGraphics runtime proof. Actual installed sound/account outcomes remain
 HOSTED gates. All-match readback would narrow the gap after construction but
 would not prove posting delivery or exclude application dispatch paths.
+
+## Unpublished owned queue-consumption coverage candidate
+
+The existing macos_menu_native canonical positive-fixture branch now has a
+separate test-only queue_coverage module. All preceding functional, privacy,
+downstream, guard-refusal and lifetime assertions remain unchanged. This is a
+COVERAGE experiment, not an installed receiving repair.
+
+One retained owned synthetic LeftMouseUp object is compared through direct
+NSApplication.sendEvent and explicit application-queue consumption requesting
+NSEventTrackingRunLoopMode. It uses pinned objc2-app-kit0.3.2
+postEvent_atStart and nextEventMatchingMask_untilDate_inMode_dequeue, plus the
+already-enabled NSDate::distantPast. No feature/dependency change is needed.
+The deadline is already expired: no waiting, sleeping or new timeout budget.
+This does not enter NSWindow.trackEvents or prove a nested tracking loop was
+active; a queued object can be retrieved without running a loop.
+
+The test inserts its own retained object at the queue head. Non-dequeuing peeks
+must preserve exact pointer identity and leave monitor counts unchanged.
+Identity is validated BEFORE the immediate same-main-thread dequeue; only that
+owned object's properties are inspected. Unexpected head/identity fails with a
+fixed message, never its fields or pointer value. No competing producer, event
+loop or callback is installed by the test. This is not general queue isolation.
+Normal cleanup removes ONLY the still-pending owned at-head object. If a foreign
+head prevents safe cleanup during failure, the isolated failing child exits;
+the test does not drain foreign events behind or ahead of it.
+
+Prediction: direct application dispatch reaches the actual receiver once;
+exactly one queue consumer reads the unchanged owned object with zero accepted
+or filtered monitor records. Real-AppKit negative paths dequeue then sendEvent,
+enqueue/consume the same object twice, or omit the consumer; the SAME count
+oracle must reject each. Omitted consumption is measured before owned-only
+cleanup. No manual receiver Block invocation manufactures these counts.
+The native cases assert property/pointer preservation, no phantom dispatch or
+queued duplicate, unchanged hidden/key/application-active state, monitor
+stop/drop/removal and weak-state release after autoreleases drain.
+
+Apple documents the local monitor's application-sendEvent boundary and its
+[tracking-loop limitation](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:)).
+A successful controlled queue case would establish the coverage distinction,
+not that the installed sound/account failures used that path, and not a
+producer-to-WindowServer-to-application acceptance result.
+
+Portable execution of the EXACT shared count oracle passed; a private mutant
+accepting monitored queue dispatch failed. rustfmt/locked metadata are source
+checks. The new native queue consumer is UNCOMPILED and UNEXECUTED locally;
+actual AppKit counts, lifetime and visibility assertions remain HOSTED gates.
+No local native RED/GREEN, installed PASS, input fix or cutover is claimed.
+This candidate is deliberately unpublished pending parent inspection.
