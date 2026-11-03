@@ -735,7 +735,8 @@ class MacInputDelivery(unittest.TestCase):
 
     def trace_values(self, helper):
         for phase in helper.last_click_trace:
-            self.assertEqual(set(phase), {"eventType", "leftButtonDown", "postCall"})
+            self.assertEqual(set(phase), {"eventType", "leftButtonDown", "postCall", "constructedEvent"})
+            self.assertEqual(phase["constructedEvent"], {"status": "unavailable"})
         return [{key: phase[key] for key in ("eventType", "leftButtonDown")} for phase in helper.last_click_trace]
 
     def test_click_releases_inherited_modifiers_and_marks_a_single_click(self):

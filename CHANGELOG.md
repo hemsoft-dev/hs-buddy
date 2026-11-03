@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1641] - 2026-11-03
+
+### Changed
+
+- Read back constructed Mac click events
+
 ## [0.1.1640] - 2026-11-03
 
 ### Fixed

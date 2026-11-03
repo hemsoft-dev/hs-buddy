@@ -309,3 +309,36 @@ record can establish the precise ownership rejection; no record leaves earlier
 process-local dispatch/monitor delivery open. Neither case alone proves OS
 delivery failure. No click, focus operation, retry, wait, qualification check,
 dependency, production settings behavior or fixture guard changed.
+
+## Constructed mouse-event readback after 2bc receiving gap
+
+Actual2bc ARM and Intel still have no received OR filtered down/up for the
+failed intended click; accepted moves do not acknowledge the subsequent posts.
+The requested eventType in existing Python receipts is not a CoreGraphics
+readback. No wrong-event construction bug has been demonstrated.
+
+The guarded Mac input helper now reads ONLY each already-created mouse event
+after its existing click-state/flags writes and before posting/release. Apple's
+[CGEventGetType](https://developer.apple.com/documentation/coregraphics/cgevent/type?language=objc)
+and [field accessors](https://developer.apple.com/documentation/coregraphics/cgeventfield?language=objc)
+support checking its actual type, location, left-button field and single-click
+state; flags are also read. ctypes argument/result widths are explicit.
+Receipts retain fixed type tags move/down/up/other and expected-property match
+booleans only; move's click-state comparison is null. No foreign event, ID,
+pointer, unexpected type number, coordinates, text, keys or exception contents
+are added. Location agreement tolerates 1/1024point; it changes no input.
+
+A failed read produces only status=unavailable. Mismatch does not interrupt
+posting, change properties or retry; every intended move/down/up and release
+still follows its original path. Keyboard/scroll posts receive no new reads.
+The same receipt consumer preserves the new bounded constructedEvent object.
+No budget, focus, permission, callback, route, dependency or assertion changes.
+
+Tests run the actual click/post/receipt and constructor consumers with fake
+CoreGraphics only. Old code is RED for missing readback; new measurement is
+GREEN for propagation, mismatched fields, privacy schema, every getter failure,
+live-object order, original post exception/release and ABI declarations.
+This is a measurement-contract regression, NOT an input-fix RED/GREEN or actual
+CoreGraphics runtime proof. Actual installed sound/account outcomes remain
+HOSTED gates. All-match readback would narrow the gap after construction but
+would not prove posting delivery or exclude application dispatch paths.
