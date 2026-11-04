@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1657] - 2026-11-04
+
+### Changed
+
+- Compare guarded ARM settings placements
+
+## [0.1.1656] - 2026-11-04
+
+### Changed
+
+- Compare guarded ARM settings placements
+
+## [0.1.1655] - 2026-11-04
+
+### Changed
+
+- Compare guarded ARM settings placements
+
 ## [0.1.1654] - 2026-11-04
 
 ### Changed

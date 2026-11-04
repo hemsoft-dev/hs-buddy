@@ -665,3 +665,75 @@ add fake-native, real-thread/subprocess ordering and privacy controls. They do
 not establish Mac input causality. Native compilation/permission/CF lifecycle
 and actual installed outcomes remain hosted gates; the exact sound/account
 oracles, Electron primary status and broader cutover limits are unchanged.
+
+## Unpublished ARM placement comparison
+
+The 113 source/evidence analysis closed the timestamp-ID attempt. On actual
+9dc ARM and Intel runs, both pre-post and post-return timestamps were zero.
+No original producer join or OS-delivery cause was established. Native tests
+passed; the installed sound and exact account-identity assertions still failed.
+
+The parent authorized this fixture-only candidate for inspection before
+publication. It compares initial preferences-window origins A=(80,80) and
+B=(240,80), both at 1200x820. It is a placement experiment, not an input repair.
+The ARM settings scene runs the complete original qualifier once per arm, in
+order, with separate fresh profiles, backends and output directories. Package,
+installed binary, source and version hashes must agree before each arm.
+The manifest hashes the staged executable; macOS packaging signs the app copy.
+Those hashes are retained separately, without assuming byte equality between
+the unsigned/staged executable and the installed signed executable.
+Intel, Linux and default settings invocations retain one ordinary qualifier.
+
+Both arms add the same owned-PID size/position transaction and position readback.
+Ordinary resize callers keep their original size-only transaction and read.
+Only the preferences process gets an initial origin. Later profile/window state
+is retained as an outcome. Input actions, source, route, flags, event counts,
+post/release order, focus operations, waits and strict assertions are unchanged.
+
+Admission uses the existing display helper and owned-window capture calls.
+Only explicit genuine ARM CI comparison mode gains the extra display fields.
+The existing display-helper receipt supplies admission before position assignment;
+existing captures recheck it before input. No extra helper process, screenshot,
+focus action, retry or wait is added to seek a preferred result.
+The helper requires one active main display and an unambiguous Cocoa/Quartz
+geometry conversion. It converts Cocoa usable bounds to top-left Quartz points
+using the main frame's maximum Y, retaining usable origin, extent and backing
+scale. Both complete window rectangles must fit. Unknown geometry, unsupported
+AX assignment, unexpected scale/layout or changed ownership refuses observation.
+
+Apple documents the coordinate spaces and attribute operation in
+[CGEventCreateMouseEvent](https://developer.apple.com/documentation/coregraphics/cgevent/init(mouseeventsource:mousetype:mousecursorposition:mousebutton:)),
+[kCGWindowBounds](https://developer.apple.com/documentation/coregraphics/kcgwindowbounds),
+[NSScreen.visibleFrame](https://developer.apple.com/documentation/appkit/nsscreen/visibleframe)
+and [AXUIElementSetAttributeValue](https://developer.apple.com/documentation/applicationservices/1460434-axuielementsetattributevalue).
+These contracts do not guarantee event delivery or establish an obstruction.
+Swift compilation and real geometry conversion remain hosted gates.
+
+The coordinator preserves A's original exception object and nonzero outcome
+after a safely completed B. Cleanup/admission failure stops the pair.
+An unhealthy or unavailable observer refuses the next arm. Owned app,
+companion and reader cleanup and backend process reaping/state retirement must
+finish before the next arm. Interruptions do not start B. A durable comparison
+receipt records started/finished partial arms; it never writes an ordinary arm
+qualification receipt for a qualifier that failed. The outer ARM scene remains
+the existing 1200-second total bound. There are no fresh per-arm scene budgets;
+15-second status, 20-second exit and 10-second cleanup bounds stay unchanged.
+
+Interpretation is conservative. A must fail at the original sound-On endpoint.
+B must complete all later original assertions to count as that arm's settings
+PASS. A RED/B PASS with matching pre-divergence local targets/display/control
+geometry and healthy cleanup supports placement dependence in that pair only.
+Both sound endpoints RED weakens the fixed-region explanation for this shift.
+A GREEN, later B failure, different local geometry, unavailable observation or
+unsafe cleanup is inconclusive. Coverage and cutover qualification stay false.
+The extra equal-operation assignment/read and moving the window can perturb
+compositor/activation state. Instrumented recovery is not a production fix or
+proof that Intel shares the ARM cause.
+
+Portable controls use actual Python geometry/coordinator consumers, fake native
+values and real owned Python subprocesses/files. They cover default parity,
+guard refusal, measured translation, geometry drift, cleanup refusal, retained
+primary failures, isolation, partial receipts and the shared deadline. They do
+not reproduce WindowServer delivery or establish real A/B outcomes. Existing
+Windows receiving-fixture semantics remain independent. No local native/API/UI
+execution, published candidate or installed Mac PASS is claimed by preparation.

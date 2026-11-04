@@ -33,6 +33,7 @@ ocr = load("settings-ocr")
 SettingsBackend = load("settings-backend").SettingsBackend
 OwnedMacInput = load("macos-input").OwnedMacInput
 process_receive = load("macos-process-receive")
+placement_compare = load("settings-placement")
 
 
 @contextmanager
@@ -233,6 +234,7 @@ class Driver:
     # one. WebView2 refuses to create pages on a CreateDesktopW desktop
     # (0x80070578, invalid window handle), so the browser qualification sets it.
     input_desktop = False
+    placement = None
 
     def __init__(self, executable, profile, session, backend, checkout):
         self.executable, self.profile, self.session = executable, profile, session
@@ -338,7 +340,11 @@ class Driver:
                 else:
                     raise RuntimeError("Installed settings window did not appear")
                 time.sleep(4)
-                window.resize(*self.large_size)
+                if self.placement is not None and directory.name == "preferences":
+                    self.placement.attach(window, self.config, scene=directory.name)
+                    window.resize(*self.large_size, initial_origin=self.placement.origin)
+                else:
+                    window.resize(*self.large_size)
                 if self.session == "macos":
                     try:
                         observer = process_receive.Observer(process, self.executable, window=window, fixture_config=self.config)
@@ -433,6 +439,8 @@ class Driver:
                         (directory / "process-correlation.json").write_text(json.dumps(correlation), encoding="utf-8")
                 except Exception:
                     errors.append("evidence-write-failed")
+                if self.placement is not None:
+                    self.placement.cleaned([companion, process], observer, errors)
                 if errors:
                     if primary is not None:
                         primary.add_note("Owned cleanup failed: " + ",".join(errors))
@@ -710,6 +718,9 @@ class Driver:
             if kind == "save":
                 x = (control["left"] + control["width"] / 2) / scale
         if self.session == "macos":
+            placement = getattr(window, "_placement", None)
+            if placement is not None:
+                placement.target(kind, values[0], [x, y], label)
             with (directory / "targets.jsonl").open("a", encoding="utf-8") as targets:
                 targets.write(json.dumps(dict(kind=kind, label=values[0], bounds=label,
                     windowPoint=[x, y])) + "\n")
@@ -831,7 +842,7 @@ def verify_feedback_scope(path):
         raise RuntimeError("Notifications validation feedback leaked into another panel")
 
 
-def qualify(executable, output, session, checkout, backend):
+def qualify(executable, output, session, checkout, backend, *, placement=None):
     config = fixture(output, "dark")
     initial = json.loads(config.read_text())
     initial["native"]["activeSection"] = "settings"
@@ -840,6 +851,7 @@ def qualify(executable, output, session, checkout, backend):
     (output / ".buddy-settings-fixture").write_text("buddy settings fixture v1")
     run("bun", checkout / "scripts/build-config-companion.ts", output, cwd=checkout)
     driver = Driver(executable, output, session, backend, checkout)
+    driver.placement = placement
     account_actions = [("nav", "Accounts"), ("capture", "first-run-dark")]
     for index, name in enumerate(("fixture-native-one", "fixture-native-two")):
         account_actions += [("leftfield", "Organization|GitHub username", name),
@@ -942,7 +954,17 @@ def main():
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--session", choices=("windows", "macos", "x11"), required=True)
+    parser.add_argument("--compare-placement", action="store_true")
+    parser.add_argument("--package-directory", type=Path)
     args = parser.parse_args()
+    if args.compare_placement:
+        if args.session != "macos" or args.package_directory is None:
+            parser.error("Placement comparison requires installed Mac package provenance")
+        placement_compare.run_pair(args.executable.resolve(strict=True), args.output, HERE.parent.parent,
+                                   args.package_directory, qualify, SettingsBackend)
+        return
+    if args.package_directory is not None:
+        parser.error("Package provenance is only for explicit placement comparison")
     if args.output.exists():
         raise RuntimeError("Settings evidence requires a fresh output directory")
     checkout = HERE.parent.parent
