@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1658] - 2026-11-04
+
+### Changed
+
+- Use Linux contrast profile for browser footer
+
 ## [0.1.1657] - 2026-11-04
 
 ### Changed

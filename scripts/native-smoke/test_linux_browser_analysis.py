@@ -45,6 +45,16 @@ class CapturedLinuxAnalysis(unittest.TestCase):
             self.assertEqual(len(filters), 2)  # Same 3 candidates, no additional attempts.
             self.assertIn("scale=iw*2:ih*2:flags=lanczos,format=gray,negate", filters)
 
+    def test_footer_and_body_use_one_profile_selected_only_on_linux(self):
+        for platform, smooth in (("linux", True), ("win32", False), ("darwin", False)):
+            image = Path("capture.png")
+            with self.subTest(platform=platform), patch.object(desktop.sys, "platform", platform), \
+                    patch.object(desktop.settings.ocr, "status_content_image", return_value=image) as status, \
+                    patch.object(desktop.settings.ocr, "analysis_images", return_value=iter([image])) as analysis:
+                self.assertEqual(list(desktop.browser_analysis(image)), [image])
+                self.assertEqual(status.call_args.kwargs, dict(suffix=".browser-ocr.png", smooth_inverted=smooth))
+                self.assertEqual(analysis.call_args.kwargs, dict(smooth_inverted=smooth))
+
     def test_hosted_old_layouts_fail_without_union_and_controlled_candidate_passes(self):
         with self.assertRaisesRegex(RuntimeError, "one OCR layout"):
             self.run_check(new=False)

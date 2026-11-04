@@ -266,3 +266,26 @@ strict oracle, permanent blank, storage-loss and engine/IO failure controls
 are source-level evidence. The new hosted installed run must still qualify
 browser restart and Electron rollback. No production browser style, route,
 profile, storage policy or migration behavior changed.
+
+## Compact browser footer analysis
+
+The Ubuntu run at `4d6cd2d` stopped before installed upgrade/rollback qualification:
+the original 900x650 browser capture showed the footer, but all nine OCR layouts
+failed its strict detector. The fullest layout read `0 jobs` as `OQjobs`.
+
+Linux browser checks now select the existing Lanczos 2x inverted profile for footer
+measurement as well as body analysis. The original image, ordered unique-footer
+predicate, single-layout marker checks and three-image/three-mode bound stay
+unchanged. Default, Mac and Windows callers retain their original profile.
+
+The retained capture and target-package Tesseract 5.3.4 and FFmpeg 6.1.1 replay provide
+old-red/new-green consumer evidence. Nine historical OCR layouts and both original
+analysis images calibrated exactly. Some surrounding runtime packages differ from
+the hosted image. Thirty-five retained Ubuntu captures show 25 pass-to-pass, nine
+blank attempts fail-to-fail and one compact capture recovered. This is a captured
+consumer regression, not an installed qualification result.
+
+CPU paths remain a limit: AVX2 and the tested default paths pass; forced SSE OCR
+still fails closed. Fresh hosted browser, light/compact/restart and installed
+upgrade/rollback results remain required. No matcher alias, layout union, engine
+upgrade, larger timeout, native migration, Mac input repair or cutover is implied.

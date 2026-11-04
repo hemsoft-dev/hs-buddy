@@ -139,10 +139,10 @@ def footer_border(path, footer, scale, run, zoom=1.0):
     raise RuntimeError("The measured native status footer has no visible separator")
 
 
-def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoom=1.0):
+def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoom=1.0, smooth_inverted=False):
     """Measure and exclude the shared footer from an untouched capture."""
     width = struct.unpack(">II", path.read_bytes()[16:24])[0]
-    for analysis in analysis_images(path, run):
+    for analysis in analysis_images(path, run, smooth_inverted=smooth_inverted):
         scale = struct.unpack(">II", analysis.read_bytes()[16:24])[0] / width
         for mode in (11, 3, 6):
             words = recognize(analysis, mode=mode)
