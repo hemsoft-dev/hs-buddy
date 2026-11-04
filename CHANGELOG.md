@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1653] - 2026-11-04
+
+### Changed
+
+- Make receiving fixtures portable on Windows
+
 ## [0.1.1652] - 2026-11-04
 
 ### Changed

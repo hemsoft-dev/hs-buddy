@@ -593,3 +593,32 @@ AppKit/root records could otherwise match. Desired-contract controls failed agai
 the prior candidate and pass after these changes. They use actual driver, guard,
 correlator, Popen and reader consumers with fake native APIs and synthetic timestamps.
 They do not establish CoreGraphics access, WindowServer delivery or installed success.
+
+## Python fixture portability
+
+The Windows guard-suite failure occurred before packaging or installed scenes.
+The Mac runtime body was not the failing boundary. Test-only fixtures now
+preserve every original semantic assertion on all hosts without platform skips.
+
+On Linux/macOS the tests retain real POSIX pipes, inherited descriptors,
+directory-fd secure writes and filesystem symlinks. A module-local subprocess
+facade avoids changing the global Popen type used by owned-process admission.
+
+On Windows a test-only adapter substitutes real socket pairs for unavailable
+selectable pipe descriptors. Socket handles are shared only with the real
+controller-owned Python child, launched through sys.executable. The actual
+Channel parser, controller, cleanup and original deadline assertions still run.
+A private child wrapper models inherited pipe reads/writes over those sockets.
+No production Windows receiver or controller route is introduced.
+
+Unavailable directory-fd/openat and symlink primitives are explicitly modeled
+at the test boundary. The actual receipt consumer still walks the modeled
+directory descriptors and rejects linked paths; actual exclusive file creation,
+overwrite rejection, profile cleanup and prepare-evidence staging use the
+Windows filesystem. This is a POSIX contract model, not proof of Windows openat
+or actual NTFS symlink security.
+
+Actual Windows old-source failure and repaired eighteen-control success are
+retained separately from Linux's real POSIX result. The explicit-config and
+duplicate-producer-timestamp assertions remain intact. These portability
+controls do not establish native receiving, installed acceptance or a Mac fix.
