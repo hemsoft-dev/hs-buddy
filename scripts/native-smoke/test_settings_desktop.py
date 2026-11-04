@@ -735,7 +735,7 @@ class MacInputDelivery(unittest.TestCase):
 
     def trace_values(self, helper):
         for phase in helper.last_click_trace:
-            self.assertEqual(set(phase), {"eventType", "leftButtonDown", "postCall", "constructedEvent", "producerTimestamp"})
+            self.assertEqual(set(phase), {"eventType", "leftButtonDown", "postCall", "constructedEvent", "producerTimestamp", "postReturnTimestamp"})
             self.assertEqual(phase["constructedEvent"], {"status": "unavailable"})
         return [{key: phase[key] for key in ("eventType", "leftButtonDown")} for phase in helper.last_click_trace]
 

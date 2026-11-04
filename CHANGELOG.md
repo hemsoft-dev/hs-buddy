@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1654] - 2026-11-04
+
+### Changed
+
+- Retain first health and post-return observations
+
 ## [0.1.1653] - 2026-11-04
 
 ### Changed

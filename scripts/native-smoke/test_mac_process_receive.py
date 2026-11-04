@@ -503,3 +503,143 @@ class ParentIntegrationControls(FixtureCase):
                     with self.assertRaises((RuntimeError,OSError)):receive.canonical_guard(rejected)
                 with patch.dict(os.environ,{"BUDDY_SETTINGS_FIXTURE":"0"}):
                     with self.assertRaises(RuntimeError):receive.canonical_guard(config)
+
+class HealthProvenanceControls(unittest.TestCase):
+    def observer(self):
+        process=unittest.mock.Mock()
+        process.poll.return_value=None
+        with patch.object(receive,"target_guard"):
+            value=receive.Observer(process,"synthetic",api_factory=API)
+        value.api=API();value.active=True;value.admitted=True
+        return value
+
+    def test_first_fault_survives_later_flag_and_cleanup(self):
+        for kind,category in [(4294967294,"timeout-notification"),(4294967295,"user-input-notification"),(777,"unexpected-control")]:
+            value=self.observer()
+            self.assertEqual(value.callback(None,kind,123,None),123)
+            value._fault("flag-disabled")
+            value._fault("cleanup-failure")
+            receipt=value.receipt()
+            self.assertEqual(receipt["reason"],category)
+            self.assertEqual(receipt["firstHealth"]["category"],category)
+            self.assertFalse(receipt["firstHealth"]["afterStop"])
+            self.assertEqual(set(receipt["firstHealth"]),{"kind","category","afterStop","sequence","clock"})
+            self.assertEqual(set(receipt["firstHealth"]["clock"]),{"wallMillis","monotonicNanos"})
+            for row in receipt["transitions"]:
+                self.assertEqual(set(row),{"kind","category","afterStop","sequence","clock"})
+                self.assertIn(row["kind"],("fault","lifecycle"))
+                self.assertIn(row["category"],receive.FAULTS | receive.PHASES)
+
+    def test_bounded_history_and_phase_integrity(self):
+        value=self.observer()
+        value.request_stop()
+        first=value.receipt()
+        self.assertEqual([x["category"] for x in first["transitions"]],["stop-request"])
+        self.assertNotIn("source-invalidated",json.dumps(first))
+        self.assertNotIn("reader-joined",json.dumps(first))
+        for _ in range(200):value._fault("flag-disabled")
+        result=value.receipt()
+        self.assertLessEqual(len(result["transitions"]),receive.HEALTH_LIMIT)
+        self.assertTrue(result["healthOverflow"])
+        self.assertEqual(result["reason"],"flag-disabled")
+        self.assertTrue(result["firstHealth"]["afterStop"])
+        self.assertFalse(result["coverageQualified"])
+
+    def test_stop_before_kill_reap_before_join_preserves_primary(self):
+        order=[]
+        class Observe:
+            def request_stop(self):order.append("stop")
+            def lifecycle(self,phase):order.append(phase)
+            def stop(self,deadline):order.append("join");raise RuntimeError("private")
+        with subprocess.Popen([sys.executable,"-c","import sys;sys.stdin.buffer.read()"],stdin=subprocess.PIPE) as child:
+            actual_kill,actual_wait=child.kill,child.wait
+            def kill():order.append("kill");actual_kill()
+            def wait(*a,**kw):
+                result=actual_wait(*a,**kw);order.append("reap");return result
+            with patch.object(child,"kill",kill),patch.object(child,"wait",wait):
+                errors=receive.cleanup_owned([child],Observe(),time.monotonic()+1)
+            self.assertIsNotNone(child.returncode)
+        self.assertLess(order.index("stop"),order.index("kill"))
+        self.assertLess(order.index("reap"),order.index("join"))
+        self.assertIn("reader-not-quiescent",errors)
+
+    def test_actual_reader_does_not_replace_callback_first_cause(self):
+        gate=threading.Event()
+        class FaultAPI(API):
+            def read(self,resource):
+                gate.wait(1)
+                self.callback(None,4294967294,123,None)
+                return False
+        api=FaultAPI()
+        with subprocess.Popen([sys.executable,"-c","import sys;sys.stdin.buffer.read()"],stdin=subprocess.PIPE) as child:
+            with patch.object(receive,"target_guard"):
+                observer=receive.Observer(child,sys.executable,native=True,api_factory=lambda:api)
+            self.assertTrue(observer.start(time.monotonic()+1))
+            gate.set();self.assertTrue(observer.finished.wait(1))
+            observer.stop(time.monotonic()+1)
+            receipt=observer.receipt()
+            self.assertEqual(receipt["reason"],"timeout-notification")
+            phases=[x["category"] for x in receipt["transitions"]]
+            self.assertIn("flag-disabled",phases)
+            self.assertIn("source-invalidated",phases)
+            self.assertIn("reader-joined",phases)
+            self.assertTrue(api.removed)
+            child.stdin.close();child.stdin=None;child.wait(timeout=1)
+
+    def test_no_record_can_finish_after_stop_and_cleanup_phase_is_real(self):
+        value=self.observer();entered=threading.Event();release=threading.Event();returned=[]
+        def timestamp(event):
+            entered.set();release.wait(1);return 123
+        value.api.timestamp=timestamp
+        worker=threading.Thread(target=lambda:returned.append(value.callback(None,1,123,None)))
+        worker.start();self.assertTrue(entered.wait(1))
+        value.request_stop();release.set();worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(returned,[123]);self.assertEqual(value.rows,[])
+        self.assertEqual([x["category"] for x in value.receipt()["transitions"]],["stop-request"])
+
+    def test_failed_removal_does_not_fabricate_invalidation(self):
+        class Broken(API):
+            def remove(self,resource):raise RuntimeError("private cleanup failure")
+        api=Broken()
+        with subprocess.Popen([sys.executable,"-c","import sys;sys.stdin.buffer.read()"],stdin=subprocess.PIPE) as child:
+            with patch.object(receive,"target_guard"):
+                observer=receive.Observer(child,sys.executable,native=True,api_factory=lambda:api)
+            self.assertTrue(observer.start(time.monotonic()+1))
+            with self.assertRaises(RuntimeError):observer.stop(time.monotonic()+1)
+            receipt=observer.receipt()
+            self.assertEqual(receipt["reason"],"cleanup-failure")
+            phases=[x["category"] for x in receipt["transitions"]]
+            self.assertNotIn("source-invalidated",phases)
+            self.assertIn("reader-joined",phases)
+            self.assertNotIn("private",json.dumps(receipt))
+            child.stdin.close();child.stdin=None;child.wait(timeout=1)
+
+    def test_callback_contention_is_nonblocking_and_unqualified(self):
+        value=self.observer();returned=[]
+        value._record_lock.acquire()
+        try:
+            worker=threading.Thread(target=lambda:returned.append(value.callback(None,1,123,None)))
+            worker.start();worker.join(1)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(returned,[123])
+            self.assertEqual(value.reason,"callback-failure")
+            self.assertEqual(value.rows,[])
+        finally:value._record_lock.release()
+
+    def test_nonblocking_stop_rejects_an_inflight_commit(self):
+        value=self.observer();entered=threading.Event();release=threading.Event()
+        class Rows(list):
+            def append(self,row):
+                entered.set();release.wait(1);super().append(row)
+        value.rows=Rows()
+        callback=threading.Thread(target=lambda:value.callback(None,1,123,None))
+        callback.start();self.assertTrue(entered.wait(1))
+        done=threading.Event()
+        stopper=threading.Thread(target=lambda:(value.request_stop(),done.set()))
+        stopper.start()
+        self.assertTrue(done.wait(1), "stop must not wait for a callback commit")
+        release.set();callback.join(1);stopper.join(1)
+        self.assertTrue(done.is_set())
+        self.assertEqual(len(value.rows),0)
+        self.assertTrue(value.stopping.is_set())

@@ -622,3 +622,46 @@ Actual Windows old-source failure and repaired eighteen-control success are
 retained separately from Linux's real POSIX result. The explicit-config and
 duplicate-producer-timestamp assertions remain intact. These portability
 controls do not establish native receiving, installed acceptance or a Mac fix.
+
+## First-health provenance and post-return measurement
+
+The read-only 111 investigation found that final disabled status erased the
+first fault and could arise during owned cleanup. The bounded 112 correction
+keeps the first known health category, wall and monotonic observation clocks,
+and whether stop had already been requested. A separate bounded transition
+ledger records later fixed-category faults and actual lifecycle completions.
+Timeout, user-input, unexpected-control and flag-disabled observations remain
+distinct. Unknown control objects are never inspected; their numeric kinds,
+pointers, payloads and errors are not logged. Overflow is explicit/unqualified.
+Callbacks do no file I/O or explicit blocking synchronization.
+
+Shared cleanup now requests nonblocking stop before killing owned children,
+then retains reaping before the blocking reader join within the same deadline.
+Source invalidation is recorded only after owner-thread removal returns, and
+join only after the thread has actually joined. Stop/failed admission cannot
+reactivate or allow a pending callback to append a record. First-fault storage
+is sticky; later shutdown does not overwrite it. Lifecycle phases are distinct
+from faults, and cleanup failures retain their independent failure flag.
+
+For already-created mouse events only, a separate postReturnTimestamp observes
+the original object exactly once after successful CGEventPost and its existing
+end clock, before its original release. The pre-post producerTimestamp and
+seven-field constructedEvent schema are unchanged. Non-mouse events and failed
+posts have no additional read. Getter failure is unavailable telemetry and
+preserves the remaining posts, mouse-up, releases and primary exception.
+The read adds observation overhead before release; zero perturbation is not
+claimed. There is no setter, tag, retain, source/route change or receiver wait.
+
+The correlator is byte-identical and still uses only the original pre-post
+field. It does not silently use the post-return value or substitute clocks.
+All coverageQualified values remain false. The new field must be compared
+with actual accepted accounts/appearance controls after hosted execution.
+A positive unique relationship is an experimental observation, not a promised
+API invariant. If values remain zero/different/unavailable or ambiguous, this
+timestamp-ID attempt stops without further setters or logger rounds.
+
+Portable tests retain the original eighteen Windows assertion contracts and
+add fake-native, real-thread/subprocess ordering and privacy controls. They do
+not establish Mac input causality. Native compilation/permission/CF lifecycle
+and actual installed outcomes remain hosted gates; the exact sound/account
+oracles, Electron primary status and broader cutover limits are unchanged.

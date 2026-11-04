@@ -130,3 +130,46 @@ class ConstructedMouse(unittest.TestCase):
             self.assertIs(getattr(graphics, name).restype, result)
         self.assertEqual(graphics.CGEventGetIntegerValueField.argtypes, [inputs.c.c_void_p, inputs.c.c_uint32])
         self.assertIs(graphics.CGEventGetIntegerValueField.restype, inputs.c.c_int64)
+
+    def test_post_return_timestamp_order_and_count(self):
+        value=self.helper();order=[];reads={}
+        def timestamp(event):
+            reads[event]=reads.get(event,0)+1
+            order.append(("timestamp",event,reads[event]))
+            return 0 if reads[event]==1 else event*100
+        value.graphics.CGEventGetTimestamp.side_effect=timestamp
+        value.graphics.CGEventPost.side_effect=lambda tap,event:order.append(("post",event))
+        value.core.CFRelease.side_effect=lambda event:order.append(("release",event))
+        def clock():
+            order.append(("clock",))
+            return {"wallMillis":1,"monotonicNanos":1}
+        with patch.object(inputs,"stamp",side_effect=clock):
+            self.click(value)
+        self.assertEqual(order,[row for event in (5,1,2) for row in [
+            ("timestamp",event,1),("clock",),("post",event),("clock",),
+            ("timestamp",event,2),("release",event)]])
+        self.assertEqual([p["producerTimestamp"]["value"] for p in value.last_click_trace],[0,0,0])
+        self.assertEqual([p["postReturnTimestamp"]["value"] for p in value.last_click_trace],[500,100,200])
+
+    def test_post_return_failure_keeps_up_release_and_privacy(self):
+        value=self.helper();counts={}
+        def timestamp(event):
+            counts[event]=counts.get(event,0)+1
+            if counts[event]==2:raise RuntimeError("private post-return failure")
+            return 0
+        value.graphics.CGEventGetTimestamp.side_effect=timestamp
+        self.click(value)
+        self.assertTrue(all(p["postReturnTimestamp"]=={"status":"unavailable"} for p in value.last_click_trace))
+        self.assertNotIn("private",json.dumps(value.last_click_trace))
+
+    def test_no_post_return_read_after_post_failure_or_non_mouse(self):
+        value=self.helper()
+        failure=RuntimeError("original")
+        value.graphics.CGEventPost.side_effect=failure
+        with self.assertRaises(RuntimeError) as caught:
+            value.post(1,mouse=(1,704.569,290.5))
+        self.assertIs(caught.exception,failure)
+        self.assertEqual(value.graphics.CGEventGetTimestamp.call_count,1)
+        value.core.CFRelease.assert_called_once_with(1)
+        value=self.helper();value.post(42)
+        value.graphics.CGEventGetTimestamp.assert_not_called()

@@ -11,10 +11,18 @@ import sys
 import threading
 import time
 import uuid
+from receipt_clock import stamp
 
 KINDS = {5: "move", 1: "down", 2: "up"}
 LIMIT = 4096
 CONTROL_SECONDS = 15
+HEALTH_LIMIT = 32
+FAULTS = frozenset(("timeout-notification", "user-input-notification",
+    "unexpected-control", "flag-disabled", "owned-exit", "overflow",
+    "callback-failure", "reader-failure", "startup-timeout", "unavailable",
+    "cleanup-failure", "health-overflow"))
+PHASES = frozenset(("stop-request", "owned-kill", "owned-reap",
+    "source-invalidated", "reader-joined"))
 
 
 def remaining(deadline):
@@ -114,12 +122,58 @@ class Observer:
         # Refusal precedes library loading, thread or native resource creation.
         target_guard(process, executable, window=window, native=native, fixture_config=fixture_config)
         self.process, self.api_factory = process, api_factory
-        self.rows, self.reason = [], None
+        self.rows = []
+        self._first, self._transitions, self._once = {}, {}, {}
+        self._slots = iter(range(HEALTH_LIMIT))
+        self.health_overflow, self.cleanup_failed = False, False
         self.active, self.stopping = False, threading.Event()
         self.admitted, self.admission_deadline = False, 0
         self.admission_lock = threading.Lock()
+        self._record_lock = threading.Lock()
         self.ready, self.finished = threading.Event(), threading.Event()
         self.resource, self.api, self.thread = None, None, None
+
+    @property
+    def reason(self):
+        first = self._first.get("fault")
+        return first["category"] if first is not None else None
+
+    def _event(self, kind, category):
+        try:
+            clock = stamp()
+        except BaseException:
+            clock = dict(wallMillis=None, monotonicNanos=None)
+        slot = next(self._slots, None)
+        event = dict(kind=kind, category=category, afterStop=self.stopping.is_set(),
+            sequence=slot if slot is not None else HEALTH_LIMIT, clock=clock)
+        if slot is None:
+            self.health_overflow = True
+            overflow = dict(event, kind="fault", category="health-overflow")
+            self._first.setdefault("fault", overflow)
+            self.active, self.admitted = False, False
+        else:
+            self._transitions[slot] = event
+        if clock["monotonicNanos"] is None:
+            self._first.setdefault("fault", dict(event, kind="fault",
+                category=category if kind == "fault" else "reader-failure"))
+            self.active, self.admitted = False, False
+        return event
+
+    def _fault(self, category):
+        category = category if category in FAULTS else "unexpected-control"
+        # setdefault is the single first-fault commit. Later teardown cannot replace it.
+        self._first.setdefault("fault", self._event("fault", category))
+        self.active, self.admitted = False, False
+
+    def lifecycle(self, phase):
+        if phase not in PHASES:
+            raise RuntimeError("Invalid owned lifecycle phase")
+        if phase not in ("owned-kill", "owned-reap"):
+            # A bounded key set; repeated stop/join is idempotent.
+            marker = object()
+            if self._once.setdefault(phase, marker) is not marker:
+                return
+        self._event("lifecycle", phase)
 
     def callback(self, proxy, kind, event, user):
         # No event ownership is acquired; EVERY branch returns the exact pointer.
@@ -127,24 +181,38 @@ class Observer:
             if not self.active or not self.admitted:
                 return event
             if kind not in KINDS:
-                self.reason = "disabled-or-unexpected"
-                self.active = False
+                self._fault({4294967294: "timeout-notification",
+                    4294967295: "user-input-notification"}.get(kind, "unexpected-control"))
                 return event
             if self.process.poll() is not None:
-                self.reason, self.active = "owned-exit", False
+                self._fault("owned-exit")
                 return event
             if len(self.rows) >= LIMIT:
-                self.reason, self.active = "overflow", False
+                self._fault("overflow")
                 return event
             timestamp = self.api.timestamp(event)
             if type(timestamp) is not int or timestamp <= 0:
                 raise ValueError("Unavailable timestamp")
-            if self.active and self.admitted and self.reason is None and not self.stopping.is_set():
-                self.rows.append(dict(phase="receive", kind=KINDS[kind],
-                    timestamp=timestamp, wallMillis=time.time_ns() // 1000000,
-                    sequence=len(self.rows)))
+            # The callback never waits on a lock. Contention invalidates evidence.
+            if not self._record_lock.acquire(blocking=False):
+                self._fault("callback-failure")
+                return event
+            try:
+                if len(self.rows) >= LIMIT:
+                    self._fault("overflow")
+                    return event
+                if self.active and self.admitted and self.reason is None and not self.stopping.is_set():
+                    self.rows.append(dict(phase="receive", kind=KINDS[kind],
+                        timestamp=timestamp, wallMillis=time.time_ns() // 1000000,
+                        sequence=len(self.rows)))
+                    # Stop is a nonblocking signal. Reject an in-flight commit
+                    # before quiescence if the signal raced the append.
+                    if self.stopping.is_set():
+                        self.rows.pop()
+            finally:
+                self._record_lock.release()
         except BaseException:
-            self.reason, self.active = "callback-unavailable", False
+            self._fault("callback-failure")
         return event
 
     def _reader(self):
@@ -153,24 +221,27 @@ class Observer:
             self.api = self.api_factory()
             resource = self.api.install(self.process.pid, self.callback)
             self.resource = resource
-            with self.admission_lock:
+            with self.admission_lock, self._record_lock:
                 if resource is None:
-                    self.reason = self.reason or "unavailable"
+                    self._fault("unavailable")
                     return
                 if self.stopping.is_set() or self.reason is not None or time.monotonic() >= self.admission_deadline:
-                    self.reason = self.reason or "startup-timeout"
+                    self._fault("startup-timeout")
                     return
                 self.active = True
+                if self.stopping.is_set() or self.reason is not None:
+                    self.active = False
+                    return
                 self.ready.set()
             while not self.stopping.is_set():
                 if self.process.poll() is not None:
-                    self.reason, self.active = "owned-exit", False
+                    self._fault("owned-exit")
                     break
                 if not self.api.read(resource):
-                    self.reason, self.active = "disabled", False
+                    self._fault("flag-disabled")
                     break
         except Exception:
-            self.reason, self.active = self.reason or "reader-unavailable", False
+            self._fault("reader-failure")
         finally:
             self.active = False
             try:
@@ -178,8 +249,10 @@ class Observer:
                     # Run-loop callback has returned on THIS thread before release.
                     self.api.wake(resource)
                     self.api.remove(resource)
+                    self.lifecycle("source-invalidated")
             except Exception:
-                self.reason = "cleanup-failed"
+                self.cleanup_failed = True
+                self._fault("cleanup-failure")
             self.ready.set()
             self.finished.set()
 
@@ -190,7 +263,7 @@ class Observer:
         try:
             remaining(deadline)  # Refuse BEFORE constructing any thread/API.
         except TimeoutError:
-            self.reason = "startup-timeout"
+            self._fault("startup-timeout")
             self.request_stop()
             self.finished.set()
             raise
@@ -199,15 +272,19 @@ class Observer:
         ready = self.ready.wait(max(0, deadline - time.monotonic()))
         with self.admission_lock:
             if not ready or time.monotonic() >= deadline:
-                self.reason = self.reason or "startup-timeout"
+                self._fault("startup-timeout")
                 self.request_stop()
                 return False
-            self.admitted = self.active and self.reason is None and not self.stopping.is_set()
-            return self.admitted
+            with self._record_lock:
+                self.admitted = self.active and self.reason is None and not self.stopping.is_set()
+                if self.stopping.is_set():
+                    self.admitted = False
+                return self.admitted
 
     def request_stop(self):
-        self.active, self.admitted = False, False
         self.stopping.set()
+        self.active, self.admitted = False, False
+        self.lifecycle("stop-request")
 
     def stop(self, deadline):
         self.request_stop()
@@ -215,14 +292,20 @@ class Observer:
             self.thread.join(max(0, deadline - time.monotonic()))
             if self.thread.is_alive():
                 # Thread retains self/callback/resources. Never free in-flight state.
+                self._fault("cleanup-failure")
                 raise RuntimeError("Owned receive reader did not quiesce")
-        if self.reason == "cleanup-failed":
+            self.lifecycle("reader-joined")
+        if self.cleanup_failed:
             raise RuntimeError("Owned receive cleanup failed")
         return self.receipt()
 
     def receipt(self):
         return dict(phase="observer", status="unqualified", reason=self.reason,
-            stopped=self.finished.is_set(), received=list(self.rows), coverageQualified=False)
+            stopped=self.finished.is_set(), received=list(self.rows), coverageQualified=False,
+            firstHealth=(dict(self._first["fault"], clock=dict(self._first["fault"]["clock"]))
+                if "fault" in self._first else None),
+            transitions=[dict(self._transitions[i], clock=dict(self._transitions[i]["clock"]))
+                for i in sorted(self._transitions)], healthOverflow=self.health_overflow)
 
 
 class Channel:
@@ -272,10 +355,22 @@ class Channel:
 def cleanup_owned(children, observer, deadline):
     """Kill/reap owned children FIRST; reserve the remainder for CF quiescence."""
     errors = []
+    if observer is not None:
+        try:
+            getattr(observer, "request_stop", lambda: None)()
+        except Exception:
+            errors.append("stop-request-failed")
+    def phase(name):
+        if observer is not None:
+            try:
+                getattr(observer, "lifecycle", lambda _name: None)(name)
+            except Exception:
+                errors.append("lifecycle-record-failed")
     for child in children:
         if child is not None and child.poll() is None:
             try:
                 child.kill()
+                phase("owned-kill")
             except Exception:
                 errors.append("owned-kill-failed")
     reap_deadline = time.monotonic() + max(0, deadline - time.monotonic()) / 2
@@ -283,6 +378,7 @@ def cleanup_owned(children, observer, deadline):
         if child is not None:
             try:
                 child.wait(timeout=max(0, reap_deadline - time.monotonic()))
+                phase("owned-reap")
             except Exception:
                 errors.append("owned-reap-failed")
     if observer is not None:
