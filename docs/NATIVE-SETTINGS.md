@@ -92,7 +92,7 @@ This fixture grant is not part of either desktop application.
 
 **Reload available models** queries the selected GitHub CLI account through
 Copilot's read-only `models.list` RPC. The native client matches protocol 3
-used by this repository's `@github/copilot-sdk` 1.0.14. It creates no prompt or
+used by this repository's `@github/copilot-sdk` 1.0.28. It creates no prompt or
 agent session, never switches the active `gh` account, and passes the selected
 token only through the child environment. Discovery has a 30-second deadline
 and bounded frames; the request's CLI process is reaped on success and failure.

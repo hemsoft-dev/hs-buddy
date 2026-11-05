@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1660] - 2026-11-05
+
+### Changed
+
+- Integrate main dependency updates
+
 ## [0.1.1659] - 2026-11-05
 
 ### Fixed
@@ -290,6 +296,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Exercise Ubuntu installed runtime rollback
+
+## [0.1.1614] - 2026-11-05
+
+### Fixed
+
+- Replace yanked async-executor pin
+
+## [0.1.1613] - 2026-11-04
+
+### Changed
+
+- Align sdk metadata with dependency upgrade
 
 ## [0.1.1612] - 2026-11-01
 
