@@ -73,11 +73,13 @@ class Fixture(unittest.TestCase):
             child.kill()
         child.wait(timeout=5)
 
-    def metadata(self, arm=None):
+    def metadata(self, arm=None, scale=1):
         arm = arm or self.arm
-        return dict(comparisonDisplay=display(), kCGWindowBounds=dict(X=arm.origin[0], Y=80, Width=1200, Height=820),
+        screen = display()
+        screen["scale"] = scale
+        return dict(comparisonDisplay=screen, kCGWindowBounds=dict(X=arm.origin[0], Y=80, Width=1200, Height=820),
                     kCGWindowOwnerPID=self.child.pid, kCGWindowNumber=1,
-                    capturePixelSize=[1200, 820], capturePixelsPerWindowPoint=1)
+                    capturePixelSize=[1200 * scale, 820 * scale], capturePixelsPerWindowPoint=scale)
 
 
 class GeometryControls(Fixture):
@@ -215,6 +217,67 @@ class GeometryControls(Fixture):
             self.assertEqual(arm.targets[0]["point"],[624.5,210.5])
             outputs.append(calls[0])
         self.assertEqual(outputs,[(704.5,290.5),(864.5,290.5)])
+
+    def test_actual_interact_keeps_window_points_at_both_capture_scales(self):
+        cases = [
+            ("nav", "Notifications", dict(left=460, top=154, width=80, height=18), [500, 163]),
+            ("content", "Review completion sound: off", dict(left=530, top=201, width=189, height=19), [624.5, 210.5]),
+            ("field", "GitHub CLI account", dict(left=73, top=237, width=112, height=10,
+                save=dict(left=1134, top=271, width=30, height=10)), [600, 276]),
+            ("save", "GitHub CLI account", dict(left=73, top=237, width=112, height=10,
+                save=dict(left=1134, top=271, width=30, height=10)), [1149, 276]),
+        ]
+        for scale in (1, 2):
+            for origin in placement.ORIGINS:
+                for kind, label, bounds, point in cases:
+                    with self.subTest(scale=scale, origin=origin, kind=kind):
+                        arm = placement.Arm(origin, self.executable)
+                        arm.attach(self.window, self.config, scene="preferences")
+                        arm.assigned_geometry([1200, 820, *origin])
+                        metadata = self.metadata(arm, scale)
+                        arm.capture(metadata)
+                        directory = self.root / f"{scale}-{origin[0]}-{kind}"
+                        directory.mkdir()
+                        image = directory / "locator.png"
+                        image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+                            + (1200 * scale).to_bytes(4, "big") + (820 * scale).to_bytes(4, "big"))
+                        image.with_suffix(".window.json").write_text(json.dumps(metadata))
+                        measured = {key: value * scale for key, value in bounds.items() if key != "save"}
+                        if "save" in bounds:
+                            measured["save"] = {key: value * scale for key, value in bounds["save"].items()}
+                        clicks, replacements = [], []
+                        class Input:
+                            def __init__(self, process): pass
+                            def click(self, *target): clicks.append(target)
+                            def replace_text(self, value): replacements.append(value)
+                        driver = settings.Driver.__new__(settings.Driver)
+                        driver.session = "macos"
+                        driver.locate = lambda *args, **kwargs: measured
+                        driver.input_receipt = lambda *args: None
+                        driver.capture_click_boundary = lambda *args: None
+                        values = [label, "fixture-native-one"] if kind == "field" else [label]
+                        with patch.object(settings, "OwnedMacInput", Input), patch.object(settings, "run") as run, patch.object(settings.time, "sleep") as sleep:
+                            driver.interact(self.window, directory, kind, values)
+                        self.assertEqual(clicks, [(origin[0] + point[0], origin[1] + point[1])])
+                        self.assertEqual(replacements, ["fixture-native-one"] if kind == "field" else [])
+                        self.assertEqual(len(arm.targets), 1)
+                        self.assertEqual(arm.targets[0]["point"], point)
+                        self.assertEqual(arm.targets[0]["bounds"], measured)
+                        run.assert_called_once()
+                        self.assertEqual([call.args for call in sleep.call_args_list], [(0.4,), (0.7,)])
+
+    def test_scaled_bounds_still_refuse_pixel_space_and_outside_targets(self):
+        self.arm.assigned_geometry([1200, 820, 80, 80])
+        self.arm.capture(self.metadata(scale=2))
+        bounds = dict(left=600, top=400, width=200, height=40)
+        self.arm.target("content", "measured", [350, 210], bounds)
+        for point, measured in [
+                ([650, 410], bounds),
+                ([350, float("nan")], bounds),
+                ([1150, 210], dict(left=2500, top=400, width=100, height=40))]:
+            with self.subTest(point=point), self.assertRaises(placement.AdmissionError):
+                self.arm.target("content", "measured", point, measured)
+        self.assertEqual(len(self.arm.targets), 1)
 
     def test_target_refuses_window_and_control_escape_or_missing_capture(self):
         bounds=dict(left=530,top=201,width=189,height=19)

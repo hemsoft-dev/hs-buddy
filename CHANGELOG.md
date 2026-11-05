@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1661] - 2026-11-05
+
+### Fixed
+
+- Normalize placement bounds to window points
+
 ## [0.1.1660] - 2026-11-05
 
 ### Changed

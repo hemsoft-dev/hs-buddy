@@ -181,7 +181,10 @@ class Arm:
         if self.window_id is None or not self.assigned or len(self.targets) >= 256:
             raise AdmissionError("Placement target has no admitted capture")
         x, y = point
-        box = dict(x=bounds["left"], y=bounds["top"], width=bounds["width"], height=bounds["height"])
+        # OCR bounds use capture pixels; targets and window bounds use points.
+        scale = self.display["scale"]
+        box = dict(x=bounds["left"] / scale, y=bounds["top"] / scale,
+                   width=bounds["width"] / scale, height=bounds["height"] / scale)
         rectangle(box)
         window = dict(x=0, y=0, width=SIZE[0], height=SIZE[1])
         if (not contains(window, box) or not all(math.isfinite(v) for v in point)
