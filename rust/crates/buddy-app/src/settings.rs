@@ -9,6 +9,8 @@ use buddy_core::config::{AppConfig, UiConfig, config_path};
 use buddy_core::config_lock::{ConfigLock, DEFAULT_TIMEOUT};
 use gpui_kit::{App, Global};
 
+use crate::performance_probe::trace::{self, Stage};
+
 pub struct Settings {
     pub config: AppConfig,
     pub save_error: Option<String>,
@@ -101,7 +103,9 @@ impl Settings {
         const ATTEMPTS: usize = 3;
         let mut lock = acquire_lock(path)?;
         for attempt in 1..=ATTEMPTS {
-            let (mut fresh, stamp) = match AppConfig::load_with_stamp_from(path) {
+            trace::attempt();
+            let loaded = trace::measure(Stage::Load, || AppConfig::load_with_stamp_from(path));
+            let (mut fresh, stamp) = match loaded {
                 Ok(loaded) => loaded,
                 Err(err) => {
                     log::warn!("not saving: configuration could not be reloaded ({err})");
@@ -127,11 +131,11 @@ impl Settings {
                 lock = acquire_lock(path)?;
                 continue;
             }
-            match fresh.save_if_unchanged_at(path, &stamp) {
+            match trace::measure(Stage::Save, || fresh.save_if_unchanged_at(path, &stamp)) {
                 Ok(true) => {
                     cx.global_mut::<Self>().pending_native_section = None;
                     cx.global_mut::<Self>().save_error = None;
-                    Self::install(cx, fresh);
+                    trace::measure(Stage::Install, || Self::install(cx, fresh));
                     return Ok(());
                 }
                 Ok(false) if attempt < ATTEMPTS => {
@@ -224,7 +228,7 @@ fn appearance_differs(a: &UiConfig, b: &UiConfig) -> bool {
 /// Refuse the edit when another Buddy process owns the shared file. The
 /// stamp guard additionally detects writers that do not follow this lock.
 fn acquire_lock(path: &std::path::Path) -> Result<ConfigLock, SettingsError> {
-    match ConfigLock::acquire(path, DEFAULT_TIMEOUT) {
+    match trace::measure(Stage::Lock, || ConfigLock::acquire(path, DEFAULT_TIMEOUT)) {
         Ok(Some(lock)) => Ok(lock),
         Ok(None) => Err(SettingsError(
             "Configuration is busy. Retry after the other Buddy instance finishes saving.",

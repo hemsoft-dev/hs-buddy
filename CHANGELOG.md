@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1663] - 2026-11-05
+
+### Changed
+
+- Add optional Windows native response trace
+
+## [0.1.1662] - 2026-11-05
+
+### Changed
+
+- Add optional Windows native response trace
+
 ## [0.1.1661] - 2026-11-05
 
 ### Fixed
