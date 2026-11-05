@@ -1,5 +1,6 @@
 //! Native job and schedule management with a background claim-owning dispatcher.
 mod forms;
+mod lifecycle;
 mod render;
 mod service;
 #[cfg(test)]
@@ -22,7 +23,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window, div,
 };
 use serde_json::Value;
-use service::{Command, Handle, Snapshot};
+use service::{Command, Completion, Handle, Snapshot};
 
 impl gpui_kit::Global for Handle {}
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -104,13 +105,6 @@ impl AutomationView {
             cx.notify();
         })
         .detach();
-        cx.on_app_quit(|this, _| {
-            if let Some(handle) = &this.handle {
-                handle.send(Command::Stop);
-            }
-            std::future::ready(())
-        })
-        .detach();
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -161,9 +155,9 @@ impl AutomationView {
         } else {
             match buddy_core::config::config_path() {
                 Ok(config) => {
-                    let handle = Handle::start(Runtime::global(cx), config, Self::context(cx));
-                    cx.set_global(handle.clone());
-                    self.handle = Some(handle);
+                    let (handle, completion) =
+                        Handle::start(Runtime::global(cx), config, Self::context(cx));
+                    self.adopt_started(handle, completion, cx);
                 }
                 Err(_) => {
                     self.error = Some(
@@ -174,6 +168,13 @@ impl AutomationView {
             }
         }
         self.sync(cx);
+    }
+    /// Only a fresh start reaches this, so one coordinator gets one quit wait. It takes `App`
+    /// because `Context::on_app_quit` would tie the wait to this view's lifetime.
+    fn adopt_started(&mut self, handle: Handle, completion: Completion, cx: &mut gpui_kit::App) {
+        lifecycle::wait_on_quit(cx, handle.clone(), completion);
+        cx.set_global(handle.clone());
+        self.handle = Some(handle);
     }
     fn sync(&mut self, cx: &mut Context<Self>) {
         let Some(handle) = &self.handle else {

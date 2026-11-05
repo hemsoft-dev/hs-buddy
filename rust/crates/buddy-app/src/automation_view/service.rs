@@ -77,24 +77,21 @@ pub(super) enum Command {
     Cancel(String),
     Stop,
 }
-struct Envelope {
-    command: Command,
+pub(super) struct Envelope {
+    pub(super) command: Command,
     reply: Option<oneshot::Sender<Result<(), String>>>,
 }
+/// Resolves after the coordinator task's future has finished, so the consumed coordinator and
+/// its storage guards are already dropped. `Canceled` means the task unwound or was dropped.
+pub(super) type Completion = oneshot::Receiver<()>;
 #[derive(Clone)]
 pub(super) struct Handle {
     sender: mpsc::UnboundedSender<Envelope>,
     state: Arc<Mutex<Snapshot>>,
 }
 impl Handle {
-    pub fn start(runtime: &Runtime, config: PathBuf, context: Context) -> Self {
-        let (sender, receiver) = mpsc::unbounded_channel();
-        let state = Arc::new(Mutex::new(Snapshot::default()));
-        let handle = Self {
-            sender,
-            state: state.clone(),
-        };
-        runtime.spawn_detached(async move {
+    pub fn start(runtime: &Runtime, config: PathBuf, context: Context) -> (Self, Completion) {
+        Self::spawn(runtime, move |receiver, state| async move {
             match Coordinator::open(&config, context) {
                 Ok(coordinator) => coordinator.run(receiver, state).await,
                 Err(error) => {
@@ -104,8 +101,22 @@ impl Handle {
                     snapshot.sequence += 1;
                 }
             }
-        });
-        handle
+        })
+    }
+    /// Starts `task` as the owner of the command queue and the snapshot.
+    pub(super) fn spawn<F, Fut>(runtime: &Runtime, task: F) -> (Self, Completion)
+    where
+        F: FnOnce(mpsc::UnboundedReceiver<Envelope>, Arc<Mutex<Snapshot>>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let state = Arc::new(Mutex::new(Snapshot::default()));
+        let handle = Self {
+            sender,
+            state: state.clone(),
+        };
+        let completion = runtime.spawn(task(receiver, state));
+        (handle, completion)
     }
     pub fn snapshot(&self) -> Snapshot {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -398,6 +409,9 @@ impl Coordinator {
         let mut polls = 0;
         loop {
             tokio::select! {
+                // A queued Stop wins over a tick that is ready at the same moment, so quit
+                // starts no extra work. Commands keep their order among themselves.
+                biased;
                 command = receiver.recv() => {
                     let Some(envelope) = command else { break; };
                     if matches!(envelope.command, Command::Stop) { break; }

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1659] - 2026-11-05
+
+### Fixed
+
+- Wait for automation coordinator at quit
+
 ## [0.1.1658] - 2026-11-04
 
 ### Changed

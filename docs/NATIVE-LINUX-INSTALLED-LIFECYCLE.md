@@ -289,3 +289,45 @@ CPU paths remain a limit: AVX2 and the tested default paths pass; forced SSE OCR
 still fails closed. Fresh hosted browser, light/compact/restart and installed
 upgrade/rollback results remain required. No matcher alias, layout union, engine
 upgrade, larger timeout, native migration, Mac input repair or cutover is implied.
+
+## Automation quit wait
+
+The Ubuntu run at `11ada98` passed its Rust gates, then stopped at automation
+restart-light before browser and lifecycle checks. New job stayed disabled, and
+the dispatcher reported the recovery file as Busy. The retained `automation-result`
+lock token and request shape strongly support an exit during result retirement.
+The run did not record the thread or PID, so that cause remains an inference.
+Refusing a fresh lock was correct, and no OCR relaxation is justified.
+
+The quit hook used to send Stop and wait for nothing, and it lived on a view, so it
+was gone once that view was released. Quit now has one app-level hook, registered
+only where a fresh coordinator starts. It sends Stop and spends GPUI's existing
+200 ms quit wait on the `Runtime::spawn` completion, which resolves only after the
+consumed coordinator and its storage guards have been dropped. A reused handle adds
+no hook. The coordinator's `select!` takes queued commands before a ready tick, so a
+queued Stop starts no new tick. Commands keep their order.
+
+An `Ok` completion means the task ended, including a failed open that reported
+Attention. A cancelled completion means the task unwound. It logs one fixed message
+and is never reported as a clean stop. The lock protocol, stale timing, Busy refusal,
+acceptance oracles, OCR, input, focus and capture are unchanged. There is no new
+sleep, retry, budget or lock deletion.
+
+This narrows the race and does not close it. A tick or an edit or trigger lease that
+is already sending over the network can outlast the 200 ms wait and leave a fresh
+lock, so the next start can still report Busy until that lock goes stale. Completion
+does not cover the detached worker supervisor or a durable remote acknowledgment, and
+an abrupt process death is not addressed. No rate is claimed: the earlier portable
+sweep frequencies are not hosted rates.
+
+The evidence so far is a private portable consumer of the actual `runtime.rs`,
+`service.rs`, `lifecycle.rs` and `config_lock.rs`, on real threads with a real lock.
+GPUI's quit, the backend and the engine are adapters there. It passes on this source.
+Mutants that wait for nothing, drop `biased`, report a cancelled task as clean or
+detach completion from the task each fail. The GPUI tests and negative controls in
+`automation_view/tests.rs` have not been compiled or run outside hosted CI, so they
+are not a native pass. Actual selection order is covered only by the portable mutant.
+
+A fresh hosted run must still reach restart-light, browser and installed
+upgrade/rollback results. Mac input and receiver endpoints are unrelated to this
+change. Electron stays primary and no cutover is implied.
