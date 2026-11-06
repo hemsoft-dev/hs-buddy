@@ -737,3 +737,36 @@ primary failures, isolation, partial receipts and the shared deadline. They do
 not reproduce WindowServer delivery or establish real A/B outcomes. Existing
 Windows receiving-fixture semantics remain independent. No local native/API/UI
 execution, published candidate or installed Mac PASS is claimed by preparation.
+
+## Native menu failure state
+
+On `86127b97`, the Intel installed job stopped at its first native menu popup
+bounds query with System Events error -1719. Settings and accounts were not
+reached. A successful later Escape supports process reachability, but does not
+establish app liveness or explain why the menu-bar index was unavailable.
+
+After a successful original menu click, a capture failure now attempts one
+`<menu>.failure.json` beside the original receipts. Its fixed schema records
+only the known menu/stage, a bounded error category, the retained Popen's state,
+and availability-tagged frontmost/menu-bar/window counts. The single read-only
+System Events query uses the same owned PID and a one-second timeout. It runs
+only if that process still polls as running. It performs no focus, input, retry,
+foreign process/window enumeration or screenshot. Raw errors, output, titles,
+PIDs and coordinates are not retained. Unavailable observations remain unknown.
+
+The snapshot occurs after failure and before the existing Escape. It can delay
+cleanup by up to that query timeout within the unchanged outer scene bound and
+can perturb the later state it reads. It does not observe the earlier hit route
+or establish a startup race, missing menu, app exit or input repair by itself.
+
+A snapshot failure cannot mask the original capture exception. Escape still
+runs once: its failure remains fatal after a successful capture, or becomes a
+cleanup note when the same original capture exception is already propagating.
+Successful captures retain their original commands, waits, pixels, receipts and
+strict menu assertions. No installed failure becomes a PASS through metadata.
+
+Portable consumer controls reproduce the old exception replacement and verify
+the corrected identity, fixed-schema refusal, failure stages and unchanged
+successful path. A Darwin-only control parses the observation script without
+sending its AppleEvent. Real System Events parsing and the failure-only query
+remain hosted validation; no local Mac execution or native correction is claimed.
