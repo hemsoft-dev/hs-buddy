@@ -118,7 +118,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "remark-gemoji": "^8.0.0",
-    "shiki": "^4.3.1"
+    "shiki": "^4.5.0"
   },
   "devDependencies": {
     "@amiceli/vitest-cucumber": "8.0.0",
