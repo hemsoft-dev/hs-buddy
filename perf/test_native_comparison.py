@@ -495,6 +495,424 @@ class TraceCannotReachAVerdictTests(unittest.TestCase):
         self.assertNotIn('responseTrace', policy)
 
 
+REAL_POPEN = subprocess.Popen
+SLEEPER = 'import time; time.sleep(120)'
+PARENT_OF_SLEEPER = 'import subprocess, sys, time; subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"]); time.sleep(120)'
+SURVIVED = 'owned processes survived cleanup'
+
+
+def gone(process):
+    try:
+        return not process.is_running() or process.status() == comparison.psutil.STATUS_ZOMBIE
+    except comparison.psutil.NoSuchProcess:
+        return True
+
+
+class CleanupProbe(FixtureProbe):
+    """The file protocol with a real owned child. It stops answering after `answer_until`,
+    keeps the log run_one gave it, and its finish kills only its own still-running processes,
+    so a bypassed terminate shows up as `alive_at_finish` instead of a hang."""
+    def __init__(self, answer_until=None, grandchild=False, wait_fails=False):
+        super().__init__(lambda request_id, route: {} if answer_until is None or request_id <= answer_until
+                         else {'id': 'silent'})
+        self.command = [sys.executable, '-c', PARENT_OF_SLEEPER if grandchild else SLEEPER]
+        self.grandchild, self.wait_fails = grandchild, wait_fails
+        self.log = self.grandchild_process = self.alive_at_finish = None
+        self.child_waits = []
+
+    def launch(self, args, env, log):
+        self.log = log
+        return self.start(env, REAL_POPEN(self.command))
+
+    def popen(self, args, **kwargs):
+        """Stands in for subprocess.Popen on the no-desktop path with the same cwd, env and log."""
+        self.log = kwargs['stdout']
+        child = REAL_POPEN(self.command, **kwargs)
+        real_wait = child.wait
+        def wait(timeout=None):
+            self.child_waits.append(timeout)
+            code = real_wait(timeout=timeout)
+            if self.wait_fails:
+                raise subprocess.TimeoutExpired(self.command, timeout)
+            return code
+        child.wait = wait
+        return self.start(kwargs['env'], child, keep=child)
+
+    def start(self, env, child, keep=None):
+        self.child = child
+        if self.grandchild:
+            deadline = time.monotonic() + 10
+            while not (found := comparison.psutil.Process(child.pid).children()) and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.grandchild_process = found[0]
+        self.env = env
+        self.thread = threading.Thread(target=self.serve, args=(Path(env['BUDDY_PERF_DIR']),))
+        self.thread.start()
+        return keep if keep is not None else comparison.psutil.Process(child.pid)
+
+    def finish(self):
+        self.stop.set()
+        if self.thread:
+            self.thread.join()
+        if self.child:
+            self.alive_at_finish = self.child.poll() is None
+            if self.alive_at_finish:
+                self.child.kill()
+            REAL_POPEN.wait(self.child, timeout=10)
+        if self.grandchild_process and not gone(self.grandchild_process):
+            self.alive_at_finish = True
+            self.grandchild_process.kill()
+
+
+class ClosingFails:
+    """The run's real log file. close really closes it, then reports a failure."""
+    def __init__(self, file):
+        self.file = file
+
+    def fileno(self):
+        return self.file.fileno()
+
+    @property
+    def closed(self):
+        return self.file.closed
+
+    def close(self):
+        self.file.close()
+        raise OSError('log close failed')
+
+
+class FakeCDP:
+    """Electron's transport, answering every check until frame call `fail_at` reports a missing shell."""
+    instances = []
+
+    def __init__(self, port, process, fail_at=3, close_fails=True):
+        self.frames, self.closes, self.fail_at, self.close_fails = 0, 0, fail_at, close_fails
+        self.ws = SimpleNamespace(close=self.close)
+        FakeCDP.instances.append(self)
+
+    def evaluate(self, expression):
+        return {'width': 1, 'height': 1, 'scale': 1} if 'innerWidth' in expression else True
+
+    def frame(self, route):
+        self.frames += 1
+        return self.frames != self.fail_at
+
+    def close_tabs(self):
+        pass
+
+    def close(self):
+        self.closes += 1
+        if self.close_fails:
+            raise OSError('socket already closed')
+
+
+def run_cleanup(probe, *, kind='native', desktop=True, survivor=False, cdp=None, log_close_fails=False,
+                profile_fails=False, interrupt=False):
+    """Run the real run_one. Fakes are named: a survivor keeps psutil's real kill and real wait but
+    reports the root process as still alive; every other process step is real."""
+    real_sleep, real_wait_for = time.sleep, comparison.wait_for
+    real_wait_procs, real_terminate, real_open = comparison.psutil.wait_procs, comparison.terminate, Path.open
+    real_profile = tempfile.TemporaryDirectory
+    record = SimpleNamespace(wait_errors=[], waited=[], terminated=0, result=None, error=None)
+
+    def wait_for(read, process, timeout=60):
+        try:
+            return real_wait_for(read, process, timeout=.5)
+        except BaseException as error:
+            record.wait_errors.append(error)
+            raise
+
+    def wait_procs(procs, timeout=None):
+        record.waited.append(([p.pid for p in procs], timeout))
+        done, alive = real_wait_procs(procs, timeout=timeout)
+        return (done, alive + [procs[-1]]) if survivor else (done, alive)
+
+    def terminate(process):
+        record.terminated += 1
+        return real_terminate(process)
+
+    def opener(path, mode='r', *args, **kwargs):
+        file = real_open(path, mode, *args, **kwargs)
+        return ClosingFails(file) if log_close_fails and mode == 'wb' and path.suffix == '.log' else file
+
+    class FailingProfile(real_profile):
+        def __exit__(self, *exc):
+            super().__exit__(*exc)
+            raise OSError('profile removal failed')
+
+    def warmup(seconds, kind):
+        if interrupt:
+            raise KeyboardInterrupt('operator stop')
+
+    patches = [patch.object(comparison, 'native_trace_enabled', lambda requested: False),
+               patch.object(comparison.time, 'sleep', lambda seconds: real_sleep(min(seconds, .001))),
+               patch.object(comparison, 'wait_for', wait_for), patch.object(comparison, 'terminate', terminate),
+               patch.object(comparison.psutil, 'wait_procs', wait_procs), patch.object(comparison.Path, 'open', opener),
+               patch.object(comparison, 'warmup', warmup)]
+    if cdp:
+        patches.append(patch.object(comparison, 'CDP', cdp))
+    if not desktop:
+        patches.append(patch.object(comparison.subprocess, 'Popen', probe.popen))
+    if profile_fails:
+        patches.append(patch.object(comparison.tempfile, 'TemporaryDirectory', FailingProfile))
+    with tempfile.TemporaryDirectory() as output:
+        options = SimpleNamespace(warmup=0, settle=0, cycles=1, electron_development=False,
+                                  output=Path(output) / 'comparison.json')
+        try:
+            for item in patches:
+                item.start()
+            record.result = comparison.run_one(kind, Path(sys.executable), probe if desktop else None, options)
+        except BaseException as error:
+            record.error = error
+        finally:
+            for item in reversed(patches):
+                item.stop()
+            probe.finish()
+    return record
+
+
+def entry(step, failure_type, message, raised=False):
+    return {'step': step, 'type': failure_type, 'message': message, 'raised': raised}
+
+
+class CleanupPreservationTests(unittest.TestCase):
+    """The e343 Intel boundary: a navigation receipt timed out, then cleanup found a survivor."""
+    def assert_only_requests(self, probe, count):
+        self.assertEqual([r['id'] for r in probe.requests], list(range(1, count + 1)))
+        expected = ['dashboard', 'settings-accounts'] + list(comparison.ROUTES) * 2
+        self.assertEqual([r['route'] for r in probe.requests], expected[:count])
+
+    def assert_cleaned(self, probe, record, *, desktop=True):
+        self.assertEqual(record.terminated, 1)
+        self.assertEqual(len(record.waited), 1)
+        self.assertEqual(record.waited[0][1], 10)
+        self.assertIn(probe.child.pid, record.waited[0][0])
+        self.assertTrue(probe.log.closed)
+        self.assertFalse(probe.alive_at_finish)
+        if not desktop:
+            self.assertEqual(probe.child_waits, [10])
+
+    def test_e343_missing_receipt_stays_the_error_when_cleanup_finds_a_survivor(self):
+        """Faked survivor: the kill and the 10 s wait are real, only the liveness answer is not."""
+        for desktop in (True, False):
+            with self.subTest(desktop=desktop):
+                probe = CleanupProbe(answer_until=3)
+                record = run_cleanup(probe, desktop=desktop, survivor=True)
+                self.assertIsNone(record.result)
+                self.assertEqual(len(record.wait_errors), 1)
+                self.assertIs(record.error, record.wait_errors[0])
+                self.assertIsInstance(record.error, TimeoutError)
+                self.assertEqual(str(record.error), 'missing application receipt')
+                self.assertEqual(record.error.cleanup_failures, [entry('terminate', 'RuntimeError', SURVIVED)])
+                self.assertEqual(record.error.__notes__, [f'cleanup step terminate also failed: RuntimeError: {SURVIVED}'])
+                # The fourth request is cycle 0's second route; nothing is sent after it.
+                self.assert_only_requests(probe, 4)
+                self.assertEqual(probe.requests[3]['route'], comparison.ROUTES[1])
+                self.assert_cleaned(probe, record, desktop=desktop)
+
+    def test_cleanup_failure_alone_still_fails_and_finishes_every_later_step(self):
+        probe = CleanupProbe()
+        record = run_cleanup(probe, desktop=False, survivor=True)
+        self.assertIsNone(record.result)
+        self.assertEqual(record.wait_errors, [])
+        self.assertIsInstance(record.error, RuntimeError)
+        self.assertEqual(str(record.error), SURVIVED)
+        self.assertEqual(record.error.cleanup_failures, [entry('terminate', 'RuntimeError', SURVIVED, raised=True)])
+        self.assertFalse(hasattr(record.error, '__notes__'))
+        self.assert_only_requests(probe, 2 + 2 * len(comparison.ROUTES))
+        self.assert_cleaned(probe, record, desktop=False)
+
+    def test_every_cleanup_failure_is_listed_in_order_on_the_primary(self):
+        """Faked: survivor answer, log close error after a real close, child wait error after a real reap."""
+        probe = CleanupProbe(answer_until=3, wait_fails=True)
+        record = run_cleanup(probe, desktop=False, survivor=True, log_close_fails=True, profile_fails=True)
+        self.assertIs(record.error, record.wait_errors[0])
+        self.assertEqual([(f['step'], f['type'], f['raised']) for f in record.error.cleanup_failures],
+                         [('terminate', 'RuntimeError', False), ('log', 'OSError', False),
+                          ('child', 'TimeoutExpired', False), ('profile', 'OSError', False)])
+        self.assertEqual(len(record.error.__notes__), 4)
+        self.assert_cleaned(probe, record, desktop=False)
+
+    def test_a_cleanup_only_failure_keeps_later_failures_on_itself(self):
+        probe = CleanupProbe()
+        record = run_cleanup(probe, desktop=False, survivor=True, log_close_fails=True, profile_fails=True)
+        self.assertEqual(str(record.error), SURVIVED)
+        self.assertEqual(record.error.cleanup_failures, [entry('terminate', 'RuntimeError', SURVIVED, raised=True),
+                                                         entry('log', 'OSError', 'log close failed'),
+                                                         entry('profile', 'OSError', 'profile removal failed')])
+        self.assert_cleaned(probe, record, desktop=False)
+
+    def test_profile_removal_failure_cannot_replace_the_primary(self):
+        probe = CleanupProbe(answer_until=3)
+        record = run_cleanup(probe, profile_fails=True)
+        self.assertIs(record.error, record.wait_errors[0])
+        self.assertEqual(record.error.cleanup_failures, [entry('profile', 'OSError', 'profile removal failed')])
+        self.assert_cleaned(probe, record)
+        probe = CleanupProbe()
+        record = run_cleanup(probe, profile_fails=True)
+        self.assertEqual((type(record.error), str(record.error)), (OSError, 'profile removal failed'))
+        self.assertIsNone(record.result)
+
+    def test_a_failed_transport_close_cannot_skip_terminate(self):
+        """Real termination: the fake is only Electron's transport; kill and wait are psutil's own."""
+        FakeCDP.instances.clear()
+        probe = CleanupProbe()
+        record = run_cleanup(probe, kind='electron', cdp=FakeCDP)
+        self.assertEqual((type(record.error), str(record.error)), (RuntimeError, 'Electron shell missing'))
+        self.assertEqual(record.error.cleanup_failures, [entry('cdp', 'OSError', 'socket already closed')])
+        [cdp] = FakeCDP.instances
+        self.assertEqual((cdp.frames, cdp.closes), (3, 1))
+        self.assertEqual(probe.requests, [])
+        self.assert_cleaned(probe, record)
+
+    def test_an_interrupt_stays_the_error_and_cleanup_still_runs(self):
+        probe = CleanupProbe()
+        record = run_cleanup(probe, survivor=True, interrupt=True)
+        self.assertIsInstance(record.error, KeyboardInterrupt)
+        self.assertEqual(record.error.cleanup_failures, [entry('terminate', 'RuntimeError', SURVIVED)])
+        self.assert_only_requests(probe, 1)
+        self.assert_cleaned(probe, record)
+
+    def test_real_owned_tree_is_killed_and_an_unrelated_process_is_left_alone(self):
+        """Real process proof, nothing faked in cleanup: an owned child with a real grandchild,
+        plus a sibling the run does not own."""
+        sibling = REAL_POPEN([sys.executable, '-c', SLEEPER])
+        try:
+            probe = CleanupProbe(answer_until=3, grandchild=True)
+            record = run_cleanup(probe, desktop=False)
+            self.assertIs(record.error, record.wait_errors[0])
+            self.assertFalse(hasattr(record.error, 'cleanup_failures'))
+            self.assertIn(probe.grandchild_process.pid, record.waited[0][0])
+            self.assertTrue(gone(probe.grandchild_process))
+            self.assert_cleaned(probe, record, desktop=False)
+            self.assertIsNone(sibling.poll())
+            self.assertNotIn(sibling.pid, record.waited[0][0])
+        finally:
+            sibling.kill()
+            sibling.wait(timeout=10)
+
+    def test_a_successful_run_returns_its_result_with_no_cleanup_record(self):
+        probe = CleanupProbe()
+        record = run_cleanup(probe, desktop=False)
+        self.assertIsNone(record.error)
+        self.assertEqual(len(record.result['responseSamples']), 2 * len(comparison.ROUTES))
+        self.assert_cleaned(probe, record, desktop=False)
+
+
+class ErrorFileTests(unittest.TestCase):
+    """main's error file is where the evidence goes. It names the primary and lists cleanup failures."""
+    def write_error(self, error):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / 'performance/comparison.json'
+            argv = ['native-comparison.py', '--native', sys.executable, '--electron', sys.executable,
+                    '--electron-development', '--output', str(output)]
+            with patch.object(sys, 'argv', argv), patch.dict(comparison.os.environ, {'GITHUB_ACTIONS': 'true'}), \
+                    patch.object(comparison.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+                    patch.object(comparison, 'HiddenDesktop', Mock()), \
+                    patch.object(comparison, 'run_one', Mock(side_effect=error)), \
+                    patch('builtins.print'):
+                with self.assertRaises(BaseException) as raised:
+                    comparison.main()
+            self.assertIs(raised.exception, error)
+            return json.loads(output.read_text(encoding='utf-8'))
+
+    def test_the_primary_and_its_cleanup_failure_both_reach_the_file(self):
+        error = TimeoutError('missing application receipt')
+        def survivor():
+            raise RuntimeError(SURVIVED)
+        comparison.finish_run(error, [('terminate', survivor)])
+        report = self.write_error(error)
+        self.assertEqual(report['error'], 'missing application receipt')
+        self.assertEqual(report['cleanupFailures'], [entry('terminate', 'RuntimeError', SURVIVED)])
+        self.assertEqual((report['status'], report['runtime'], report['completedPairs'], report['partialPair']),
+                         ('error', 'native', [], {}))
+
+    def test_an_error_without_cleanup_failures_keeps_the_original_file_shape(self):
+        report = self.write_error(RuntimeError('Electron shell missing'))
+        self.assertEqual(list(report), ['schema', 'status', 'runtime', 'error', 'completedPairs', 'partialPair'])
+
+
+class ParentBoundaryTests(unittest.TestCase):
+    """No Windows UI: main uses an owned fake desktop and never launches an app."""
+    def main_error(self, primary, *, desktop_error=None, evidence_error=None, input_error=None):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / 'performance/comparison.json'
+            argv = ['native-comparison.py', '--native', sys.executable, '--electron', sys.executable,
+                    '--electron-development', '--output', str(output)]
+            close = Mock(side_effect=desktop_error)
+            run = Mock(side_effect=primary) if primary is not None else Mock(return_value={'sampleCount': 1})
+            real_write, writes = Path.write_text, []
+            def write(path, *args, **kwargs):
+                if path.parent.name == 'inputs' and input_error is not None:
+                    raise input_error
+                if path == output:
+                    writes.append(path)
+                    if evidence_error is not None:
+                        raise evidence_error
+                return real_write(path, *args, **kwargs)
+            # Replace this module's os reference, not pathlib's platform selection.
+            environment = dict(comparison.os.environ, GITHUB_ACTIONS='true')
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(comparison, 'os', SimpleNamespace(name='nt', environ=environment)), \
+                    patch.object(comparison.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+                    patch.object(comparison, 'HiddenDesktop', Mock(return_value=SimpleNamespace(close=close))), \
+                    patch.object(comparison, 'run_one', run), patch.object(Path, 'write_text', write), \
+                    patch('builtins.print'):
+                with self.assertRaises(BaseException) as raised:
+                    comparison.main()
+            payload = json.loads(output.read_text(encoding='utf-8')) if output.exists() else None
+            return raised.exception, payload, close.call_count, run.call_count, len(writes)
+
+    def test_desktop_close_cannot_replace_the_primary_after_error_evidence(self):
+        primary, cleanup = TimeoutError('missing application receipt'), OSError('desktop close failed')
+        error, payload, closes, runs, writes = self.main_error(primary, desktop_error=cleanup)
+        self.assertIs(error, primary)
+        self.assertEqual(payload['error'], str(primary))
+        self.assertEqual((closes, runs, writes), (1, 1, 1))
+        self.assertEqual(error.cleanup_failures, [entry('desktop', 'OSError', str(cleanup))])
+        self.assertIn('desktop close failed', error.__notes__[0])
+
+    def test_desktop_cleanup_failure_alone_is_fatal(self):
+        cleanup = OSError('desktop close failed')
+        error, payload, closes, runs, writes = self.main_error(None, desktop_error=cleanup)
+        self.assertIs(error, cleanup)
+        self.assertIsNone(payload)
+        self.assertEqual((closes, runs, writes), (1, 10, 0))
+
+    def test_error_evidence_write_failure_cannot_replace_the_primary(self):
+        primary, write_error = TimeoutError('missing application receipt'), OSError('evidence unwritable')
+        error, payload, closes, runs, writes = self.main_error(primary, evidence_error=write_error)
+        self.assertIs(error, primary)
+        self.assertIsNone(payload)
+        self.assertEqual((closes, runs, writes), (1, 1, 1))
+        self.assertEqual(error.cleanup_failures, [entry('evidence', 'OSError', str(write_error))])
+
+    def test_input_copy_failure_still_closes_the_owned_desktop(self):
+        primary = OSError('input evidence unreadable')
+        error, payload, closes, runs, writes = self.main_error(None, input_error=primary)
+        self.assertIs(error, primary)
+        self.assertIsNone(payload)
+        self.assertEqual((closes, runs, writes), (1, 0, 0))
+
+    def test_cleanup_interrupt_preserves_the_primary_and_later_cleanup(self):
+        primary, interrupt, calls = TimeoutError('missing application receipt'), KeyboardInterrupt('cleanup interrupted'), []
+        def interrupted():
+            raise interrupt
+        comparison.finish_run(primary, [('interrupt', interrupted), ('later', lambda: calls.append('later'))])
+        self.assertEqual(calls, ['later'])
+        self.assertEqual(primary.cleanup_failures, [entry('interrupt', 'KeyboardInterrupt', str(interrupt))])
+        with self.assertRaises(KeyboardInterrupt) as raised:
+            comparison.finish_run(None, [('interrupt', interrupted)])
+        self.assertIs(raised.exception, interrupt)
+
+    def test_main_interrupt_survives_desktop_cleanup_error(self):
+        primary = KeyboardInterrupt('operator stop')
+        error, payload, closes, runs, writes = self.main_error(primary, desktop_error=OSError('desktop close failed'))
+        self.assertIs(error, primary)
+        self.assertIsNone(payload)
+        self.assertEqual((closes, runs, writes), (1, 1, 0))
+
+
 class ProbeSourceContractTests(unittest.TestCase):
     probe = (ROOT / 'rust/crates/buddy-app/src/performance_probe.rs').read_text(encoding='utf-8')
     trace = (ROOT / 'rust/crates/buddy-app/src/performance_probe/trace.rs').read_text(encoding='utf-8')

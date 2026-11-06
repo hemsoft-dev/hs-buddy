@@ -176,6 +176,42 @@ def terminate(process):
         raise RuntimeError('owned processes survived cleanup')
 
 
+def finish_run(primary, steps):
+    """Run every cleanup step. The error that ends the run stays that exact object;
+    each cleanup failure is listed on it, so a later step can never replace or hide it."""
+    error, failures = primary, []
+    for step, action in steps:
+        try:
+            action()
+        except BaseException as failure:
+            error = failure if error is None else error
+            failures.append((step, failure))
+    for step, failure in failures:
+        error.cleanup_failures = [*getattr(error, 'cleanup_failures', []), {
+            'step': step, 'type': type(failure).__name__, 'message': str(failure), 'raised': failure is error}]
+        if failure is not error:
+            error.add_note(f'cleanup step {step} also failed: {type(failure).__name__}: {failure}')
+    if error is not primary:
+        raise error
+
+
+class KeepFirstError:
+    """A context manager whose exit failure is listed on the error already ending the run."""
+    def __init__(self, step, manager):
+        self.step, self.manager = step, manager
+
+    def __enter__(self):
+        return self.manager.__enter__()
+
+    def __exit__(self, kind, error, trace):
+        finish_run(error, [(self.step, lambda: self.manager.__exit__(kind, error, trace))])
+
+
+def cleanup_report(error):
+    failures = getattr(error, 'cleanup_failures', None)
+    return {'cleanupFailures': failures} if failures else {}
+
+
 def native_trace_enabled(kind):
     return kind == 'native' and os.name == 'nt'
 
@@ -351,7 +387,7 @@ def electron_asar(executable):
 
 
 def run_one(kind, exe, desktop, options):
-    with tempfile.TemporaryDirectory(prefix='buddy-paired-perf-') as temp:
+    with KeepFirstError('profile', tempfile.TemporaryDirectory(prefix='buddy-paired-perf-')) as temp:
         profile = Path(temp)
         (profile / 'config.json').write_text(json.dumps(FIXTURE), encoding='utf-8')
         (profile / 'window-state.json').write_text(json.dumps(CONTRACT['windowState']), encoding='utf-8')
@@ -423,6 +459,7 @@ def run_one(kind, exe, desktop, options):
                 spans.mark('received')
                 if receipt['status'] != 'ok':
                     raise RuntimeError(receipt)
+        primary = None
         try:
             if kind == 'native':
                 ready = wait_for(lambda: json.loads((profile / 'ready.json').read_text(encoding='utf-8')), process)
@@ -473,15 +510,17 @@ def run_one(kind, exe, desktop, options):
                     'measurementSeconds': elapsed,
                     'meanHostCpuPercent': statistics.mean(s['systemCpuPercent'] for s in samples[1:]) if len(samples) > 1 else None,
                     'maxSamplingGapMs': sampling_gap(samples, elapsed)}
+        except BaseException as error:
+            primary = error
+            raise
         finally:
-            stop.set()
-            thread.join()
-            if cdp:
-                cdp.ws.close()
-            terminate(process)
-            log.close()
-            if child:
-                child.wait(timeout=10)
+            finish_run(primary, [
+                ('sampler', lambda: (stop.set(), thread.join())),
+                ('cdp', lambda: cdp and cdp.ws.close()),
+                ('terminate', lambda: terminate(process)),
+                ('log', log.close),
+                ('child', lambda: child and child.wait(timeout=10)),
+            ])
 
 
 def summarize(runs):
@@ -573,14 +612,15 @@ def main():
         parser.error('commit application sources before qualification')
     desktop = HiddenDesktop() if os.name == 'nt' else None
     runs = []
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    inputs = args.output.parent / 'inputs'
-    inputs.mkdir(exist_ok=True)
-    for source in (Path(__file__), ROOT / 'perf/matching-fixture.json', ROOT / 'perf/native-comparison-budgets.json'):
-        destination = inputs / source.name
-        if source.resolve() != destination.resolve():
-            destination.write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
+    primary = None
     try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        inputs = args.output.parent / 'inputs'
+        inputs.mkdir(exist_ok=True)
+        for source in (Path(__file__), ROOT / 'perf/matching-fixture.json', ROOT / 'perf/native-comparison-budgets.json'):
+            destination = inputs / source.name
+            if source.resolve() != destination.resolve():
+                destination.write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
         for index in range(args.runs):
             pair = {}
             for kind in (('native', 'electron') if index % 2 == 0 else ('electron', 'native')):
@@ -588,14 +628,17 @@ def main():
                 try:
                     pair[kind] = run_one(kind, getattr(args, kind).resolve(), desktop, args)
                 except Exception as error:
-                    args.output.write_text(json.dumps({'schema': 1, 'status': 'error', 'runtime': kind,
-                        'error': str(error), 'completedPairs': runs, 'partialPair': pair}, indent=2), encoding='utf-8')
+                    finish_run(error, [('evidence', lambda: args.output.write_text(json.dumps({
+                        'schema': 1, 'status': 'error', 'runtime': kind, 'error': str(error),
+                        **cleanup_report(error), 'completedPairs': runs, 'partialPair': pair}, indent=2), encoding='utf-8'))])
                     raise
                 print(json.dumps({k: v for k, v in pair[kind].items() if k not in ('memorySamples', 'responseSamples', 'responseTrace')}), flush=True)
             runs.append(pair)
+    except BaseException as error:
+        primary = error
+        raise
     finally:
-        if desktop:
-            desktop.close()
+        finish_run(primary, [('desktop', lambda: desktop and desktop.close())])
     summary = summarize(runs)
     # Same-runner Electron control is the regression baseline. Broad allowances
     # absorb hosted GPU/scheduling jitter. Preserve every raw run for diagnosis.

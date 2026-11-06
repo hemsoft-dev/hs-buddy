@@ -127,3 +127,31 @@ The trace has a real cost, and part of it falls inside the measured span:
 Row assembly runs after the sample's `ms` is taken. Earlier cool medians are
 context only. They are neither a guard for this overhead nor a promise of
 stability, since each run gets a different VM.
+
+## Failure cleanup
+
+The cross-platform comparison driver preserves the exception that first ended a
+run when cleanup also fails. It still attempts sampler stop/join, CDP close,
+owned-process termination, log close and child reap in that order. The existing
+termination check and ten-second waits remain unchanged. A cleanup failure with
+no earlier error is fatal, and surviving owned processes are never accepted.
+Temporary-profile exit follows the same error-preservation rule.
+
+For ordinary exceptions, the existing error file retains its original keys and
+adds `cleanupFailures` only when run cleanup failed. Each entry names the step,
+exception type and message, and whether it was the first fatal error. Later
+cleanup errors are also attached as traceback notes to the same primary object.
+An evidence-write error is noted without retrying the write. Windows desktop
+close runs after that write, so its failure may be present only in the raised
+exception and job traceback. Interrupts retain their existing traceback-only
+behavior. Input-copy failure after desktop creation still closes that desktop.
+
+The [Intel failure](https://github.com/hemsoft-dev/hs-buddy/actions/runs/42169608019/job/127764010925)
+timed out waiting for a navigation receipt, then cleanup reported surviving
+owned processes. The old finalizer replaced the timeout and skipped later
+cleanup; the correction preserves both errors and attempts those later steps.
+It does not explain the missing receipt or process state. The failed profile and
+request were not retained. Partial completed pairs are not a five-pair result.
+No request, route, sample, callback, deadline, budget or measurement changes.
+Portable transport/process controls establish error handling and owned cleanup,
+not macOS behavior or a native performance fix.
