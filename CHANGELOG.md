@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1615] - 2026-11-07
+
+### Changed
+
+- Update OpenTelemetry 3.0, shiki 4.5 and sonarjs 4.2.2
+
 ## [0.1.1614] - 2026-11-05
 
 ### Fixed

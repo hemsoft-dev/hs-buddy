@@ -5,8 +5,8 @@ import react from '@vitejs/plugin-react'
 
 // Heavy OpenTelemetry SDK/exporter packages are externalized to avoid bundling
 // ~2 MB of code that's only used during development (with Aspire).
-// The lightweight API packages (@opentelemetry/api, api-logs) remain bundled
-// since they provide no-op implementations when the SDK isn't loaded.
+// The lightweight API package (@opentelemetry/api) remains bundled
+// since it provides no-op implementations when the SDK isn't loaded.
 // Koffi must be a direct dependency so the external import remains resolvable.
 import.meta.resolve('koffi')
 export const electronNativeExternals = ['node-pty', 'koffi', '@napi-rs/keyring'] as const
