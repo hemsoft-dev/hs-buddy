@@ -8,7 +8,6 @@ import { parseE18eReport, requireSuccessfulAnalyzer } from './e18e-report'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const documentedDirectExceptions = new Set([
-  '@opentelemetry/api-logs',
   '@opentelemetry/resources',
   '@opentelemetry/sdk-metrics',
   '@types/node',

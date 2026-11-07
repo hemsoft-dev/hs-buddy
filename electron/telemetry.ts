@@ -22,8 +22,9 @@ import {
   diag,
   DiagConsoleLogger,
   DiagLogLevel,
+  logs,
+  SeverityNumber,
 } from '@opentelemetry/api'
-import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 
 // ---------------------------------------------------------------------------
 // State
@@ -141,10 +142,12 @@ export async function initTelemetry(): Promise<void> {
     const nodeSdk = new NodeSDK({
       resource,
       traceExporter: new OTLPTraceExporter({ url: `${config.endpoint}/v1/traces` }),
-      metricReader: new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({ url: `${config.endpoint}/v1/metrics` }),
-        exportIntervalMillis: 15_000,
-      }),
+      metricReaders: [
+        new PeriodicExportingMetricReader({
+          exporter: new OTLPMetricExporter({ url: `${config.endpoint}/v1/metrics` }),
+          exportIntervalMillis: 15_000,
+        }),
+      ],
       instrumentations: [new HttpInstrumentation(), new DnsInstrumentation()],
     })
 

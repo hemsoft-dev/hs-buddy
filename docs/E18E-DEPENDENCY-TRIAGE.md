@@ -36,10 +36,10 @@ versions reported by e18e:
 
 - `@types/node`: the app targets Node 22, so the root type package stays on the
   Node 22 line even though Electron and other tooling bring Node 24 types.
-- `@opentelemetry/api-logs`, `@opentelemetry/resources`, and
-  `@opentelemetry/sdk-metrics`: the app keeps these OpenTelemetry packages
-  aligned for its direct instrumentation surface while upstream telemetry
-  toolchains may carry older compatible releases transitively.
+- `@opentelemetry/resources` and `@opentelemetry/sdk-metrics`: the app keeps
+  these OpenTelemetry packages aligned for its direct instrumentation surface
+  while upstream telemetry toolchains may carry older compatible releases
+  transitively.
 - `es-module-lexer`: the root and `import-in-the-middle` use 3.x, while Vitest 5
   requires `^2.3.2`. Keep both supported major versions rather than overriding
   Vitest's declared range.
