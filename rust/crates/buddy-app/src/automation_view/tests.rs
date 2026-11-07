@@ -4,8 +4,10 @@ use buddy_core::automation::models::{Job, MissedPolicy, Run, Schedule, Shell, Wo
 use serde_json::json;
 
 use super::forms::{DraftSpec, payload};
+use super::lifecycle::wait_on_quit;
 use super::render::{bounded_output, job_summary, live_output, run_output, status_label};
 use super::*;
+use buddy_core::config_lock::{ConfigLock, lock_dir};
 
 fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs
@@ -679,6 +681,218 @@ fn an_unchanged_tick_does_not_advance_the_redraw_sequence() {
     running.output = Some(("run-1".into(), "more output".into()));
     assert!(publish_into(&target, running));
     assert_eq!(target.lock().unwrap().sequence, first + 1);
+}
+
+// Quit-wait tests on GPUI's real `App::shutdown`. Every block keeps the real wait, with a fixed
+// tick budget in place of the random default, so a pass cannot depend on the budget drawn.
+const QUIT_TICKS: usize = 1000;
+
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+            std::task::Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+}
+
+/// A coordinator stand-in on the real task path: it holds a real config lock until it is told
+/// to stop or its senders are gone, then needs `work` more polls before it lets go.
+fn lock_holder(
+    cx: &gpui_kit::TestAppContext,
+    config: &std::path::Path,
+    work: usize,
+) -> (Handle, Completion) {
+    let lock = ConfigLock::acquire(config, std::time::Duration::ZERO)
+        .unwrap()
+        .unwrap();
+    Handle::spawn(
+        &Runtime::for_test(cx.executor()),
+        move |mut commands, _| async move {
+            while let Some(envelope) = commands.recv().await {
+                if matches!(envelope.command, Command::Stop) {
+                    break;
+                }
+            }
+            for _ in 0..work {
+                yield_once().await;
+            }
+            drop(lock);
+        },
+    )
+}
+
+fn open_view(
+    cx: &mut gpui_kit::TestAppContext,
+) -> (gpui_kit::AnyWindowHandle, Entity<AutomationView>) {
+    cx.update(|cx| {
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| AutomationView::new(window, cx))
+        })
+        .unwrap()
+    })
+}
+
+fn init_views(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+    });
+}
+
+fn release_view(
+    cx: &mut gpui_kit::TestAppContext,
+    window: gpui_kit::AnyWindowHandle,
+    view: Entity<AutomationView>,
+) {
+    let released = view.downgrade();
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|window, _| window.remove_window());
+    drop(view);
+    visual.run_until_parked();
+    assert!(released.upgrade().is_none(), "the view is gone before quit");
+}
+
+#[gpui_kit::test]
+fn quitting_waits_until_the_coordinator_has_released_its_lock(cx: &mut gpui_kit::TestAppContext) {
+    cx.executor().set_block_on_ticks(QUIT_TICKS..=QUIT_TICKS);
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let (handle, completion) = lock_holder(cx, &config, 4);
+    cx.update(|cx| wait_on_quit(cx, handle, completion));
+    assert!(lock_dir(&config).exists());
+
+    cx.update(|cx| cx.shutdown());
+
+    assert!(!lock_dir(&config).exists(), "quit returned inside the lock");
+}
+
+#[gpui_kit::test]
+fn quitting_still_waits_after_the_starting_view_is_released(cx: &mut gpui_kit::TestAppContext) {
+    cx.executor().set_block_on_ticks(QUIT_TICKS..=QUIT_TICKS);
+    init_views(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let (handle, completion) = lock_holder(cx, &config, 4);
+    let (window, view) = open_view(cx);
+    cx.update(|cx| view.update(cx, |view, cx| view.adopt_started(handle, completion, cx)));
+    release_view(cx, window, view);
+    assert!(lock_dir(&config).exists());
+
+    cx.update(|cx| cx.shutdown());
+
+    assert!(!lock_dir(&config).exists(), "quit returned inside the lock");
+}
+
+#[gpui_kit::test]
+fn reusing_the_coordinator_adds_no_second_quit_hook(cx: &mut gpui_kit::TestAppContext) {
+    cx.executor().set_block_on_ticks(QUIT_TICKS..=QUIT_TICKS);
+    init_views(cx);
+    cx.update(|cx| cx.set_global(Runtime::for_test(cx.background_executor().clone())));
+    let stops = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = stops.clone();
+    let (handle, completion) = Handle::spawn(
+        &Runtime::for_test(cx.executor()),
+        move |mut commands, _| async move {
+            while let Some(envelope) = commands.recv().await {
+                if matches!(envelope.command, Command::Stop) {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    break;
+                }
+            }
+            // Every hook runs before quit polls this task, so all of their Stops are queued.
+            while let Ok(envelope) = commands.try_recv() {
+                if matches!(envelope.command, Command::Stop) {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        },
+    );
+    let (_, first) = open_view(cx);
+    let (_, second) = open_view(cx);
+    cx.update(|cx| first.update(cx, |view, cx| view.adopt_started(handle, completion, cx)));
+    cx.update(|cx| second.update(cx, |view, cx| view.start(cx)));
+    assert!(cx.update(|cx| second.read(cx).handle.is_some()));
+
+    cx.update(|cx| cx.shutdown());
+
+    assert_eq!(stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+/// The limit this change keeps: a coordinator busy past the wait can still outlive quit.
+#[gpui_kit::test]
+fn a_coordinator_busy_past_the_quit_wait_can_still_outlive_it(cx: &mut gpui_kit::TestAppContext) {
+    cx.executor().set_block_on_ticks(1..=1);
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let (handle, completion) = lock_holder(cx, &config, 64);
+    cx.update(|cx| wait_on_quit(cx, handle, completion));
+
+    cx.update(|cx| cx.shutdown());
+
+    assert!(lock_dir(&config).exists());
+    cx.run_until_parked();
+    assert!(!lock_dir(&config).exists());
+}
+
+/// Negative control: the removed hook's shape on the same rig returns inside the lock.
+#[gpui_kit::test]
+fn control_a_quit_hook_that_waits_for_nothing_returns_inside_the_lock(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.executor().set_block_on_ticks(QUIT_TICKS..=QUIT_TICKS);
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let (handle, _completion) = lock_holder(cx, &config, 4);
+    cx.update(|cx| {
+        cx.on_app_quit(move |_| {
+            handle.send(Command::Stop);
+            std::future::ready(())
+        })
+        .detach();
+    });
+
+    cx.update(|cx| cx.shutdown());
+
+    assert!(lock_dir(&config).exists());
+    cx.run_until_parked();
+    assert!(!lock_dir(&config).exists());
+}
+
+/// Negative control: the removed per-view hook never runs once its view is released.
+#[gpui_kit::test]
+fn control_a_per_view_quit_hook_is_gone_with_its_view(cx: &mut gpui_kit::TestAppContext) {
+    cx.executor().set_block_on_ticks(QUIT_TICKS..=QUIT_TICKS);
+    init_views(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let (handle, _completion) = lock_holder(cx, &config, 0);
+    let (window, view) = open_view(cx);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.handle = Some(handle.clone());
+            cx.on_app_quit(|this, _| {
+                if let Some(handle) = &this.handle {
+                    handle.send(Command::Stop);
+                }
+                std::future::ready(())
+            })
+            .detach();
+        })
+    });
+    release_view(cx, window, view);
+
+    cx.update(|cx| cx.shutdown());
+    cx.run_until_parked();
+
+    assert!(lock_dir(&config).exists(), "no Stop reached the worker");
+    drop(handle);
+    cx.run_until_parked();
+    assert!(!lock_dir(&config).exists());
 }
 
 // Test-only state access for the root shell's real status-bar mouse tests.

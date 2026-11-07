@@ -149,6 +149,29 @@ empty tree or nonfinite metric fails independently of the budget. Baseline or
 budget changes require review; never update them automatically to accept a failure.
 A broad gate can pass smaller regressions, so retain the full numbers for review.
 
+## Ubuntu performance provisioning
+
+The performance job downloads a prebuilt native executable and prepares the
+Electron control. It installs the native package's declared runtime libraries,
+plus Xvfb and Openbox, instead of GTK and WebKit development SDKs. The base
+runner already supplies libc6, libgcc-s1 and libstdc++6. Vulkan software drivers
+and the display harness remain part of the measured environment.
+
+The [dependency setup failure](https://github.com/hemsoft-dev/hs-buddy/actions/runs/42134408589/job/127680472461)
+never reached a comparison. A signed-index package-plan model reproduces its
+181 new packages and 96.9 MB download. Runtime provisioning reduces that plan
+to 80 packages and 83.2 MB, with no added packages, upgrades or lost required
+native/Electron libraries in that model. Static linkage and package-plan checks
+are not native execution or performance qualification.
+
+Both bounded attempts made download progress. At the observed 45-53 KB/s,
+even the smaller plan would need about 26-31 minutes, longer than the two
+600-second download attempts. Removing development packages does not establish
+the cause of the slow transfer or prove recovery. The apt helper, retries,
+mirrors, TLS settings, deadlines and performance acceptance stay unchanged.
+Hosted setup and the full original comparison must still complete on the new
+head; no performance pass follows from a successful dependency plan.
+
 ## Rollback and remaining qualification
 
 The measurement hook is opt-in. Omitting `BUDDY_PERF_DIR` restores the uninstrumented

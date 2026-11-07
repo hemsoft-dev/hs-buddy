@@ -83,6 +83,57 @@ it('keeps Spotlight off the native DMG while it is detached', () => {
   expect(step).toContain("if: runner.os == 'macOS'")
 })
 
+it('runs the installed macOS scenes from settings on only on request until #913 is fixed', () => {
+  // Both Macs failed settings, then github, on every #902 head while main passed.
+  // The scenes stay intact behind a dispatch input; other platforms still run them.
+  const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
+  const unix = readFileSync('scripts/native-smoke/install-unix.sh', 'utf8').replaceAll('\r\n', '\n')
+  expect(native).toContain(
+    '  workflow_dispatch:\n    inputs:\n      mac_interactive_qualification:\n'
+  )
+  // A manual run must not cancel, or be cancelled by, a push run on the same ref.
+  expect(native).toContain('  group: rust-${{ github.event_name }}-${{ github.ref }}\n')
+  const install = native
+    .split('- name: Install and qualify Unix package')[1]
+    ?.split('\n      - name:', 1)[0]
+  expect(install).toContain(
+    "BUDDY_MAC_INTERACTIVE_QUALIFICATION: ${{ inputs.mac_interactive_qualification && '1' || '0' }}"
+  )
+  const darwin = unix.indexOf('if [[ "$(uname -s)" == Darwin ]]; then')
+  const mac = unix.slice(darwin, unix.indexOf('\nelse\n', darwin))
+  const gate = mac.indexOf('if [[ "${BUDDY_MAC_INTERACTIVE_QUALIFICATION:-0}" != 1 ]]; then')
+  expect(gate).toBeGreaterThan(-1)
+  for (const always of ['scene desktop python3', 'scene macos-menus python3']) {
+    expect(mac.indexOf(always)).toBeGreaterThan(-1)
+    expect(mac.indexOf(always)).toBeLessThan(gate)
+  }
+  const gated = [
+    ...mac.matchAll(
+      /scene (settings|github|terminal|copilot|todoist|tempo|automation|ralph|crew|bookmarks|browser) python3/g
+    ),
+  ]
+  expect(gated.map(scene => scene[1])).toEqual([
+    'settings',
+    'settings',
+    'github',
+    'terminal',
+    'copilot',
+    'todoist',
+    'tempo',
+    'automation',
+    'ralph',
+    'crew',
+    'bookmarks',
+    'browser',
+  ])
+  for (const scene of gated) expect(scene.index).toBeGreaterThan(gate)
+  expect(unix.slice(0, darwin)).toContain('python3 "$1/settings-desktop.py"')
+  expect(unix.slice(0, darwin)).toContain('python3 "$1/github-desktop.py"')
+  expect(readFileSync('scripts/native-smoke/install-windows.ps1', 'utf8')).toContain(
+    "'settings-desktop.py'"
+  )
+})
+
 it('gives native jobs measured headroom with a bounded hang limit', () => {
   // #852 exceeded 150m on Intel. #899 ARM spent 51m building/testing and
   // 69m qualifying before cancellation; #901's completed qualification took 64m.
@@ -291,5 +342,84 @@ describe('bounded apt installs', () => {
       }
     }
     expect(checked).toBe(5)
+  })
+})
+
+describe('performance runtime provisioning', () => {
+  // The performance job runs the prebuilt native binary and an unpacked
+  // Electron build; it compiles nothing. Run 42134408589 timed out on Ubuntu
+  // fetching 181 packages (96.9 MB) for libwebkit2gtk-4.1-dev and libgtk-3-dev.
+  // Under the same signed noble index, 101 of them (13.7 MB) were headers,
+  // introspection data and tools pulled in only by that development closure.
+  const read = (path: string) => readFileSync(path, 'utf8').replaceAll('\r\n', '\n')
+  const job =
+    read('.github/workflows/rust.yml')
+      .split('\n  matching-fixture-performance:\n')[1]
+      ?.split(/\n {2}(?=[\w-]+:\n)/, 1)[0] ?? ''
+  const install =
+    job.split('- name: Install performance dependencies\n')[1]?.split('\n      - ', 1)[0] ?? ''
+  const compare =
+    job
+      .split('- name: Compare native and Electron matching fixtures\n')[1]
+      ?.split('\n      - ', 1)[0] ?? ''
+  const packages = (
+    install.match(
+      /\n {12}buddy_apt sudo install -y --no-install-recommends \\\n((?:[^\n]*\\\n)*[^\n]*)\n/
+    )?.[1] ?? ''
+  )
+    .split(/[\s\\]+/)
+    .filter(Boolean)
+  // The native .deb's own runtime declaration, first alternative of each
+  // relation. libc6, libgcc-s1 and libstdc++6 come with every runner image
+  // (apt itself needs them), and naming them could upgrade the C library.
+  const baseSystem = ['libc6', 'libgcc-s1', 'libstdc++6']
+  const declared = (
+    JSON.parse(read('rust/desktop-package.json')) as { linuxDependencies: string[] }
+  ).linuxDependencies.map(relation => relation.split('|')[0].split('(')[0].trim())
+  const nativeRuntime = declared.filter(name => !baseSystem.includes(name))
+  const harness = ['xvfb', 'openbox']
+
+  it('runs a downloaded native binary instead of building one', () => {
+    expect(job).toContain('name: buddy-performance-binary-${{ matrix.os }}')
+    expect(job).toContain('path: rust/target/release')
+    expect(job).not.toMatch(/\bcargo\s/)
+    expect(packages.length).toBeGreaterThan(0)
+  })
+
+  it('installs no build SDK packages', () => {
+    expect(packages.filter(name => /-dev(?:-bin)?$/.test(name))).toEqual([])
+  })
+
+  it('installs exactly the native runtime the .deb declares plus the display harness', () => {
+    expect(baseSystem.every(name => declared.includes(name))).toBe(true)
+    for (const name of nativeRuntime) expect(packages, name).toContain(name)
+    for (const name of baseSystem) expect(packages, name).not.toContain(name)
+    expect([...packages].sort()).toEqual([...nativeRuntime, ...harness].sort())
+  })
+
+  it('installs every display tool the comparison launches', () => {
+    expect(compare).toContain(
+      "xvfb-run -a -s '-screen 0 1600x1000x24' dbus-run-session -- bash -c '"
+    )
+    expect(compare).toContain('openbox >"$RUNNER_TEMP/performance-openbox.log" 2>&1 &')
+    for (const name of harness) expect(packages, name).toContain(name)
+  })
+
+  it('keeps the install order, helper and bounds', () => {
+    expect(install).toContain('timeout-minutes: 45\n')
+    const order = [
+      'bun install --frozen-lockfile',
+      'if [[ "$RUNNER_OS" == Linux ]]; then',
+      'source scripts/lib/bounded-apt.sh',
+      'buddy_apt sudo update',
+      'buddy_apt sudo install -y --no-install-recommends',
+      'if [[ "$RUNNER_OS" != Windows ]]; then chmod +x rust/target/release/buddy; fi',
+    ].map(line => install.indexOf(line))
+    expect(order.every(index => index > -1)).toBe(true)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+    expect(install.match(/buddy_apt sudo (?:update|install)/g)).toEqual([
+      'buddy_apt sudo update',
+      'buddy_apt sudo install',
+    ])
   })
 })

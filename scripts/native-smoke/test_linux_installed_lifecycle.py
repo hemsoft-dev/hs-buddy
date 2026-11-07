@@ -1,0 +1,360 @@
+"""Failure controls for the installed lifecycle harness, without any installers."""
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+import urllib.request
+import contextlib
+import copy
+import json
+import ast
+import inspect
+from urllib.parse import unquote
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("linux_lifecycle", Path(__file__).with_name("linux-installed-lifecycle.py"))
+lifecycle = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(lifecycle)
+
+
+def restored():
+    return dict(projects=[dict(id=lifecycle.PROJECT)],
+        session=dict(status="error", conversationHistory=[dict(content=lifecycle.MESSAGE)]),
+        cache=dict(data=dict(fixture=lifecycle.MARKER)), viewMode="list")
+
+
+class AppEnvironmentControls(unittest.TestCase):
+    def test_existing_xauthority_path_survives_isolated_home_without_file_access(self):
+        with tempfile.TemporaryDirectory() as raw:
+            profile = Path(raw) / "profile"
+            authority = str(Path(raw) / "session" / "Xauthority")
+            inherited = dict(PATH="/usr/bin", DISPLAY=":93", XAUTHORITY=authority,
+                DBUS_SESSION_BUS_ADDRESS="unix:path=/fixture/bus", HOME="/fixture/original-home")
+            with patch.dict(lifecycle.os.environ, inherited, clear=True), \
+                    patch.object(Path, "read_bytes", side_effect=AssertionError("Must not read authorization data")), \
+                    patch.object(Path, "read_text", side_effect=AssertionError("Must not read authorization data")):
+                environment = lifecycle.app_environment(profile, unittest.mock.Mock(url="http://127.0.0.1:9"))
+            self.assertEqual(environment["XAUTHORITY"], authority)
+            self.assertEqual(environment["DISPLAY"], ":93")
+            self.assertEqual(environment["DBUS_SESSION_BUS_ADDRESS"], inherited["DBUS_SESSION_BUS_ADDRESS"])
+            self.assertEqual(environment["HOME"], str(profile / "home"))
+            self.assertFalse(Path(authority).exists())
+            self.assertEqual(list((profile / "home").iterdir()), [])
+
+    def test_absent_xauthority_is_not_invented_and_unrelated_secrets_are_excluded(self):
+        with tempfile.TemporaryDirectory() as raw:
+            profile = Path(raw) / "profile"
+            excluded = ("GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "UNRELATED_VARIABLE")
+            inherited = dict.fromkeys(excluded, "synthetic-do-not-forward")
+            inherited.update(PATH="/usr/bin", DISPLAY=":94", HOME="/fixture/original-home")
+            with patch.dict(lifecycle.os.environ, inherited, clear=True):
+                environment = lifecycle.app_environment(profile, unittest.mock.Mock(url="http://127.0.0.1:9"))
+            self.assertNotIn("XAUTHORITY", environment)
+            for key in excluded:
+                self.assertNotIn(key, environment)
+            self.assertEqual(environment["HOME"], str(profile / "home"))
+
+
+class BrowserRoutingControl(unittest.TestCase):
+    def test_installed_electron_pass_uses_the_consumer_tested_crew_navigation_and_wait(self):
+        calls = [node.func.id for node in ast.walk(ast.parse(inspect.getsource(lifecycle.electron_pass)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
+        self.assertEqual(calls.count("open_crew_project"), 1)
+        self.assertEqual(calls.count("capture_crew"), 1)
+
+    def test_clean_shutdown_uses_electron_close_and_native_quit_bindings(self):
+        for electron in (True, False):
+            with self.subTest(electron=electron), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                executable = root / "fixture-app"
+                executable.write_bytes(b"fixture executable")
+                closed = []
+                expected = ("alt+F4", False) if electron else ("q", True)
+
+                def key(value, control=True):
+                    if (value, control) == expected:
+                        closed.append(True)
+
+                window = unittest.mock.Mock(ready=lambda: True, key=key)
+                process = unittest.mock.Mock(pid=123, poll=lambda: 0 if closed else None)
+                def wait(timeout):
+                    if not closed:
+                        raise subprocess.TimeoutExpired("fixture-app", timeout)
+                    return 0
+                process.wait.side_effect = wait
+                module = unittest.mock.Mock(UnixWindow=lambda *_: window)
+                with patch.object(lifecycle, "load", return_value=module), \
+                        patch.object(lifecycle.subprocess, "Popen", return_value=process), \
+                        patch.object(lifecycle.os, "killpg", create=True):
+                    with lifecycle.running(executable, [], dict(BUDDY_CONFIG_PATH=str(root / "config.json"),
+                            BUDDY_CONVEX_URL="http://127.0.0.1:9"), root / "scene", electron=electron):
+                        pass
+                self.assertTrue(closed)
+                process.wait.assert_called_once_with(timeout=25)
+        # The actual installed Electron path must select the tested branch.
+        calls = [node for node in ast.walk(ast.parse(inspect.getsource(lifecycle.electron_pass)))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "running"]
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(any(k.arg == "electron" and isinstance(k.value, ast.Constant) and k.value.value is True for k in calls[0].keywords))
+
+    def test_main_renderer_receives_the_actual_bookmark_tab_route(self):
+        class Renderer:
+            def evaluate(self, expression):
+                # A main renderer has the app:navigate listener. No shell API
+                # is exposed here: that popup path must fail this control.
+                script = "global.CustomEvent=class {constructor(type,init){this.type=type;this.detail=init.detail}};global.window={dispatchEvent:e=>console.log(JSON.stringify(e))};" + expression
+                return json.loads(subprocess.check_output(["node", "-e", script], text=True))
+
+        renderer = Renderer()
+        page = "http://203.0.113.1:1234/?seed=1&value=a|b"
+        with patch.object(renderer, "evaluate", wraps=renderer.evaluate) as evaluate:
+            lifecycle.open_browser_tab(renderer, page)
+        event = renderer.evaluate(evaluate.call_args.args[0])
+        self.assertEqual(event["type"], "app:navigate")
+        route = event["detail"]["viewId"]
+        self.assertTrue(route.startswith("browser:"))
+        encoded, title = route.removeprefix("browser:").split("|")
+        self.assertEqual(unquote(encoded), page)
+        self.assertEqual(unquote(title), "Lifecycle browser")
+        with self.assertRaises(subprocess.CalledProcessError):
+            subprocess.check_output(["node", "-e", "global.window={};window.shell.openInAppBrowser('fixture')"], stderr=subprocess.PIPE)
+
+
+    def test_browser_readback_preserves_guest_and_host_measurements_including_zero_height(self):
+        class Renderer:
+            def __init__(self, height):
+                self.height = height
+
+            def evaluate(self, expression):
+                script = """
+const vm=require('node:vm');
+const rect={x:350,y:100,width:800,height:""" + str(self.height) + """};
+const body={innerText:'Lifecycle browser installed-lifecycle-marker',getBoundingClientRect:()=>rect};
+const style={display:'flex',visibility:'visible',opacity:'1',color:'rgb(0, 0, 0)',backgroundColor:'rgb(255, 255, 255)'};
+const guest={document:{body,cookie:'lifecycle=installed-lifecycle-marker',readyState:'complete',visibilityState:'visible'},
+    location:{href:'http://203.0.113.1:9/?seed=1'},localStorage:{getItem:()=> 'installed-lifecycle-marker'},
+    innerWidth:800,innerHeight:""" + str(self.height) + """,devicePixelRatio:1,getComputedStyle:()=>style};
+const view={getBoundingClientRect:()=>rect,getURL:()=>guest.location.href,isLoading:()=>false,
+    executeJavaScript:source=>Promise.resolve(vm.runInNewContext(source,guest))};
+global.document={querySelector:()=>view};global.getComputedStyle=()=>style;
+Promise.resolve(eval(""" + json.dumps(expression) + """)).then(value=>console.log(JSON.stringify(value)));
+"""
+                return json.loads(subprocess.check_output(["node", "-e", script], text=True))
+
+        for height in (0, 480):
+            value = lifecycle.browser_readback(Renderer(height))
+            self.assertEqual(value["marker"], lifecycle.MARKER)
+            self.assertEqual(value["host"]["bounds"]["height"], height)
+            self.assertEqual(value["viewport"]["height"], height)
+            self.assertEqual(value["body"]["background"], "rgb(255, 255, 255)")
+            self.assertEqual(value["host"]["display"], "flex")
+
+
+class DataFailureControls(unittest.TestCase):
+    def test_electron_baseline_records_only_the_known_extension_removal(self):
+        original = lifecycle.config_fixture()
+        actual = copy.deepcopy(original)
+        actual["github"]["accounts"][0].pop("futureAccount")
+        with self.assertRaisesRegex(RuntimeError, "futureAccount"):
+            lifecycle.require_subset(original, actual)
+        receipt = lifecycle.electron_config_baseline(original, actual)
+        self.assertEqual(receipt["config"], actual)
+        self.assertEqual(receipt["observedRemovals"][0]["path"], "github.accounts[0].futureAccount")
+        self.assertFalse(receipt["nativeWorkStarted"])
+        self.assertEqual(original["github"]["accounts"][0]["futureAccount"], dict(preserve=True))
+        lifecycle.require_subset(receipt["config"], actual)
+        preserved = lifecycle.electron_config_baseline(original, original)
+        self.assertEqual(preserved["observedRemovals"], [])
+        with self.assertRaisesRegex(RuntimeError, "futureAccount"):
+            lifecycle.require_subset(preserved["config"], actual)
+
+    def test_electron_baseline_rejects_changed_and_other_unknown_account_fields(self):
+        original = lifecycle.config_fixture()
+        changed = copy.deepcopy(original)
+        changed["github"]["accounts"][0]["futureAccount"] = dict(preserve=False)
+        with self.assertRaisesRegex(RuntimeError, "futureAccount"):
+            lifecycle.electron_config_baseline(original, changed)
+        original["github"]["accounts"][0]["anotherUnknown"] = dict(preserve=True)
+        missing = copy.deepcopy(original)
+        missing["github"]["accounts"][0].pop("futureAccount")
+        missing["github"]["accounts"][0].pop("anotherUnknown")
+        with self.assertRaisesRegex(RuntimeError, "anotherUnknown"):
+            lifecycle.electron_config_baseline(original, missing)
+
+    def test_unknown_fields_must_survive_while_new_defaults_are_allowed(self):
+        expected = dict(accounts=[dict(username="fixture", futureAccount=dict(preserve=True))], futureTop=[1, None])
+        lifecycle.require_subset(expected, dict(expected, newDefault=False))
+        lifecycle.require_subset(expected, dict(accounts=[dict(username="fixture", futureAccount=dict(preserve=True), usageProvider="copilot")], futureTop=[1, None]))
+        for changed in (dict(accounts=[], futureTop=[1, None]), dict(accounts=expected["accounts"]),
+                dict(accounts=[dict(username="fixture")], futureTop=[1, None]),
+                dict(accounts=[dict(username="fixture", futureAccount=dict(preserve=1))], futureTop=[1, None])):
+            with self.assertRaises(RuntimeError):
+                lifecycle.require_subset(expected, changed)
+
+    def test_real_service_readbacks_are_required_not_just_files(self):
+        lifecycle.restored_state(restored())
+        for key in ("projects", "session", "cache", "viewMode"):
+            value = restored()
+            value.pop(key)
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                lifecycle.restored_state(value)
+
+    def test_lost_conversation_and_recovery_status_fail(self):
+        for session in (dict(status="idle", conversationHistory=[dict(content=lifecycle.MESSAGE)]),
+                dict(status="error", conversationHistory=[]), dict(status="error", conversationHistory=[dict(content="wrong")])):
+            value = restored()
+            value["session"] = session
+            with self.assertRaises(RuntimeError):
+                lifecycle.restored_state(value)
+
+    def test_developer_environment_is_refused_before_install_commands(self):
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "", "BUDDY_SETTINGS_FIXTURE": ""}), \
+                patch.object(lifecycle.subprocess, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "owned Ubuntu"):
+                lifecycle.qualify(Path("unused"), Path("unused"))
+            run.assert_not_called()
+
+    def test_browser_origin_is_served_by_the_owned_loopback_proxy(self):
+        with lifecycle.browser_fixture() as browser:
+            self.assertTrue(browser["url"].startswith("http://203.0.113.1:"))
+            self.assertTrue(browser["proxy"].startswith("http://127.0.0.1:"))
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": browser["proxy"]}))
+            with opener.open(browser["url"], timeout=2) as response:
+                text = response.read().decode()
+            self.assertIn(lifecycle.MARKER, text)
+            self.assertIn("localStorage", text)
+
+
+class CanonicalPackageControls(unittest.TestCase):
+    def test_failure_before_baseline_removal_preserves_preceding_installation(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            package = root / "native.deb"
+            package.write_bytes(b"canonical package")
+            digest = lifecycle.digest(package)
+            lifecycle.write(root / "build.json", dict(sourceDirty=False, sourceSha="head", profile="release",
+                target="x86_64-unknown-linux-gnu", binarySha256=digest, package=dict(file="native.deb", sha256=digest)))
+            packages = lifecycle.Packages(root)
+            os_receipt = 'ID=ubuntu\nVERSION_ID="24.04"\n'
+            original_read = Path.read_text
+
+            def without_host_os_file(path, *args, **kwargs):
+                if path.as_posix() == "/etc/os-release":
+                    raise FileNotFoundError("No host OS receipt in this portable failure control")
+                return original_read(path, *args, **kwargs)
+
+            with patch.object(lifecycle, "require_runner", return_value=os_receipt), \
+                    patch.object(Path, "read_text", without_host_os_file), \
+                    patch.object(lifecycle, "digest", return_value=digest), \
+                    patch.object(lifecycle, "load", return_value=unittest.mock.MagicMock()), \
+                    patch.object(lifecycle, "browser_fixture", return_value=contextlib.nullcontext({})), \
+                    patch.object(lifecycle, "build_electron", side_effect=RuntimeError("early build failure")), \
+                    patch.object(lifecycle, "Packages", return_value=packages), \
+                    patch.object(packages, "field", return_value="buddy-native"), \
+                    patch.object(packages, "remove") as remove, \
+                    patch.object(lifecycle.subprocess, "check_output", return_value="head"):
+                with self.assertRaisesRegex(RuntimeError, "early build failure"):
+                    lifecycle.qualify(root, root / "evidence")
+            remove.assert_not_called()
+            report = lifecycle.read(root / "evidence/qualification.json")
+            self.assertEqual(report["result"], "failed")
+            self.assertEqual(report["osRelease"], os_receipt)
+
+    def test_real_runner_guard_still_requires_the_supported_host_os_receipt(self):
+        with patch.dict(os.environ, GITHUB_ACTIONS="true", BUDDY_SETTINGS_FIXTURE="1"), \
+                patch.object(lifecycle.platform, "machine", return_value="x86_64"), \
+                patch.object(lifecycle.subprocess, "run") as run:
+            with patch.object(Path, "read_text", side_effect=FileNotFoundError("absent host OS file")):
+                with self.assertRaisesRegex(FileNotFoundError, "absent host OS file"):
+                    lifecycle.require_runner(Path("unused"))
+            for receipt in ('ID=ubuntu\nVERSION_ID="22.04"\n', 'ID=debian\nVERSION_ID="24.04"\n'):
+                with self.subTest(receipt=receipt), patch.object(Path, "read_text", return_value=receipt):
+                    with self.assertRaisesRegex(RuntimeError, "Ubuntu 24.04 only"):
+                        lifecycle.require_runner(Path("unused"))
+            run.assert_not_called()
+
+    def test_real_apt_install_must_match_the_deb_version(self):
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw)
+            package = output / "canonical.deb"
+            package.write_bytes(b"package fixture")
+            packages = lifecycle.Packages(output)
+            with patch.object(packages, "field", side_effect=["buddy", "1.0"]), \
+                    patch.object(packages, "status", return_value="not-installed"), \
+                    patch.object(packages, "run") as run, \
+                    patch.object(lifecycle.subprocess, "check_output", return_value="0.9"):
+                with self.assertRaisesRegex(RuntimeError, "installed deb version"):
+                    packages.install(package)
+                self.assertEqual(packages.owned, {"buddy"})
+                self.assertEqual(run.call_args.args[0], ["sudo", "apt-get", "install", "-y", "--no-install-recommends", "--allow-downgrades", str(package.resolve())])
+                packages.remove("buddy")
+            self.assertEqual(packages.owned, set())
+            self.assertEqual([r["action"] for r in lifecycle.read(output / "packages.json")], ["install-attempt", "install-failed", "remove"])
+
+    def test_partial_apt_failure_remains_owned_for_cleanup(self):
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw)
+            package = output / "canonical.deb"
+            package.write_bytes(b"package fixture")
+            packages = lifecycle.Packages(output)
+            with patch.object(packages, "field", side_effect=["buddy", "1.0"]), \
+                    patch.object(packages, "status", return_value="not-installed"), \
+                    patch.object(packages, "run", side_effect=RuntimeError("apt failed after unpack")):
+                with self.assertRaisesRegex(RuntimeError, "apt failed"):
+                    packages.install(package)
+            self.assertEqual(packages.owned, {"buddy"})
+            with patch.object(packages, "run") as cleanup, patch.object(packages, "status", return_value="config-files"):
+                packages.remove("buddy")
+            self.assertEqual(packages.owned, set())
+            cleanup.assert_called_once_with(["sudo", "apt-get", "remove", "-y", "buddy"])
+            self.assertEqual(lifecycle.read(output / "packages.json")[1]["action"], "install-failed")
+
+    def test_existing_installed_or_partial_package_is_never_claimed(self):
+        for state in ("installed", "unpacked", "half-configured"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as raw:
+                packages = lifecycle.Packages(Path(raw))
+                with patch.object(packages, "field", side_effect=["buddy", "1.0"]), \
+                        patch.object(packages, "status", return_value=state), patch.object(packages, "run") as run:
+                    with self.assertRaisesRegex(RuntimeError, "Preserve a pre-existing"):
+                        packages.install(Path(raw) / "canonical.deb")
+                    with self.assertRaisesRegex(RuntimeError, "unowned baseline"):
+                        packages.remove("buddy")
+                run.assert_not_called()
+                self.assertEqual(packages.owned, set())
+
+    def test_successful_command_does_not_hide_failed_package_removal(self):
+        with tempfile.TemporaryDirectory() as raw:
+            packages = lifecycle.Packages(Path(raw))
+            packages.owned.add("buddy")
+            with patch.object(packages, "run"), \
+                    patch.object(packages, "status", return_value="installed"):
+                with self.assertRaisesRegex(RuntimeError, "still installed"):
+                    packages.remove("buddy")
+            self.assertEqual(packages.records, [])
+            self.assertEqual(packages.owned, {"buddy"})
+
+    def test_baseline_removal_requires_explicit_lifecycle_transition(self):
+        with tempfile.TemporaryDirectory() as raw:
+            packages = lifecycle.Packages(Path(raw))
+            with patch.object(packages, "run") as run, patch.object(packages, "status", return_value="not-installed"):
+                with self.assertRaisesRegex(RuntimeError, "unowned baseline"):
+                    packages.remove("buddy-native")
+                run.assert_not_called()
+                packages.remove("buddy-native", baseline=True)
+            self.assertEqual(packages.records[-1], dict(action="remove", package="buddy-native", baseline=True))
+            self.assertEqual(packages.owned, set())
+
+    def test_installer_is_not_substituted_with_extraction(self):
+        source = Path(__file__).with_name("linux-installed-lifecycle.py").read_text()
+        self.assertNotIn('"dpkg-deb", "-x"', source)
+        self.assertNotIn('"--no-sandbox"', source)
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/rust.yml"
+        step = workflow.read_text().split("- name: Qualify Ubuntu installed runtime upgrade and rollback", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("if: runner.os == 'Linux'", step)
+        self.assertIn("todoist-secret-session.sh xvfb-run", step)
+
+
+if __name__ == "__main__":
+    unittest.main()

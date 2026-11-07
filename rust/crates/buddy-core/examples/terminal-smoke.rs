@@ -384,7 +384,7 @@ fn main() -> io::Result<()> {
     #[cfg(unix)]
     command(&session, r"printf 'BUDDY_%s\n' WAITING; sleep 120")?;
     until(&session, |s| s.screen.text().contains("BUDDY_WAITING"))?;
-    session
+    let interrupt = session
         .key(
             Key::Text("c"),
             Modifiers {
@@ -395,7 +395,40 @@ fn main() -> io::Result<()> {
         .map_err(io::Error::other)?;
     // A write acknowledgement is not a shell-ready acknowledgement: Ctrl+C can flush
     // input already in the console. Observe its returned prompt before sending more.
-    until(&session, shell_ready)?;
+    until(&session, |snapshot| {
+        session.input_status(&interrupt) == Some(InputStatus::Written) && shell_ready(snapshot)
+    })
+    .inspect_err(|_| {
+        let snapshot = session.snapshot();
+        eprintln!(
+            "Interrupt boundary: shell_pid={:?}, input_status={:?}, session_status={:?}",
+            snapshot.shell_pid,
+            session.input_status(&interrupt),
+            snapshot.status
+        );
+        // Diagnostic only, limited to our synthetic shell. In particular do
+        // not list workstation processes or expose command arguments/env.
+        #[cfg(unix)]
+        if let Some(pid) = snapshot.shell_pid {
+            match Command::new("ps")
+                .args([
+                    "-p",
+                    &pid.to_string(),
+                    "-o",
+                    "pid=,ppid=,pgid=,tpgid=,stat=,comm=",
+                ])
+                .output()
+            {
+                Ok(output) => eprintln!(
+                    "Owned shell process groups (ps status {}): {}{}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ),
+                Err(error) => eprintln!("Owned shell diagnostics unavailable: {error}"),
+            }
+        }
+    })?;
     #[cfg(windows)]
     command(&session, "[Console]::WriteLine('BUDDY_'+'INTERRUPTED')")?;
     #[cfg(unix)]

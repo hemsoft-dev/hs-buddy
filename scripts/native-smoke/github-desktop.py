@@ -3,6 +3,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import sys
 import os
 from pathlib import Path
 import urllib.request
@@ -66,8 +67,11 @@ def analysis_images(path):
 
 
 def browser_analysis(path):
-    image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png")
-    yield from analysis_images(image)
+    # Hosted Tesseract 5.3.4 read the compact dark footer as OQjobs from the
+    # nearest-neighbor copy. Measure it with the profile that reads the body.
+    smooth = sys.platform == "linux"
+    image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
+    yield from settings.ocr.analysis_images(image, settings.run, smooth_inverted=smooth)
 
 
 def check(path, *markers, absent=(), browser=False):
