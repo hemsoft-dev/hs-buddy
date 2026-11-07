@@ -84,6 +84,7 @@ class InstalledEvidence(unittest.TestCase):
             return next((layout['words'] for layout in fixture['footerLayouts'] if layout['image'] == path.name and layout['mode'] == mode), [])
         return image, crops, run, recognize
 
+    @patch.object(desktop.sys, "platform", "win32")
     def test_real_windows_browser_capture_needs_footer_excluded_from_one_layout(self):
         with TemporaryDirectory() as temporary:
             image, crops, run, recognize = self.replay_browser_footer(temporary)
@@ -96,6 +97,7 @@ class InstalledEvidence(unittest.TestCase):
             self.assertEqual(image.read_bytes(), original)
             self.assertNotIn('schedules', image.with_suffix('.ocr.txt').read_text())
 
+    @patch.object(desktop.sys, "platform", "win32")
     def test_browser_footer_scope_cannot_supply_missing_page_text(self):
         with TemporaryDirectory() as temporary:
             image, _, run, recognize = self.replay_browser_footer(temporary, missing_page=True)
@@ -103,6 +105,7 @@ class InstalledEvidence(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
                     desktop.check(image, 'PROBE PAGE', 'Downloads are blocked', 'Bookmarks', 'Buddy Probe', browser=True)
 
+    @patch.object(desktop.sys, "platform", "win32")
     def test_browser_scope_requires_a_visible_footer_and_propagates_ambiguity(self):
         with TemporaryDirectory() as temporary:
             image, _, run, recognize = self.replay_browser_footer(temporary, missing_footer=True)

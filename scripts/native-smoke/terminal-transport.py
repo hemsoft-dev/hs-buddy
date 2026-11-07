@@ -56,9 +56,20 @@ def main():
     evidence = root / "native-evidence" / "terminal-transport" / ("installed" if args.host else "core-example")
     evidence.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="buddy terminal 界 ", dir=root) as workspace:
-        result = subprocess.run([str(driver), str(host), workspace], cwd=repo,
-                                capture_output=True, text=True, encoding="utf-8", timeout=180,
-                                creationflags=flags)
+        try:
+            result = subprocess.run([str(driver), str(host), workspace], cwd=repo,
+                                    capture_output=True, text=True, encoding="utf-8", timeout=180,
+                                    creationflags=flags)
+        except subprocess.TimeoutExpired as failure:
+            # TimeoutExpired can carry bytes even with text=True. Preserve
+            # partial synthetic output and keep the original failure/no PASS.
+            for name, value in (("stdout", failure.stdout), ("stderr", failure.stderr)):
+                path = evidence / f"{name}.log"
+                if isinstance(value, bytes):
+                    path.write_bytes(value)
+                else:
+                    path.write_text(value or "", encoding="utf-8")
+            raise
         (evidence / "stdout.log").write_text(result.stdout, encoding="utf-8")
         (evidence / "stderr.log").write_text(result.stderr, encoding="utf-8")
         if result.returncode:

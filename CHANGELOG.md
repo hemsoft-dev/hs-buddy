@@ -9,6 +9,342 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1668] - 2026-11-07
+
+### Changed
+
+- Gate the macOS scenes from settings on behind #913
+
+## [0.1.1667] - 2026-11-07
+
+### Changed
+
+- Run the macOS settings scene only on request (#913)
+
+## [0.1.1666] - 2026-11-06
+
+### Fixed
+
+- Preserve primary failures through cleanup
+
+## [0.1.1665] - 2026-11-06
+
+### Fixed
+
+- Provision runtime libraries for performance
+
+## [0.1.1664] - 2026-11-06
+
+### Fixed
+
+- Preserve owned menu capture failures
+
+## [0.1.1663] - 2026-11-05
+
+### Changed
+
+- Add optional Windows native response trace
+
+## [0.1.1662] - 2026-11-05
+
+### Changed
+
+- Add optional Windows native response trace
+
+## [0.1.1661] - 2026-11-05
+
+### Fixed
+
+- Normalize placement bounds to window points
+
+## [0.1.1660] - 2026-11-05
+
+### Changed
+
+- Integrate main dependency updates
+
+## [0.1.1659] - 2026-11-05
+
+### Fixed
+
+- Wait for automation coordinator at quit
+
+## [0.1.1658] - 2026-11-04
+
+### Changed
+
+- Use Linux contrast profile for browser footer
+
+## [0.1.1657] - 2026-11-04
+
+### Changed
+
+- Compare guarded ARM settings placements
+
+## [0.1.1656] - 2026-11-04
+
+### Changed
+
+- Compare guarded ARM settings placements
+
+## [0.1.1655] - 2026-11-04
+
+### Changed
+
+- Compare guarded ARM settings placements
+
+## [0.1.1654] - 2026-11-04
+
+### Changed
+
+- Retain first health and post-return observations
+
+## [0.1.1653] - 2026-11-04
+
+### Changed
+
+- Make receiving fixtures portable on Windows
+
+## [0.1.1652] - 2026-11-04
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1651] - 2026-11-04
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1650] - 2026-11-03
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1649] - 2026-11-03
+
+### Changed
+
+- Trace owned Mac process receiving boundary
+
+## [0.1.1648] - 2026-11-03
+
+### Changed
+
+- Retain exact footer OCR failure layouts
+
+## [0.1.1647] - 2026-11-03
+
+### Changed
+
+- Withdraw unsupported optional queue consumer
+
+## [0.1.1646] - 2026-11-03
+
+### Changed
+
+- Preserve fixed receipt errors under Clippy
+
+## [0.1.1645] - 2026-11-03
+
+### Changed
+
+- Prepare queue measurement publication
+
+## [0.1.1644] - 2026-11-03
+
+### Changed
+
+- Measure isolated queue first use without consuming
+
+## [0.1.1643] - 2026-11-03
+
+### Changed
+
+- Fix queue oracle test-target lint
+
+## [0.1.1642] - 2026-11-03
+
+### Changed
+
+- Prepare owned queue-consumption coverage
+
+## [0.1.1641] - 2026-11-03
+
+### Changed
+
+- Read back constructed Mac click events
+
+## [0.1.1640] - 2026-11-03
+
+### Fixed
+
+- Satisfy rejection diagnostic lint
+
+## [0.1.1639] - 2026-11-03
+
+### Changed
+
+- Classify filtered fixture mouse events
+
+## [0.1.1638] - 2026-11-03
+
+### Fixed
+
+- Compile the guarded Mac receiver
+
+## [0.1.1637] - 2026-11-03
+
+### Changed
+
+- Observe owned AppKit reception and isolate recorded clicks
+
+## [0.1.1636] - 2026-11-03
+
+### Changed
+
+- Correlate Mac posting and observation timings
+
+## [0.1.1635] - 2026-11-03
+
+### Fixed
+
+- Keep dispatch formatter within argument limit
+
+## [0.1.1634] - 2026-11-03
+
+### Changed
+
+- Narrow Mac dispatch and Linux browser OCR gates
+
+## [0.1.1633] - 2026-11-02
+
+### Fixed
+
+- Register GPUI probe test bounds selector
+
+## [0.1.1632] - 2026-11-02
+
+### Changed
+
+- Observe raw sound window dispatch and bounds
+
+## [0.1.1631] - 2026-11-02
+
+### Changed
+
+- Observe sound callback and persistence boundaries
+
+## [0.1.1630] - 2026-11-02
+
+### Fixed
+
+- Replace yanked async-executor lock entry
+
+## [0.1.1629] - 2026-11-02
+
+### Changed
+
+- Exercise Mac capture isolation controls
+
+## [0.1.1628] - 2026-11-02
+
+### Changed
+
+- Retain Mac input and interrupt boundary evidence
+
+## [0.1.1627] - 2026-11-02
+
+### Changed
+
+- Require painted high-contrast browser fixture
+
+## [0.1.1626] - 2026-11-02
+
+### Changed
+
+- Capture visible X11 surfaces within owned bounds
+
+## [0.1.1625] - 2026-11-02
+
+### Changed
+
+- Retain browser geometry before visual checks
+
+## [0.1.1624] - 2026-11-02
+
+### Changed
+
+- Isolate pre-install Crew guard dependencies
+
+## [0.1.1623] - 2026-11-02
+
+### Changed
+
+- Wait for painted Crew lifecycle capture
+
+## [0.1.1622] - 2026-11-02
+
+### Changed
+
+- Preserve Xvfb authorization in isolated apps
+
+## [0.1.1621] - 2026-11-02
+
+### Changed
+
+- Require fresh dashboard body evidence
+
+## [0.1.1620] - 2026-11-02
+
+### Changed
+
+- Qualify measured Electron startup layout
+
+## [0.1.1619] - 2026-11-01
+
+### Changed
+
+- Split installed mirror controls within quality budget
+
+## [0.1.1618] - 2026-11-01
+
+### Changed
+
+- Measure Electron account normalization before upgrade
+
+## [0.1.1617] - 2026-11-01
+
+### Changed
+
+- Validate installed Crew restoration through real route
+
+## [0.1.1616] - 2026-11-01
+
+### Changed
+
+- Close installed Electron through Linux window manager
+
+## [0.1.1615] - 2026-11-01
+
+### Changed
+
+- Fix lifecycle browser route and package ownership
+
+## [0.1.1614] - 2026-11-01
+
+### Changed
+
+- Exercise Ubuntu installed runtime rollback
+
+## [0.1.1613] - 2026-11-01
+
+### Changed
+
+- Exercise Ubuntu installed runtime rollback
+
 ## [0.1.1614] - 2026-11-05
 
 ### Fixed
