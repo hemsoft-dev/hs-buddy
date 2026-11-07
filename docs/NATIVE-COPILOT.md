@@ -5,8 +5,8 @@ Electron continues to use the same configuration and Convex records.
 
 ## Runtime and authentication
 
-The native app uses `github-copilot-sdk` **1.0.23-preview.2** and its bundled
-Copilot runtime **1.0.99-2**. The SDK embeds the executable for each supported
+The native app uses `github-copilot-sdk` **1.0.28** and its bundled
+Copilot runtime **1.0.105**. The SDK embeds the executable for each supported
 target; users do not need a separately installed Copilot CLI. Buddy extracts and
 verifies that runtime through its own `--prepare-copilot-runtime` helper. The
 helper establishes process ownership before starting the SDK, then checks the

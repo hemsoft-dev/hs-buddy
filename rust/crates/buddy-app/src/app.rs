@@ -50,9 +50,14 @@ gpui_kit::actions!(
 
 pub fn init_navigation(cx: &mut App) {
     cx.bind_keys([
-        gpui_kit::KeyBinding::new("secondary-tab", NextGlobalTab, Some("BuddyApp")),
-        gpui_kit::KeyBinding::new("secondary-shift-tab", PreviousGlobalTab, Some("BuddyApp")),
-        gpui_kit::KeyBinding::new("secondary-f4", CloseGlobalTab, Some("BuddyApp")),
+        crate::key_binding::binding("secondary-tab", NextGlobalTab, Some("BuddyApp"), cx),
+        crate::key_binding::binding(
+            "secondary-shift-tab",
+            PreviousGlobalTab,
+            Some("BuddyApp"),
+            cx,
+        ),
+        crate::key_binding::binding("secondary-f4", CloseGlobalTab, Some("BuddyApp"), cx),
         gpui_kit::KeyBinding::new(
             "alt-left",
             NavigationBack,

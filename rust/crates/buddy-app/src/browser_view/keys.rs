@@ -72,7 +72,7 @@ fn key_name(gdk: &str) -> String {
 mod tests {
     use super::*;
 
-    fn strokes(specs: &[&str]) -> Vec<Keystroke> {
+    fn strokes(specs: &[&'static str]) -> Vec<Keystroke> {
         specs
             .iter()
             .map(|spec| Keystroke::parse(spec).unwrap())
@@ -143,7 +143,7 @@ mod tests {
                 "secondary-shift-tab",
                 "secondary-f4",
             ] {
-                let stroke = Keystroke::parse(spec).unwrap();
+                let stroke = Keystroke::parse_with_os(spec, cx.platform_info().os).unwrap();
                 assert!(claimed.contains(&stroke), "{spec} in {claimed:?}");
             }
             for spec in ["ctrl-v", "alt-left", "alt-right"] {

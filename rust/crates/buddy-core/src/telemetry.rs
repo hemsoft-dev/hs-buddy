@@ -121,7 +121,9 @@ impl Telemetry {
             .redirect(reqwest_otel::redirect::Policy::none())
             .timeout(TIMEOUT)
             .build()
-            .map_err(|_| opentelemetry_otlp::ExporterBuildError::NoHttpClient)?;
+            .map_err(|error| {
+                opentelemetry_otlp::ExporterBuildError::InternalFailure(error.to_string())
+            })?;
         let trace_exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_http_client(client.clone())

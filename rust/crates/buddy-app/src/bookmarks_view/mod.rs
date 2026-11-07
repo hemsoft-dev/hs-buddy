@@ -20,7 +20,7 @@ use buddy_core::bookmarks::client::Snapshot;
 use buddy_core::bookmarks::{self, Bookmark, Drop, Filter, Form, suggest};
 use gpui_kit::base::input::Paste;
 use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::{App, AppContext as _, Context, Entity, FocusHandle, KeyBinding, Window};
+use gpui_kit::{App, AppContext as _, Context, Entity, FocusHandle, Window};
 
 use self::editor::{Editor, Field};
 use self::service::{Service, SuggestRequest};
@@ -49,7 +49,12 @@ impl gpui_kit::EventEmitter<OpenInTab> for BookmarksView {}
 
 pub fn init(cx: &mut App) {
     // Inputs bind the same keys in their own, deeper context, so they still paste text.
-    cx.bind_keys([KeyBinding::new("secondary-v", Paste, Some(CONTEXT))]);
+    cx.bind_keys([crate::key_binding::binding(
+        "secondary-v",
+        Paste,
+        Some(CONTEXT),
+        cx,
+    )]);
 }
 
 /// What the section shows instead of, or above, the list.

@@ -33,10 +33,11 @@ gpui_kit::actions!(explorer, [OpenFolder]);
 pub fn init(cx: &mut gpui_kit::App) {
     // Terminal control keys belong to the shell. Negated context predicates
     // inspect the whole focus path, including ancestors of focused children.
-    cx.bind_keys([gpui_kit::KeyBinding::new(
+    cx.bind_keys([crate::key_binding::binding(
         "secondary-o",
         OpenFolder,
         Some("!BuddyTerminal && !BuddyTerminalPaste"),
+        cx,
     )]);
 }
 

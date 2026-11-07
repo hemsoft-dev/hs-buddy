@@ -303,7 +303,7 @@ fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
     );
     let primary = visual.debug_bounds("todoist-primary-controls").unwrap();
     let controls = visual.debug_bounds("todoist-secondary-controls").unwrap();
-    visual.simulate_event(gpui_kit::ScrollWheelEvent {
+    visual.simulate_event(gpui_kit::ScrollEvent {
         position: controls.center(),
         delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-900.))),
         ..Default::default()
@@ -319,7 +319,7 @@ fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
     visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Upcoming, cx)));
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let viewport = visual.debug_bounds("todoist-task-list-viewport").unwrap();
-    visual.simulate_event(gpui_kit::ScrollWheelEvent {
+    visual.simulate_event(gpui_kit::ScrollEvent {
         position: viewport.center(),
         delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-900.))),
         ..Default::default()
