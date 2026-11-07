@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1668] - 2026-11-07
+
+### Changed
+
+- Gate the macOS scenes from settings on behind #913
+
 ## [0.1.1667] - 2026-11-07
 
 ### Changed

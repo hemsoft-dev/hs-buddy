@@ -38,12 +38,12 @@ on:
       - 'public/icon-512.png'
       - 'public/icon.ico'
       - 'LICENSE'
-  # #913: the installed macOS settings scene fails on both Macs and runs only
-  # when requested here, until it is fixed. Every other scene still runs.
+  # #913: the installed macOS scenes from settings on fail on both Macs and run
+  # only when requested here, until fixed. desktop and macos-menus still run.
   workflow_dispatch:
     inputs:
-      mac_settings_qualification:
-        description: Run the installed macOS settings scene (#913)
+      mac_interactive_qualification:
+        description: Run the installed macOS scenes from settings on (#913)
         type: boolean
         default: false
 
@@ -51,7 +51,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-${{ github.ref }}
+  group: rust-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -284,7 +284,7 @@ jobs:
         shell: bash
         env:
           PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
-          BUDDY_MAC_SETTINGS_QUALIFICATION: ${{ inputs.mac_settings_qualification && '1' || '0' }}
+          BUDDY_MAC_INTERACTIVE_QUALIFICATION: ${{ inputs.mac_interactive_qualification && '1' || '0' }}
         run: bash scripts/native-smoke/install-unix.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence"
 
       - name: Qualify Ubuntu installed runtime upgrade and rollback
