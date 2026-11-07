@@ -28,6 +28,16 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / 'perf/matching-fixture.json').read_text(encoding='utf-8'))
 ROUTES = CONTRACT['routes']
 FIXTURE = CONTRACT['config']
+TRACE_SCHEMA = 1
+TRACE_MAX_MS = 3_600_000
+TRACE_MAX_COUNT = 32
+TRACE_MAX_ID = 2 ** 53 - 1
+TRACE_ROUNDING_MS = .01
+TRACE_STAGES = ('lock', 'load', 'save', 'install')
+TRACE_OFFSETS = ('removeDoneMs', 'updateEntryMs', 'setSectionDoneMs', 'firstFrameMs', 'secondFrameMs')
+TRACE_KEYS = {'schema', 'available', 'id', 'pollGapMs', 'readMs', 'settings', 'previousId', 'previousWriteMs', *TRACE_OFFSETS}
+TRACE_SETTINGS_KEYS = {'attempts', *(f'{stage}{unit}' for stage in TRACE_STAGES for unit in ('Ms', 'Calls'))}
+TRACE_NATIVE_REASONS = {'admission', 'request-id', 'invalidated', 'incomplete'}
 WINDOWS_ELECTRON_FLAGS = [
     '--disable-features=CalculateNativeWinOcclusion',
     '--disable-backgrounding-occluded-windows',
@@ -166,6 +176,189 @@ def terminate(process):
         raise RuntimeError('owned processes survived cleanup')
 
 
+def finish_run(primary, steps):
+    """Run every cleanup step. The error that ends the run stays that exact object;
+    each cleanup failure is listed on it, so a later step can never replace or hide it."""
+    error, failures = primary, []
+    for step, action in steps:
+        try:
+            action()
+        except BaseException as failure:
+            error = failure if error is None else error
+            failures.append((step, failure))
+    for step, failure in failures:
+        error.cleanup_failures = [*getattr(error, 'cleanup_failures', []), {
+            'step': step, 'type': type(failure).__name__, 'message': str(failure), 'raised': failure is error}]
+        if failure is not error:
+            error.add_note(f'cleanup step {step} also failed: {type(failure).__name__}: {failure}')
+    if error is not primary:
+        raise error
+
+
+class KeepFirstError:
+    """A context manager whose exit failure is listed on the error already ending the run."""
+    def __init__(self, step, manager):
+        self.step, self.manager = step, manager
+
+    def __enter__(self):
+        return self.manager.__enter__()
+
+    def __exit__(self, kind, error, trace):
+        finish_run(error, [(self.step, lambda: self.manager.__exit__(kind, error, trace))])
+
+
+def cleanup_report(error):
+    failures = getattr(error, 'cleanup_failures', None)
+    return {'cleanupFailures': failures} if failures else {}
+
+
+def native_trace_enabled(kind):
+    return kind == 'native' and os.name == 'nt'
+
+
+class DriverSpans:
+    """Clock reads around one native file request. Durations only, no gate reads them."""
+    def __init__(self, request_id, clock=time.perf_counter):
+        self.request_id = request_id
+        self.clock = clock
+        self.marks = {}
+        self.text = None
+        self.poll_count = 0
+        self.max_read = self.max_gap = 0.0
+        self.last_poll_end = None
+        self.failed = False
+        self.last_clock = None
+
+    def now(self):
+        try:
+            value = self.clock()
+            if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                    or not math.isfinite(value)
+                    or self.last_clock is not None and value < self.last_clock):
+                self.failed = True
+                return None
+            self.last_clock = value
+            return value
+        except Exception:
+            self.failed = True
+            return None
+
+    def mark(self, name):
+        self.marks[name] = self.now()
+
+    def poll(self, read):
+        started = self.now()
+        if started is not None and self.last_poll_end is not None:
+            self.max_gap = max(self.max_gap, started - self.last_poll_end)
+        self.poll_count += 1
+        try:
+            return read()
+        finally:
+            self.last_poll_end = self.now()
+            if started is not None and self.last_poll_end is not None:
+                self.max_read = max(self.max_read, self.last_poll_end - started)
+
+    def retain(self, text):
+        self.text = text
+
+    def driver_row(self):
+        if self.failed or set(self.marks) != {'start', 'written', 'replaced', 'received'}:
+            return None
+        row = {'writeMs': (self.marks['written'] - self.marks['start']) * 1000,
+                'replaceMs': (self.marks['replaced'] - self.marks['written']) * 1000,
+                'waitMs': (self.marks['received'] - self.marks['replaced']) * 1000,
+                'pollCount': self.poll_count, 'maxReadMs': self.max_read * 1000,
+                'maxPollGapMs': self.max_gap * 1000}
+        return row if all(trace_duration(value) for key, value in row.items() if key != 'pollCount') else None
+
+
+class UntracedSpans:
+    """The same protocol calls with no clock read and nothing retained."""
+    def mark(self, name):
+        pass
+
+    def poll(self, read):
+        return read()
+
+    def retain(self, text):
+        pass
+
+
+def trace_duration(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and 0 <= value <= TRACE_MAX_MS)
+
+
+def trace_count(value, maximum=TRACE_MAX_COUNT):
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum
+
+
+def strict_object(pairs):
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError('duplicate trace key')
+    return dict(pairs)
+
+
+def reject_constant(name):
+    raise ValueError('nonfinite trace value')
+
+
+def healthy_native_trace(trace, request_id):
+    settings = trace['settings']
+    if not isinstance(settings, dict) or set(settings) != TRACE_SETTINGS_KEYS:
+        return False
+    stages = [settings[f'{stage}Ms'] for stage in TRACE_STAGES]
+    counts = [settings[f'{stage}Calls'] for stage in TRACE_STAGES] + [settings['attempts']]
+    offsets = [trace[key] for key in TRACE_OFFSETS]
+    durations = stages + offsets + [trace['pollGapMs'], trace['readMs']]
+    if not all(trace_duration(value) for value in durations) or not all(trace_count(value) for value in counts):
+        return False
+    if any(later < earlier for earlier, later in zip(offsets, offsets[1:])):
+        return False
+    if sum(stages) > trace['setSectionDoneMs'] + TRACE_ROUNDING_MS:
+        return False
+    previous, write = trace['previousId'], trace['previousWriteMs']
+    if previous is None and write is None:
+        return True
+    return trace_count(previous, request_id) and 1 <= previous == request_id - 1 and trace_duration(write)
+
+
+def native_trace(text, request_id):
+    """A complete trace for this request, or None and one fixed reason."""
+    try:
+        receipt = json.loads(text, object_pairs_hook=strict_object, parse_constant=reject_constant)
+    except (TypeError, ValueError):
+        return None, 'malformed'
+    trace = receipt.get('trace', None) if isinstance(receipt, dict) else None
+    if trace is None:
+        return None, 'missing'
+    if not isinstance(trace, dict) or trace.get('schema') != TRACE_SCHEMA:
+        return None, 'malformed'
+    if trace.get('available') is False:
+        reason = trace.get('reason')
+        valid = set(trace) == {'schema', 'available', 'reason'} and isinstance(reason, str) and reason in TRACE_NATIVE_REASONS
+        return None, reason if valid else 'malformed'
+    if trace.get('available') is not True or set(trace) != TRACE_KEYS:
+        return None, 'malformed'
+    if not trace_count(trace['id'], TRACE_MAX_ID) or trace['id'] != request_id:
+        return None, 'wrong-id'
+    if not healthy_native_trace(trace, request_id):
+        return None, 'unhealthy'
+    return trace | {'firstToSecondFrameMs': trace['secondFrameMs'] - trace['firstFrameMs']}, None
+
+
+def response_trace_row(route, cycle, spans):
+    """Assembled after the sample's ms was taken. Failure stays in this row."""
+    row = {'route': route, 'cycle': cycle, 'driver': None, 'native': None, 'nativeUnavailable': 'assembly'}
+    try:
+        row['driver'] = spans.driver_row()
+        row['native'], row['nativeUnavailable'] = native_trace(spans.text, spans.request_id)
+    except Exception:
+        row['native'], row['nativeUnavailable'] = None, 'assembly'
+    return row
+
+
 def response_metrics(trace):
     measured = [entry['ms'] for entry in trace if entry['cycle'] > 0]
     if not measured or not all(math.isfinite(value) and value > 0 for value in measured):
@@ -194,7 +387,7 @@ def electron_asar(executable):
 
 
 def run_one(kind, exe, desktop, options):
-    with tempfile.TemporaryDirectory(prefix='buddy-paired-perf-') as temp:
+    with KeepFirstError('profile', tempfile.TemporaryDirectory(prefix='buddy-paired-perf-')) as temp:
         profile = Path(temp)
         (profile / 'config.json').write_text(json.dumps(FIXTURE), encoding='utf-8')
         (profile / 'window-state.json').write_text(json.dumps(CONTRACT['windowState']), encoding='utf-8')
@@ -238,22 +431,35 @@ def run_one(kind, exe, desktop, options):
         thread.start()
         cdp = None
         seq = 0
+        traced = native_trace_enabled(kind)
+        response_trace = []
+        spans = UntracedSpans()
         def frame(route):
-            nonlocal seq
+            nonlocal seq, spans
             if kind == 'electron':
                 if not cdp.frame(route):
                     raise RuntimeError('Electron shell missing')
             else:
                 seq += 1
+                spans = DriverSpans(seq) if traced else UntracedSpans()
                 request = profile / 'request.tmp'
+                spans.mark('start')
                 request.write_text(json.dumps({'id': seq, 'route': route}), encoding='utf-8')
+                spans.mark('written')
                 request.replace(profile / 'request.json')
+                spans.mark('replaced')
                 def matching_receipt():
-                    value = json.loads((profile / 'response.json').read_text(encoding='utf-8'))
-                    return value if value.get('id') == seq else None
+                    text = spans.poll(lambda: (profile / 'response.json').read_text(encoding='utf-8'))
+                    value = json.loads(text)
+                    if value.get('id') != seq:
+                        return None
+                    spans.retain(text)
+                    return value
                 receipt = wait_for(matching_receipt, process)
+                spans.mark('received')
                 if receipt['status'] != 'ok':
                     raise RuntimeError(receipt)
+        primary = None
         try:
             if kind == 'native':
                 ready = wait_for(lambda: json.loads((profile / 'ready.json').read_text(encoding='utf-8')), process)
@@ -279,6 +485,8 @@ def run_one(kind, exe, desktop, options):
                     frame(route)
                     latencies.append({'route': route, 'cycle': cycle,
                                       'ms': (time.perf_counter() - before) * 1000})
+                    if traced:
+                        response_trace.append(response_trace_row(route, cycle, spans))
                     time.sleep(.5)
                 if cdp:
                     cdp.close_tabs()
@@ -295,21 +503,24 @@ def run_one(kind, exe, desktop, options):
             if diagnostics['RefCell already borrowed']:
                 raise RuntimeError('native startup borrow regression; see retained log')
             return {'startupMs': startup, 'viewport': viewport, 'diagnostics': diagnostics,
-                    **response_metrics(latencies), 'responseSamples': latencies, 'scenarios': scenarios,
+                    **response_metrics(latencies), 'responseSamples': latencies,
+                    **({'responseTrace': response_trace} if traced else {}), 'scenarios': scenarios,
                     'peak': {key: max(s[key] for s in samples + list(scenarios.values())) if samples[0][key] is not None else None
                              for key in ('rssBytes', 'privateBytes')}, 'sampleCount': len(samples), 'memorySamples': samples, 'log': log_path.name,
                     'measurementSeconds': elapsed,
                     'meanHostCpuPercent': statistics.mean(s['systemCpuPercent'] for s in samples[1:]) if len(samples) > 1 else None,
                     'maxSamplingGapMs': sampling_gap(samples, elapsed)}
+        except BaseException as error:
+            primary = error
+            raise
         finally:
-            stop.set()
-            thread.join()
-            if cdp:
-                cdp.ws.close()
-            terminate(process)
-            log.close()
-            if child:
-                child.wait(timeout=10)
+            finish_run(primary, [
+                ('sampler', lambda: (stop.set(), thread.join())),
+                ('cdp', lambda: cdp and cdp.ws.close()),
+                ('terminate', lambda: terminate(process)),
+                ('log', log.close),
+                ('child', lambda: child and child.wait(timeout=10)),
+            ])
 
 
 def summarize(runs):
@@ -401,14 +612,15 @@ def main():
         parser.error('commit application sources before qualification')
     desktop = HiddenDesktop() if os.name == 'nt' else None
     runs = []
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    inputs = args.output.parent / 'inputs'
-    inputs.mkdir(exist_ok=True)
-    for source in (Path(__file__), ROOT / 'perf/matching-fixture.json', ROOT / 'perf/native-comparison-budgets.json'):
-        destination = inputs / source.name
-        if source.resolve() != destination.resolve():
-            destination.write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
+    primary = None
     try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        inputs = args.output.parent / 'inputs'
+        inputs.mkdir(exist_ok=True)
+        for source in (Path(__file__), ROOT / 'perf/matching-fixture.json', ROOT / 'perf/native-comparison-budgets.json'):
+            destination = inputs / source.name
+            if source.resolve() != destination.resolve():
+                destination.write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
         for index in range(args.runs):
             pair = {}
             for kind in (('native', 'electron') if index % 2 == 0 else ('electron', 'native')):
@@ -416,14 +628,17 @@ def main():
                 try:
                     pair[kind] = run_one(kind, getattr(args, kind).resolve(), desktop, args)
                 except Exception as error:
-                    args.output.write_text(json.dumps({'schema': 1, 'status': 'error', 'runtime': kind,
-                        'error': str(error), 'completedPairs': runs, 'partialPair': pair}, indent=2), encoding='utf-8')
+                    finish_run(error, [('evidence', lambda: args.output.write_text(json.dumps({
+                        'schema': 1, 'status': 'error', 'runtime': kind, 'error': str(error),
+                        **cleanup_report(error), 'completedPairs': runs, 'partialPair': pair}, indent=2), encoding='utf-8'))])
                     raise
-                print(json.dumps({k: v for k, v in pair[kind].items() if k not in ('memorySamples', 'responseSamples')}), flush=True)
+                print(json.dumps({k: v for k, v in pair[kind].items() if k not in ('memorySamples', 'responseSamples', 'responseTrace')}), flush=True)
             runs.append(pair)
+    except BaseException as error:
+        primary = error
+        raise
     finally:
-        if desktop:
-            desktop.close()
+        finish_run(primary, [('desktop', lambda: desktop and desktop.close())])
     summary = summarize(runs)
     # Same-runner Electron control is the regression baseline. Broad allowances
     # absorb hosted GPU/scheduling jitter. Preserve every raw run for diagnosis.

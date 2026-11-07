@@ -733,12 +733,18 @@ class MacInputDelivery(unittest.TestCase):
         helper.require_focus = Mock()
         return helper
 
+    def trace_values(self, helper):
+        for phase in helper.last_click_trace:
+            self.assertEqual(set(phase), {"eventType", "leftButtonDown", "postCall", "constructedEvent", "producerTimestamp", "postReturnTimestamp"})
+            self.assertEqual(phase["constructedEvent"], {"status": "unavailable"})
+        return [{key: phase[key] for key in ("eventType", "leftButtonDown")} for phase in helper.last_click_trace]
+
     def test_click_releases_inherited_modifiers_and_marks_a_single_click(self):
         helper = self.helper()
         helper.graphics.CGEventSourceFlagsState.side_effect = [1 << 20, 0]
         helper.graphics.CGEventSourceButtonState.side_effect = [False, True, False]
         helper.click(100, 200)
-        self.assertEqual(helper.last_click_trace, [dict(eventType=5, leftButtonDown=False),
+        self.assertEqual(self.trace_values(helper), [dict(eventType=5, leftButtonDown=False),
             dict(eventType=1, leftButtonDown=True), dict(eventType=2, leftButtonDown=False)])
         self.assertEqual(helper.graphics.CGEventCreateMouseEvent.call_count, 3)
         self.assertEqual(helper.graphics.CGEventCreateKeyboardEvent.call_count, 8)
@@ -752,7 +758,7 @@ class MacInputDelivery(unittest.TestCase):
         helper.graphics.CGEventSourceButtonState.side_effect = [False, RuntimeError("Unavailable telemetry"), False]
         helper.click(100, 200)
         self.assertEqual(helper.graphics.CGEventCreateMouseEvent.call_count, 3)
-        self.assertEqual(helper.last_click_trace, [dict(eventType=5, leftButtonDown=False),
+        self.assertEqual(self.trace_values(helper), [dict(eventType=5, leftButtonDown=False),
             dict(eventType=1, leftButtonDown=None), dict(eventType=2, leftButtonDown=False)])
 
     def test_stuck_modifiers_fail_before_any_mouse_event(self):

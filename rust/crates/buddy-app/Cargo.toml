@@ -50,8 +50,9 @@ tempfile = "3"
 gpui-kit = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = { version = "=0.6.2", default-features = false, features = ["alloc"] }
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphics", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSApplication", "NSEvent", "NSGraphics", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject"] }
 
 # Reads the built binary's resources (`tests/windows_icon.rs`).

@@ -10,7 +10,7 @@ import platform
 import subprocess
 import time
 
-from desktop import UnixWindow, fixture, run
+from desktop import UnixWindow, finish_cleanup, fixture, run
 
 def load_script(name):
     spec = importlib.util.spec_from_file_location('menu_' + name.replace('-', '_'), Path(__file__).with_name(name + '.py'))
@@ -107,6 +107,89 @@ return menuRows
 '''
 
 
+# Failure-only, read-only state of the owned PID. Each attribute falls back to
+# a fixed sentinel independently; the script sends no input or delay command.
+FAILURE_STATE_SCRIPT = '''
+set frontState to "unavailable"
+set barCount to -1
+set windowCount to -1
+try
+    set frontState to frontmost
+end try
+try
+    set barCount to count of menu bars
+end try
+try
+    set windowCount to count of windows
+end try
+return (frontState as text) & tab & barCount & tab & windowCount
+'''
+FAILURE_STATE_TIMEOUT = 1
+FAILURE_ERROR_TYPES = ('RuntimeError', 'ValueError', 'OSError', 'TimeoutExpired')
+
+
+def unavailable():
+    return dict(state='unavailable')
+
+
+def failure_count(text):
+    # AppleScript renders integers as plain digits; the -1 sentinel and any
+    # other shape stay unavailable rather than becoming a guessed value.
+    if len(text) <= 3 and text.isascii() and text.isdigit():
+        return dict(state='available', value=int(text))
+    return unavailable()
+
+
+def failure_process(process):
+    try:
+        code = process.poll()
+    except Exception:
+        return dict(state='unavailable', exitCode=None)
+    if code is None:
+        return dict(state='running', exitCode=None)
+    if type(code) is int:
+        return dict(state='exited', exitCode=code if -255 <= code <= 255 else None)
+    return dict(state='unavailable', exitCode=None)
+
+
+def failure_observation(window, running):
+    fields = dict(frontmost=unavailable(), menuBarCount=unavailable(), windowCount=unavailable())
+    if not running:
+        return dict(status='not-run-process-not-running', **fields)
+    try:
+        output = run('osascript', '-e', window.apple(FAILURE_STATE_SCRIPT), timeout=FAILURE_STATE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return dict(status='query-timeout', **fields)
+    except Exception:
+        return dict(status='query-failed', **fields)
+    parts = output.split('\t') if isinstance(output, str) else []
+    if len(parts) != 3:
+        return dict(status='malformed', **fields)
+    front, bars, windows = parts
+    if front in ('true', 'false'):
+        fields['frontmost'] = dict(state='available', value=front == 'true')
+    elif front != 'unavailable':
+        return dict(status='malformed', **fields)
+    fields.update(menuBarCount=failure_count(bars), windowCount=failure_count(windows))
+    return dict(status='observed', **fields)
+
+
+def record_failure(window, menu, destination, stage, error):
+    """Write fixed-schema owned state after a post-click failure. It never
+    raises: the capture's own exception remains the reported failure."""
+    try:
+        process = failure_process(window.process)
+        observation = failure_observation(window, process['state'] == 'running')
+        name = type(error).__name__
+        snapshot = dict(schema='buddy-native-menu-failure/v1', menu=menu, stage=stage,
+            errorType=name if name in FAILURE_ERROR_TYPES else 'other',
+            process=process, observation=observation)
+        destination.with_name(destination.stem + '.failure.json').write_text(
+            json.dumps(snapshot, indent=2))
+    except Exception:
+        pass
+
+
 def capture(window, menu, destination, window_open=True):
     # Only known application menu names enter AppleScript. Geometry and labels
     # come from this owned PID's popup, never another process or the desktop.
@@ -114,6 +197,8 @@ def capture(window, menu, destination, window_open=True):
         raise RuntimeError('Native menu requires the live owned app and a known menu')
     item = f'menu bar item {json.dumps(menu, ensure_ascii=False)} of menu bar 1'
     run('osascript', '-e', window.apple(f'set frontmost to true\nclick {item}'))
+    primary = None
+    stage = 'bounds'
     try:
         script = f'''
 set popup to menu 1 of {item}
@@ -122,6 +207,7 @@ set s to size of popup
 return {{item 1 of p, item 2 of p, item 1 of s, item 2 of s}}
 '''
         bounds = rectangle(run('osascript', '-e', window.apple(script)))
+        stage = 'rows'
         script = menu_rows_script(menu)
         rows = []
         for line in run('osascript', '-e', window.apple(script)).splitlines():
@@ -131,19 +217,30 @@ return {{item 1 of p, item 2 of p, item 1 of s, item 2 of s}}
             rows.append(dict(label=label, key=key, modifiers=int(modifiers), enabled=enabled == 'true',
                 virtualKey=None if virtual == '-1' else int(virtual),
                 glyph=None if glyph == '-1' else int(glyph)))
+        stage = 'pixels'
         time.sleep(.3)
         run('screencapture', '-x', '-R', ','.join(map(str, bounds)), destination)
         if not destination.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
             raise RuntimeError('Native menu pixels were not captured')
+        stage = 'receipt'
         receipt = dict(menu=menu, bounds=bounds, items=rows,
             sha256=hashlib.sha256(destination.read_bytes()).hexdigest())
         # Preserve the actual pixels and unnormalized AX values even when the
         # contract fails, so the next investigation can distinguish app/driver.
         destination.with_suffix('.json').write_text(json.dumps(receipt, indent=2))
+        stage = 'verify'
         verify(menu, rows, window_open)
         return receipt
+    except Exception as error:
+        primary = error
+        # Observed after the failure and before Escape: one bounded read of
+        # this PID, never a retry, a fix or a claim about the earlier routing.
+        record_failure(window, menu, destination, stage, error)
+        raise
     finally:
-        window.key('Escape', control=False)
+        # A required Escape failure fails a good capture, but cannot replace
+        # the capture's own error.
+        finish_cleanup(lambda: window.key('Escape', control=False), primary, 'Native menu Escape')
 
 
 def wait_window(window, expected):

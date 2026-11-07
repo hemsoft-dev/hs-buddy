@@ -7,7 +7,7 @@ Screenshots contain real OS window pixels; OCR must find dashboard content.
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import math
@@ -19,7 +19,8 @@ import subprocess
 import struct
 import sys
 import time
-from threading import Event
+from threading import Event, RLock
+from receipt_clock import stamp
 
 
 HERE = Path(__file__).resolve().parent
@@ -129,13 +130,21 @@ def recording(window, directory):
         if index < 2:
             raise RuntimeError("Interaction recording captured fewer than two frames")
     with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(capture)
+        owned_mac = isinstance(window, UnixWindow) and window.session == "macos"
+        was_recording = window._recording if owned_mac else False
+        if owned_mac:
+            window._recording = True
         try:
-            yield
+            future = executor.submit(capture)
+            try:
+                yield
+            finally:
+                primary = sys.exc_info()[1]
+                stop.set()
+                finish_cleanup(lambda: future.result(timeout=15), primary, "Interaction recording")
         finally:
-            primary = sys.exc_info()[1]
-            stop.set()
-            finish_cleanup(lambda: future.result(timeout=15), primary, "Interaction recording")
+            if owned_mac:
+                window._recording = was_recording
 
 
 def encode_recording(directory):
@@ -234,6 +243,8 @@ class UnixWindow:
         self.process = process
         self.session = session
         self.window = None
+        self._recording = False
+        self._recording_input_lock = RLock()
 
     def ready(self):
         if self.session == "macos":
@@ -278,16 +289,28 @@ class UnixWindow:
         run("xdotool", "mousemove", "--window", self.window, x, y)
         time.sleep(0.3)
 
-    def resize(self, width, height):
+    def resize(self, width, height, *, initial_origin=None):
+        if initial_origin is not None and self.session != "macos":
+            raise RuntimeError("Initial placement is Mac comparison only")
         if self.session == "macos":
-            run("osascript", "-e", self.apple(f"set size of window 1 to {{{width}, {height}}}"))
+            command = f"set size of window 1 to {{{width}, {height}}}"
+            if initial_origin is not None:
+                placement = getattr(self, "_placement", None)
+                if placement is None:
+                    raise RuntimeError("Initial placement requires owned comparison admission")
+                command += "\n" + placement.geometry(self, initial_origin, (width, height))
+            run("osascript", "-e", self.apple(command))
         elif self.session == "x11":
             run("xdotool", "windowsize", self.window, width, height)
         else:
             run("swaymsg", f"[con_id={self.window}] floating enable, resize set {width} {height}, move position 80 80")
         time.sleep(1)
         if self.session == "macos":
-            size = [int(value) for value in re.findall(r"-?\d+", run("osascript", "-e", self.apple("get size of window 1")))]
+            query = "get size of window 1" if initial_origin is None else "return {size of window 1, position of window 1}"
+            size = [int(value) for value in re.findall(r"-?\d+", run("osascript", "-e", self.apple(query)))]
+            if initial_origin is not None:
+                placement.assigned_geometry(size)
+                size = size[:2]
             if len(size) != 2:
                 raise RuntimeError("Unreadable owned Mac window size")
             actual = dict(width=size[0], height=size[1], units="macOS window points")
@@ -342,24 +365,43 @@ class UnixWindow:
             finish_cleanup(stop_keyboard, sys.exc_info()[1], "Virtual keyboard shutdown")
 
     def screenshot(self, path):
+        with mac_input_guard(self):
+            self._screenshot(path)
+
+    def _screenshot(self, path):
         if self.session == "macos":
+            started = stamp()
             # Capture the owned app window only. No full-monitor recording.
-            window = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", self.process.pid))
+            placement = getattr(self, "_placement", None)
+            options = {"env": placement.capture_environment()} if placement is not None else {}
+            window = json.loads(run(Path(os.environ["RUNNER_TEMP"]) / "buddy-window-info", self.process.pid, **options))
             # Exclude the OS shadow so PNG pixels / window points measures the
             # backing scale, rather than accidentally counting shadow margins.
             run("screencapture", "-x", "-o", "-l", window["kCGWindowNumber"], path)
             pixels = struct.unpack(">II", path.read_bytes()[16:24])
+            window["captureTiming"] = dict(start=started, end=stamp())
             window["capturePixelSize"] = pixels
             window["capturePixelsPerWindowPoint"] = pixels[0] / window["kCGWindowBounds"]["Width"]
             path.with_suffix(".window.json").write_text(json.dumps(window), encoding="utf-8")
+            if placement is not None:
+                placement.capture(window)
         elif self.session == "x11":
-            run("import", "-window", self.window, path)
+            # Read visible screen pixels within the owned window bounds. A
+            # direct XGetImage of the client can omit overlapping surfaces.
+            run("import", "-screen", "-window", self.window, path)
         else:
             # Ask the compositor to capture this owned window region directly,
             # like the window-only captures on the other platforms. No PNG edit.
             rect = self.wayland_rect()
             run("grim", "-g", f'{rect["x"]},{rect["y"]} {rect["width"]}x{rect["height"]}', path)
             path.with_suffix(".window.json").write_text(json.dumps(rect), encoding="utf-8")
+
+
+def mac_input_guard(window):
+    """Only a recorded owned Mac window excludes its camera during a click."""
+    if isinstance(window, UnixWindow) and window.session == "macos" and window._recording:
+        return window._recording_input_lock
+    return nullcontext()
 
 
 @contextmanager

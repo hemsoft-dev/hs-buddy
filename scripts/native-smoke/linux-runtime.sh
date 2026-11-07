@@ -38,6 +38,8 @@ fi
 cp /etc/os-release /evidence/runtime-os-release.txt
 dpkg-query -W > /evidence/runtime-packages-before-test-tools.txt
 buddy_install_linux_desktop_tools
+# Offline real-engine regression on the retained hosted crop, before UI input.
+PYTHONDONTWRITEBYTECODE=1 timeout 60s python3 "$script_directory/replay-browser-analysis.py" --output /evidence/browser-analysis-replay
 # Ralph loops need PowerShell 7, Git and the GitHub CLI; qualification runs a stub loop.
 buddy_apt install -y --no-install-recommends git gh curl ca-certificates libicu74
 pwsh_archive=/tmp/powershell-linux-x64.tar.gz
