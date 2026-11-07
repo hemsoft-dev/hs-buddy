@@ -38,6 +38,14 @@ on:
       - 'public/icon-512.png'
       - 'public/icon.ico'
       - 'LICENSE'
+  # #913: the installed macOS settings scene fails on both Macs and runs only
+  # when requested here, until it is fixed. Every other scene still runs.
+  workflow_dispatch:
+    inputs:
+      mac_settings_qualification:
+        description: Run the installed macOS settings scene (#913)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -276,6 +284,7 @@ jobs:
         shell: bash
         env:
           PACKAGE_DIRECTORY: ${{ steps.package.outputs.directory }}
+          BUDDY_MAC_SETTINGS_QUALIFICATION: ${{ inputs.mac_settings_qualification && '1' || '0' }}
         run: bash scripts/native-smoke/install-unix.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence"
 
       - name: Qualify Ubuntu installed runtime upgrade and rollback

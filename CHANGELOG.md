@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1667] - 2026-11-07
+
+### Changed
+
+- Run the macOS settings scene only on request (#913)
+
 ## [0.1.1666] - 2026-11-06
 
 ### Fixed
