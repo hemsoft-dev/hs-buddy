@@ -2,9 +2,14 @@
 #[cfg(target_os = "macos")]
 #[path = "../src/macos_menu/edit.rs"]
 mod edit;
+#[cfg(target_os = "macos")]
+mod macos_receiver_cases;
 
 #[cfg(target_os = "macos")]
 fn main() {
+    if macos_receiver_cases::measurement_child() {
+        return;
+    }
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, ProtocolObject};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -172,6 +177,7 @@ fn main() {
     println!(
         "PASS native Cmd+Z/Cmd+Shift+Z route both focus transitions without menu reopening; validation follows current target; no windows created"
     );
+    macos_receiver_cases::run(mtm);
 }
 
 #[cfg(not(target_os = "macos"))]

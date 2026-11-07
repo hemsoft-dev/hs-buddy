@@ -1,0 +1,20 @@
+{
+  "sourceHead": "73dc2acda90b6bcf02f6893f6b476e18ff51ad3e",
+  "hostedOld": {
+    ":11": "budd\n\nhttp\n\ni\n\nprobe page\n\nrunning\n\nj",
+    ":3": "probe page\n\nrunning\n\n\u2014\u2014",
+    ":6": "probe page\n\nrunning\n\n>\nq",
+    ".ocr-scale3:11": "file\n\nedit\n\n=\n\nbuddy\n\nhell\n\nard\n\nnark\n\nort\n\nby\n\npre e\n\n=\n\n>\n\no\n\n0.1:43749/probe\n\na\n\nt\n\n+ g\n\nhttp://12\n\nrt\n\ndownloads are blocked. open the page externally to download\n\n7\n\nopen externally\n\nprobe page\n\nrunning\n\n-\u2014\u2014",
+    ".ocr-scale3:3": "/#\\, downloads are blocked. open the page externally to download open externally\n\nprobe page\n\nrunning\n\n\u2014\u2014\u2014\u2014",
+    ".ocr-scale3:6": "buddy file edit view help + 8\n\u00ab \u00bb dashboard x bookmarks: all x browser: buddy probe x\n\u20ac > \u00a9 http://127.0.0.1:43749/probe \u2014 100% + ff\n/#\\, downloads are blocked. open the page externally to download open externally x\nq",
+    ".ocr-scale3-inverted:11": "6 buddy file edit view help\n\npe\n\ndashboard\n\n\"4\n\nmarks: all\n\n\"4\n\nbrowser: buddy probe x\n\n=\n\n>\n\nin\n\no\n\nhttp\n\nfook\n\n).0.1:43749/probe\n\n+ g\n\n#\\, downloads are blocked. open the page externally to download.\n\nopen externally\n\nprobe page\n\navralaliare\n\n-\u2014\u2014\u2014\u2014",
+    ".ocr-scale3-inverted:3": "\u00a9) buddy file edit view help\n\ndashboard x -- marks: all x --- browser: buddy probe x\n\n\u00a2 > &  http://127.0.0.1:43749/probe\n\n#\\, downloads are blocked. open the page externally to download. open externally\n\nprobe page\n\navralaliare\n\n\u2014\u2014\u2014",
+    ".ocr-scale3-inverted:6": "6 buddy file edit view help #\n\u00ab \u00bb dashboard x --- bookmarks: all x --- browser: buddy probe x ---\n\u20ac > &  http://127.0.0.1:43749/probe \u2014 100% + 7\n#\\, downloads are blocked. open the page externally to download. openexternally x\nt\nq"
+  },
+  "controlledNew": {
+    "11": "* 8\n\n@ suddy File Edit View Help\n\nDashboard x\n\nBookmarks: All x\n\nBrowser: Buddy Probe x\n\n\u20ac >\n\nwe\n\no\n\nhttp://127.0.0.1:43749/probe\n\n=\n\n100%\n\n+o\n\n&\\ Downloads are blocked. Open the page externally to download\n\nOpen externally\n\nx\n\nPROBE PAGE\n\nrunning\n\n-\u2014\u2014\u2014\u2014\n",
+    "3": "@ suddy File Edit View Help\n\nDashboard x --- Bookmarks: All x -:- Browser: Buddy Probe x\n\u20ac > \u20ac http://127.0.0.1:43749/probe \u2014 10% + @&\n\n&\\ Downloads are blocked. Open the page externally to download. Open externally x\n\nPROBE PAGE\n\nrunning\n\n| |\n",
+    "6": "2] Buddy File Edit View Help #8\n< \u00bb Dashboard x --- Bookmarks: All x --- Browser: Buddy Probe x ---\n\u20ac > \u20ac http://127.0.0.1:43749/probe \u2014 10% + @&\n&\\ Downloads are blocked. Open the page externally to download. Open externally x\n'\nQ\n"
+  },
+  "limits": "Old text: actual hosted Tesseract5.3.4 layouts. New text: Mini5.5 actual identical-crop 2xLanczos analysis. Original raw github.check on Mini already PASS; this is not whole-check/hosted RED-GREEN."
+}

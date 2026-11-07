@@ -1,0 +1,71 @@
+{
+  "sourceHead": "4d6cd2d87bf113e8e00c0fa478872c3d44e1f5d1",
+  "run": 41884139811,
+  "job": 126763939130,
+  "artifact": 13356794909,
+  "artifactPath": "_temp/native-upload/browser/browser-dark/page-compact-dark.png",
+  "stage": "Untouched hosted 900x650 window capture from browser-desktop first_pass line 219; the check failed on it",
+  "sha256": "42ad85938968d0553835fbe58b01e3944f58e309ddf330e1d57119f04b59bde4",
+  "consumer": "github.check(page-compact-dark.png, 'FIXTURE PAGE', 'Buddy Fixture OK', browser=True)",
+  "hostedFailure": "The content screenshot has no unique native status footer",
+  "engine": {
+    "tesseract": "tesseract 5.3.4",
+    "leptonica": "leptonica-1.82.0",
+    "ffmpeg": "6.1.1-3ubuntu5",
+    "packages": {
+      "tesseract-ocr": {
+        "version": "5.3.4-1build5",
+        "sha256": "2dfac382d77215aee0c3de4a2a2205505d5f2195e72e79b54ad32154fc08da77",
+        "jobLogExact": true
+      },
+      "libtesseract5": {
+        "version": "5.3.4-1build5",
+        "sha256": "a38438115dc203b5abc1e6a6b24eb5273ba82161a11faa2f619bf5f7622efb14",
+        "jobLogExact": true
+      },
+      "liblept5": {
+        "version": "1.82.0-3build4",
+        "sha256": "c2bb81d58f032b09917c0d50994cce905287a1596304a4e99681a03601456ea8",
+        "jobLogExact": true
+      },
+      "tesseract-ocr-eng": {
+        "version": "1:4.1.0-2",
+        "sha256": "b1996b3113c78663f4dd16cf18aa1f288b07e9624f8d4a0ddbd7d9b52a234ba7",
+        "jobLogExact": true
+      },
+      "ffmpeg": {
+        "version": "7:6.1.1-3ubuntu5",
+        "sha256": "1a23baace5f2688a47e28119aedae6993cd638e6279a7227dfc52d9a337a1c17",
+        "jobLogExact": true
+      },
+      "libswscale7": {
+        "version": "7:6.1.1-3ubuntu5",
+        "sha256": "2c17ae58b35112aace5179d7deea51faa20e82e04847b257f339376b11744e22",
+        "jobLogExact": true
+      },
+      "libc6": {
+        "version": "2.39-0ubuntu8.9",
+        "sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+        "jobLogExact": false
+      }
+    },
+    "tesseractBinarySha256": "9f831cab7525c3dab04af41bda35182af7ea1df9dceeaaa2f3bf207ac45c06a5",
+    "libtesseractSha256": "0d3b71cd757860c6639918c1b2d9407c8652ee22babc8d5c5f18cc35dde6334b",
+    "engTraineddataSha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+  },
+  "calibration": "Replaying this runtime reproduced all 9 retained hosted footer OCR layouts word for word and both retained analysis PNGs byte for byte.",
+  "analysisSha256": {
+    "footer": {
+      "": "42ad85938968d0553835fbe58b01e3944f58e309ddf330e1d57119f04b59bde4",
+      ".ocr-scale3": "e446a6b9a3144aa54e876583154cb810241b8319eae556a02597a98ff44d21af",
+      ".ocr-scale3-inverted": "beeb4f27754bb9ac2dfea65a08856c18668f2d48c93cd8417b003577e7910357",
+      ".ocr-scale2-inverted": "49a9ef67ae239a4fa2b28aac52cca51a2838d0639c32298e1e6a0a9e50400b24"
+    },
+    "content": {
+      "": "7f3a89770ccc90f50a96b483636a3615f0a5c66f7fd35edf93340bf939919d74",
+      ".ocr-scale3": "daae3e5631b4d9a0a24fc5a5ae732597e76378e0031f51068323a329acaf44fc",
+      ".ocr-scale2-inverted": "29e33b4fd4c07cacdb530cf6ac94073357a002d7e034ae70a2777d449207855d"
+    }
+  },
+  "limits": "Recorded on Mini (AVX-512) from Ubuntu 24.04 packages at the job's versions, not on a hosted runner. Lanczos pixels differ below AVX-512; the footer geometry did not. Preprocessing/consumer proof only: no installed, upgrade, rollback or native qualification."
+}

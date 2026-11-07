@@ -1,0 +1,7 @@
+{
+  "sourceSha": "23339adc310636afa599a7e83f90c3fe1a13fd70",
+  "run": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/41371175622/job/125041902950",
+  "loading": "electron-seed/crew-restored.png",
+  "painted": "electron-seed/frames/frame-0002.png",
+  "scope": "Synthetic profile in real installed Electron; the overall installed lifecycle failed. These captures prove only this paint/readiness regression, not native migration or rollback qualification."
+}

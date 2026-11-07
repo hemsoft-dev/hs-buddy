@@ -1,9 +1,11 @@
 """Exercise the focused owned app through a disposable Mac CI event stream."""
 import ctypes as c
 import json
+import math
 import os
 import subprocess
 import time
+from receipt_clock import stamp
 
 COMBINED_SESSION = 0
 MODIFIER_MASK = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
@@ -35,6 +37,14 @@ class OwnedMacInput:
         self.graphics.CGEventCreateMouseEvent.argtypes = [c.c_void_p, c.c_uint32, Point, c.c_uint32]
         self.graphics.CGEventCreateMouseEvent.restype = c.c_void_p
         self.graphics.CGEventPost.argtypes = [c.c_uint32, c.c_void_p]
+        self.graphics.CGEventGetType.argtypes = [c.c_void_p]
+        self.graphics.CGEventGetType.restype = c.c_uint32
+        self.graphics.CGEventGetTimestamp.argtypes = [c.c_void_p]
+        self.graphics.CGEventGetTimestamp.restype = c.c_uint64
+        self.graphics.CGEventGetFlags.argtypes = [c.c_void_p]
+        self.graphics.CGEventGetFlags.restype = c.c_uint64
+        self.graphics.CGEventGetIntegerValueField.argtypes = [c.c_void_p, c.c_uint32]
+        self.graphics.CGEventGetIntegerValueField.restype = c.c_int64
         self.graphics.CGEventSetFlags.argtypes = [c.c_void_p, c.c_uint64]
         self.graphics.CGEventSetIntegerValueField.argtypes = [c.c_void_p, c.c_uint32, c.c_int64]
         self.graphics.CGEventCreateKeyboardEvent.argtypes = [c.c_void_p, c.c_uint16, c.c_bool]
@@ -61,7 +71,26 @@ class OwnedMacInput:
         if result.stdout.strip() != str(self.process.pid):
             raise RuntimeError("The owned Mac app must be frontmost before CI input")
 
-    def post(self, event):
+    def constructed_mouse(self, event, kind, x, y):
+        """Read ONLY our already-created mouse object, never external events."""
+        try:
+            actual = self.graphics.CGEventGetType(event)
+            point = self.graphics.CGEventGetLocation(event)
+            button = self.graphics.CGEventGetIntegerValueField(event, 3)
+            clicks = self.graphics.CGEventGetIntegerValueField(event, 1) if kind in (1, 2) else None
+            flags = self.graphics.CGEventGetFlags(event)
+            return dict(status="observed", actualType={5: "move", 1: "down", 2: "up"}.get(actual, "other"),
+                typeMatches=actual == kind,
+                locationMatches=math.isclose(point.x, x, rel_tol=0, abs_tol=1 / 1024)
+                    and math.isclose(point.y, y, rel_tol=0, abs_tol=1 / 1024),
+                leftButtonMatches=button == 0, clickStateMatches=clicks == 1 if kind in (1, 2) else None,
+                flagsClear=flags == 0)
+        except Exception:
+            # Ancillary observation must not interrupt the required up/release
+            # or retain an exception's potentially sensitive contents.
+            return dict(status="unavailable")
+
+    def post(self, event, *, mouse=None):
         if not event:
             raise RuntimeError("Could not create an owned Mac input event")
         try:
@@ -74,7 +103,24 @@ class OwnedMacInput:
             # This stream exists ONLY on the disposable, guarded CI desktop.
             # https://developer.apple.com/documentation/coregraphics/cgevent/post(tap:)
             self.graphics.CGEventSetFlags(event, 0)
-            self.graphics.CGEventPost(0, event)
+            if mouse is not None:
+                self.last_constructed_mouse = self.constructed_mouse(event, *mouse)
+                try:
+                    self.last_producer_timestamp = dict(status="observed",
+                        value=int(self.graphics.CGEventGetTimestamp(event)))
+                except Exception:
+                    self.last_producer_timestamp = dict(status="unavailable")
+            self.last_post_timing = dict(start=stamp())
+            try:
+                self.graphics.CGEventPost(0, event)
+            finally:
+                self.last_post_timing["end"] = stamp()
+            if mouse is not None:
+                try:
+                    self.last_post_return_timestamp = dict(status="observed",
+                        value=int(self.graphics.CGEventGetTimestamp(event)))
+                except Exception:
+                    self.last_post_return_timestamp = dict(status="unavailable")
         finally:
             self.core.CFRelease(event)
 
@@ -103,7 +149,7 @@ class OwnedMacInput:
             if event and kind in (1, 2):
                 # kCGMouseEventClickState=1, value 1 is a single click.
                 self.graphics.CGEventSetIntegerValueField(event, 1, 1)
-            self.post(event)
+            self.post(event, mouse=(kind, x, y))
             time.sleep(0.05)
             # State telemetry is not proof that the GPUI callback ran. Keep
             # every phase of the one click, without retrying a failed action.
@@ -112,7 +158,14 @@ class OwnedMacInput:
             except Exception:
                 # Ancillary telemetry must not interrupt the down/up sequence.
                 down = None
-            self.last_click_trace.append(dict(eventType=kind, leftButtonDown=down))
+            phase = dict(eventType=kind, leftButtonDown=down,
+                constructedEvent=self.last_constructed_mouse)
+            timing = getattr(self, "last_post_timing", None)
+            if isinstance(timing, dict):
+                phase["postCall"] = timing
+            phase["producerTimestamp"] = self.last_producer_timestamp
+            phase["postReturnTimestamp"] = self.last_post_return_timestamp
+            self.last_click_trace.append(phase)
 
     def replace_text(self, text):
         self.release_modifiers()

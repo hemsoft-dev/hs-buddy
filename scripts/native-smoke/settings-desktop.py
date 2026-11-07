@@ -14,8 +14,9 @@ import struct
 import sys
 import time
 import uuid
+from receipt_clock import stamp
 
-from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run
+from desktop import UnixWindow, encode_recording, finish_cleanup, fixture, recording, run, mac_input_guard
 
 
 HERE = Path(__file__).resolve().parent
@@ -31,6 +32,8 @@ def load(name):
 ocr = load("settings-ocr")
 SettingsBackend = load("settings-backend").SettingsBackend
 OwnedMacInput = load("macos-input").OwnedMacInput
+process_receive = load("macos-process-receive")
+placement_compare = load("settings-placement")
 
 
 @contextmanager
@@ -231,6 +234,7 @@ class Driver:
     # one. WebView2 refuses to create pages on a CreateDesktopW desktop
     # (0x80070578, invalid window handle), so the browser qualification sets it.
     input_desktop = False
+    placement = None
 
     def __init__(self, executable, profile, session, backend, checkout):
         self.executable, self.profile, self.session = executable, profile, session
@@ -318,6 +322,7 @@ class Driver:
         if self.session == "x11":
             environment.pop("WAYLAND_DISPLAY", None)
         companion = None
+        observer = None
         with (directory / "app.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen([str(self.executable)], cwd=directory, env=environment, stdout=log, stderr=log)
             try:
@@ -335,7 +340,18 @@ class Driver:
                 else:
                     raise RuntimeError("Installed settings window did not appear")
                 time.sleep(4)
-                window.resize(*self.large_size)
+                if self.placement is not None and directory.name == "preferences":
+                    self.placement.attach(window, self.config, scene=directory.name)
+                    window.resize(*self.large_size, initial_origin=self.placement.origin)
+                else:
+                    window.resize(*self.large_size)
+                if self.session == "macos":
+                    try:
+                        observer = process_receive.Observer(process, self.executable, window=window, fixture_config=self.config)
+                        observer.start(deadline)
+                    except Exception:
+                        (directory / "process-receive-unavailable.json").write_text(
+                            json.dumps(dict(status="unqualified", reason="admission-unavailable")), encoding="utf-8")
                 if concurrent:
                     companion = subprocess.Popen([self.electron, str(self.profile)], cwd=self.profile,
                         env=environment, stdout=log, stderr=log)
@@ -348,8 +364,11 @@ class Driver:
                 with recording(window, directory / "frames") if record else nullcontext():
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
-                            receipt.write(json.dumps(dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)) + "\n")
+                            action = dict(index=index, kind=kind,
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)
+                            if self.session == "macos":
+                                action["started"] = stamp()
+                            receipt.write(json.dumps(action) + "\n")
                         if kind == "capture":
                             window.screenshot(directory / (values[0] + ".png"))
                         elif kind == "resize":
@@ -379,6 +398,8 @@ class Driver:
                             self.interact(window, directory, kind, values)
                 if companion is not None:
                     stop_companion(self.profile)
+                if observer is not None:
+                    observer.request_stop()
                 if self.session == "macos":
                     state = OwnedMacInput(process).release_modifiers()
                     (directory / "exit-input-state.json").write_text(json.dumps(state), encoding="utf-8")
@@ -403,10 +424,28 @@ class Driver:
                 if companion is not None and companion.wait(timeout=30) != 0:
                     raise RuntimeError("Electron config companion failed")
             finally:
-                for child in (companion, process):
-                    if child is not None and child.poll() is None:
-                        child.kill()
-                        child.wait(timeout=10)
+                # Share the existing ten-second owned cleanup allowance.
+                cleanup_deadline = time.monotonic() + 10
+                primary = sys.exc_info()[1]
+                errors = process_receive.cleanup_owned([companion, process], observer, cleanup_deadline)
+                try:
+                    if observer is not None and observer.finished.is_set():
+                        received = observer.receipt()
+                        (directory / "process-receive.json").write_text(json.dumps(received), encoding="utf-8")
+                        try:
+                            correlation = process_receive.correlate(directory, received)
+                        except Exception:
+                            correlation = dict(status="unqualified", reason="correlation-unavailable")
+                        (directory / "process-correlation.json").write_text(json.dumps(correlation), encoding="utf-8")
+                except Exception:
+                    errors.append("evidence-write-failed")
+                if self.placement is not None:
+                    self.placement.cleaned([companion, process], observer, errors)
+                if errors:
+                    if primary is not None:
+                        primary.add_note("Owned cleanup failed: " + ",".join(errors))
+                    else:
+                        raise RuntimeError("Owned cleanup failed")
 
     def scroll_anchor(self, window, directory, text, *, above=False):
         image = directory / "settings-scroll-anchor.png"
@@ -536,10 +575,41 @@ class Driver:
 
     def input_receipt(self, helper, directory, stage, kind, label, target):
         with (directory / "input-state.jsonl").open("a", encoding="utf-8") as receipt:
-            value = dict(stage=stage, kind=kind, label=label, target=target, state=helper.focus_state())
+            started = stamp()
+            state = helper.focus_state()
+            value = dict(stage=stage, kind=kind, label=label, target=target, state=state,
+                focusObservation=dict(start=started, end=stamp()))
             trace = getattr(helper, "last_click_trace", None)
             if isinstance(trace, list):
                 value["clickTrace"] = trace
+            receipt.write(json.dumps(value) + "\n")
+
+    def capture_click_boundary(self, window, directory, kind, label, target):
+        """Retain the owned frame before typing can conceal a missed focus click.
+
+        Only the already-guarded Mac fixture calls this. A posted mouse event
+        is not a GPUI delivery acknowledgment; do not retry it or infer focus.
+        """
+        if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1":
+            return
+        if not ((kind == "rightfield" and "Organization" in label.split("|"))
+                or (kind == "content" and label.casefold() == "review completion sound: off")):
+            return
+        path = directory / "click-boundaries.jsonl"
+        with path.open("a", encoding="utf-8") as receipt:
+            with path.open(encoding="utf-8") as previous:
+                index = sum(1 for _ in previous)
+            capture = directory / f"after-click-{index:03d}.png"
+            window.screenshot(capture)
+            value = dict(kind=kind, label=label, target=target, capture=capture.name,
+                callbackDelivered=None, beforeTyping=True)
+            # This is explicitly the isolated fixture's config, not AX values
+            # or another application's field contents. The final config alone
+            # cannot distinguish no callback from a later reset.
+            config = getattr(self, "config", None)
+            if isinstance(config, Path) and config.is_file():
+                current = json.loads(config.read_text(encoding="utf-8-sig"))
+                value["soundEnabled"] = current.get("notifications", {}).get("playSoundOnReviewComplete")
             receipt.write(json.dumps(value) + "\n")
 
     def interact_cell(self, window, directory, values):
@@ -575,7 +645,8 @@ class Driver:
             run("osascript", "-e", window.apple("set frontmost to true"))
             helper = OwnedMacInput(window.process)
             try:
-                helper.click(*target)
+                with mac_input_guard(window):
+                    helper.click(*target)
             except Exception as failure:
                 try:
                     self.input_receipt(helper, directory, "failed-click", "cell", values, target)
@@ -647,6 +718,9 @@ class Driver:
             if kind == "save":
                 x = (control["left"] + control["width"] / 2) / scale
         if self.session == "macos":
+            placement = getattr(window, "_placement", None)
+            if placement is not None:
+                placement.target(kind, values[0], [x, y], label)
             with (directory / "targets.jsonl").open("a", encoding="utf-8") as targets:
                 targets.write(json.dumps(dict(kind=kind, label=values[0], bounds=label,
                     windowPoint=[x, y])) + "\n")
@@ -654,7 +728,8 @@ class Driver:
             helper = OwnedMacInput(window.process)
             target = [origin[0] + x, origin[1] + y]
             try:
-                helper.click(*target)
+                with mac_input_guard(window):
+                    helper.click(*target)
             except Exception as failure:
                 try:
                     self.input_receipt(helper, directory, "failed-click", kind, values[0], target)
@@ -663,6 +738,7 @@ class Driver:
                     failure.add_note(f"Input diagnostic failed: {type(diagnostic_error).__name__}")
                 raise
             self.input_receipt(helper, directory, "after-click", kind, values[0], target)
+            self.capture_click_boundary(window, directory, kind, values[0], target)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
             run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
@@ -766,7 +842,7 @@ def verify_feedback_scope(path):
         raise RuntimeError("Notifications validation feedback leaked into another panel")
 
 
-def qualify(executable, output, session, checkout, backend):
+def qualify(executable, output, session, checkout, backend, *, placement=None):
     config = fixture(output, "dark")
     initial = json.loads(config.read_text())
     initial["native"]["activeSection"] = "settings"
@@ -775,6 +851,7 @@ def qualify(executable, output, session, checkout, backend):
     (output / ".buddy-settings-fixture").write_text("buddy settings fixture v1")
     run("bun", checkout / "scripts/build-config-companion.ts", output, cwd=checkout)
     driver = Driver(executable, output, session, backend, checkout)
+    driver.placement = placement
     account_actions = [("nav", "Accounts"), ("capture", "first-run-dark")]
     for index, name in enumerate(("fixture-native-one", "fixture-native-two")):
         account_actions += [("leftfield", "Organization|GitHub username", name),
@@ -877,7 +954,17 @@ def main():
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--session", choices=("windows", "macos", "x11"), required=True)
+    parser.add_argument("--compare-placement", action="store_true")
+    parser.add_argument("--package-directory", type=Path)
     args = parser.parse_args()
+    if args.compare_placement:
+        if args.session != "macos" or args.package_directory is None:
+            parser.error("Placement comparison requires installed Mac package provenance")
+        placement_compare.run_pair(args.executable.resolve(strict=True), args.output, HERE.parent.parent,
+                                   args.package_directory, qualify, SettingsBackend)
+        return
+    if args.package_directory is not None:
+        parser.error("Package provenance is only for explicit placement comparison")
     if args.output.exists():
         raise RuntimeError("Settings evidence requires a fresh output directory")
     checkout = HERE.parent.parent

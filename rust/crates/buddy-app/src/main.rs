@@ -17,6 +17,8 @@ mod github_view;
 mod logging;
 #[cfg(target_os = "macos")]
 mod macos_menu;
+#[cfg(target_os = "macos")]
+mod macos_receiver;
 mod notification_audio;
 mod performance_probe;
 mod platform_placement;
@@ -250,12 +252,86 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn receiver_stderr_sink(mut value: serde_json::Value) {
+    use std::io::Write;
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    object.entry("sequence").or_insert(serde_json::json!(0));
+    object.entry("millis").or_insert_with(|| {
+        serde_json::json!(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        )
+    });
+    let _ = writeln!(std::io::stderr().lock(), "buddy-appkit-receive {value}");
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct FixtureReceivers(std::collections::HashMap<gpui_kit::WindowId, macos_receiver::Monitor>);
+#[cfg(target_os = "macos")]
+impl gpui_kit::Global for FixtureReceivers {}
+
+#[cfg(target_os = "macos")]
+fn install_fixture_receiver(window: &mut gpui_kit::Window, cx: &mut App) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use std::rc::Rc;
+    // Ordinary runs construct no Block, monitor, owner or lifecycle observer.
+    if !settings::sound_diagnostic::enabled() {
+        return;
+    }
+    let id = gpui_kit::Window::window_handle(window).window_id();
+    if cx.has_global::<FixtureReceivers>() && cx.global::<FixtureReceivers>().0.contains_key(&id) {
+        return;
+    }
+    let native = (|| {
+        let raw = <gpui_kit::Window as HasWindowHandle>::window_handle(window)
+            .ok()?
+            .as_raw();
+        let RawWindowHandle::AppKit(raw) = raw else {
+            return None;
+        };
+        // SAFETY: GPUI owns this live main-thread NSView; window() retains its
+        // own NSWindow. Nothing is resolved outside our raw owned handle.
+        let view = unsafe { raw.ns_view.cast::<objc2_app_kit::NSView>().as_ref() };
+        view.window()
+    })();
+    let Some(native) = native else {
+        receiver_stderr_sink(serde_json::json!({"phase":"unavailable", "ownedWindow":false}));
+        return;
+    };
+    if !cx.has_global::<FixtureReceivers>() {
+        cx.set_global(FixtureReceivers::default());
+        cx.on_window_closed(|cx, id| {
+            cx.global_mut::<FixtureReceivers>().0.remove(&id);
+        })
+        .detach();
+        cx.on_app_quit(|cx| {
+            cx.global_mut::<FixtureReceivers>().0.clear();
+            async {}
+        })
+        .detach();
+    }
+    if let Some(monitor) = macos_receiver::Monitor::register(
+        true,
+        native,
+        Rc::new(receiver_stderr_sink),
+        objc2::MainThreadMarker::new().expect("GPUI main thread"),
+    ) {
+        cx.global_mut::<FixtureReceivers>().0.insert(id, monitor);
+    }
+}
+
 fn open_primary_window(cx: &mut App) {
     let mut startup =
         buddy_core::telemetry::OperationSpan::start(buddy_core::telemetry::Operation::Startup);
     let placement = initial_window_bounds(cx);
     let options = native_window_options(&placement);
-    gpui_kit::open_window(options, cx, |window, cx| {
+    let (_handle, _) = gpui_kit::open_window(options, cx, |window, cx| {
         if let Some(bounds) = placement.restore_outer {
             platform_placement::apply_restore_bounds(
                 window,
@@ -280,7 +356,16 @@ fn open_primary_window(cx: &mut App) {
     })
     .expect("failed to open the Buddy window");
     #[cfg(target_os = "macos")]
-    macos_menu::refresh(cx);
+    {
+        if settings::sound_diagnostic::enabled()
+            && _handle
+                .update(cx, |_, window, cx| install_fixture_receiver(window, cx))
+                .is_err()
+        {
+            receiver_stderr_sink(serde_json::json!({"phase":"unavailable", "ownedWindow":false}));
+        }
+        macos_menu::refresh(cx);
+    }
     buddy_core::telemetry::record_window_open();
     startup.success();
     cx.activate(true);
