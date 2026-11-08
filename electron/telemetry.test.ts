@@ -52,9 +52,6 @@ vi.mock('@opentelemetry/api', () => ({
   diag: { setLogger: telemetryState.mockDiagSetLogger },
   DiagConsoleLogger: vi.fn(),
   DiagLogLevel: { DEBUG: 0 },
-}))
-
-vi.mock('@opentelemetry/api-logs', () => ({
   logs: {
     getLogger: vi.fn(() => ({ emit: telemetryState.mockEmit })),
     setGlobalLoggerProvider: telemetryState.mockSetGlobalLoggerProvider,
@@ -416,7 +413,7 @@ describe('telemetry', () => {
         expect.objectContaining({
           resource: expect.any(Object),
           traceExporter: expect.any(Object),
-          metricReader: expect.any(Object),
+          metricReaders: [expect.any(Object)],
           instrumentations: [expect.any(Object), expect.any(Object)],
         })
       )
@@ -507,8 +504,6 @@ describe('telemetry', () => {
         diag: { setLogger: vi.fn() },
         DiagConsoleLogger: vi.fn(),
         DiagLogLevel: { DEBUG: 0 },
-      }))
-      vi.doMock('@opentelemetry/api-logs', () => ({
         logs: { getLogger: vi.fn(() => ({ emit: vi.fn() })), setGlobalLoggerProvider: vi.fn() },
         SeverityNumber: { DEBUG: 5, INFO: 9, WARN: 13, ERROR: 17 },
       }))
@@ -558,8 +553,6 @@ describe('telemetry', () => {
         diag: mockDiag,
         DiagConsoleLogger: vi.fn(),
         DiagLogLevel: { DEBUG: 0 },
-      }))
-      vi.doMock('@opentelemetry/api-logs', () => ({
         logs: { getLogger: vi.fn(() => ({ emit: vi.fn() })), setGlobalLoggerProvider: vi.fn() },
         SeverityNumber: { DEBUG: 5, INFO: 9, WARN: 13, ERROR: 17 },
       }))

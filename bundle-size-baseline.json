@@ -628,8 +628,8 @@
     },
     {
       "file": "dist/assets/twig.js",
-      "sizeBytes": 21723,
-      "sizeHuman": "21.21 kB"
+      "sizeBytes": 25059,
+      "sizeHuman": "24.47 kB"
     },
     {
       "file": "dist/assets/wit.js",
@@ -1103,8 +1103,8 @@
     },
     {
       "file": "dist/assets/beancount.js",
-      "sizeBytes": 10465,
-      "sizeHuman": "10.22 kB"
+      "sizeBytes": 12947,
+      "sizeHuman": "12.64 kB"
     },
     {
       "file": "dist/assets/pkl.js",
@@ -1963,8 +1963,8 @@
     },
     {
       "file": "dist/assets/dotenv.js",
-      "sizeBytes": 1514,
-      "sizeHuman": "1.48 kB"
+      "sizeBytes": 1842,
+      "sizeHuman": "1.80 kB"
     },
     {
       "file": "dist/assets/xsl.js",
