@@ -14,7 +14,7 @@ use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::{
     ClipboardItem, Context, EventEmitter, FocusHandle, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point,
-    Render, Role, ScrollDelta, ScrollWheelEvent, StatefulInteractiveElement, Styled, Window, div,
+    Render, Role, ScrollDelta, ScrollEvent, StatefulInteractiveElement, Styled, Window, div,
 };
 
 use crate::zoom::zpx;
@@ -492,7 +492,7 @@ impl Render for TerminalGrid {
                 MouseButton::Left,
                 cx.listener(|this, _, _, _| this.dragging = false),
             )
-            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
                 let lines = match event.delta {
                     ScrollDelta::Lines(delta) => delta.y,
                     ScrollDelta::Pixels(delta) => delta.y / this.cell_size.height,

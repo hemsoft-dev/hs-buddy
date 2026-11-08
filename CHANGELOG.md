@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1672] - 2026-11-07
+
+### Changed
+
+- Update uuid, OpenTelemetry 0.33, gpui-kit 0.8.1 and Copilot SDK 1.0.28
+
 ## [0.1.1669] - 2026-11-07
 
 ### Changed

@@ -14,6 +14,7 @@ mod crew_view;
 mod dashboard;
 mod explorer_view;
 mod github_view;
+mod key_binding;
 mod logging;
 #[cfg(target_os = "macos")]
 mod macos_menu;
@@ -470,9 +471,9 @@ fn main() {
             macos_menu::bind_keys(cx);
 
             cx.bind_keys([
-                KeyBinding::new("secondary-q", Quit, None),
-                KeyBinding::new("secondary-r", Reload, Some("!BuddyTerminal && !BuddyTerminalPaste")),
-                KeyBinding::new("secondary-shift-a", app::ToggleAssistant, None),
+                crate::key_binding::binding("secondary-q", Quit, None, cx),
+                crate::key_binding::binding("secondary-r", Reload, Some("!BuddyTerminal && !BuddyTerminalPaste"), cx),
+                crate::key_binding::binding("secondary-shift-a", app::ToggleAssistant, None, cx),
                 KeyBinding::new("f11", ToggleFullScreen, None),
 
             ]);

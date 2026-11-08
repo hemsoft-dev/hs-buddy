@@ -75,7 +75,7 @@ fn compact_session_status_reserves_space_below_reachable_request_paging(
 
     let content_before = visual.debug_bounds("session-request-0").unwrap();
     let viewport = visual.debug_bounds("session-detail-viewport").unwrap();
-    visual.simulate_event(gpui_kit::ScrollWheelEvent {
+    visual.simulate_event(gpui_kit::ScrollEvent {
         position: viewport.center(),
         delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.0), px(-900.0))),
         ..Default::default()

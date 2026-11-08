@@ -13,8 +13,8 @@ use buddy_core::zoom::{Zoom, ZoomStep, zoom_path};
 use gpui_kit::component::Theme;
 use gpui_kit::{
     AnyElement, App, Bounds, DispatchPhase, Element, ElementId, Global, GlobalElementId,
-    InspectorElementId, IntoElement, KeyBinding, LayoutId, Pixels, Rems, ScrollDelta,
-    ScrollWheelEvent, Styled, Window, canvas, px, rems,
+    InspectorElementId, IntoElement, LayoutId, Pixels, Rems, ScrollDelta, ScrollEvent, Styled,
+    Window, canvas, px, rems,
 };
 
 use crate::app::{ResetZoom, ZoomIn, ZoomOut};
@@ -88,11 +88,11 @@ fn init_at(path: Option<PathBuf>, cx: &mut App) {
     });
     cx.bind_keys([
         // The menus show the last binding added for an action.
-        KeyBinding::new("secondary-+", ZoomIn, None),
-        KeyBinding::new("secondary-shift-=", ZoomIn, None),
-        KeyBinding::new("secondary-=", ZoomIn, None),
-        KeyBinding::new("secondary--", ZoomOut, None),
-        KeyBinding::new("secondary-0", ResetZoom, None),
+        crate::key_binding::binding("secondary-+", ZoomIn, None, cx),
+        crate::key_binding::binding("secondary-shift-=", ZoomIn, None, cx),
+        crate::key_binding::binding("secondary-=", ZoomIn, None, cx),
+        crate::key_binding::binding("secondary--", ZoomOut, None, cx),
+        crate::key_binding::binding("secondary-0", ResetZoom, None, cx),
     ]);
     cx.on_action(|_: &ZoomIn, cx| step(ZoomStep::In, cx));
     cx.on_action(|_: &ZoomOut, cx| step(ZoomStep::Out, cx));
@@ -263,11 +263,11 @@ pub fn wheel_listener() -> impl IntoElement {
     canvas(
         |_, _, _| {},
         |_, _, window, _| {
-            window.on_mouse_event(|event: &ScrollWheelEvent, phase, _, cx| {
+            window.on_mouse_event(|event: &ScrollEvent, phase, _, cx| {
                 if phase != DispatchPhase::Capture {
                     return;
                 }
-                if !event.modifiers.secondary() {
+                if !event.modifiers.secondary(cx) {
                     // Travel from before Ctrl was released must not count
                     // toward the next Ctrl + wheel.
                     if cx
@@ -411,13 +411,13 @@ mod ui_tests {
     }
 
     fn ctrl_wheel(window: &mut Window, lines: f32, cx: &mut App) {
-        let event = ScrollWheelEvent {
+        let event = ScrollEvent {
             position: point(px(320.0), px(240.0)),
             delta: ScrollDelta::Lines(point(0.0, lines)),
-            modifiers: Modifiers::secondary_key(),
+            modifiers: Modifiers::secondary_key(cx),
             ..Default::default()
         };
-        window.dispatch_event(PlatformInput::ScrollWheel(event), cx);
+        window.dispatch_event(PlatformInput::Scroll(event), cx);
     }
 
     fn temp_zoom_file(name: &str) -> PathBuf {

@@ -27,10 +27,11 @@ use prompts::{PromptEvent, PromptView};
 
 pub fn init(cx: &mut gpui_kit::App) {
     grid::init(cx);
-    cx.bind_keys([gpui_kit::KeyBinding::new(
+    cx.bind_keys([crate::key_binding::binding(
         "secondary-`",
         crate::app::ToggleTerminal,
         None,
+        cx,
     )]);
 }
 
