@@ -123,28 +123,21 @@ if [[ "$(uname -s)" == Darwin ]]; then
   }
   scene desktop python3 "$script_directory/desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos" --version "$version" --session macos
   BUDDY_SETTINGS_FIXTURE=1 scene macos-menus python3 "$script_directory/macos-menus.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/macos-menus" --version "$version" --source-sha "$source_sha"
-  # #913: from settings on, these scenes failed on both Macs on every #902 head
-  # while main passed, so they run only when the workflow is dispatched with
-  # mac_interactive_qualification. Linux and Windows always run them.
-  if [[ "${BUDDY_MAC_INTERACTIVE_QUALIFICATION:-0}" != 1 ]]; then
-    echo "::notice::Skipped the installed macOS scenes after macos-menus; see https://github.com/hemsoft-dev/hs-buddy/issues/913"
+  if [[ "$(uname -m)" == arm64 ]]; then
+    BUDDY_SETTINGS_FIXTURE=1 scene settings python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos --compare-placement --package-directory "$package_directory"
   else
-    if [[ "$(uname -m)" == arm64 ]]; then
-      BUDDY_SETTINGS_FIXTURE=1 scene settings python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos --compare-placement --package-directory "$package_directory"
-    else
-      BUDDY_SETTINGS_FIXTURE=1 scene settings python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
-    fi
-    BUDDY_SETTINGS_FIXTURE=1 scene github python3 "$script_directory/github-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/github" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene terminal python3 "$script_directory/terminal-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/terminal" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene copilot python3 "$script_directory/copilot-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/copilot" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene todoist python3 "$script_directory/todoist-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/todoist" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene tempo python3 "$script_directory/tempo-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/tempo" --session macos --version "$version" --source-sha "$source_sha"
-    BUDDY_SETTINGS_FIXTURE=1 scene automation python3 "$script_directory/automation-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/automation" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene ralph python3 "$script_directory/ralph-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/ralph" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene crew python3 "$script_directory/crew-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/crew" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene bookmarks python3 "$script_directory/bookmarks-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/bookmarks" --session macos --version "$version"
-    BUDDY_SETTINGS_FIXTURE=1 scene browser python3 "$script_directory/browser-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/browser" --session macos --version "$version"
+    BUDDY_SETTINGS_FIXTURE=1 scene settings python3 "$script_directory/settings-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/settings" --session macos
   fi
+  BUDDY_SETTINGS_FIXTURE=1 scene github python3 "$script_directory/github-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/github" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene terminal python3 "$script_directory/terminal-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/terminal" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene copilot python3 "$script_directory/copilot-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/copilot" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene todoist python3 "$script_directory/todoist-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/todoist" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene tempo python3 "$script_directory/tempo-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/tempo" --session macos --version "$version" --source-sha "$source_sha"
+  BUDDY_SETTINGS_FIXTURE=1 scene automation python3 "$script_directory/automation-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/automation" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene ralph python3 "$script_directory/ralph-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/ralph" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene crew python3 "$script_directory/crew-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/crew" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene bookmarks python3 "$script_directory/bookmarks-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/bookmarks" --session macos --version "$version"
+  BUDDY_SETTINGS_FIXTURE=1 scene browser python3 "$script_directory/browser-desktop.py" --executable "$app/Contents/MacOS/buddy-native" --output "$output/browser" --session macos --version "$version"
 else
   # linux-runtime.sh installed this package before installing test tools.
   [[ "${BUDDY_NATIVE_RUNTIME_CONTAINER:-}" == 1 ]]
