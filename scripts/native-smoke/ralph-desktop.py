@@ -158,7 +158,7 @@ def qualify(executable, output, session, version):
             ("wait_text", "Start a loop"), ("capture", "dashboard-dark"),
             ("content", "New loop"), ("sleep", 1),
             ("input", "Repository", repo), ("input", "Prompt", "quick"), ("capture", "form-dark"),
-            ("content", "Launch"), ("wait_text", "RALPH STUB TOOL FOUND IN stub-tools"), ("capture", "running-dark"),
+            ("content", "Launch"), ("wait_cold_start", "RALPH STUB TOOL FOUND IN stub-tools"), ("capture", "running-dark"),
             ("sleep", 8), ("wait_text", "Completed"), ("capture", "completed-dark"),
             ("content", "All loops"), ("sleep", 2), ("capture", "recent-dark"),
         ], record=True)
@@ -176,7 +176,7 @@ def qualify(executable, output, session, version):
         stopped = driver.drive("stop-dark", [
             ("content", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
             # Output can render before the host's separately persisted phase arrives.
-            ("content", "Launch"), ("wait_text", "RALPH STUB RUNNING"),
+            ("content", "Launch"), ("wait_cold_start", "RALPH STUB RUNNING"),
             ("wait_text", "Iterating"), ("capture", "long-running-dark"),
             ("content", "Stop loop"), ("capture", "stop-confirm-dark"),
             ("content", "Stop now"), ("wait_text", "[Buddy] Stopped."), ("capture", "stopped-dark"),
@@ -192,7 +192,7 @@ def qualify(executable, output, session, version):
         terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
         detached = driver.drive("detach-light", [
             ("content", "New loop"), ("sleep", 1), ("input", "Prompt", "long"),
-            ("content", "Launch"), ("wait_text", "RALPH STUB RUNNING"), ("capture", "detached-running-light"),
+            ("content", "Launch"), ("wait_cold_start", "RALPH STUB RUNNING"), ("capture", "detached-running-light"),
         ])
         github.check(detached / "detached-running-light.png", "Running", "RALPH STUB RUNNING")
         # Buddy has quit; its loop keeps running under its own host.
@@ -220,8 +220,8 @@ def qualify(executable, output, session, version):
             ("content", "New loop"), ("sleep", 1), ("input", "Repository", str(not_repository)),
             ("content", "Launch"), ("wait_text", "is not inside a Git repository."), ("capture", "not-repository-light"),
             ("input", "Repository", repo), ("input", "Prompt", "fail"),
-            ("content", "Launch"), ("wait_text", "Failed"), ("capture", "failed-light"),
-            ("content", "Retry"), ("sleep", 6), ("wait_text", "Failed"), ("capture", "retried-light"),
+            ("content", "Launch"), ("wait_cold_start", "Failed"), ("capture", "failed-light"),
+            ("content", "Retry"), ("sleep", 6), ("wait_cold_start", "Failed"), ("capture", "retried-light"),
             ("content", "All loops"), ("sleep", 1), ("resize", 900, 650), ("content", "New loop"), ("sleep", 1),
             ("capture", "compact-form-light"),
         ])

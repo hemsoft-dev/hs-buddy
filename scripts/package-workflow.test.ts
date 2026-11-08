@@ -89,6 +89,8 @@ it('runs every installed macOS scene on every Rust run', () => {
   // opt-in input, and pushes and pull requests qualify all of them.
   const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
   const unix = readFileSync('scripts/native-smoke/install-unix.sh', 'utf8').replaceAll('\r\n', '\n')
+  // A manual run must not cancel, or be cancelled by, a push run on the same ref.
+  expect(native).toContain('  group: rust-${{ github.event_name }}-${{ github.ref }}\n')
   expect(native).not.toContain('mac_interactive_qualification')
   expect(native).not.toContain('BUDDY_MAC_INTERACTIVE_QUALIFICATION')
   expect(unix).not.toContain('BUDDY_MAC_INTERACTIVE_QUALIFICATION')

@@ -29,6 +29,12 @@ The fixture now uses `loopback_http.LoopbackHTTPServer`, which skips
 the native-smoke and perf scripts. The sections below record the earlier
 search.
 
+With the prompt gone, the first full Intel run passed `settings` through
+`automation` and then timed out in `ralph`: the stub loop's `pwsh` started 36 s
+after the host, but the first output wait allowed 15 s. Waits that follow a
+loop launch now use `wait_cold_start`, which shares model discovery's bounded
+cold-start budget.
+
 ## Input boundary
 
 The ARM sound-toggle capture and persisted config both remained Off. Intel's

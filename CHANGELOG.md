@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1674] - 2026-11-08
+
+### Changed
+
+- Give post-launch Ralph waits the cold-start budget
+
 ## [0.1.1673] - 2026-11-08
 
 ### Fixed
