@@ -111,7 +111,7 @@
     "cron-parser": "^5.10.2",
     "electron-store": "^11.0.2",
     "electron-window-state": "^5.0.3",
-    "koffi": "3.2.1",
+    "koffi": "3.3.7",
     "lucide-react": "^1.23.0",
     "node-pty": "^1.1.0",
     "react": "^19.3.1",
