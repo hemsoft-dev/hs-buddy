@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { runConfigCompanion } from './config-companion-protocol'
+import { COMPANION_TIMEOUT_MS, runConfigCompanion } from './config-companion-protocol'
 
 let profile: string
 let runId: string
@@ -89,6 +89,43 @@ test('a missing controller signal fails at the deadline without a passed receipt
   ).rejects.toThrow('before its deadline')
   expect(clock).toBe(100)
   expect(existsSync(join(profile, 'companion-complete.json'))).toBe(false)
+})
+
+test('the default deadline outlasts a slow runner but still ends a lost controller', async () => {
+  // A slow hosted Intel runner stopped the writer only after 120 s (#930).
+  let clock = 0
+  let accent = '#111111'
+  const slow = await runConfigCompanion({
+    profile,
+    electron: 'fixture',
+    now: () => clock,
+    readAccent: () => accent,
+    write: () => {},
+    wait: async milliseconds => {
+      clock += milliseconds
+      if (clock >= 60_000) accent = '#8246af'
+      if (clock >= 150_000)
+        writeFileSync(join(profile, 'companion-stop.json'), JSON.stringify({ runId }))
+    },
+  })
+  expect(slow.completedAt).toBe(150_000)
+
+  rmSync(join(profile, 'companion-stop.json'))
+  clock = 0
+  await expect(
+    runConfigCompanion({
+      profile,
+      electron: 'fixture',
+      now: () => clock,
+      readAccent: () => '#111111',
+      write: () => {},
+      wait: async milliseconds => {
+        clock += milliseconds
+      },
+    })
+  ).rejects.toThrow('before its deadline')
+  expect(clock).toBe(COMPANION_TIMEOUT_MS)
+  expect(COMPANION_TIMEOUT_MS).toBeLessThanOrEqual(20 * 60_000)
 })
 
 test('stopping without a native change fails without a passed receipt', async () => {
