@@ -12,7 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from threading import Thread
 import time
 from urllib.parse import quote
@@ -34,6 +34,7 @@ def load(path):
 
 
 LAYOUT = load(HERE / "linux-lifecycle-layout.py")
+LoopbackHTTPServer = load(HERE / "loopback_http.py").LoopbackHTTPServer
 
 
 def read(path):
@@ -149,7 +150,10 @@ def browser_fixture():
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    # A plain HTTPServer binds through socket.getfqdn. When this module's tests
+    # run on macOS, that opens the Local Network prompt over the installed app
+    # and swallows the later scenes' clicks (#913).
+    server = LoopbackHTTPServer(("127.0.0.1", 0), Page)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

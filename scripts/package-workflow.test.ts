@@ -83,36 +83,27 @@ it('keeps Spotlight off the native DMG while it is detached', () => {
   expect(step).toContain("if: runner.os == 'macOS'")
 })
 
-it('runs the installed macOS scenes from settings on only on request until #913 is fixed', () => {
-  // Both Macs failed settings, then github, on every #902 head while main passed.
-  // The scenes stay intact behind a dispatch input; other platforms still run them.
+it('runs every installed macOS scene on every Rust run', () => {
+  // #913: a Local Network prompt from a unit-test HTTP server covered the app
+  // and swallowed clicks. With the cause fixed, no Mac scene sits behind an
+  // opt-in input, and pushes and pull requests qualify all of them.
   const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
   const unix = readFileSync('scripts/native-smoke/install-unix.sh', 'utf8').replaceAll('\r\n', '\n')
-  expect(native).toContain(
-    '  workflow_dispatch:\n    inputs:\n      mac_interactive_qualification:\n'
-  )
   // A manual run must not cancel, or be cancelled by, a push run on the same ref.
   expect(native).toContain('  group: rust-${{ github.event_name }}-${{ github.ref }}\n')
-  const install = native
-    .split('- name: Install and qualify Unix package')[1]
-    ?.split('\n      - name:', 1)[0]
-  expect(install).toContain(
-    "BUDDY_MAC_INTERACTIVE_QUALIFICATION: ${{ inputs.mac_interactive_qualification && '1' || '0' }}"
-  )
+  expect(native).not.toContain('mac_interactive_qualification')
+  expect(native).not.toContain('BUDDY_MAC_INTERACTIVE_QUALIFICATION')
+  expect(unix).not.toContain('BUDDY_MAC_INTERACTIVE_QUALIFICATION')
   const darwin = unix.indexOf('if [[ "$(uname -s)" == Darwin ]]; then')
   const mac = unix.slice(darwin, unix.indexOf('\nelse\n', darwin))
-  const gate = mac.indexOf('if [[ "${BUDDY_MAC_INTERACTIVE_QUALIFICATION:-0}" != 1 ]]; then')
-  expect(gate).toBeGreaterThan(-1)
-  for (const always of ['scene desktop python3', 'scene macos-menus python3']) {
-    expect(mac.indexOf(always)).toBeGreaterThan(-1)
-    expect(mac.indexOf(always)).toBeLessThan(gate)
-  }
-  const gated = [
+  const scenes = [
     ...mac.matchAll(
-      /scene (settings|github|terminal|copilot|todoist|tempo|automation|ralph|crew|bookmarks|browser) python3/g
+      /\n {2}(?:BUDDY_SETTINGS_FIXTURE=1 )?scene ([a-z-]+) python3|\n {4}BUDDY_SETTINGS_FIXTURE=1 scene (settings) python3/g
     ),
-  ]
-  expect(gated.map(scene => scene[1])).toEqual([
+  ].map(scene => scene[1] ?? scene[2])
+  expect(scenes).toEqual([
+    'desktop',
+    'macos-menus',
     'settings',
     'settings',
     'github',
@@ -126,7 +117,6 @@ it('runs the installed macOS scenes from settings on only on request until #913 
     'bookmarks',
     'browser',
   ])
-  for (const scene of gated) expect(scene.index).toBeGreaterThan(gate)
   expect(unix.slice(0, darwin)).toContain('python3 "$1/settings-desktop.py"')
   expect(unix.slice(0, darwin)).toContain('python3 "$1/github-desktop.py"')
   expect(readFileSync('scripts/native-smoke/install-windows.ps1', 'utf8')).toContain(

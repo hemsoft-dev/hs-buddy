@@ -5,6 +5,36 @@ criteria and `cutoverQualified: false`. Its PR media remain evidence for that
 head. These diagnostic changes do not qualify another head or fix the Mac
 failures by inference. Electron stays primary and issue #823 remains open.
 
+## Root cause (#913)
+
+The lost Mac clicks came from the test environment, not from app input
+delivery or focus handling. `linux-installed-lifecycle.py`, added by #902,
+served its browser fixture from a plain `ThreadingHTTPServer`.
+`HTTPServer.server_bind` calls `socket.getfqdn`, even for `127.0.0.1`. The
+lifecycle unit tests run on every platform in "Package and visual failure
+guards", so on the hosted Macs that lookup opened macOS's "Allow Python to find
+devices on local networks?" prompt. The prompt stayed in front of the installed
+app for the rest of the job. Any click inside its bounds landed on the dialog,
+and Buddy saw the pointer move but never the press. On ARM that bounds area
+holds the sound switch and the Copilot account field. Intel's lost
+Organization click is the same symptom; the full Mac run on the fix confirms it.
+
+Window-only captures never showed the dialog. A full-screen capture after each
+click (experiment `exp/913-main-qualification`, run 42480882788) showed it over
+the window from the first settings click on. Main before #902 had no plain
+server, which is why it passed.
+
+The fixture now uses `loopback_http.LoopbackHTTPServer`, which skips
+`getfqdn`, and `test_loopback_fixtures.py` rejects any plain `HTTPServer` in
+the native-smoke and perf scripts. The sections below record the earlier
+search.
+
+With the prompt gone, the first full Intel run passed `settings` through
+`automation` and then timed out in `ralph`: the stub loop's `pwsh` started 36 s
+after the host, but the first output wait allowed 15 s. Waits that follow a
+loop launch now use `wait_cold_start`, which shares model discovery's bounded
+cold-start budget.
+
 ## Input boundary
 
 The ARM sound-toggle capture and persisted config both remained Off. Intel's

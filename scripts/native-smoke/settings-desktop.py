@@ -146,6 +146,10 @@ def b64(value):
 # Cold fixture discovery can use 95s preparation + 45s startup + 30s catalog
 # request + 15s shutdown. Keep a bounded margin for filesystem cleanup/OCR.
 MODEL_CATALOG_TIMEOUT = 200
+# Text that appears only after a freshly launched child process starts (#913:
+# a Ralph stub's pwsh took 36 s to start on the hosted Intel Mac). It shares
+# the bounded cold-start wait with model discovery on every platform.
+COLD_START_WAITS = ("wait_models", "wait_cold_start")
 
 
 def wait_visible(window, directory, text, timeout=15, scroll=None, content=False):
@@ -282,7 +286,7 @@ class Driver:
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
                     command = "waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
                     commands.append(command + ":".join(map(b64, encoded)))
-                elif kind == "wait_models":
+                elif kind in COLD_START_WAITS:
                     commands.append("waitmodeltext64:" + b64(values[0]))
                 elif kind == "reveal_text":
                     commands.append("revealtext64:" + ":".join(map(b64, values)))
@@ -303,7 +307,7 @@ class Driver:
                 arguments.append("-InputDesktop")
             # Preserve the ordinary action budget around the separate cold-model
             # wait and around explicit sleeps for paced service work.
-            extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] == "wait_models")
+            extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] in COLD_START_WAITS)
             extra += math.ceil(sum(action[1] for action in actions if action[0] == "sleep"))
             run(*arguments, cwd=self.checkout, timeout=180 + extra)
         else:
@@ -379,12 +383,12 @@ class Driver:
                             window.key(values[0])
                         elif kind == "hover":
                             window.hover(*values)
-                        elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", "wait_models"):
+                        elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", *COLD_START_WAITS):
                             if kind in ("wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                                 self.wait_scrolled(window, directory, values[0], values[1] if len(values) > 1 else None,
                                     above_anchor=kind == "wait_scroll_above", up=kind == "wait_scroll_up")
                             else:
-                                timeout = MODEL_CATALOG_TIMEOUT if kind == "wait_models" else 15
+                                timeout = MODEL_CATALOG_TIMEOUT if kind in COLD_START_WAITS else 15
                                 wait_visible(window, directory, values[0], timeout=timeout,
                                     **({"content": True} if kind == "wait_content" else {}))
                         elif kind == "reveal_text":

@@ -404,6 +404,28 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[4], "waitscrolltext64:" + desktop.b64("Inspect synthetic request 20"))
             self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
 
+    def test_windows_cold_start_wait_uses_the_cold_budget(self):
+        # #913: a Ralph loop's first output follows a cold pwsh start (36 s on Intel).
+        with tempfile.TemporaryDirectory(prefix="buddy-cold-start-") as root:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(root)
+            driver.config = Path(root) / "config.json"
+            driver.executable = Path(root) / "owned-app.exe"
+            driver.checkout = Path(root)
+            driver.session = "windows"
+            driver.large_size = (1044, 788)
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            with patch.object(desktop, "run") as execute:
+                driver.drive("loop", [("wait_cold_start", "RALPH STUB RUNNING"), ("wait_text", "Completed")])
+            args = execute.call_args.args
+            commands = args[args.index("-Actions") + 1].split(",")
+            self.assertEqual(commands[1], "waitmodeltext64:" + desktop.b64("RALPH STUB RUNNING"))
+            self.assertEqual(commands[2], "waittext64:" + desktop.b64("Completed"))
+            self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
+
+    def test_only_cold_start_kinds_get_the_cold_budget(self):
+        self.assertEqual(desktop.COLD_START_WAITS, ("wait_models", "wait_cold_start"))
+
     def test_a_slow_read_that_began_before_the_deadline_earns_one_fresh_capture(self):
         # Intel run on e55a910a: one OCR pass took about 30 seconds, so the only
         # frame of the 15-second wait predated the status it was waiting for.
