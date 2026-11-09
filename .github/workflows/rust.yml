@@ -273,7 +273,7 @@ jobs:
 
       - name: Install and qualify Unix package
         if: runner.os != 'Windows'
-        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 180 || 120 }}
+        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 180 || matrix.os == 'macos-15' && 120 || 90 }}
         working-directory: .
         shell: bash
         env:

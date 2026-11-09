@@ -142,16 +142,20 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
     .split('- name: Install and qualify Unix package')[1]
     ?.split('\n      - name:', 1)[0]
   const budget = install?.match(
-    /timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| (\d+) \}\}/
+    /timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| matrix\.os == 'macos-15' && (\d+) \|\| (\d+) \}\}/
   )
   // A completed suite fits with 25% headroom, and the slowest build plus the
   // whole scene budget still leaves time for evidence staging/upload before
   // the job's hard kill.
-  const [intelSuite, armSuite] = budget?.slice(1).map(Number) ?? []
+  const [intelSuite, armSuite, linuxSuite] = budget?.slice(1).map(Number) ?? []
   expect(armSuite).toBeGreaterThanOrEqual(Math.ceil(79 * 1.25))
   expect(intelSuite).toBeGreaterThanOrEqual(Math.ceil(114 * 1.25))
   expect(51 + armSuite + 5).toBeLessThan(arm)
   expect(84 + intelSuite + 5).toBeLessThan(intel)
+  // Linux keeps its own shorter budget, so a hang in install-unix.sh fails
+  // the step before the job's hard kill and evidence upload still runs.
+  expect(linuxSuite).toBe(90)
+  expect(linuxSuite).toBeLessThan(other)
 })
 
 it('fails the Windows OCR install when Chocolatey installs nothing', () => {
