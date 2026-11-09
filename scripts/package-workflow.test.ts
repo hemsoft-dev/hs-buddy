@@ -125,17 +125,18 @@ it('runs every installed macOS scene on every Rust run', () => {
 })
 
 it('gives native jobs measured headroom with a bounded hang limit', () => {
-  // #852 exceeded 150m on Intel. #899 ARM spent 51m building/testing and
-  // 69m qualifying before cancellation; #901's completed qualification took 64m.
+  // Since #918 every installed Mac scene runs again (#930). Its green head
+  // qualified ARM in 79m after 51m at most of build/test, and Intel in 114m
+  // after 84m. Main's next ARM run was stopped at the old 90m scene budget.
   const native = readFileSync('.github/workflows/rust.yml', 'utf8')
   const limit = native.match(
     /^ {4}timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| matrix\.os == 'macos-15' && (\d+) \|\| (\d+) \}\}/m
   )
   const [intel, arm, other] = limit?.slice(1).map(Number) ?? []
-  expect(intel).toBeGreaterThanOrEqual(210)
-  expect(intel).toBeLessThanOrEqual(240)
-  expect(arm).toBeGreaterThanOrEqual(150)
-  expect(arm).toBeLessThanOrEqual(180)
+  expect(intel).toBeGreaterThanOrEqual(270)
+  expect(intel).toBeLessThanOrEqual(300)
+  expect(arm).toBeGreaterThanOrEqual(180)
+  expect(arm).toBeLessThanOrEqual(210)
   expect(other).toBe(120)
   const install = native
     .split('- name: Install and qualify Unix package')[1]
@@ -143,12 +144,14 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   const budget = install?.match(
     /timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| (\d+) \}\}/
   )
-  // A completed 64m suite fits, and a 51m build plus the whole scene budget
-  // still leaves time for evidence staging/upload before the job's hard kill.
+  // A completed suite fits with 25% headroom, and the slowest build plus the
+  // whole scene budget still leaves time for evidence staging/upload before
+  // the job's hard kill.
   const [intelSuite, armSuite] = budget?.slice(1).map(Number) ?? []
-  expect(armSuite).toBeGreaterThan(64)
+  expect(armSuite).toBeGreaterThanOrEqual(Math.ceil(79 * 1.25))
+  expect(intelSuite).toBeGreaterThanOrEqual(Math.ceil(114 * 1.25))
   expect(51 + armSuite + 5).toBeLessThan(arm)
-  expect(intelSuite + 5).toBeLessThan(intel)
+  expect(84 + intelSuite + 5).toBeLessThan(intel)
 })
 
 it('fails the Windows OCR install when Chocolatey installs nothing', () => {

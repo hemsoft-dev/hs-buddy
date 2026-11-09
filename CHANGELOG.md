@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1676] - 2026-11-09
+
+### Changed
+
+- Give macOS installed qualification room for every scene
+
 ## [0.1.1675] - 2026-11-09
 
 ### Changed
