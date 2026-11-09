@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1679] - 2026-11-09
+
+### Changed
+
+- Rerun code scanning after the Actions outage
+
 ## [0.1.1678] - 2026-11-09
 
 ### Changed
