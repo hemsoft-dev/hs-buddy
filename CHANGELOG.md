@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1680] - 2026-11-10
+
+### Changed
+
+- Give Ubuntu and Windows Rust jobs room past 120 minutes
+
 ## [0.1.1679] - 2026-11-09
 
 ### Changed
