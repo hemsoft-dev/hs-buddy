@@ -202,6 +202,65 @@ class ConvexDownloadCache(unittest.TestCase):
                 self.assertIsNone(backend.restore_convex_cache(shared, seeded))
             self.assertFalse(seeded.exists())
 
+    def test_a_cli_that_exits_before_readiness_gets_one_fresh_retry(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ,
+                {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):
+            checkout = Path(temporary) / "checkout"
+            checkout.mkdir()
+            fixture = backend.SettingsBackend(checkout)
+            first_profile = fixture.profile
+            launches = []
+            def spawn(*args, **kwargs):
+                launches.append(fixture.profile)
+                if len(launches) == 1:
+                    fixture.log.write("Unexpected Error: TypeError: fetch failed")
+                    fixture.log.flush()
+                    return Mock(pid=123, poll=Mock(return_value=1), wait=Mock(return_value=1))
+                fixture.generated.write_text("owned anonymous fixture")
+                fixture.log.write("Convex functions ready!")
+                fixture.log.flush()
+                return Mock(pid=124, poll=Mock(return_value=None))
+            with patch.object(backend.shutil, "which", return_value="node"), \
+                    patch.object(backend.socket, "socket"), \
+                    patch.object(backend.os, "killpg", create=True), \
+                    patch.object(backend.subprocess, "run", return_value=Mock(returncode=0)), \
+                    patch.object(backend.subprocess, "Popen", side_effect=spawn), \
+                    patch.object(backend.SettingsBackend, "query",
+                        lambda self, path: [] if path == "githubAccounts:list" else {}):
+                try:
+                    self.assertIs(fixture.__enter__(), fixture)
+                finally:
+                    fixture.child = None
+                    fixture.__exit__(None, None, None)
+            self.assertEqual(len(launches), 2)
+            self.assertNotEqual(launches[0], launches[1])
+            self.assertIn("fetch failed", (first_profile / "backend.log").read_text())
+
+    def test_no_retry_when_the_failed_attempt_left_its_selector(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ,
+                {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):
+            checkout = Path(temporary) / "checkout"
+            checkout.mkdir()
+            fixture = backend.SettingsBackend(checkout)
+            def exited():
+                # The CLI rewrote the selector after the fixture's snapshot,
+                # so cleanup must preserve it and a retry must not start.
+                fixture.generated.write_text("rewritten before the CLI crashed")
+                return 1
+            def spawn(*args, **kwargs):
+                fixture.generated.write_text("written by the CLI")
+                return Mock(pid=123, poll=Mock(side_effect=exited), wait=Mock(return_value=1))
+            with patch.object(backend.shutil, "which", return_value="node"), \
+                    patch.object(backend.socket, "socket"), \
+                    patch.object(backend.os, "killpg", create=True), \
+                    patch.object(backend.subprocess, "run", return_value=Mock(returncode=0)), \
+                    patch.object(backend.subprocess, "Popen", side_effect=spawn) as launched:
+                with self.assertRaises(backend.BackendNotReady):
+                    fixture.__enter__()
+                launched.assert_called_once()
+            self.assertTrue(fixture.cleanup_failed)
+            self.assertEqual(fixture.generated.read_text(), "rewritten before the CLI crashed")
+
     def test_later_fixtures_pin_the_cached_version_and_first_one_shares_it(self):
         with TemporaryDirectory() as temporary, patch.dict(os.environ,
                 {"GITHUB_ACTIONS": "true", "BUDDY_SETTINGS_FIXTURE": "1", "RUNNER_TEMP": temporary}):

@@ -64,6 +64,10 @@ def save_convex_cache(cache, shared):
         shutil.rmtree(staging, ignore_errors=True)
 
 
+class BackendNotReady(RuntimeError):
+    """The owned CLI exited or timed out before the fixture API was ready."""
+
+
 class SettingsBackend:
     def __init__(self, checkout):
         if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("BUDDY_SETTINGS_FIXTURE") != "1":
@@ -75,6 +79,7 @@ class SettingsBackend:
         self.generated = self.checkout / ".env.local"
         self.local_state = self.checkout / ".convex" / "local" / "default"
         self.owns_local_state = False
+        self.cleanup_failed = False
         self.shared_cache = Path(os.environ["RUNNER_TEMP"]) / "buddy-convex-cache"
         self.cache = convex_cache_dir(self.profile)
 
@@ -88,6 +93,27 @@ class SettingsBackend:
         return result["value"]
 
     def __enter__(self):
+        # Convex 1.48 still asks version.convex.dev for the latest backend on
+        # every new anonymous deployment, and treats a failure as fatal, so a
+        # restored cache cannot make startup fully offline. One more attempt
+        # absorbs a transient network failure. It starts from a fresh profile
+        # (keeping the first attempt's log) and only after the first attempt's
+        # cleanup left nothing behind.
+        try:
+            return self._start()
+        except BackendNotReady as failure:
+            if self.cleanup_failed or self.generated.exists() or self.local_state.exists():
+                raise
+            first_log = self.profile / "backend.log"
+            self.__init__(self.checkout)
+            try:
+                return self._start()
+            except BaseException as retry_failure:
+                if hasattr(retry_failure, "add_note"):
+                    retry_failure.add_note(f"First attempt also failed ({failure}); its log: {first_log}")
+                raise
+
+    def _start(self):
         try:
             for name in (".env", ".env.local"):
                 if (self.checkout / name).exists():
@@ -126,7 +152,7 @@ class SettingsBackend:
                 if self.generated.exists() and self.generated_hash is None:
                     self.generated_hash = hashlib.sha256(self.generated.read_bytes()).digest()
                 if self.child.poll() is not None:
-                    raise RuntimeError("The owned anonymous backend exited before readiness")
+                    raise BackendNotReady("The owned anonymous backend exited before readiness")
                 try:
                     self.query("settings:get")
                     accounts = self.query("githubAccounts:list")
@@ -146,7 +172,7 @@ class SettingsBackend:
                     continue
                 self.generated_hash = hashlib.sha256(self.generated.read_bytes()).digest()
                 return self
-            raise RuntimeError("The owned anonymous backend did not become ready")
+            raise BackendNotReady("The owned anonymous backend did not become ready")
         except BaseException:
             self.__exit__(*sys.exc_info())
             raise
@@ -206,6 +232,7 @@ class SettingsBackend:
                 self.owns_local_state = False
             except BaseException as failure:
                 cleanup_error = failure
+        self.cleanup_failed = cleanup_error is not None
         if cleanup_error is not None:
             if error is None:
                 raise cleanup_error
