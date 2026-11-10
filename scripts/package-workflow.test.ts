@@ -137,7 +137,10 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   expect(intel).toBeLessThanOrEqual(300)
   expect(arm).toBeGreaterThanOrEqual(180)
   expect(arm).toBeLessThanOrEqual(210)
-  expect(other).toBe(120)
+  // Green Ubuntu and Windows jobs took up to 115m; a slow apt mirror pushed
+  // Ubuntu past the old 120m limit (#931).
+  expect(other).toBeGreaterThanOrEqual(Math.ceil(115 * 1.25))
+  expect(other).toBeLessThanOrEqual(180)
   const install = native
     .split('- name: Install and qualify Unix package')[1]
     ?.split('\n      - name:', 1)[0]
@@ -155,7 +158,7 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   // Linux keeps its own shorter budget, so a hang in install-unix.sh fails
   // the step before the job's hard kill and evidence upload still runs.
   expect(linuxSuite).toBe(90)
-  expect(linuxSuite).toBeLessThan(other)
+  expect(55 + linuxSuite + 5).toBeLessThan(other)
 })
 
 it('fails the Windows OCR install when Chocolatey installs nothing', () => {

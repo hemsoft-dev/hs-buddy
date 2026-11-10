@@ -57,9 +57,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Since #918 every installed Mac scene runs again (#930): ARM qualified in
     # 79m after 45-51m of build/test, Intel in 114m after 84m. Allow the full
-    # suite with 25% headroom plus evidence upload. Unix qualification and each
-    # Mac scene have separate, shorter budgets.
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 275 || matrix.os == 'macos-15' && 190 || 120 }}
+    # suite with 25% headroom plus evidence upload. Ubuntu and Windows jobs took
+    # 82-115m when green, and a slow apt mirror pushed Ubuntu past 120m (#931).
+    # Unix qualification and each Mac scene have separate, shorter budgets.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 275 || matrix.os == 'macos-15' && 190 || 160 }}
     strategy:
       fail-fast: false
       matrix:
