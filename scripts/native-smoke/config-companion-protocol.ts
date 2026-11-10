@@ -36,13 +36,21 @@ function stopRequested(profile: string, runId: string): boolean {
   return existsSync(stop) && JSON.parse(readFileSync(stop, 'utf8')).runId === runId
 }
 
+/**
+ * Hang guard for a controller that never asks the writer to stop. Green Intel
+ * runs stopped the writer after 59-76 s; a slow hosted Intel runner needed more
+ * than 120 s for the same appearance drive (#930). It stays well inside the
+ * per-scene budget, so a real hang still fails within its scene.
+ */
+export const COMPANION_TIMEOUT_MS = 600_000
+
 function companionClock(options: CompanionOptions) {
   return {
     now: options.now ?? Date.now,
     wait:
       options.wait ??
       (milliseconds => new Promise<void>(resolve => setTimeout(resolve, milliseconds))),
-    timeout: options.timeoutMs ?? 120_000,
+    timeout: options.timeoutMs ?? COMPANION_TIMEOUT_MS,
   }
 }
 

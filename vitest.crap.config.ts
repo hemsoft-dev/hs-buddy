@@ -19,7 +19,10 @@ export default defineConfig({
     ...base.test,
     maxWorkers: 4,
     coverage: {
-      provider: 'istanbul',
+      // Istanbul with the post-run source-map remap turned off: the CRAP
+      // instrumenter already records original TypeScript positions.
+      provider: 'custom',
+      customProviderModule: './scripts/crap-coverage-provider.ts',
       instrumenter: coverage.instrumenter,
       reporter: ['json'],
       reportsDirectory: `reports/crap/coverage-${suite}`,

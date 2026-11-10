@@ -55,10 +55,11 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # #901 ARM qualification took 64m; #899 reached Crew after 69m, with 51m
-    # already spent building/testing. Allow the full suite plus evidence upload.
-    # Unix qualification and each Mac scene have separate, shorter budgets.
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 210 || matrix.os == 'macos-15' && 150 || 120 }}
+    # Since #918 every installed Mac scene runs again (#930): ARM qualified in
+    # 79m after 45-51m of build/test, Intel in 114m after 84m. Allow the full
+    # suite with 25% headroom plus evidence upload. Unix qualification and each
+    # Mac scene have separate, shorter budgets.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 275 || matrix.os == 'macos-15' && 190 || 120 }}
     strategy:
       fail-fast: false
       matrix:
@@ -272,7 +273,7 @@ jobs:
 
       - name: Install and qualify Unix package
         if: runner.os != 'Windows'
-        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 140 || 90 }}
+        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 180 || matrix.os == 'macos-15' && 120 || 90 }}
         working-directory: .
         shell: bash
         env:

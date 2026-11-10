@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1679] - 2026-11-09
+
+### Changed
+
+- Rerun code scanning after the Actions outage
+
+## [0.1.1678] - 2026-11-09
+
+### Changed
+
+- Give the Electron config companion a slow-runner deadline
+
+## [0.1.1677] - 2026-11-09
+
+### Changed
+
+- Keep Linux installed qualification on its 90-minute budget
+
+## [0.1.1676] - 2026-11-09
+
+### Changed
+
+- Give macOS installed qualification room for every scene
+
+## [0.1.1675] - 2026-11-09
+
+### Changed
+
+- Combine the 2026-11-09 Dependabot updates
+
 ## [0.1.1674] - 2026-11-08
 
 ### Changed
