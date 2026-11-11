@@ -36,6 +36,8 @@ one atomic `buddyStats:batchIncrement` mutation. Refresh, account reconciliation
 result updates and retained-tab restoration do not count as opens. Failed or
 unconfirmed activity writes are best effort and never replayed. Other native
 view-open counters remain outside [this slice](https://github.com/hemsoft-dev/hs-buddy/issues/937).
+Sidebar clicks record activity before placing their read-only destination in
+the tab model. The sidebar open callback is never retained in tabs or history.
 
 Electron remains the default. Assistant panel and folder explorer behavior
 remain outside this activity slice.

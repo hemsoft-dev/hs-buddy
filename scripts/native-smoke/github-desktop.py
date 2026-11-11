@@ -195,17 +195,21 @@ def qualify(executable, output, session, version, backend, api):
     # A fresh installed process must retain the backend counters without
     # treating initial restoration, refresh or selecting a retained tab as opens.
     activity = driver.drive("activity-restored-dark", [
-        ("content", "Needs Review"), ("workspace", "GitHub: My PRs"),
+        ("content", "Needs Review"), ("content", "Needs Review"),
+        ("workspace", "Dashboard"), ("workspace", "Needs Review"),
         ("content", "Refresh"),
+        ("capture", "restored-sidebar-list-dark"), ("workspace", "My PRs"),
         ("capture", "restored-pr-list-dark"), ("workspace", "Dashboard"),
         ("wait_content", "PRs Viewed"), ("capture", "workspace-activity-dark"),
     ], record=True)
     activity_after = require_activity(backend, activity_before,
-        dict(tabsOpened=6, prsViewed=2, prsReviewed=2, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+        dict(tabsOpened=7, prsViewed=2, prsReviewed=3, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+    check(activity / "restored-sidebar-list-dark.png", "Needs Review", "First private")
     check(activity / "restored-pr-list-dark.png", "My PRs", "First private")
     check(activity / "workspace-activity-dark.png", "Workspace Pulse", "PRs Viewed")
     (output / "activity.json").write_text(json.dumps(dict(before=activity_before, after=activity_after,
-        checks=["four explicit modes", "repeated current mode", "no refresh write", "no retained-tab write",
+        checks=["four explicit modes", "repeated current mode", "repeated loaded mode retained across tabs",
+            "no refresh write", "no retained-tab write",
             "restart persistence", "session and uptime untouched"]), indent=2))
 
     reset_section(config)

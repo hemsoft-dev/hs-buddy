@@ -373,16 +373,18 @@ impl GitHubView {
     /// A user open request counts even when its list is already selected, as
     /// Electron's openTab callback does. Retained tab restoration uses navigate.
     fn open_pr_list(&mut self, mode: PrMode, cx: &mut Context<Self>) {
-        self.open_pr_list_with(mode, cx, |mode, cx| {
-            let url = buddy_core::convex_data::convex_url();
-            Runtime::global(cx).spawn_detached(async move {
-                if buddy_core::stats::pr_list_activity::record(&url, mode)
-                    .await
-                    .is_err()
-                {
-                    log::debug!("PR-list activity was not confirmed; it will not be replayed");
-                }
-            });
+        self.open_pr_list_with(mode, cx, Self::record_pr_list_open);
+    }
+
+    fn record_pr_list_open(mode: PrMode, cx: &App) {
+        let url = buddy_core::convex_data::convex_url();
+        Runtime::global(cx).spawn_detached(async move {
+            if buddy_core::stats::pr_list_activity::record(&url, mode)
+                .await
+                .is_err()
+            {
+                log::debug!("PR-list activity was not confirmed; it will not be replayed");
+            }
         });
     }
 
@@ -1086,7 +1088,7 @@ impl GitHubView {
         &self,
         entity: Entity<Self>,
         cx: &App,
-    ) -> Vec<crate::shell::navigation::Destination> {
+    ) -> Vec<crate::shell::navigation::SidebarLink> {
         PrMode::ALL
             .into_iter()
             .map(|mode| {
@@ -1127,10 +1129,13 @@ impl GitHubView {
                         if view.account != account {
                             view.change_account(account.clone(), cx);
                         }
-                        view.open_pr_list(mode, cx);
+                        view.navigate(Route::Pulls(mode), cx);
                     })
                 });
-                d
+                crate::shell::navigation::SidebarLink {
+                    destination: d,
+                    on_open: std::rc::Rc::new(move |cx| Self::record_pr_list_open(mode, cx)),
+                }
             })
             .collect()
     }
