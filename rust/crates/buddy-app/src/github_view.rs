@@ -36,7 +36,7 @@ pub enum GitHubEvent {
 impl gpui_kit::EventEmitter<GitHubEvent> for GitHubView {}
 impl GitHubView {
     pub(crate) fn show_status_prs(&mut self, cx: &mut Context<Self>) {
-        self.navigate(Route::Pulls(PrMode::MyPrs), cx);
+        self.open_pr_list(PrMode::MyPrs, cx);
     }
     pub(crate) fn terminal_context(
         &self,
@@ -370,6 +370,34 @@ impl GitHubView {
         self.loading = false;
     }
 
+    /// A user open request counts even when its list is already selected, as
+    /// Electron's openTab callback does. Retained tab restoration uses navigate.
+    fn open_pr_list(&mut self, mode: PrMode, cx: &mut Context<Self>) {
+        self.open_pr_list_with(mode, cx, Self::record_pr_list_open);
+    }
+
+    fn record_pr_list_open(mode: PrMode, cx: &App) {
+        let url = buddy_core::convex_data::convex_url();
+        Runtime::global(cx).spawn_detached(async move {
+            if buddy_core::stats::pr_list_activity::record(&url, mode)
+                .await
+                .is_err()
+            {
+                log::debug!("PR-list activity was not confirmed; it will not be replayed");
+            }
+        });
+    }
+
+    fn open_pr_list_with(
+        &mut self,
+        mode: PrMode,
+        cx: &mut Context<Self>,
+        record: impl FnOnce(PrMode, &App),
+    ) {
+        record(mode, cx);
+        self.navigate(Route::Pulls(mode), cx);
+    }
+
     fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route == route {
             return;
@@ -694,9 +722,9 @@ impl GitHubView {
                                         .unwrap_or_else(|| "Not loaded".into()),
                                 )
                                 .selected(self.route == Route::Pulls(mode))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.navigate(Route::Pulls(mode), cx)
-                                }))
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.open_pr_list(mode, cx)),
+                                )
                         }),
                 )
                 .children(
@@ -1060,7 +1088,7 @@ impl GitHubView {
         &self,
         entity: Entity<Self>,
         cx: &App,
-    ) -> Vec<crate::shell::navigation::Destination> {
+    ) -> Vec<crate::shell::navigation::SidebarLink> {
         PrMode::ALL
             .into_iter()
             .map(|mode| {
@@ -1104,7 +1132,10 @@ impl GitHubView {
                         view.navigate(Route::Pulls(mode), cx);
                     })
                 });
-                d
+                crate::shell::navigation::SidebarLink {
+                    destination: d,
+                    on_open: std::rc::Rc::new(move |cx| Self::record_pr_list_open(mode, cx)),
+                }
             })
             .collect()
     }

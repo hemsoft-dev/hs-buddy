@@ -2,6 +2,90 @@ use super::*;
 use buddy_core::github::{PullRef, RepositoryRef};
 use std::sync::{Arc, Mutex};
 
+#[gpui_kit::test]
+fn sidebar_open_effect_is_not_retained_in_tabs_or_history(cx: &mut gpui_kit::TestAppContext) {
+    use crate::shell::navigation::{Destination, Tabs};
+    use std::{cell::Cell, rc::Rc};
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let entity = cx.new(|cx| GitHubView::new(window, cx));
+            entity.update(cx, |view, cx| {
+                view.change_account(Some(account("First")), cx)
+            });
+            let recorded = Rc::new(Cell::new(0));
+            for mut link in entity.read(cx).sidebar(entity.clone(), cx) {
+                let counter = recorded.clone();
+                link.on_open = Rc::new(move |_| counter.set(counter.get() + 1));
+                let mut tabs = Tabs::default();
+                for _ in 0..2 {
+                    // Use the actual shell click entry point, then retain its
+                    // destination without any observer replacing that object.
+                    tabs.open(link.open(cx).unwrap());
+                    (tabs.current().unwrap().restore)(window, cx);
+                }
+                let expected = recorded.get();
+                let key = tabs.active.clone().unwrap();
+                tabs.open(Destination::section(None));
+                tabs.travel(false);
+                (tabs.current().unwrap().restore)(window, cx);
+                tabs.travel(true);
+                tabs.cycle(true);
+                (tabs.current().unwrap().restore)(window, cx);
+                tabs.open(Destination::section(None));
+                tabs.close("dashboard");
+                assert_eq!(tabs.active.as_deref(), Some(key.as_str()));
+                (tabs.current().unwrap().restore)(window, cx);
+                assert_eq!(
+                    recorded.get(),
+                    expected,
+                    "tab/history/close restores must not record opens"
+                );
+            }
+            assert_eq!(
+                recorded.get(),
+                8,
+                "only the two explicit clicks per mode count"
+            );
+            entity
+        })
+        .unwrap();
+    });
+}
+
+#[gpui_kit::test]
+fn explicit_pr_opens_count_repeated_requests_but_restored_tabs_do_not(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let entity = cx.new(|cx| GitHubView::new(window, cx));
+            let mut recorded = Vec::new();
+            entity.update(cx, |view, cx| {
+                view.change_account(Some(account("First")), cx);
+                for mode in PrMode::ALL.into_iter().chain([PrMode::NeedANudge]) {
+                    view.open_pr_list_with(mode, cx, |mode, _| recorded.push(mode));
+                    assert_eq!(view.route, Route::Pulls(mode));
+                }
+            });
+            assert_eq!(
+                recorded.len(),
+                5,
+                "a repeated open is still an explicit request"
+            );
+            let destination = entity.read(cx).destination(entity.clone(), cx);
+            entity.update(cx, |view, cx| view.navigate(Route::Repositories, cx));
+            // No Runtime global exists in this fixture. A tracked restore would
+            // try to dispatch a write and panic; a read-only restore must work.
+            (destination.restore)(window, cx);
+            assert_eq!(entity.read(cx).route, Route::Pulls(PrMode::NeedANudge));
+            entity
+        })
+        .unwrap();
+    });
+}
+
 #[derive(Default)]
 struct WriteFixture(Mutex<Vec<github::ApiRequest>>);
 impl github::Transport for WriteFixture {
@@ -461,8 +545,8 @@ fn global_tabs_restore_account_and_route_and_badges_never_cross_accounts(
             });
             let destination = view.read(cx).destination(view.clone(), cx);
             let links = view.read(cx).sidebar(view.clone(), cx);
-            assert_eq!(links[0].badge.as_ref().unwrap().count, 3);
-            assert!(links[1].badge.is_none());
+            assert_eq!(links[0].destination.badge.as_ref().unwrap().count, 3);
+            assert!(links[1].destination.badge.is_none());
             view.update(cx, |view, cx| {
                 view.change_account(Some(account("Second")), cx);
                 view.navigate(Route::Repositories, cx);
@@ -514,8 +598,8 @@ fn removing_an_account_invalidates_tabs_history_and_retained_sidebar_callbacks(
             let ticket = view.update(cx, |view, _| view.selection.begin().unwrap());
             (stale.restore)(window, cx);
             for link in sidebar {
-                assert!(!(link.available)(cx));
-                (link.restore)(window, cx);
+                assert!(link.open(cx).is_none());
+                (link.destination.restore)(window, cx);
             }
             assert_eq!(view.read(cx).account, Some(account("Second")));
             assert_eq!(view.read(cx).route, Route::Repositories);

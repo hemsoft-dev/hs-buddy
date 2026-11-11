@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1691] - 2026-11-11
+
+### Changed
+
+- Keep sidebar chrome sampling clear of retained tabs (#937)
+
+## [0.1.1690] - 2026-11-11
+
+### Changed
+
+- Measure sidebar chrome when Mac menu OCR is missing (#937)
+
+## [0.1.1689] - 2026-11-11
+
+### Changed
+
+- Expect the unapproved restored review fixture row (#937)
+
+## [0.1.1688] - 2026-11-11
+
+### Changed
+
+- Anchor PR sidebar clicks to an enabled control (#937)
+
+## [0.1.1687] - 2026-11-11
+
+### Changed
+
+- Scope repeated PR-mode clicks to the sidebar (#937)
+
+## [0.1.1686] - 2026-11-11
+
+### Fixed
+
+- Keep activity writes out of restored sidebar tabs (#937)
+
+## [0.1.1685] - 2026-11-11
+
+### Changed
+
+- Select an account before restoring PR activity fixture (#937)
+
+## [0.1.1684] - 2026-11-11
+
+### Added
+
+- Record explicit PR-list activity (#937)
+
 ## [0.1.1683] - 2026-11-11
 
 ### Added

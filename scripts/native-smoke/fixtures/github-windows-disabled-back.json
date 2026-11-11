@@ -1,0 +1,582 @@
+{
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/43027883073/job/130549177350",
+  "imageSha256": "c4880c0c7912848b0936841248674e27da27a43f1f1f7ca4c42a8986dff3638a",
+  "words": [
+    {
+      "text": "Buddy",
+      "width": 33,
+      "top": 12,
+      "line": "0",
+      "left": 51,
+      "height": 12
+    },
+    {
+      "text": "File",
+      "width": 17,
+      "top": 12,
+      "line": "0",
+      "left": 99,
+      "height": 9
+    },
+    {
+      "text": "Edit",
+      "width": 19,
+      "top": 12,
+      "line": "0",
+      "left": 127,
+      "height": 9
+    },
+    {
+      "text": "View",
+      "width": 26,
+      "top": 12,
+      "line": "0",
+      "left": 157,
+      "height": 9
+    },
+    {
+      "text": "Help",
+      "width": 24,
+      "top": 12,
+      "line": "0",
+      "left": 194,
+      "height": 12
+    },
+    {
+      "text": "o",
+      "width": 10,
+      "top": 11,
+      "line": "1",
+      "left": 980,
+      "height": 10
+    },
+    {
+      "text": "x",
+      "width": 10,
+      "top": 11,
+      "line": "2",
+      "left": 1014,
+      "height": 10
+    },
+    {
+      "text": "Dashboard",
+      "width": 56,
+      "top": 45,
+      "line": "3",
+      "left": 85,
+      "height": 9
+    },
+    {
+      "text": "GitHub:",
+      "width": 40,
+      "top": 45,
+      "line": "4",
+      "left": 188,
+      "height": 9
+    },
+    {
+      "text": "My",
+      "width": 17,
+      "top": 45,
+      "line": "4",
+      "left": 232,
+      "height": 12
+    },
+    {
+      "text": "PRs",
+      "width": 19,
+      "top": 45,
+      "line": "4",
+      "left": 252,
+      "height": 9
+    },
+    {
+      "text": "My",
+      "width": 19,
+      "top": 88,
+      "line": "5",
+      "left": 119,
+      "height": 13
+    },
+    {
+      "text": "PRs",
+      "width": 21,
+      "top": 88,
+      "line": "5",
+      "left": 142,
+      "height": 10
+    },
+    {
+      "text": "2",
+      "width": 5,
+      "top": 90,
+      "line": "5",
+      "left": 184,
+      "height": 7
+    },
+    {
+      "text": "Needs",
+      "width": 38,
+      "top": 124,
+      "line": "6",
+      "left": 118,
+      "height": 10
+    },
+    {
+      "text": "Review",
+      "width": 43,
+      "top": 124,
+      "line": "6",
+      "left": 161,
+      "height": 10
+    },
+    {
+      "text": "Recently",
+      "width": 52,
+      "top": 160,
+      "line": "7",
+      "left": 109,
+      "height": 13
+    },
+    {
+      "text": "Merged",
+      "width": 47,
+      "top": 160,
+      "line": "7",
+      "left": 165,
+      "height": 13
+    },
+    {
+      "text": "Needs",
+      "width": 38,
+      "top": 196,
+      "line": "8",
+      "left": 114,
+      "height": 10
+    },
+    {
+      "text": "a",
+      "width": 6,
+      "top": 199,
+      "line": "8",
+      "left": 157,
+      "height": 7
+    },
+    {
+      "text": "nudge",
+      "width": 39,
+      "top": 196,
+      "line": "8",
+      "left": 168,
+      "height": 13
+    },
+    {
+      "text": "fixture.org",
+      "width": 65,
+      "top": 96,
+      "line": "9",
+      "left": 293,
+      "height": 13
+    },
+    {
+      "text": "/",
+      "width": 6,
+      "top": 96,
+      "line": "9",
+      "left": 363,
+      "height": 12
+    },
+    {
+      "text": "fixture-one",
+      "width": 68,
+      "top": 96,
+      "line": "9",
+      "left": 372,
+      "height": 10
+    },
+    {
+      "text": "fixture.org",
+      "width": 65,
+      "top": 96,
+      "line": "10",
+      "left": 471,
+      "height": 13
+    },
+    {
+      "text": "/",
+      "width": 7,
+      "top": 96,
+      "line": "10",
+      "left": 540,
+      "height": 12
+    },
+    {
+      "text": "fixture-two",
+      "width": 67,
+      "top": 96,
+      "line": "10",
+      "left": 550,
+      "height": 10
+    },
+    {
+      "text": "Repositories",
+      "width": 75,
+      "top": 136,
+      "line": "11",
+      "left": 294,
+      "height": 13
+    },
+    {
+      "text": "Organization",
+      "width": 79,
+      "top": 136,
+      "line": "11",
+      "left": 399,
+      "height": 13
+    },
+    {
+      "text": "People",
+      "width": 41,
+      "top": 136,
+      "line": "12",
+      "left": 510,
+      "height": 13
+    },
+    {
+      "text": "Filter",
+      "width": 28,
+      "top": 171,
+      "line": "13",
+      "left": 419,
+      "height": 10
+    },
+    {
+      "text": "loaded",
+      "width": 38,
+      "top": 171,
+      "line": "13",
+      "left": 451,
+      "height": 10
+    },
+    {
+      "text": "ftems",
+      "width": 30,
+      "top": 171,
+      "line": "13",
+      "left": 494,
+      "height": 10
+    },
+    {
+      "text": "Refresh",
+      "width": 45,
+      "top": 189,
+      "line": "14",
+      "left": 353,
+      "height": 10
+    },
+    {
+      "text": "First",
+      "width": 25,
+      "top": 202,
+      "line": "15",
+      "left": 430,
+      "height": 10
+    },
+    {
+      "text": "private",
+      "width": 42,
+      "top": 202,
+      "line": "15",
+      "left": 459,
+      "height": 13
+    },
+    {
+      "text": "View",
+      "width": 28,
+      "top": 252,
+      "line": "16",
+      "left": 282,
+      "height": 10
+    },
+    {
+      "text": "preference",
+      "width": 60,
+      "top": 252,
+      "line": "16",
+      "left": 314,
+      "height": 13
+    },
+    {
+      "text": "saved",
+      "width": 32,
+      "top": 252,
+      "line": "16",
+      "left": 378,
+      "height": 10
+    },
+    {
+      "text": "My",
+      "width": 27,
+      "top": 301,
+      "line": "17",
+      "left": 283,
+      "height": 19
+    },
+    {
+      "text": "PRs",
+      "width": 30,
+      "top": 301,
+      "line": "17",
+      "left": 316,
+      "height": 14
+    },
+    {
+      "text": "Teams",
+      "width": 40,
+      "top": 136,
+      "line": "18",
+      "left": 582,
+      "height": 10
+    },
+    {
+      "text": "Cards",
+      "width": 35,
+      "top": 346,
+      "line": "19",
+      "left": 293,
+      "height": 10
+    },
+    {
+      "text": "List",
+      "width": 20,
+      "top": 346,
+      "line": "20",
+      "left": 359,
+      "height": 10
+    },
+    {
+      "text": "5",
+      "width": 5,
+      "top": 765,
+      "line": "21",
+      "left": 21,
+      "height": 9
+    },
+    {
+      "text": "PRs",
+      "width": 18,
+      "top": 765,
+      "line": "21",
+      "left": 31,
+      "height": 9
+    },
+    {
+      "text": "O",
+      "width": 6,
+      "top": 765,
+      "line": "22",
+      "left": 65,
+      "height": 9
+    },
+    {
+      "text": "schedules",
+      "width": 52,
+      "top": 765,
+      "line": "22",
+      "left": 75,
+      "height": 9
+    },
+    {
+      "text": "O",
+      "width": 6,
+      "top": 765,
+      "line": "23",
+      "left": 143,
+      "height": 9
+    },
+    {
+      "text": "jobs",
+      "width": 24,
+      "top": 765,
+      "line": "23",
+      "left": 151,
+      "height": 12
+    },
+    {
+      "text": "#7",
+      "width": 16,
+      "top": 398,
+      "line": "24",
+      "left": 549,
+      "height": 10
+    },
+    {
+      "text": "First",
+      "width": 25,
+      "top": 398,
+      "line": "24",
+      "left": 570,
+      "height": 10
+    },
+    {
+      "text": "private",
+      "width": 42,
+      "top": 398,
+      "line": "24",
+      "left": 599,
+      "height": 13
+    },
+    {
+      "text": "navigation",
+      "width": 64,
+      "top": 398,
+      "line": "24",
+      "left": 645,
+      "height": 13
+    },
+    {
+      "text": "review",
+      "width": 39,
+      "top": 398,
+      "line": "24",
+      "left": 714,
+      "height": 10
+    },
+    {
+      "text": "fixture.org/native-demo",
+      "width": 139,
+      "top": 433,
+      "line": "25",
+      "left": 282,
+      "height": 13
+    },
+    {
+      "text": "\u2022",
+      "width": 1,
+      "top": 438,
+      "line": "25",
+      "left": 426,
+      "height": 2
+    },
+    {
+      "text": "OPEN",
+      "width": 32,
+      "top": 434,
+      "line": "25",
+      "left": 432,
+      "height": 9
+    },
+    {
+      "text": "\u2022",
+      "width": 2,
+      "top": 438,
+      "line": "25",
+      "left": 469,
+      "height": 2
+    },
+    {
+      "text": "@fixture-author",
+      "width": 92,
+      "top": 433,
+      "line": "25",
+      "left": 475,
+      "height": 11
+    },
+    {
+      "text": "\u2022",
+      "width": 1,
+      "top": 438,
+      "line": "25",
+      "left": 571,
+      "height": 2
+    },
+    {
+      "text": "feature/navigation",
+      "width": 106,
+      "top": 433,
+      "line": "25",
+      "left": 576,
+      "height": 13
+    },
+    {
+      "text": "main",
+      "width": 27,
+      "top": 433,
+      "line": "25",
+      "left": 701,
+      "height": 10
+    },
+    {
+      "text": "\u2022",
+      "width": 2,
+      "top": 438,
+      "line": "25",
+      "left": 733,
+      "height": 2
+    },
+    {
+      "text": "updated",
+      "width": 46,
+      "top": 433,
+      "line": "25",
+      "left": 740,
+      "height": 13
+    },
+    {
+      "text": "2026-10-15T12:00:OOZ",
+      "width": 128,
+      "top": 434,
+      "line": "25",
+      "left": 791,
+      "height": 9
+    },
+    {
+      "text": "@fixture-author",
+      "width": 98,
+      "top": 467,
+      "line": "26",
+      "left": 294,
+      "height": 11
+    },
+    {
+      "text": "Open",
+      "width": 33,
+      "top": 467,
+      "line": "26",
+      "left": 422,
+      "height": 13
+    },
+    {
+      "text": "link",
+      "width": 21,
+      "top": 467,
+      "line": "26",
+      "left": 461,
+      "height": 10
+    },
+    {
+      "text": "No",
+      "width": 14,
+      "top": 766,
+      "line": "27",
+      "left": 213,
+      "height": 8
+    },
+    {
+      "text": "gh",
+      "width": 12,
+      "top": 766,
+      "line": "27",
+      "left": 230,
+      "height": 10
+    },
+    {
+      "text": "account",
+      "width": 38,
+      "top": 766,
+      "line": "27",
+      "left": 246,
+      "height": 8
+    }
+  ]
+}

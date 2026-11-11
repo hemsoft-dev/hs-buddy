@@ -191,17 +191,19 @@ def workspace_words(words):
     return [word for word in words if top < word["top"] <= bottom]
 
 
-def workspace_geometry(image):
+def workspace_geometry(image, *, strip=(.6, .25)):
     """Measure the shell's two painted bands when OCR cannot read its menu.
 
     The blank right portion of the title and tab bars spans the sampled strip.
     Require two adjacent, similarly sized uniform bands starting at the window
-    top; clipped, textured or incomplete chrome must fail closed.
+    top; clipped, textured or incomplete chrome must fail closed. The strip's
+    left edge and width are fractions of the capture width.
     """
     width, height = struct.unpack(">II", image.read_bytes()[16:24])
     scan = height // 3
+    left, span = (int(width * fraction) for fraction in strip)
     result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(image),
-        "-vf", f"crop={width//4}:{scan}:{width*3//5}:0:exact=1,scale=5:{scan}:flags=neighbor,format=rgb24",
+        "-vf", f"crop={span}:{scan}:{left}:0:exact=1,scale=5:{scan}:flags=neighbor,format=rgb24",
         "-f", "rawvideo", "-frames:v", "1", "pipe:1"], capture_output=True, check=True, timeout=30,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     pixels = result.stdout
@@ -248,10 +250,11 @@ def workspace_target(image, labels):
         return dict(label, top=label['top'] + top)
 
 
-def content_words(words, chrome=None):
+def content_words(words, chrome=None, *, workspace_bottom=None):
     """Keep view controls below workspace tabs and above status totals."""
-    _, row_bottom = chrome_rows(words if chrome is None else chrome)
-    words = [word for word in words if word["top"] > row_bottom]
+    if workspace_bottom is None:
+        _, workspace_bottom = chrome_rows(words if chrome is None else chrome)
+    words = [word for word in words if word["top"] > workspace_bottom]
     # The shared totals footer is chrome too. Identify its three ordered
     # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
     # Older captures without totals retain the existing upper-bound scope.
@@ -259,6 +262,33 @@ def content_words(words, chrome=None):
     if footer:
         words = [word for word in words if word["top"] < footer["top"]]
     return words
+
+
+def sidebar_label(words, labels, *, workspace_bottom=None):
+    """PR modes sit left of the enabled Repositories control in the workspace."""
+    words = content_words(words, workspace_bottom=workspace_bottom)
+    boundary = find_label(words, "Repositories", field=True)["left"]
+    return locate_label([word for word in words if word["left"] + word["width"] < boundary], labels)
+
+
+def sidebar_target(image, labels):
+    # Pin one engine per platform, as for workspace tabs. A selected mode's
+    # label also appears as the content heading, so content-only is ambiguous.
+    engine = recognize_windows if sys.platform == "win32" else lambda path: recognize(path, 11)
+    words = engine(image)
+    if image.is_file():
+        image.with_suffix('.sidebar-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+    try:
+        _, bottom = chrome_rows(words)
+    except AmbiguousLabel:
+        raise
+    except RuntimeError:
+        # Sparse OCR can read File as Fie on Mac. Reuse the workspace tab
+        # locator's validated painted bands without changing target engines.
+        # Four mode tabs can occupy the default strip. The farther-right
+        # blank portion still has to pass every existing band-layout guard.
+        _, bottom = workspace_geometry(image, strip=(.8, .1))
+    return sidebar_label(words, labels, workspace_bottom=bottom)
 
 
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
@@ -469,7 +499,9 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False, sparse_only=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False, sparse_only=False, sidebar=False):
+    if sidebar:
+        return sidebar_target(image, labels)
     if sparse_only:
         words = recognize(image, 11)
         image.with_suffix('.sparse-ocr.json').write_text(json.dumps(words), encoding='utf-8')
@@ -583,8 +615,9 @@ def main():
     parser.add_argument("--content", action="store_true")
     parser.add_argument("--between-labels", nargs=2)
     parser.add_argument("--workspace", action="store_true")
+    parser.add_argument("--sidebar", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels, workspace=args.workspace)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels, workspace=args.workspace, sidebar=args.sidebar)))
 
 
 if __name__ == "__main__":

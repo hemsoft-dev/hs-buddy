@@ -852,7 +852,10 @@ impl BuddyApp {
             Some(Section::Automation) => self
                 .automation_view
                 .read(cx)
-                .sidebar(self.automation_view.clone()),
+                .sidebar(self.automation_view.clone())
+                .into_iter()
+                .map(crate::shell::navigation::SidebarLink::from)
+                .collect(),
             _ => Vec::new(),
         };
         if links.is_empty() || self.folder_open {
@@ -866,7 +869,8 @@ impl BuddyApp {
             .gap_1()
             .border_r_1()
             .border_color(cx.theme().border)
-            .children(links.into_iter().enumerate().map(|(i, d)| {
+            .children(links.into_iter().enumerate().map(|(i, link)| {
+                let d = &link.destination;
                 let selected = self.tabs.active.as_ref() == Some(&d.key);
                 let badge = d.badge.as_ref().map(|badge| {
                     if let Some(progress) = badge.progress {
@@ -905,8 +909,10 @@ impl BuddyApp {
                     )
                     .children(badge)
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.tabs.open(d.clone());
-                        this.restore_tab(window, cx);
+                        if let Some(destination) = link.open(cx) {
+                            this.tabs.open(destination);
+                            this.restore_tab(window, cx);
+                        }
                     }))
             }))
             .into_any_element()
