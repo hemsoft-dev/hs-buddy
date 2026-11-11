@@ -2,6 +2,38 @@ use super::*;
 use buddy_core::github::{PullRef, RepositoryRef};
 use std::sync::{Arc, Mutex};
 
+#[gpui_kit::test]
+fn explicit_pr_opens_count_repeated_requests_but_restored_tabs_do_not(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let entity = cx.new(|cx| GitHubView::new(window, cx));
+            let mut recorded = Vec::new();
+            entity.update(cx, |view, cx| {
+                for mode in PrMode::ALL.into_iter().chain([PrMode::NeedANudge]) {
+                    view.open_pr_list_with(mode, cx, |mode, _| recorded.push(mode));
+                    assert_eq!(view.route, Route::Pulls(mode));
+                }
+            });
+            assert_eq!(
+                recorded.len(),
+                5,
+                "a repeated open is still an explicit request"
+            );
+            let destination = entity.read(cx).destination(entity.clone(), cx);
+            entity.update(cx, |view, cx| view.navigate(Route::Repositories, cx));
+            // No Runtime global exists in this fixture. A tracked restore would
+            // try to dispatch a write and panic; a read-only restore must work.
+            (destination.restore)(window, cx);
+            assert_eq!(entity.read(cx).route, Route::Pulls(PrMode::NeedANudge));
+            entity
+        })
+        .unwrap();
+    });
+}
+
 #[derive(Default)]
 struct WriteFixture(Mutex<Vec<github::ApiRequest>>);
 impl github::Transport for WriteFixture {

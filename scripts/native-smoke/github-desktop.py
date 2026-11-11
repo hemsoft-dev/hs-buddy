@@ -56,6 +56,14 @@ def reset_section(config):
     config.write_text(json.dumps(value), encoding="utf-8")
 
 
+def require_activity(backend, before, expected):
+    after = backend.query("buddyStats:get")
+    observed = {field: after.get(field, 0) - before.get(field, 0) for field in expected}
+    if observed != expected:
+        raise RuntimeError(f"Native PR-list activity differs from explicit opens: {observed}, expected {expected}")
+    return after
+
+
 def installed_binary(executable, version):
     output = settings.run(executable, "--version")
     require_version(output, version)
@@ -146,16 +154,18 @@ def qualify(executable, output, session, version, backend, api):
     initial = json.loads(config.read_text())
     initial["github"]["accounts"] = [dict(username=user, org="fixture-org") for user in ("fixture-one", "fixture-two")]
     initial["native"]["activeSection"] = "github"
+    initial["ui"]["dashboardCards"]["workspace-pulse"] = True
     config.write_text(json.dumps(initial))
     (output / "github-fixture.allow").write_text("hs-buddy native GitHub qualification v1")
     for user in ("fixture-one", "fixture-two"):
         mutate(backend, "githubAccounts:create", dict(username=user, org="fixture-org"))
     driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
+    activity_before = backend.query("buddyStats:get")
     review = driver.drive("review-dark", [
         ("capture", "list-dark"), ("input", "Filter loaded items", "First private"),
         ("content", "List"), ("capture", "filter-list-dark"),
         ("content", "Needs Review"), ("content", "Recently Merged"), ("content", "Needs a nudge"),
-        ("content", "My PRs"), ("input", "Filter loaded items", "First private"),
+        ("content", "My PRs"), ("content", "My PRs"), ("input", "Filter loaded items", "First private"),
         ("content", "#7 First private navigation review"), ("tab", "Reviews"),
         ("tab", "Commits"), ("tab", "Checks"), ("tab", "Files"), ("wheel", -360), ("capture", "diff-dark"),
         ("tab", "History"), ("tab", "Review threads"), ("content", "src/navigation.rs"),
@@ -180,6 +190,25 @@ def qualify(executable, output, session, version, backend, api):
     if backend.query("settings:get")["viewModes"]["pr-list-my-prs"] != "list":
         raise RuntimeError("The native list preference did not reach Convex")
 
+    require_activity(backend, activity_before,
+        dict(tabsOpened=5, prsViewed=2, prsReviewed=1, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+    # A fresh installed process must retain the backend counters without
+    # treating initial restoration, refresh or selecting a retained tab as opens.
+    activity = driver.drive("activity-restored-dark", [
+        ("content", "Needs Review"), ("workspace", "GitHub: My PRs"),
+        ("content", "Refresh"),
+        ("capture", "restored-pr-list-dark"), ("workspace", "Dashboard"),
+        ("wait_content", "PRs Viewed"), ("capture", "workspace-activity-dark"),
+    ], record=True)
+    activity_after = require_activity(backend, activity_before,
+        dict(tabsOpened=6, prsViewed=2, prsReviewed=2, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+    check(activity / "restored-pr-list-dark.png", "My PRs", "First private")
+    check(activity / "workspace-activity-dark.png", "Workspace Pulse", "PRs Viewed")
+    (output / "activity.json").write_text(json.dumps(dict(before=activity_before, after=activity_after,
+        checks=["four explicit modes", "repeated current mode", "no refresh write", "no retained-tab write",
+            "restart persistence", "session and uptime untouched"]), indent=2))
+
+    reset_section(config)
     navigation = driver.drive("navigation-dark", [
         ("content", "Repositories"), ("content", "fixture-org/native-demo"), ("tab", "Commits"),
         ("content", "Improve native navigation"), ("content", "Back"), ("tab", "Open issues"),
@@ -230,7 +259,7 @@ def qualify(executable, output, session, version, backend, api):
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
-        checks=["four PR modes", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment",
+        checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment",
             "repository/commit/issue navigation", "profile/calendar/teams", "Convex bookmark and favorite",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 

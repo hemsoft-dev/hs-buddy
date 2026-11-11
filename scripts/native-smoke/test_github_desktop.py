@@ -14,6 +14,18 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_activity_requires_exact_deltas_and_does_not_reset_existing_totals(self):
+        before = dict(tabsOpened=12, prsViewed=30, prsReviewed=4)
+        backend = Mock()
+        backend.query.return_value = dict(tabsOpened=17, prsViewed=32, prsReviewed=5)
+        desktop.require_activity(backend, before, dict(tabsOpened=5, prsViewed=2, prsReviewed=1))
+        backend.query.assert_called_once_with("buddyStats:get")
+        for incorrect in (dict(tabsOpened=16, prsViewed=32, prsReviewed=5),
+                dict(tabsOpened=18, prsViewed=32, prsReviewed=5), {}):
+            backend.query.return_value = incorrect
+            with self.assertRaisesRegex(RuntimeError, "differs from explicit opens"):
+                desktop.require_activity(backend, before, dict(tabsOpened=5, prsViewed=2, prsReviewed=1))
+
     def test_recorded_browser_needs_one_complete_mixed_contrast_layout(self):
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-mixed-contrast.json').read_text(encoding='utf-8'))
         calls = []
