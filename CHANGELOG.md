@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1691] - 2026-11-11
+
+### Changed
+
+- Keep sidebar chrome sampling clear of retained tabs (#937)
+
 ## [0.1.1690] - 2026-11-11
 
 ### Changed

@@ -273,6 +273,35 @@ class InstalledEvidence(unittest.TestCase):
                         self.assertTrue(all(call.args[1] == 11 for call in recognize.call_args_list))
                         self.assertEqual(receipt.call_count, 2)
 
+    def test_mac_sidebar_measures_clear_chrome_after_all_four_modes_open_tabs(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('github-macos-crowded-tabs.json').read_text())
+        ocr = desktop.settings.ocr
+        with TemporaryDirectory() as temporary:
+            image = Path(temporary) / 'capture.png'
+            image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', fixture['width'], fixture['height']))
+            crowded = base64.b64decode(fixture['strips'][0]['pixelsBase64'])
+            # The occupied strip remains invalid under the unchanged band guards.
+            with patch.object(ocr.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, crowded)):
+                with self.assertRaisesRegex(RuntimeError, 'bands do not match'):
+                    ocr.workspace_geometry(image)
+            def measure(command, **kwargs):
+                filters = command[command.index('-vf')+1]
+                for strip in fixture['strips']:
+                    prefix = f"crop={strip['width']}:{fixture['height']//3}:{strip['left']}:0:exact=1,"
+                    if filters.startswith(prefix):
+                        return subprocess.CompletedProcess([], 0, base64.b64decode(strip['pixelsBase64']))
+                self.fail(f'No captured pixels for measurement {filters}')
+            driver = object.__new__(desktop.settings.Driver)
+            driver.session = 'macos'
+            with patch.object(ocr.sys, 'platform', 'darwin'), \
+                    patch.object(ocr, 'recognize', return_value=fixture['words']) as recognize, \
+                    patch.object(ocr.subprocess, 'run', side_effect=measure), \
+                    patch.object(desktop.settings, 'record_measurement') as receipt:
+                self.assertEqual(driver.locate(Mock(), image, 'sidebar', 'My PRs'),
+                    dict(left=109, top=86, width=48, height=13))
+                self.assertEqual(recognize.call_count, 2)
+                self.assertEqual(receipt.call_count, 2)
+
     def test_sidebar_scope_rejects_missing_or_competing_controls_and_boundaries(self):
         words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
         target_words = [word for word in words if word['line'] == '9/1/1']

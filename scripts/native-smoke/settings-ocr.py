@@ -191,17 +191,19 @@ def workspace_words(words):
     return [word for word in words if top < word["top"] <= bottom]
 
 
-def workspace_geometry(image):
+def workspace_geometry(image, *, strip=(.6, .25)):
     """Measure the shell's two painted bands when OCR cannot read its menu.
 
     The blank right portion of the title and tab bars spans the sampled strip.
     Require two adjacent, similarly sized uniform bands starting at the window
-    top; clipped, textured or incomplete chrome must fail closed.
+    top; clipped, textured or incomplete chrome must fail closed. The strip's
+    left edge and width are fractions of the capture width.
     """
     width, height = struct.unpack(">II", image.read_bytes()[16:24])
     scan = height // 3
+    left, span = (int(width * fraction) for fraction in strip)
     result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(image),
-        "-vf", f"crop={width//4}:{scan}:{width*3//5}:0:exact=1,scale=5:{scan}:flags=neighbor,format=rgb24",
+        "-vf", f"crop={span}:{scan}:{left}:0:exact=1,scale=5:{scan}:flags=neighbor,format=rgb24",
         "-f", "rawvideo", "-frames:v", "1", "pipe:1"], capture_output=True, check=True, timeout=30,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     pixels = result.stdout
@@ -283,7 +285,9 @@ def sidebar_target(image, labels):
     except RuntimeError:
         # Sparse OCR can read File as Fie on Mac. Reuse the workspace tab
         # locator's validated painted bands without changing target engines.
-        _, bottom = workspace_geometry(image)
+        # Four mode tabs can occupy the default strip. The farther-right
+        # blank portion still has to pass every existing band-layout guard.
+        _, bottom = workspace_geometry(image, strip=(.8, .1))
     return sidebar_label(words, labels, workspace_bottom=bottom)
 
 
