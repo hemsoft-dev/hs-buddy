@@ -164,8 +164,8 @@ def qualify(executable, output, session, version, backend, api):
     review = driver.drive("review-dark", [
         ("capture", "list-dark"), ("input", "Filter loaded items", "First private"),
         ("content", "List"), ("capture", "filter-list-dark"),
-        ("content", "Needs Review"), ("content", "Recently Merged"), ("content", "Needs a nudge"),
-        ("content", "My PRs"), ("content", "My PRs"), ("input", "Filter loaded items", "First private"),
+        ("sidebar", "Needs Review"), ("sidebar", "Recently Merged"), ("sidebar", "Needs a nudge"),
+        ("sidebar", "My PRs"), ("sidebar", "My PRs"), ("input", "Filter loaded items", "First private"),
         ("content", "#7 First private navigation review"), ("tab", "Reviews"),
         ("tab", "Commits"), ("tab", "Checks"), ("tab", "Files"), ("wheel", -360), ("capture", "diff-dark"),
         ("tab", "History"), ("tab", "Review threads"), ("content", "src/navigation.rs"),
@@ -195,7 +195,7 @@ def qualify(executable, output, session, version, backend, api):
     # A fresh installed process must retain the backend counters without
     # treating initial restoration, refresh or selecting a retained tab as opens.
     activity = driver.drive("activity-restored-dark", [
-        ("content", "Needs Review"), ("content", "Needs Review"),
+        ("sidebar", "Needs Review"), ("sidebar", "Needs Review"),
         ("workspace", "Dashboard"), ("workspace", "Needs Review"),
         ("content", "Refresh"),
         ("capture", "restored-sidebar-list-dark"), ("workspace", "My PRs"),

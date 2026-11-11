@@ -132,7 +132,7 @@ class InstalledEvidence(unittest.TestCase):
     def refresh_fixture(self):
         return json.loads(Path(__file__).with_name('fixtures').joinpath('github-refresh-acknowledgement.json').read_text())
 
-    def review_refresh_action(self):
+    def review_actions(self):
         class Captured(Exception):
             pass
         driver = Mock()
@@ -143,7 +143,83 @@ class InstalledEvidence(unittest.TestCase):
                 patch.object(desktop.settings, 'Driver', return_value=driver):
             with self.assertRaises(Captured):
                 desktop.qualify(Path('owned-buddy'), Path(temporary) / 'profile', 'macos', 'fixture', Mock(), Mock())
-        return driver.drive.call_args.args[1][-1]
+        return driver.drive.call_args.args[1]
+
+    def review_refresh_action(self):
+        return self.review_actions()[-1]
+
+    def test_actual_mode_clicks_select_sidebar_when_current_heading_repeats_the_label(self):
+        words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
+        minimal = [word for word in words if word['text'] in ('File', 'View', 'Help', 'Dashboard', 'Back', 'My', 'PRs')
+            and word['top'] < 300]
+        with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
+            desktop.settings.ocr.locate_label(minimal, 'My PRs', content=True)
+        actions = [action for action in self.review_actions() if action[1:] == ('My PRs',)]
+        self.assertEqual(len(actions), 2)
+        for action in actions:
+            with patch.object(desktop.settings.ocr.sys, 'platform', 'linux'), \
+                    patch.object(desktop.settings.ocr, 'recognize', return_value=words):
+                target = desktop.settings.ocr.locate_image(Path('captured.png'), action[1],
+                    content=action[0] == 'content', sidebar=action[0] == 'sidebar') if action[0] == 'sidebar' else \
+                    desktop.settings.ocr.locate_label(words, action[1], content=action[0] == 'content')
+            self.assertEqual(target, dict(left=109, top=87, width=49, height=13))
+
+    def test_sidebar_scope_uses_measured_geometry_on_each_platform_and_scale(self):
+        original = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
+        for platform in ('linux', 'darwin', 'win32'):
+            for scale in (1, 1.25, 2):
+                words = [dict(word, **{key: word[key] * scale for key in ('left', 'top', 'width', 'height')}) for word in original]
+                with self.subTest(platform=platform, scale=scale), \
+                        patch.object(desktop.settings.ocr.sys, 'platform', platform), \
+                        patch.object(desktop.settings.ocr, 'recognize', return_value=words), \
+                        patch.object(desktop.settings.ocr, 'recognize_windows', return_value=words):
+                    target = desktop.settings.ocr.locate_image(Path('captured.png'), 'My PRs', sidebar=True)
+                    self.assertEqual(target, {key: value * scale for key, value in
+                        dict(left=109, top=87, width=49, height=13).items()})
+
+    def test_sidebar_scope_rejects_missing_or_competing_controls_and_boundaries(self):
+        words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
+        target_words = [word for word in words if word['line'] == '9/1/1']
+        # Keep the workspace title and page heading. Neither may stand in for
+        # a missing sidebar control, even though the visible text is identical.
+        without_target = [word for word in words if word not in target_words]
+        with self.assertRaises(RuntimeError):
+            desktop.settings.ocr.sidebar_label(without_target, 'My PRs')
+        duplicates = [dict(word, line='duplicate-sidebar', top=word['top'] + 20) for word in target_words]
+        with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
+            desktop.settings.ocr.sidebar_label(words + duplicates, 'My PRs')
+        with self.assertRaises(RuntimeError):
+            desktop.settings.ocr.sidebar_label([word for word in words if word['text'] != 'Back'], 'My PRs')
+        back = next(word for word in words if word['text'] == 'Back')
+        with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
+            desktop.settings.ocr.sidebar_label(words + [dict(back, line='duplicate-back', top=back['top']+35)], 'My PRs')
+
+    def test_windows_driver_passes_the_explicit_sidebar_action_to_its_owned_input_helper(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            driver = object.__new__(desktop.settings.Driver)
+            driver.session, driver.profile = 'windows', root
+            driver.config, driver.executable, driver.checkout = root/'config.json', root/'owned.exe', root
+            driver.large_size, driver.backend = (1200, 820), Mock(url='http://127.0.0.1:9')
+            with patch.object(desktop.settings, 'run') as execute:
+                driver.drive('sidebar', [('sidebar', 'My PRs')])
+            args = execute.call_args.args
+            self.assertIn('sidebar64:' + desktop.settings.b64('My PRs'),
+                args[args.index('-Actions')+1].split(','))
+
+    def test_mac_sidebar_click_keeps_two_fresh_stable_measurements(self):
+        words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        with TemporaryDirectory() as temporary, \
+                patch.object(desktop.settings.ocr.sys, 'platform', 'darwin'), \
+                patch.object(desktop.settings.ocr, 'recognize', return_value=words) as recognize, \
+                patch.object(desktop.settings, 'record_measurement') as receipt:
+            target = driver.locate(Mock(), Path(temporary)/'capture.png', 'sidebar', 'My PRs')
+            self.assertEqual(target, dict(left=109, top=87, width=49, height=13))
+            self.assertEqual(recognize.call_count, 2)
+            self.assertEqual(receipt.call_count, 2)
+            self.assertTrue(all(call.kwargs['scope']['sidebar'] for call in receipt.call_args_list))
 
     def select_refresh(self, words, action):
         return desktop.settings.ocr.locate_label(words, action[1],

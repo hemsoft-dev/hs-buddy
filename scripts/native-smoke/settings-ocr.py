@@ -261,6 +261,23 @@ def content_words(words, chrome=None):
     return words
 
 
+def sidebar_label(words, labels):
+    """GitHub PR modes sit left of the workspace's measured Back control."""
+    words = content_words(words)
+    boundary = find_label(words, "Back", field=True)["left"]
+    return locate_label([word for word in words if word["left"] + word["width"] < boundary], labels)
+
+
+def sidebar_target(image, labels):
+    # Pin one engine per platform, as for workspace tabs. A selected mode's
+    # label also appears as the content heading, so content-only is ambiguous.
+    engine = recognize_windows if sys.platform == "win32" else lambda path: recognize(path, 11)
+    words = engine(image)
+    if image.is_file():
+        image.with_suffix('.sidebar-ocr.json').write_text(json.dumps(words), encoding='utf-8')
+    return sidebar_label(words, labels)
+
+
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):
     wanted = normalize(label)
     if not wanted:
@@ -469,7 +486,9 @@ def color_region(label, scale, dimensions):
     return dict(left=left, top=top, width=right-left, height=bottom-top)
 
 
-def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False, sparse_only=False):
+def locate_image(image, labels, navigation=False, field=False, save_row=False, tab=False, row_control=None, block_first=False, content=False, between=None, native_macos=False, workspace=False, sparse_only=False, sidebar=False):
+    if sidebar:
+        return sidebar_target(image, labels)
     if sparse_only:
         words = recognize(image, 11)
         image.with_suffix('.sparse-ocr.json').write_text(json.dumps(words), encoding='utf-8')
@@ -583,8 +602,9 @@ def main():
     parser.add_argument("--content", action="store_true")
     parser.add_argument("--between-labels", nargs=2)
     parser.add_argument("--workspace", action="store_true")
+    parser.add_argument("--sidebar", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels, workspace=args.workspace)))
+    print(json.dumps(locate_image(args.image, args.label, args.navigation, args.field, tab=args.tab, content=args.content, between=args.between_labels, workspace=args.workspace, sidebar=args.sidebar)))
 
 
 if __name__ == "__main__":

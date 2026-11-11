@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1687] - 2026-11-11
+
+### Changed
+
+- Scope repeated PR-mode clicks to the sidebar (#937)
+
 ## [0.1.1686] - 2026-11-11
 
 ### Fixed
