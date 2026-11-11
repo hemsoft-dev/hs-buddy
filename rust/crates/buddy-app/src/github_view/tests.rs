@@ -12,6 +12,7 @@ fn explicit_pr_opens_count_repeated_requests_but_restored_tabs_do_not(
             let entity = cx.new(|cx| GitHubView::new(window, cx));
             let mut recorded = Vec::new();
             entity.update(cx, |view, cx| {
+                view.change_account(Some(account("First")), cx);
                 for mode in PrMode::ALL.into_iter().chain([PrMode::NeedANudge]) {
                     view.open_pr_list_with(mode, cx, |mode, _| recorded.push(mode));
                     assert_eq!(view.route, Route::Pulls(mode));

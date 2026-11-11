@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1685] - 2026-11-11
+
+### Changed
+
+- Select an account before restoring PR activity fixture (#937)
+
 ## [0.1.1684] - 2026-11-11
 
 ### Added
