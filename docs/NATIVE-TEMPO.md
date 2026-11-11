@@ -1,5 +1,9 @@
 # Native Tempo timesheets
 
+On Windows, [reuse the existing Electron Jira/Tempo connection](NATIVE-TEMPO-IMPORT.md)
+without typing the credentials again. The explicit import runs without a window
+or service request and preserves a connection already saved by native Buddy.
+
 Open Tempo in Buddy Native. Choose the Tempo data region, then enter the Tempo API token, Jira HTTPS origin,
 Jira email and Jira API token, then choose Save and connect. Buddy verifies the
 Jira account and loads its complete current month before saving the connection

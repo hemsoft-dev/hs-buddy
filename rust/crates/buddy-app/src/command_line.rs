@@ -8,6 +8,8 @@ pub enum Command {
     Open,
     Help,
     Version,
+    #[cfg(windows)]
+    ImportElectronTempo,
     TerminalHost,
     AutomationHost,
     RalphHost(PathBuf),
@@ -51,6 +53,8 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
     match argument.to_str() {
         Some("--help" | "-h") => Ok(Command::Help),
         Some("--version" | "-V") => Ok(Command::Version),
+        #[cfg(windows)]
+        Some("--import-electron-tempo") => Ok(Command::ImportElectronTempo),
         Some("--terminal-host") => Ok(Command::TerminalHost),
         Some("--automation-host") => Ok(Command::AutomationHost),
         Some("--ralph-exec") => Ok(Command::RalphExec),
@@ -63,6 +67,10 @@ pub fn print_help() {
         "{}\nUsage: {} [--help | --version]\n\nConfiguration:\n  BUDDY_CONVEX_URL   Convex backend URL\n  BUDDY_CONFIG_PATH  Optional isolated settings file",
         env!("BUDDY_PRODUCT_NAME"),
         env!("BUDDY_BINARY_NAME")
+    );
+    #[cfg(windows)]
+    println!(
+        "\nWindows migration:\n  --import-electron-tempo  Reuse Electron Tempo/Jira in an empty native vault, without opening a window or contacting services"
     );
 }
 
@@ -83,6 +91,17 @@ mod tests {
         for argument in ["--version", "-V"] {
             assert_eq!(parse([argument.into()]), Ok(Command::Version));
         }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn explicit_electron_import_never_opens_the_desktop_or_accepts_secrets_in_arguments() {
+        assert_eq!(
+            parse(["--import-electron-tempo".into()]),
+            Ok(Command::ImportElectronTempo)
+        );
+        let error = parse(["--import-electron-tempo".into(), "private-value".into()]).unwrap_err();
+        assert!(!error.contains("private-value"));
     }
 
     #[test]

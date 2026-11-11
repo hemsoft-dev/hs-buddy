@@ -57,13 +57,15 @@ the rollback contract on Windows, Ubuntu and macOS Intel/ARM.
   Electron. The unit tests use a fake vault. Actual OS adapter interoperability
   remains covered by the existing CI credential probe, separately from these tests.
 - Electron Todoist reads `TODOIST_API_TOKEN`; Electron Tempo/Jira reads
-  `TEMPO_API_TOKEN`, `ATLASSIAN_API_TOKEN` and `ATLASSIAN_EMAIL`. Native deliberately
-  does not import environment credentials. An empty native vault requires Save
-  and connect in the native connection form. Existing Todoist and Tempo
+  `TEMPO_API_TOKEN`, `ATLASSIAN_API_TOKEN` and `ATLASSIAN_EMAIL`. On Windows,
+  [explicit Tempo/Jira import](NATIVE-TEMPO-IMPORT.md) reuses that complete
+  connection in an empty native vault. Normal startup never imports environment
+  credentials. Other platforms and Todoist still require Save and connect in
+  the native connection form. Existing Todoist and Tempo
   credential tests distinguish absent from unavailable storage, confirm complete
   write/readback and protect pending recovery during replacement. Reconnecting
-  leaves Electron's environment credentials unchanged. This is an explicit
-  reconnect fallback, not automatic credential migration.
+  leaves Electron's environment credentials unchanged. Import and reconnect are
+  explicit actions; neither changes Electron's source credentials.
 - Electron weather `safeStorage` ciphertext is nonportable. Native retains it
   untouched for Electron rollback and does not decode it. With no native saved
   city, the [rewrite plan](GPUI-REWRITE-PLAN.md) requires the default location and

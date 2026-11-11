@@ -404,6 +404,10 @@ fn main() {
     }
     match command_line::parse(std::env::args_os().skip(1)) {
         Ok(command_line::Command::Open) => {}
+        #[cfg(windows)]
+        Ok(command_line::Command::ImportElectronTempo) => {
+            std::process::exit(buddy_core::tempo::credentials::electron_import::run());
+        }
         Ok(command_line::Command::TerminalHost) => {
             std::process::exit(buddy_core::terminal::run_terminal_host());
         }

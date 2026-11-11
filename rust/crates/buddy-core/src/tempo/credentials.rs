@@ -1,5 +1,9 @@
 //! One OS-vault entry holds a complete Tempo/Jira connection for a config
-//! profile. No environment or other service's credential entry is consulted.
+//! profile. Ordinary loads never consult environment credentials. Windows can
+//! explicitly import Electron's connection into an empty native entry.
+#[cfg(any(windows, test))]
+#[path = "credentials/electron_import.rs"]
+pub mod electron_import;
 use std::path::Path;
 
 use keyring::Entry;
