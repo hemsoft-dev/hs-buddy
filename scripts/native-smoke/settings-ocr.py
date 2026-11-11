@@ -262,9 +262,9 @@ def content_words(words, chrome=None):
 
 
 def sidebar_label(words, labels):
-    """GitHub PR modes sit left of the workspace's measured Back control."""
+    """PR modes sit left of the enabled Repositories control in the workspace."""
     words = content_words(words)
-    boundary = find_label(words, "Back", field=True)["left"]
+    boundary = find_label(words, "Repositories", field=True)["left"]
     return locate_label([word for word in words if word["left"] + word["width"] < boundary], labels)
 
 

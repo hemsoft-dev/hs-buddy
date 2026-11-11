@@ -177,6 +177,12 @@ class InstalledEvidence(unittest.TestCase):
                     self.assertEqual(target, {key: value * scale for key, value in
                         dict(left=109, top=87, width=49, height=13).items()})
 
+    def test_sidebar_scope_works_when_windows_ocr_omits_disabled_back(self):
+        words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-windows-disabled-back.json').read_text())['words']
+        self.assertNotIn('Back', [word['text'] for word in words])
+        target = desktop.settings.ocr.sidebar_label(words, 'Needs Review')
+        self.assertEqual(target, dict(left=118, top=124, width=86, height=10))
+
     def test_sidebar_scope_rejects_missing_or_competing_controls_and_boundaries(self):
         words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
         target_words = [word for word in words if word['line'] == '9/1/1']
@@ -189,10 +195,10 @@ class InstalledEvidence(unittest.TestCase):
         with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
             desktop.settings.ocr.sidebar_label(words + duplicates, 'My PRs')
         with self.assertRaises(RuntimeError):
-            desktop.settings.ocr.sidebar_label([word for word in words if word['text'] != 'Back'], 'My PRs')
-        back = next(word for word in words if word['text'] == 'Back')
+            desktop.settings.ocr.sidebar_label([word for word in words if word['text'] != 'Repositories'], 'My PRs')
+        anchor = next(word for word in words if word['text'] == 'Repositories')
         with self.assertRaises(desktop.settings.ocr.AmbiguousLabel):
-            desktop.settings.ocr.sidebar_label(words + [dict(back, line='duplicate-back', top=back['top']+35)], 'My PRs')
+            desktop.settings.ocr.sidebar_label(words + [dict(anchor, line='duplicate-boundary', top=anchor['top']+35)], 'My PRs')
 
     def test_windows_driver_passes_the_explicit_sidebar_action_to_its_owned_input_helper(self):
         with TemporaryDirectory() as temporary:
