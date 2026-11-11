@@ -204,7 +204,9 @@ def qualify(executable, output, session, version, backend, api):
     ], record=True)
     activity_after = require_activity(backend, activity_before,
         dict(tabsOpened=7, prsViewed=2, prsReviewed=3, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
-    check(activity / "restored-sidebar-list-dark.png", "Needs Review", "First private")
+    # The fixture's reviewed-by source marks #7 approved. Needs Review keeps
+    # the unapproved #8 from its paginated assignee source instead.
+    check(activity / "restored-sidebar-list-dark.png", "Needs Review", "#8 Paginated fixture follow-up")
     check(activity / "restored-pr-list-dark.png", "My PRs", "First private")
     check(activity / "workspace-activity-dark.png", "Workspace Pulse", "PRs Viewed")
     (output / "activity.json").write_text(json.dumps(dict(before=activity_before, after=activity_after,

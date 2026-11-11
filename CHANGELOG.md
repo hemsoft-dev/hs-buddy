@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1689] - 2026-11-11
+
+### Changed
+
+- Expect the unapproved restored review fixture row (#937)
+
 ## [0.1.1688] - 2026-11-11
 
 ### Changed

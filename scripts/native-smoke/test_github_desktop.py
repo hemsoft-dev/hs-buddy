@@ -14,6 +14,53 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_restarted_qualification_requires_the_actual_needs_review_fixture_row(self):
+        capture = json.loads(Path(__file__).with_name('fixtures').joinpath('github-restored-needs-review.json').read_text())
+        original_check = desktop.check
+        class CheckedRestoredList(Exception):
+            pass
+        for missing in (None, 'Needs Review', '#8 Paginated fixture follow-up'):
+            with self.subTest(missing=missing), TemporaryDirectory() as temporary:
+                output = Path(temporary) / 'profile'
+                def drive(name, *args, **kwargs):
+                    if name == 'review-dark':
+                        config = output / 'config.json'
+                        value = json.loads(config.read_text())
+                        value['native']['github'] = dict(viewModes={'pr-list-my-prs': 'list'})
+                        config.write_text(json.dumps(value))
+                    directory = output / name
+                    directory.mkdir()
+                    return directory
+                checked = []
+                def check(path, *markers, **kwargs):
+                    checked.append(path.name)
+                    if path.name != 'restored-sidebar-list-dark.png':
+                        return
+                    original_check(path, *markers, **kwargs)
+                    raise CheckedRestoredList
+                def run(*args, **kwargs):
+                    if args[0] == 'ffmpeg':
+                        return ''
+                    mode = int(args[args.index('--psm') + 1])
+                    text = next(layout['text'] for layout in capture['layouts']
+                        if layout['image'] == Path(args[1]).name and layout['mode'] == mode)
+                    return text.replace(missing.casefold(), '') if missing else text
+                driver = Mock()
+                driver.drive.side_effect = drive
+                backend = Mock()
+                backend.query.return_value = dict(viewModes={'pr-list-my-prs': 'list'})
+                api = Mock(requests=[dict(method='POST', path='/issues/7/comments', account='fixture-one',
+                    body=dict(body='Installed native fixture comment'))])
+                with patch.object(desktop, 'installed_binary', return_value={}), \
+                        patch.object(desktop, 'mutate'), patch.object(desktop, 'verify_detail_requests'), \
+                        patch.object(desktop, 'require_activity'), patch.object(desktop.settings, 'Driver', return_value=driver), \
+                        patch.object(desktop, 'check', side_effect=check), patch.object(desktop.settings, 'run', side_effect=run):
+                    expected = RuntimeError if missing else CheckedRestoredList
+                    with self.assertRaises(expected):
+                        desktop.qualify(Path('owned-buddy'), output, 'windows', 'fixture', backend, api)
+                self.assertEqual(checked[-1], 'restored-sidebar-list-dark.png')
+                self.assertEqual(driver.drive.call_count, 2)
+
     def test_activity_requires_exact_deltas_and_does_not_reset_existing_totals(self):
         before = dict(tabsOpened=12, prsViewed=30, prsReviewed=4)
         backend = Mock()
