@@ -248,10 +248,11 @@ def workspace_target(image, labels):
         return dict(label, top=label['top'] + top)
 
 
-def content_words(words, chrome=None):
+def content_words(words, chrome=None, *, workspace_bottom=None):
     """Keep view controls below workspace tabs and above status totals."""
-    _, row_bottom = chrome_rows(words if chrome is None else chrome)
-    words = [word for word in words if word["top"] > row_bottom]
+    if workspace_bottom is None:
+        _, workspace_bottom = chrome_rows(words if chrome is None else chrome)
+    words = [word for word in words if word["top"] > workspace_bottom]
     # The shared totals footer is chrome too. Identify its three ordered
     # labels on the bottom OCR row, never by a fixed pixel/DPI cutoff.
     # Older captures without totals retain the existing upper-bound scope.
@@ -261,9 +262,9 @@ def content_words(words, chrome=None):
     return words
 
 
-def sidebar_label(words, labels):
+def sidebar_label(words, labels, *, workspace_bottom=None):
     """PR modes sit left of the enabled Repositories control in the workspace."""
-    words = content_words(words)
+    words = content_words(words, workspace_bottom=workspace_bottom)
     boundary = find_label(words, "Repositories", field=True)["left"]
     return locate_label([word for word in words if word["left"] + word["width"] < boundary], labels)
 
@@ -275,7 +276,15 @@ def sidebar_target(image, labels):
     words = engine(image)
     if image.is_file():
         image.with_suffix('.sidebar-ocr.json').write_text(json.dumps(words), encoding='utf-8')
-    return sidebar_label(words, labels)
+    try:
+        _, bottom = chrome_rows(words)
+    except AmbiguousLabel:
+        raise
+    except RuntimeError:
+        # Sparse OCR can read File as Fie on Mac. Reuse the workspace tab
+        # locator's validated painted bands without changing target engines.
+        _, bottom = workspace_geometry(image)
+    return sidebar_label(words, labels, workspace_bottom=bottom)
 
 
 def find_label(words, label, navigation=False, field=False, exact_line=False, tab=False, content=False, between=None):

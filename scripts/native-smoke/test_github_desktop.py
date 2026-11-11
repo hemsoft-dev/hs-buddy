@@ -1,8 +1,10 @@
 """Bind GitHub evidence to the installed binary and its actual route content."""
 import hashlib
+import base64
 import importlib.util
 import json
 import struct
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -229,6 +231,47 @@ class InstalledEvidence(unittest.TestCase):
         self.assertNotIn('Back', [word['text'] for word in words])
         target = desktop.settings.ocr.sidebar_label(words, 'Needs Review')
         self.assertEqual(target, dict(left=118, top=124, width=86, height=10))
+
+    def test_mac_sidebar_uses_captured_chrome_bands_when_file_is_misread(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('github-macos-sidebar-chrome.json').read_text())
+        words, pixels = fixture['words'], base64.b64decode(fixture['pixelsBase64'])
+        ocr = desktop.settings.ocr
+        with self.assertRaisesRegex(RuntimeError, 'menu row'):
+            ocr.chrome_rows(words)
+        target = [word for word in words if word['line'] == '11/1/1']
+        boundary = next(word for word in words if word['text'] == 'Repositories')
+        readable = [dict(word, text='File') if word['text'] == 'Fie' else word for word in words]
+        duplicate_menu = readable + [dict(word, top=word['top']+30, line='duplicate-menu')
+            for word in readable if word['text'] in ('File', 'view', 'Help')]
+        cases = [
+            ('captured', words, pixels, None),
+            ('missing target', [word for word in words if word not in target], pixels, RuntimeError),
+            ('duplicate target', words + [dict(word, top=word['top']+18, line='duplicate') for word in target], pixels, ocr.AmbiguousLabel),
+            ('missing boundary', [word for word in words if word != boundary], pixels, RuntimeError),
+            ('duplicate boundary', words + [dict(boundary, top=boundary['top']+35, line='duplicate')], pixels, ocr.AmbiguousLabel),
+            ('invalid chrome', words, bytes(len(pixels)), RuntimeError),
+            ('duplicate chrome', duplicate_menu, pixels, ocr.AmbiguousLabel),
+        ]
+        for name, measured, bands, error in cases:
+            with self.subTest(name=name), TemporaryDirectory() as temporary:
+                image = Path(temporary) / 'capture.png'
+                image.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\0' * 8 + struct.pack('>II', fixture['width'], fixture['height']))
+                driver = object.__new__(desktop.settings.Driver)
+                driver.session = 'macos'
+                with patch.object(ocr.sys, 'platform', 'darwin'), \
+                        patch.object(ocr, 'recognize', return_value=measured) as recognize, \
+                        patch.object(ocr.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, bands)), \
+                        patch.object(desktop.settings, 'record_measurement') as receipt:
+                    if error:
+                        with self.assertRaises(error):
+                            driver.locate(Mock(), image, 'sidebar', 'Needs Review')
+                        receipt.assert_not_called()
+                    else:
+                        self.assertEqual(driver.locate(Mock(), image, 'sidebar', 'Needs Review'),
+                            dict(left=108, top=121, width=89, height=11))
+                        self.assertEqual(recognize.call_count, 2)
+                        self.assertTrue(all(call.args[1] == 11 for call in recognize.call_args_list))
+                        self.assertEqual(receipt.call_count, 2)
 
     def test_sidebar_scope_rejects_missing_or_competing_controls_and_boundaries(self):
         words = json.loads(Path(__file__).with_name('fixtures').joinpath('github-pr-mode-sidebar.json').read_text())['words']
