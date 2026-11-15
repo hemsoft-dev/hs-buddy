@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1692] - 2026-11-15
+
+### Fixed
+
+- Keep Rust 1.100 Clippy checks clean (#939)
+
 ## [0.1.1691] - 2026-11-11
 
 ### Changed

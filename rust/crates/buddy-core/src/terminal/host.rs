@@ -17,14 +17,11 @@ use super::protocol::{Command, Event, OUTPUT_CHUNK_BYTES, read_frame, write_fram
 type Output = Arc<Mutex<io::Stdout>>;
 
 fn expected_pty_eof(error: &io::Error) -> bool {
-    if error.kind() == io::ErrorKind::BrokenPipe {
-        return true;
-    }
     #[cfg(unix)]
     if error.raw_os_error() == Some(libc::EIO) {
         return true;
     }
-    false
+    error.kind() == io::ErrorKind::BrokenPipe
 }
 
 fn send(output: &Output, event: &Event) -> io::Result<()> {

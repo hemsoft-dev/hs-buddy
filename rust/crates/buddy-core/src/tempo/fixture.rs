@@ -89,15 +89,6 @@ fn owned_kind(path: &Path, directory: bool) -> bool {
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
         return false;
     };
-    if metadata.file_type().is_symlink()
-        || if directory {
-            !metadata.is_dir()
-        } else {
-            !metadata.is_file()
-        }
-    {
-        return false;
-    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -105,7 +96,12 @@ fn owned_kind(path: &Path, directory: bool) -> bool {
             return false;
         }
     }
-    true
+    !metadata.file_type().is_symlink()
+        && if directory {
+            metadata.is_dir()
+        } else {
+            metadata.is_file()
+        }
 }
 fn loopback(value: &str, path: &str) -> Result<Url, Unavailable> {
     let url = Url::parse(value).map_err(|_| Unavailable)?;
