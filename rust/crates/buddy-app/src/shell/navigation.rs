@@ -36,6 +36,33 @@ impl Destination {
         }
     }
 }
+
+/// A sidebar click may record an explicit open. Only its read-only destination
+/// enters the tab/history model, so later restoration cannot replay that effect.
+pub struct SidebarLink {
+    pub destination: Destination,
+    pub on_open: Rc<dyn Fn(&mut App)>,
+}
+
+impl SidebarLink {
+    pub fn open(&self, cx: &mut App) -> Option<Destination> {
+        if !(self.destination.available)(cx) {
+            return None;
+        }
+        (self.on_open)(cx);
+        Some(self.destination.clone())
+    }
+}
+
+impl From<Destination> for SidebarLink {
+    fn from(destination: Destination) -> Self {
+        Self {
+            destination,
+            on_open: Rc::new(|_| {}),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Tabs {
     pub items: Vec<Destination>,

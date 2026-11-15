@@ -249,12 +249,10 @@ impl State {
                 if !title.is_empty() {
                     self.title = title;
                 }
-                if !value["requests"].is_null()
-                    && !self.prompts(&value["requests"], true, limits)?
-                {
-                    return Ok(false);
-                }
-                Ok(true)
+                Ok(
+                    value["requests"].is_null()
+                        || self.prompts(&value["requests"], true, limits)?,
+                )
             }
             Some(1) => {
                 let Some(keys) = keys else {

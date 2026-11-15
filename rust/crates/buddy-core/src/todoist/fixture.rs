@@ -49,9 +49,6 @@ fn regular(path: &Path) -> bool {
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
         return false;
     };
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return false;
-    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -59,7 +56,7 @@ fn regular(path: &Path) -> bool {
             return false;
         }
     }
-    true
+    metadata.is_file() && !metadata.file_type().is_symlink()
 }
 fn validate(token: &str, config: &Path, host: &Host) -> Result<Connection, TransportError> {
     let unavailable = TransportError::FixtureUnavailable;
