@@ -99,7 +99,7 @@
       },
       "optionalDependencies": {
         "@github/copilot-darwin-arm64": "^1.0.95",
-        "@github/copilot-darwin-x64": "^1.0.68",
+        "@github/copilot-darwin-x64": "^1.0.110",
         "@github/copilot-linux-x64": "^1.0.91",
         "@github/copilot-win32-x64": "^1.0.105",
       },
@@ -426,7 +426,7 @@
 
     "@github/copilot-darwin-arm64": ["@github/copilot-darwin-arm64@1.0.95", "", { "os": "darwin", "cpu": "arm64", "bin": { "copilot-darwin-arm64": "copilot" } }, "sha512-rh4KQhjg2uO/fJHlDkOQh3R2etNRsnQ22vLbcJcEObFVrc449m6g3injew08QhDQQT16fP+ADfPRcGxcy74P6g=="],
 
-    "@github/copilot-darwin-x64": ["@github/copilot-darwin-x64@1.0.83", "", { "os": "darwin", "cpu": "x64", "bin": { "copilot-darwin-x64": "copilot" } }, "sha512-f3oQxclEd/HUunTIMTriRIm883ONYPVOETGlEYF6fYWVkllPINMXnlKpM/b6h7fJEjZy8JFDhqqoZ60ezRNuUQ=="],
+    "@github/copilot-darwin-x64": ["@github/copilot-darwin-x64@1.0.110", "", { "os": "darwin", "cpu": "x64", "bin": { "copilot-darwin-x64": "copilot" } }, "sha512-y0ZsD0jUJzy0ed8beZsnYjwzLgj8el0zgLlT11Xnz+O7CaZ57GgcIOc+lVdMQNKtYZKWdAWNsQwRnkfQGLBF8w=="],
 
     "@github/copilot-linux-x64": ["@github/copilot-linux-x64@1.0.93", "", { "os": "linux", "cpu": "x64", "bin": { "copilot-linux-x64": "copilot" } }, "sha512-tEXAZDdA1lHl6AGcYFGb+qaFWxCbYYQosXw+PVQFMdnDsc85uZ7xDPaxD7oW7cQpbwkrqUCioR88tcPpV0rJrA=="],
 

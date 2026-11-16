@@ -178,7 +178,7 @@
   },
   "optionalDependencies": {
     "@github/copilot-darwin-arm64": "^1.0.95",
-    "@github/copilot-darwin-x64": "^1.0.68",
+    "@github/copilot-darwin-x64": "^1.0.110",
     "@github/copilot-linux-x64": "^1.0.91",
     "@github/copilot-win32-x64": "^1.0.105"
   },
