@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1700] - 2026-11-17
+
+### Changed
+
+- Initialize TLS in the telemetry-disabled regression
+
 ## [0.1.1699] - 2026-11-17
 
 ### Fixed
