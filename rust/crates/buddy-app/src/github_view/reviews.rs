@@ -1,5 +1,10 @@
 use super::*;
 
+type ReviewPollResult = (
+    (String, github::ReviewKind),
+    Result<github::ReviewProgress, GitHubError>,
+);
+
 impl GitHubView {
     pub(super) fn set_review_status(&mut self, key: (String, github::ReviewKind), status: String) {
         if !self.review_status.contains_key(&key) {
@@ -34,14 +39,15 @@ impl GitHubView {
         &mut self,
         key: (String, github::ReviewKind),
         result: Result<github::ReviewProgress, GitHubError>,
-    ) {
+    ) -> bool {
         let kind = key.1.label();
+        let mut completed = false;
         let status = match result {
             Ok(github::ReviewProgress::Waiting) => format!(
                 "{kind}: waiting for a new or updated bot review. The request has been submitted."
             ),
             Ok(github::ReviewProgress::Completed { .. }) => {
-                self.review_watches.remove(&key);
+                completed = self.review_watches.remove(&key).is_some();
                 format!(
                     "{kind}: a new or updated review is available. Refresh Conversation or Reviews to read it."
                 )
@@ -51,6 +57,36 @@ impl GitHubView {
             ),
         };
         self.set_review_status(key, status);
+        completed
+    }
+
+    /// Consume accepted completion transitions before attempting audio. The
+    /// returned requests form the device boundary, so playback failure cannot
+    /// repeat a review request or turn a completed watch back into pending.
+    pub(super) fn complete_review_poll(
+        &mut self,
+        ticket: &github::RequestTicket,
+        results: Vec<ReviewPollResult>,
+        cx: &App,
+    ) -> Vec<String> {
+        if !self.selection.accepts(ticket) {
+            return Vec::new();
+        }
+        self.review_loading = false;
+        self.review_abort = None;
+        let settings = &Settings::global(cx).config.notifications;
+        let sound = (settings.play_sound_on_review_complete
+            && !settings.review_complete_sound_path.is_empty())
+        .then(|| settings.review_complete_sound_path.clone());
+        let mut requests = Vec::new();
+        for (key, result) in results {
+            if self.record_review_result(key, result)
+                && let Some(path) = &sound
+            {
+                requests.push(path.clone());
+            }
+        }
+        requests
     }
 
     pub(super) fn poll_review(&mut self, cx: &mut Context<Self>) {
@@ -95,13 +131,10 @@ impl GitHubView {
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(results)) = rx.await {
                 this.update(cx, |this, cx| {
-                    if !this.selection.accepts(&ticket) {
-                        return;
-                    }
-                    this.review_loading = false;
-                    this.review_abort = None;
-                    for (key, result) in results {
-                        this.record_review_result(key, result);
+                    for path in this.complete_review_poll(&ticket, results, cx) {
+                        // The existing worker bounds file size and playback
+                        // duration and cancels the preceding sound on reuse.
+                        drop(this.review_sound.start(path));
                     }
                     cx.notify();
                 })

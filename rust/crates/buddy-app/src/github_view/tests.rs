@@ -263,6 +263,161 @@ fn two_bot_requests_keep_independent_watches_for_the_same_pr(cx: &mut gpui_kit::
     });
 }
 
+fn sound_fixture(cx: &mut gpui_kit::TestAppContext) -> Entity<GitHubView> {
+    let view = write_fixture_view(cx, Arc::new(WriteFixture::default()));
+    for action in [
+        WriteAction::RequestCodeRabbit { pull: pull() },
+        WriteAction::RequestCopilot { pull: pull() },
+    ] {
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                if view.must_reload {
+                    let context = LoadContext {
+                        ticket: view.selection.begin().unwrap(),
+                        force: true,
+                        more: false,
+                        write_key: view.current_write_key(),
+                        can_unlock: true,
+                    };
+                    view.receive_load(context, Ok(PageData::default()));
+                }
+                view.prepare(action, cx);
+                view.confirm(cx);
+            })
+        });
+        wait_for_write(cx, &view);
+    }
+    view
+}
+
+fn sound_settings(cx: &mut App, enabled: bool, path: &str) {
+    let mut config = Settings::global(cx).config.clone();
+    config.notifications.play_sound_on_review_complete = enabled;
+    config.notifications.review_complete_sound_path = path.into();
+    Settings::replace(cx, config);
+}
+
+#[gpui_kit::test]
+fn review_sound_consumes_each_completion_once_without_opening_audio(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let entity = sound_fixture(cx);
+    cx.update(|cx| {
+        // Change settings after the review was requested, as a user can.
+        sound_settings(cx, true, "fixture-current.wav");
+        entity.update(cx, |view, cx| {
+            let ticket = view.selection.ticket().unwrap();
+            let keys: Vec<_> = view.review_watches.keys().cloned().collect();
+            assert_eq!(keys.len(), 2);
+            let mut recording_sink = Vec::new();
+            for key in keys {
+                assert!(
+                    view.complete_review_poll(
+                        &ticket,
+                        vec![(key.clone(), Ok(github::ReviewProgress::Waiting))],
+                        cx
+                    )
+                    .is_empty()
+                );
+                assert!(
+                    view.complete_review_poll(
+                        &ticket,
+                        vec![(key.clone(), Err(GitHubError::Network))],
+                        cx
+                    )
+                    .is_empty()
+                );
+                let completed = || Ok(github::ReviewProgress::Completed { url: None });
+                recording_sink.extend(view.complete_review_poll(
+                    &ticket,
+                    vec![(key.clone(), completed())],
+                    cx,
+                ));
+                // A failed device attempt cannot replay the consumed watch.
+                assert!(
+                    view.complete_review_poll(&ticket, vec![(key.clone(), completed())], cx)
+                        .is_empty()
+                );
+                assert!(view.review_status[&key].contains("review is available"));
+            }
+            assert_eq!(
+                recording_sink,
+                ["fixture-current.wav", "fixture-current.wav"]
+            );
+            assert!(view.review_watches.is_empty());
+            let untracked = ("untracked".into(), github::ReviewKind::Copilot);
+            assert!(
+                view.complete_review_poll(
+                    &ticket,
+                    vec![(
+                        untracked,
+                        Ok(github::ReviewProgress::Completed { url: None })
+                    )],
+                    cx
+                )
+                .is_empty()
+            );
+        });
+    });
+}
+
+#[gpui_kit::test]
+fn review_sound_honors_disabled_and_empty_current_settings(cx: &mut gpui_kit::TestAppContext) {
+    let entity = sound_fixture(cx);
+    cx.update(|cx| {
+        sound_settings(cx, false, "fixture.wav");
+        entity.update(cx, |view, cx| {
+            let ticket = view.selection.ticket().unwrap();
+            let keys: Vec<_> = view.review_watches.keys().cloned().collect();
+            for (index, key) in keys.into_iter().enumerate() {
+                if index == 1 {
+                    sound_settings(cx, true, "");
+                }
+                assert!(
+                    view.complete_review_poll(
+                        &ticket,
+                        vec![(key, Ok(github::ReviewProgress::Completed { url: None }))],
+                        cx
+                    )
+                    .is_empty()
+                );
+            }
+            assert!(view.review_watches.is_empty());
+        });
+    });
+}
+
+#[gpui_kit::test]
+fn review_sound_rejects_stale_account_and_returned_selection_results(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let entity = sound_fixture(cx);
+    cx.update(|cx| {
+        sound_settings(cx, true, "fixture.wav");
+        entity.update(cx, |view, cx| {
+            let old = view.selection.ticket().unwrap();
+            let key = view.review_watches.keys().next().unwrap().clone();
+            let result = || {
+                vec![(
+                    key.clone(),
+                    Ok(github::ReviewProgress::Completed { url: None }),
+                )]
+            };
+            view.change_account(Some(account("Second")), cx);
+            assert!(view.complete_review_poll(&old, result(), cx).is_empty());
+            view.change_account(Some(account("First")), cx);
+            view.navigate(Route::Pull(pull(), PullTab::Conversation), cx);
+            assert!(view.complete_review_poll(&old, result(), cx).is_empty());
+            assert!(view.review_watches.contains_key(&key));
+            let fresh = view.selection.ticket().unwrap();
+            assert_eq!(
+                view.complete_review_poll(&fresh, result(), cx),
+                ["fixture.wav"]
+            );
+        });
+    });
+}
+
 fn pull() -> PullRef {
     PullRef::new(RepositoryRef::parse("team/private").unwrap(), 7).unwrap()
 }

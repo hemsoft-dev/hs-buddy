@@ -16,6 +16,37 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_review_completion_requires_one_scoped_request_and_restores_settings(self):
+        for receipt in (None, "wrong-account", "duplicate", "correct"):
+            with self.subTest(receipt=receipt), TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                config = output / "config.json"
+                original = dict(playSoundOnReviewComplete=False, reviewCompleteSoundPath="", retained="yes")
+                config.write_text(json.dumps(dict(native={}, notifications=original)))
+                api = Mock(requests=[])
+                def drive(name, actions, record):
+                    current = json.loads(config.read_text())
+                    self.assertTrue(current["notifications"]["playSoundOnReviewComplete"])
+                    sound = Path(current["notifications"]["reviewCompleteSoundPath"])
+                    self.assertTrue(sound.is_file())
+                    self.assertTrue(sound.is_relative_to(output))
+                    if receipt:
+                        api.requests.append(dict(method="POST", path="/repos/team/private/issues/7/comments",
+                            account="fixture-two" if receipt == "wrong-account" else "fixture-one",
+                            body=dict(body="@coderabbitai full review")))
+                        if receipt == "duplicate":
+                            api.requests.append(dict(api.requests[-1]))
+                    return output / name
+                with patch.object(desktop, "check") as check:
+                    if receipt == "correct":
+                        desktop.qualify_review_sound(Mock(drive=drive), config, output, api)
+                        check.assert_called_once()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "exactly one scoped"):
+                            desktop.qualify_review_sound(Mock(drive=drive), config, output, api)
+                        check.assert_not_called()
+                self.assertEqual(json.loads(config.read_text())["notifications"], original)
+
     def test_restarted_qualification_requires_the_actual_needs_review_fixture_row(self):
         capture = json.loads(Path(__file__).with_name('fixtures').joinpath('github-restored-needs-review.json').read_text())
         original_check = desktop.check
