@@ -1131,6 +1131,8 @@ impl Render for BuddyApp {
 mod tests {
     use super::*;
 
+    include!("shell/tab_bar_tests.rs");
+
     // Each mouse test has its own process/profile: section persistence must
     // never write the developer's settings or race another GPUI test's env.
     fn status_click_child(test: &str) -> bool {
