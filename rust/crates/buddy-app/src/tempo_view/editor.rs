@@ -6,6 +6,9 @@ use chrono::{NaiveDate, NaiveTime};
 #[cfg(test)]
 #[path = "editor_tests.rs"]
 mod behavior_tests;
+#[cfg(test)]
+#[path = "editor_escape_tests.rs"]
+mod keyboard_tests;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 
 pub(super) struct Editor {
@@ -308,6 +311,29 @@ pub(super) fn next_start_time(seconds: u64) -> NaiveTime {
     NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, 0).expect("bounded service time")
 }
 
+impl TempoView {
+    fn cancel_editor(&mut self, editor_id: uuid::Uuid, cx: &mut Context<Self>) -> bool {
+        // Check live state too: a queued event must not dismiss a replacement
+        // draft or discard inputs after an operation has captured their write.
+        if self.busy
+            || self.connection.as_ref().is_some_and(|connection| {
+                connection.session.pending_phase() == Some(WritePhase::Ready)
+            })
+            || self
+                .editor
+                .as_ref()
+                .is_none_or(|editor| editor.id != editor_id)
+        {
+            return false;
+        }
+        self.editor = None;
+        self.editor_binding = None;
+        self.error = None;
+        cx.notify();
+        true
+    }
+}
+
 impl Editor {
     pub(super) fn render_ui(
         &self,
@@ -324,10 +350,21 @@ impl Editor {
             input::{Input, Textarea},
             v_flex,
         };
-        use gpui_kit::{IntoElement, ParentElement, Styled, div};
+        use gpui_kit::{InteractiveElement, IntoElement, ParentElement, Styled, div};
         // Inputs are sized to their values and actions sit inline, as in the
         // incumbent forms, instead of spanning the whole pane.
+        let editor_id = self.id;
         let mut body = v_flex()
+            // Capture before an Input or Textarea handles Escape locally.
+            // Only focus inside this editor reaches the listener.
+            .capture_key_down(
+                cx.listener(move |this, event: &gpui_kit::KeyDownEvent, _, cx| {
+                    if event.keystroke.key == "escape" && !busy && this.cancel_editor(editor_id, cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .gap_2()
             .child(div().text_lg().child(if self.original.is_some() {
                 "Edit worklog"
@@ -481,11 +518,8 @@ impl Editor {
                     Button::new("tempo-editor-cancel")
                         .label("Cancel editor")
                         .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.editor = None;
-                            this.editor_binding = None;
-                            this.error = None;
-                            cx.notify();
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.cancel_editor(editor_id, cx);
                         })),
                 ),
         )
