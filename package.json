@@ -164,7 +164,7 @@
     "png-to-ico": "^3.0.1",
     "prettier": "^3.9.10",
     "puppeteer-core": "25.16.0",
-    "react-doctor": "0.9.13",
+    "react-doctor": "0.9.22",
     "react-scan": "^0.5.7",
     "sharp": "^0.35.5",
     "typescript": "~6.0.3",
