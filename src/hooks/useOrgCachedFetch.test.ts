@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
+import { useLayoutEffect } from 'react'
 import {
   applyResolvedOrgCache,
   applyResolvedOrgCacheIfCurrent,
@@ -53,6 +54,29 @@ describe('applyResolvedOrgCache', () => {
 })
 
 describe('useOrgCachedFetch', () => {
+  it('commits only the new organization data after an identity change', () => {
+    const committed: Array<string | null> = []
+    const { rerender } = renderHook(
+      ({ cacheKey }) => {
+        const state = useOrgCachedFetch({
+          accounts: [],
+          org: cacheKey,
+          cacheKey,
+          initialData: cacheKey,
+          enqueue: vi.fn() as ReturnType<typeof useTaskQueue>['enqueue'],
+          taskName: 'identity',
+          fetchFn: vi.fn(),
+        })
+        useLayoutEffect(() => {
+          committed.push(state.data)
+        }, [cacheKey, state.data])
+      },
+      { initialProps: { cacheKey: 'first' } }
+    )
+    rerender({ cacheKey: 'second' })
+    expect(committed).toEqual(['first', 'second'])
+  })
+
   it('keeps a cached refresh visibly busy while its task is queued', async () => {
     let resolveEnqueue: ((value: { repositories: never[] }) => void) | undefined
     const enqueuePromise = new Promise<{ repositories: never[] }>(resolve => {

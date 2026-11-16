@@ -158,14 +158,19 @@ export function useOrgCachedFetch<T>({
     seedDataRef.current = seedData
   }, [seedData])
 
-  // Reset state when cacheKey changes (e.g., navigating between orgs).
-  // useLayoutEffect prevents a flash of stale data before paint.
+  // Reset before children render data from the previous organization.
+  const [renderedKey, setRenderedKey] = useState(cacheKey)
+  if (renderedKey !== cacheKey) {
+    setRenderedKey(cacheKey)
+    setData(seedData)
+    setPhase(seedData != null ? 'ready' : 'loading')
+    setError(null)
+  }
+
+  // Commit the identity used to reject stale asynchronous results.
   useLayoutEffect(() => {
     cacheKeyRef.current = cacheKey
     const seed = seedDataRef.current
-    setData(seed)
-    setPhase(seed != null ? 'ready' : 'loading')
-    setError(null)
     hasDataRef.current = seed != null
   }, [cacheKey])
 

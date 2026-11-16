@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
+import { useLayoutEffect } from 'react'
 import { useGitHubData } from './useGitHubData'
 import { dataCache } from '../services/dataCache'
 
@@ -46,6 +47,22 @@ beforeEach(() => {
 })
 
 describe('useGitHubData state', () => {
+  it('never commits the previous identity to a layout observer', () => {
+    vi.mocked(dataCache.get).mockImplementation(key => ({ data: key, fetchedAt: Date.now() }))
+    const committed: Array<string | null> = []
+    const { rerender } = renderHook(
+      ({ cacheKey }) => {
+        const state = useGitHubData<string>({ cacheKey, taskName: 'identity', fetchFn: vi.fn() })
+        useLayoutEffect(() => {
+          committed.push(state.data)
+        }, [cacheKey, state.data])
+      },
+      { initialProps: { cacheKey: 'first' } }
+    )
+    rerender({ cacheKey: 'second' })
+    expect(committed).toEqual(['first', 'second'])
+  })
+
   it('clears error when serving cached data on re-fetch', async () => {
     // Start: no cache, fetch fails → error state set
     mockEnqueue.mockRejectedValueOnce(new Error('Network fail'))
