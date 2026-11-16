@@ -1,5 +1,16 @@
 # Native Bookmarks
 
+Explicit embedded bookmark opens record one `tabsOpened` activity increment,
+including selecting an already-open URL or opening a browser refusal tab.
+The existing `buddyStats:batchIncrement` receives only that counter. External
+opens, missing IDs, refresh, rendering and retained-tab restoration do not record
+an embedded open. Activity writes are best effort and never replayed after a
+failure or uncertain acknowledgement. Bookmark visit validation is unchanged.
+
+The isolated installed browser fixture checks three explicit opens, including
+reuse of a URL without a new HTTP visit, and zero extra activity after restart
+or tab switching. `bookmark-activity.json` retains the synthetic counter snapshots.
+
 Bookmarks in Buddy Native shows the web bookmarks Electron Buddy keeps in Convex, in a
 category tree and a searchable list, and adds, edits, reorders and deletes them. Both
 apps read and write the same `bookmarks` table through the same Convex functions, so a

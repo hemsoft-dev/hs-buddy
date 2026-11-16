@@ -329,6 +329,9 @@ impl BookmarksView {
         if bookmarks::url::validate_url(&address).is_ok() {
             self.record_visit(id, cx);
         }
+        // Electron counts the explicit browser-view open before tab reuse or
+        // URL refusal. Restoring a retained browser tab never enters here.
+        Runtime::global(cx).spawn_detached(self.service.record_tab_open());
         cx.emit(OpenInTab {
             url: address,
             title,
