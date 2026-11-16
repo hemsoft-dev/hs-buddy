@@ -2,12 +2,18 @@
 import json
 import sys
 
+from desktop import fixture
+
 
 COUNTERS = (
     "appLaunches", "tabsOpened", "prsViewed", "prsReviewed", "prsMergedWatched",
     "reposBrowsed", "repoDetailViews", "jobsCreated", "runsTriggered", "runsCompleted",
     "runsFailed", "schedulesCreated", "bookmarksCreated", "settingsChanged",
     "searchesPerformed", "copilotPrReviews", "totalUptimeMs",
+)
+THEME_FIELDS = (
+    "theme", "accentColor", "fontColor", "bgPrimary", "bgSecondary",
+    "statusBarBg", "statusBarFg",
 )
 
 
@@ -30,12 +36,14 @@ def qualify(driver, backend, config, output, verify):
         after = backend.query("buddyStats:get")
         require_delta(before, after, 3)
         light = json.loads(original)
-        light["ui"]["theme"] = "light"
+        # The theme name alone leaves the original explicit dark colors active.
+        preset = json.loads(fixture(output / "category-light-preset", "light").read_text())["ui"]
+        light["ui"].update({key: preset[key] for key in THEME_FIELDS})
         config.write_text(json.dumps(light), encoding="utf-8")
         restored = driver.drive("category-restored-light", [
             ("resize", 900, 650), ("capture", "restored-accounts-light"),
         ])
-        verify(restored / "restored-accounts-light.png", "Settings", "Add account")
+        verify(restored / "restored-accounts-light.png", "Settings", "Welcome to Buddy", "GitHub enterprise slug")
         restarted = backend.query("buddyStats:get")
         require_delta(after, restarted, 0)
         (output / "category-activity.json").write_text(json.dumps(dict(

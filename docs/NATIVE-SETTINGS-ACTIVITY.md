@@ -35,6 +35,12 @@ snapshots in `category-activity.json`, captures actual panel content and records
 the dark interaction. The fixture restores its own configuration bytes and
 preserves a primary failure if restoration also fails.
 
+The restart copies the complete light palette from the existing fixture factory;
+changing only the theme name would retain explicit dark colors. Compact Accounts
+content is identified by its welcome text and enterprise field, rather than the
+Add account button text omitted by the captured Windows OCR. The original OCR
+replay must pass, while removing either unique Accounts marker must still fail.
+
 Current-head hosted execution and rendered PR attachments remain delivery gates.
 Local headless tests do not prove installed Windows 11 or Mac interaction.
 

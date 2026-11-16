@@ -10,6 +10,9 @@ from unittest.mock import Mock, patch
 spec = importlib.util.spec_from_file_location("settings_activity", Path(__file__).with_name("settings-activity.py"))
 activity = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(activity)
+settings_spec = importlib.util.spec_from_file_location("settings_desktop_activity_test", Path(__file__).with_name("settings-desktop.py"))
+settings = importlib.util.module_from_spec(settings_spec)
+settings_spec.loader.exec_module(settings)
 
 
 class CategoryActivity(unittest.TestCase):
@@ -26,12 +29,20 @@ class CategoryActivity(unittest.TestCase):
         with TemporaryDirectory() as directory:
             output = Path(directory)
             config = output / "config.json"
-            original = b'{"ui":{"theme":"dark"},"synthetic":"unchanged"}\n'
+            original = b'{"ui":{"theme":"dark","bgPrimary":"#1e1e1e","fontColor":"#cccccc"},"synthetic":"unchanged"}\n'
             config.write_bytes(original)
             backend = Mock()
             backend.query.side_effect = [{}, {"tabsOpened": 3}, {"tabsOpened": 3}]
             driver = Mock()
-            driver.drive.side_effect = [output / "dark", output / "light"]
+            def drive(name, *_args, **_kwargs):
+                if name == "category-restored-light":
+                    ui = json.loads(config.read_text())["ui"]
+                    self.assertEqual(ui["theme"], "light")
+                    self.assertEqual(ui["bgPrimary"], "#ffffff")
+                    self.assertEqual(ui["fontColor"], "#1f1f1f")
+                    self.assertEqual(ui["statusBarBg"], "#f3f3f3")
+                return output / name
+            driver.drive.side_effect = drive
             verify = Mock()
             activity.qualify(driver, backend, config, output, verify)
             self.assertEqual(config.read_bytes(), original)
@@ -42,6 +53,33 @@ class CategoryActivity(unittest.TestCase):
             self.assertNotIn("nav", [item[0] for item in driver.drive.call_args_list[1].args[1]])
             receipt = json.loads((output / "category-activity.json").read_text())
             self.assertEqual((receipt["explicitOpens"], receipt["restartOpens"]), (3, 0))
+
+    def test_actual_windows_ocr_requires_unique_accounts_content_without_button_ocr(self):
+        fixture = json.loads(Path(__file__).with_name("fixtures").joinpath("settings-category-restored-windows.json").read_text())
+        for missing in (None, "Welcome to Buddy", "GitHub enterprise slug"):
+            with self.subTest(missing=missing), TemporaryDirectory() as directory:
+                output = Path(directory)
+                config = output / "config.json"
+                config.write_text('{"ui":{"theme":"dark"}}')
+                backend = Mock()
+                backend.query.side_effect = [{}, {"tabsOpened": 3}, {"tabsOpened": 3}]
+                driver = Mock()
+                def drive(name, *_args, **_kwargs):
+                    target = output / name
+                    target.mkdir()
+                    return target
+                driver.drive.side_effect = drive
+                def ocr(_tool, path, *_args, **_kwargs):
+                    text = fixture["captures"][Path(path).name]["ocrPsm11"]
+                    if missing and Path(path).name == "restored-accounts-light.png":
+                        text = text.replace(missing.casefold(), "")
+                    return text
+                with patch.object(settings, "run", side_effect=ocr):
+                    if missing:
+                        with self.assertRaises(settings.MissingVisibleText):
+                            activity.qualify(driver, backend, config, output, settings.verify_text)
+                    else:
+                        activity.qualify(driver, backend, config, output, settings.verify_text)
 
     def test_failed_counter_or_capture_keeps_the_primary_failure_and_original_config(self):
         for capture_failure in (False, True):
