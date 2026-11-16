@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1697] - 2026-11-16
+
+### Changed
+
+- Require restored Mac review row before completion capture (#950)
+
 ## [0.1.1696] - 2026-11-16
 
 ### Fixed

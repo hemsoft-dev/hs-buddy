@@ -16,11 +16,23 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
-    def test_review_fixture_uses_retained_x11_tab_when_tooltip_covers_sidebar(self):
+    def test_review_fixture_uses_visible_retained_routes_when_tooltip_covers_sidebar(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
             'github-review-tooltip-occlusion.json').read_text(encoding='utf-8'))
         with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
             desktop.settings.ocr.sidebar_label(evidence['occluded'], 'My PRs')
+        mac = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'github-review-macos-tooltip.json').read_text(encoding='utf-8'))
+        bottom = mac['geometry']['workspace'][1]
+        with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
+            desktop.settings.ocr.sidebar_label(mac['words'], 'My PRs', workspace_bottom=bottom)
+        mac_content = desktop.settings.ocr.content_words(mac['words'], workspace_bottom=bottom)
+        row = desktop.settings.ocr.locate_label(mac_content, '#7 First private navigation review')
+        without_row = [word for word in mac_content if not (
+            row['top'] <= word['top'] < row['top'] + row['height']
+            and row['left'] <= word['left'] < row['left'] + row['width'])]
+        with self.assertRaises(RuntimeError):
+            desktop.settings.ocr.locate_label(without_row, '#7 First private navigation review')
         for session in ('x11', 'windows', 'macos'):
             with self.subTest(session=session), TemporaryDirectory() as temporary:
                 output = Path(temporary).resolve()
@@ -28,7 +40,7 @@ class InstalledEvidence(unittest.TestCase):
                 config.write_text(json.dumps(dict(native={}, notifications={})))
                 api = Mock(requests=[])
                 def drive(name, actions, record):
-                    words = evidence['occluded'] if session == 'x11' else evidence['clear']
+                    words = mac['words'] if session == 'macos' else evidence['occluded'] if session == 'x11' else evidence['clear']
                     navigation = []
                     for kind, *values in actions:
                         # The continued failure proves hover does not clear
@@ -40,10 +52,17 @@ class InstalledEvidence(unittest.TestCase):
                             navigation.append(kind)
                             break
                         if kind == 'sidebar':
-                            desktop.settings.ocr.sidebar_label(words, values[0])
+                            desktop.settings.ocr.sidebar_label(words, values[0],
+                                **({'workspace_bottom': bottom} if session == 'macos' else {}))
                             navigation.append(kind)
                             break
-                    self.assertEqual(navigation, ['workspace' if session == 'x11' else 'sidebar'])
+                        if kind == 'wait_content':
+                            self.assertEqual(session, 'macos')
+                            content = desktop.settings.ocr.content_words(words, workspace_bottom=bottom)
+                            desktop.settings.ocr.locate_label(content, values[0])
+                            navigation.append(kind)
+                            break
+                    self.assertEqual(navigation, [{'x11': 'workspace', 'windows': 'sidebar', 'macos': 'wait_content'}[session]])
                     self.assertNotIn(('hover', 'title'), actions)
                     api.requests.append(dict(method='POST', path='/repos/team/private/issues/7/comments',
                         account='fixture-one', body=dict(body='@coderabbitai full review')))

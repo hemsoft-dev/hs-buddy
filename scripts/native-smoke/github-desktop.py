@@ -180,6 +180,11 @@ def qualify_review_sound(driver, config, output, api):
             # The preceding activity pass retained this tab. Restore it
             # above Dashboard's tooltip, which can cover the sidebar label.
             actions[0] = ("workspace", "My PRs")
+        elif driver.session == "macos":
+            # The hosted Mac capture also retains My PRs, but Dashboard's
+            # tooltip covers its sidebar label. Require the restored PR row
+            # before filtering; this completion fixture needs no list reopen.
+            actions[0] = ("wait_content", "#7 First private navigation review")
         capture = driver.drive("review-completion-dark", actions, record=True)
         requests = [request for request in api.requests[start:]
             if request["method"] == "POST" and request["path"].endswith("/issues/7/comments")]
