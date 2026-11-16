@@ -4,6 +4,77 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::{future::Future, pin::Pin};
 
+#[gpui_kit::test]
+fn publication_panes_stay_below_filters_at_compact_and_large_sizes(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use gpui_kit::test::TestWindowExt as _;
+    use gpui_kit::{Bounds, Point, WindowBounds, WindowOptions, px, size};
+
+    for (width, height) in [(900., 650.), (1200., 820.)] {
+        let (handle, view) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.github.accounts = vec![serde_json::from_value(json!({
+                "username":"fixture-user", "org":"fixture-org"
+            })).unwrap()];
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            // No Runtime: layout and preparing confirmation cannot access a service.
+            gpui_kit::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: Point::default(), size: size(px(width), px(height)),
+                    })),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| cx.new(|cx| {
+                    let mut view = ResultsView::new(window, cx);
+                    view.initialized = true;
+                    view.selected_id = Some("saved-review".into());
+                    view.selected = Some(serde_json::from_value(json!({
+                        "_id":"saved-review",
+                        "prompt":"Review this pull request for correctness, regressions, security, and missing validation. Return actionable findings as Markdown, with file and line references and a concise summary. You have no tools",
+                        "result":"## Synthetic assistant\n\nSaved review paragraph.\n\n".repeat(30),
+                        "category":"pr-review", "status":"completed", "model":"fixture-model", "createdAt":1,
+                        "metadata":{"owner":"fixture-org", "repo":"native-demo", "prNumber":7,
+                            "ghAccount":"fixture-user", "reviewedHeadSha":"a".repeat(40)}
+                    })).unwrap());
+                    view.rows = vec![serde_json::from_value(json!({
+                        "_id":"saved-review", "promptPreview":"Synthetic saved review", "status":"completed",
+                        "modelLabel":"fixture-model", "categoryLabel":"pr-review", "createdAt":1, "hasOutput":true
+                    })).unwrap()];
+                    view.prepare_publication(cx);
+                    view
+                }),
+            ).unwrap()
+        });
+        cx.update_window(handle, |_, window, cx| {
+            for status in [None, Some("Review comment published. This session will not publish this result again."),
+                Some("Publication unconfirmed. Check the PR on GitHub before any further action. This session will not resend it.")] {
+                if let Some(status) = status {
+                    view.update(cx, |view, cx| {
+                        view.publication.pending = None;
+                        view.publication.attempts.insert("saved-review".into(), status);
+                        cx.notify();
+                    });
+                }
+                window.render_frame(cx);
+                let paging = window.find("copilot-results-newest").bounds();
+                let detail = window.find("copilot-refresh-result").bounds();
+                let list = window.find(("copilot-saved-row", 0usize)).bounds();
+                assert!(detail.origin.y >= paging.bottom(),
+                    "Saved detail overlaps pagination at {width}x{height}: {detail:?}, paging {paging:?}");
+                assert_eq!(detail.origin.y, list.origin.y);
+                assert!(detail.bottom() <= window.viewport_size().height);
+            }
+            assert!(!view.read(cx).write_loading);
+            assert!(!cx.has_global::<Runtime>());
+        }).unwrap();
+    }
+}
+
 struct Fixture {
     calls: Mutex<Vec<(String, ApiRequest)>>,
     uncertain: bool,

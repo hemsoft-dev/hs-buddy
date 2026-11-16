@@ -41,7 +41,12 @@ cancel, success and a stored comment whose acknowledgement is lost. Refresh
 must send no further request. Its `review-publication.json` requires exactly
 two explicit comments to the synthetic account and PR, with the saved answer
 and attribution. It captures large dark and compact light confirmation and
-outcome states. Current-head screenshots must be uploaded and embedded in the
-PR, with its interaction recording when practical. Hosted qualification is
+outcome states and records both publication scenes, including the refresh.
+The scroll panes stretch within the space below the filters. Long results must
+not paint their controls over those filters, in confirmation or retained outcome
+states. Headless layout tests cover both 900x650 and 1200x820 view sizes without
+contacting a service. They do not replace hosted rendering evidence.
+Current-head screenshots and interaction recordings must be uploaded and
+embedded in the PR. Hosted qualification is
 separate from local headless tests. Neither proves Windows 11, real accounts,
 real profiles, physical audio or whole-app cutover.

@@ -620,6 +620,9 @@ impl Render for ResultsView {
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    // Centering an intrinsically tall detail pane paints it over the filters.
+                    .items_stretch()
+                    .overflow_hidden()
                     .gap_4()
                     .child(list)
                     .child(self.detail(cx)),

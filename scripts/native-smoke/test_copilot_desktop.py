@@ -12,6 +12,28 @@ copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
 class ReviewPublication(unittest.TestCase):
+    def test_publication_scenes_record_confirmation_outcome_and_refresh(self):
+        class RecordingDriver:
+            def __init__(self):
+                self.calls = []
+
+            def drive(self, name, actions, *, record=False):
+                self.calls.append((name, actions, record))
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'), patch.object(copilot.github, 'check_column'):
+            copilot.review_pull_request(driver)
+            copilot.review_publication_unconfirmed(driver)
+        for name, actions, record in driver.calls:
+            with self.subTest(scene=name):
+                self.assertTrue(record, 'Publication captures must include an interaction recording')
+                captures = [action[1] for action in actions if action[0] == 'capture']
+                self.assertTrue(any('confirmation' in capture for capture in captures))
+                self.assertTrue(any('retained' in capture for capture in captures))
+                self.assertIn(('content', 'Confirm publication'), actions)
+                self.assertIn(('content', 'Refresh this result'), actions)
+
     def test_committed_comment_with_lost_ack_and_strict_attempt_receipt(self):
         with copilot.CopilotGitHubBackend() as backend:
             body = {'body': '## 🤖 AI Review\n\nSynthetic assistant answer\n\n---\n*Published from HS Buddy — fixture review*'}
@@ -308,8 +330,9 @@ class CopilotQualificationTests(unittest.TestCase):
                 self.context = False
                 self.dispatched = False
 
-            def drive(self, name, actions):
+            def drive(self, name, actions, *, record=False):
                 self.assert_name = name
+                self.recorded = record
                 for action in actions:
                     if action == ('content', 'Review with Buddy assistant'):
                         self.context = True
@@ -333,6 +356,7 @@ class CopilotQualificationTests(unittest.TestCase):
                 patch.object(copilot.github, 'check_column') as review_notice:
             copilot.review_pull_request(driver)
         self.assertEqual(driver.assert_name, 'review-dark')
+        self.assertTrue(driver.recorded)
         self.assertTrue(driver.dispatched)
         self.assertEqual(driver.model, 'gpt-4.1')
         screenshots.assert_any_call(Path('unused-synthetic-review-output') / 'review-context-dark.png', 'synthetic-account', 'Run and save')

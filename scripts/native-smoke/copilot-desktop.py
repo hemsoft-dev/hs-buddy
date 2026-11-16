@@ -247,7 +247,7 @@ def review_pull_request(driver):
         ('content', 'Confirm publication'), ('wait_scroll_text', 'Review comment published'),
         ('capture', 'publish-acknowledged-dark'), ('wait_scroll_up', 'Refresh this result', 'Review comment published'), ('content', 'Refresh this result'),
         ('wait_scroll_text', 'Review comment published'), ('capture', 'publish-retained-dark'),
-    ])
+    ], record=True)
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
     github.check_column(review / 'review-result-dark.png', 'Captured review',
         'Captured review', 'Freshness has not been checked')
@@ -268,7 +268,7 @@ def review_publication_unconfirmed(driver):
         ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed'),
         ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
         ('wait_scroll_text', 'Publication unconfirmed'), ('capture', 'publish-unconfirmed-retained-light'),
-    ])
+    ], record=True)
     github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', 'will not resend')
 
 
