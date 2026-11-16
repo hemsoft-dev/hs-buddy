@@ -1,5 +1,8 @@
 //! Native forms share the shell's settings model and the incumbent backend.
 mod actions;
+mod activity;
+#[cfg(test)]
+mod activity_tests;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -47,6 +50,7 @@ const PANELS: [(Panel, &str); 7] = [
 ];
 
 pub struct SettingsView {
+    on_category_open: activity::OnOpen,
     panel: Panel,
     fields: BTreeMap<String, Entity<InputState>>,
     field_baselines: BTreeMap<String, String>,
@@ -79,6 +83,7 @@ impl SettingsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = Settings::global(cx).config.clone();
         let mut this = Self {
+            on_category_open: std::rc::Rc::new(activity::record),
             panel: if config.github.accounts.is_empty() {
                 Panel::Accounts
             } else {
@@ -1170,6 +1175,12 @@ impl SettingsView {
         self.stop_preview();
     }
 
+    fn open_panel(&mut self, panel: Panel, cx: &mut Context<Self>) {
+        (self.on_category_open)(cx);
+        self.select_panel(panel);
+        cx.notify();
+    }
+
     fn select_panel(&mut self, panel: Panel) {
         if self.panel != panel {
             self.stop_preview();
@@ -1228,8 +1239,7 @@ impl Render for SettingsView {
                                 .label(label)
                                 .selected(self.panel == panel)
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.select_panel(panel);
-                                    cx.notify();
+                                    this.open_panel(panel, cx);
                                 }))
                         })),
                 )
