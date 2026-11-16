@@ -177,9 +177,9 @@ def qualify_review_sound(driver, config, output, api):
             ("capture", "review-completed-dark"),
         ]
         if driver.session == "x11":
-            # A retained pointer can open Dashboard's tooltip over My PRs
-            # on restart. Clear it through Buddy's own title bar first.
-            actions.insert(0, ("hover", "title"))
+            # The preceding activity pass retained this tab. Restore it
+            # above Dashboard's tooltip, which can cover the sidebar label.
+            actions[0] = ("workspace", "My PRs")
         capture = driver.drive("review-completion-dark", actions, record=True)
         requests = [request for request in api.requests[start:]
             if request["method"] == "POST" and request["path"].endswith("/issues/7/comments")]

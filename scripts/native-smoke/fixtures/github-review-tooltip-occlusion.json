@@ -1,9 +1,9 @@
 {
-  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/43803916565/job/133091165697",
-  "head": "b13150bfc9d9e1fb457e263c19ed65e723a895cc",
+  "source": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/43807156125/job/133101049453",
+  "head": "6dfa668569c61752fb0304d2231e17231d746b3b",
   "occludedCapture": "github/review-completion-dark/locator.png",
   "clearCapture": "github/activity-restored-dark/locator.png",
-  "note": "Clear layout is an earlier captured state from the same job, not a post-fix hosted run.",
+  "note": "Latest capture remains occluded after title hover. Clear layout is an earlier state from the previous job, not a post-fix capture.",
   "occluded": [
     {
       "text": "\u00a9",
@@ -793,24 +793,24 @@
       "text": "\u00a9",
       "left": 1098,
       "top": 803,
-      "width": 7,
+      "width": 12,
       "height": 12,
       "line": "38/1/1"
     },
     {
-      "text": "04:46:28",
-      "left": 1114,
-      "top": 803,
-      "width": 69,
-      "height": 12,
+      "text": "05:57:35",
+      "left": 1115,
+      "top": 805,
+      "width": 49,
+      "height": 8,
       "line": "38/1/1"
     },
     {
       "text": "AM",
       "left": 1169,
-      "top": 798,
-      "width": 17,
-      "height": 22,
+      "top": 805,
+      "width": 14,
+      "height": 8,
       "line": "38/1/1"
     }
   ],
@@ -1551,5 +1551,7 @@
       "height": 8,
       "line": "37/1/1"
     }
-  ]
+  ],
+  "previousAttemptSource": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/43803916565/job/133091165697",
+  "clearSource": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/43803916565/job/133091165697"
 }

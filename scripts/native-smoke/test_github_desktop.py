@@ -16,7 +16,7 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
-    def test_review_fixture_clears_the_captured_x11_tooltip_before_sidebar_input(self):
+    def test_review_fixture_uses_retained_x11_tab_when_tooltip_covers_sidebar(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
             'github-review-tooltip-occlusion.json').read_text(encoding='utf-8'))
         with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
@@ -29,16 +29,22 @@ class InstalledEvidence(unittest.TestCase):
                 api = Mock(requests=[])
                 def drive(name, actions, record):
                     words = evidence['occluded'] if session == 'x11' else evidence['clear']
-                    rested = 0
+                    navigation = []
                     for kind, *values in actions:
-                        if kind == 'hover':
-                            self.assertEqual((session, values), ('x11', ['title']))
-                            words = evidence['clear']
-                            rested += 1
+                        # The continued failure proves hover does not clear
+                        # this frame. Never substitute a hypothetical image.
+                        if kind == 'workspace':
+                            self.assertEqual(session, 'x11')
+                            desktop.settings.ocr.locate_label(
+                                desktop.settings.ocr.workspace_words(words), values[0])
+                            navigation.append(kind)
+                            break
                         if kind == 'sidebar':
                             desktop.settings.ocr.sidebar_label(words, values[0])
+                            navigation.append(kind)
                             break
-                    self.assertEqual(rested, int(session == 'x11'))
+                    self.assertEqual(navigation, ['workspace' if session == 'x11' else 'sidebar'])
+                    self.assertNotIn(('hover', 'title'), actions)
                     api.requests.append(dict(method='POST', path='/repos/team/private/issues/7/comments',
                         account='fixture-one', body=dict(body='@coderabbitai full review')))
                     return output / name
