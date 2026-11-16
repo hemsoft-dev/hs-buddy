@@ -30,6 +30,7 @@ github, settings = terminal.github, terminal.settings
 class CopilotGitHubBackend(github.GitHubBackend):
     def __init__(self):
         super().__init__(accounts=('synthetic-account',))
+        self.publication_ack = True
 
     def respond(self, account, method, path, body):
         route, query = urlparse(path).path, parse_qs(urlparse(path).query)
@@ -48,6 +49,9 @@ class CopilotGitHubBackend(github.GitHubBackend):
                 page = int(query.get('page', ['1'])[0])
                 return 200, {'budgets': [] if page == 1 else [dict(budget_entity_name='fixture-org', budget_product_sku='premium_requests', budget_amount=200, prevent_further_usage=True)], 'has_next_page': page == 1}, {}
         status, value, headers = super().respond(account, method, path, body)
+        if method == 'POST' and route == '/repos/fixture-org/native-demo/issues/7/comments' and (body or {}).get('body', '').startswith('## 🤖 AI Review\n') and not self.publication_ack:
+            # The fixture has already stored the comment. Lose its acknowledgement.
+            return 201, {}, {}
         if 'NativePull(' in (body or {}).get('query', '') and status == 200:
             value['data']['repository']['pullRequest']['body'] += ' BUDDYSTREAM61527'
         return status, value, headers
@@ -166,7 +170,7 @@ def assert_private_content_not_logged(output):
             raise RuntimeError('Private synthetic assistant/session data appeared in app diagnostics')
 
 
-STARTUP_SCENES = ('chat-dark', 'review-dark', 'usage-light', 'codex-auth-error-light', 'sessions-light')
+STARTUP_SCENES = ('chat-dark', 'review-dark', 'review-unconfirmed-light', 'usage-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -237,10 +241,50 @@ def review_pull_request(driver):
         ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
+        ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
+        ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-dark'),
+        ('content', 'Cancel publication'), ('wait_scroll_up', 'Publish to PR'), ('content', 'Publish to PR'),
+        ('content', 'Confirm publication'), ('wait_scroll_text', 'Review comment published'),
+        ('capture', 'publish-acknowledged-dark'), ('wait_scroll_up', 'Refresh this result', 'Review comment published'), ('content', 'Refresh this result'),
+        ('wait_scroll_text', 'Review comment published'), ('capture', 'publish-retained-dark'),
     ])
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
     github.check_column(review / 'review-result-dark.png', 'Captured review',
         'Captured review', 'Freshness has not been checked')
+    github.check(review / 'publish-confirmation-dark.png', 'synthetic-account', 'Confirm publication')
+    github.check(review / 'publish-retained-dark.png', 'Review comment published')
+
+
+def review_publication_unconfirmed(driver):
+    review = driver.drive('review-unconfirmed-light', [
+        ('content', '#7 Second private navigation review'), ('content', 'Review with Buddy assistant'),
+        ('wait_text', 'Reviewing fixture-org/native-demo'), ('content', 'Load available models'),
+        ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
+        ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
+        ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
+        ('wait_text', 'Captured review'), ('resize', 900, 650),
+        ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
+        ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-compact-light'),
+        ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed'),
+        ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
+        ('wait_scroll_text', 'Publication unconfirmed'), ('capture', 'publish-unconfirmed-retained-light'),
+    ])
+    github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', 'will not resend')
+
+
+def require_review_publications(requests, results):
+    writes = [request for request in requests if request['method'] == 'POST' and request['path'] != '/graphql']
+    if len(writes) != 2:
+        raise RuntimeError('Expected exactly two explicit saved-review publications, with no refresh replay')
+    expected = sorted('## 🤖 AI Review\n\n' + result['result'] + '\n\n---\n*Published from HS Buddy — ' + (result.get('model') or 'AI') + ' review*'
+        for result in results if result.get('category') == 'pr-review' and result['status'] == 'completed')
+    if len(expected) != 2 or sorted((request.get('body') or {}).get('body', '') for request in writes) != expected:
+        raise RuntimeError('Saved-review publication did not send the exact stored answers and model attribution')
+    for request in writes:
+        body = (request.get('body') or {}).get('body', '')
+        if request['account'] != 'synthetic-account' or request['path'] != '/repos/fixture-org/native-demo/issues/7/comments' or not body.startswith('## 🤖 AI Review\n\n') or 'Synthetic assistant' not in body or '*Published from HS Buddy' not in body:
+            raise RuntimeError('Saved-review publication has the wrong account, destination or body')
+    return dict(attempts=2, acknowledged=1, unconfirmed=1, refreshReplay=0)
 
 
 def usage_pages(driver):
@@ -295,6 +339,11 @@ def qualify(executable, output, session, version, backend, api):
             write_section(config, 'github')
             review_pull_request(driver)
             light = json.loads(fixture(output / 'light-template', 'light').read_text())['ui']
+            write_section(config, 'github', light)
+            api.publication_ack = False
+            review_publication_unconfirmed(driver)
+            publication = require_review_publications(api.requests, backend.query('copilotResults:listRecent'))
+            (output / 'review-publication.json').write_text(json.dumps(publication, indent=2))
             write_section(config, 'copilot', light)
             usage_pages(driver)
             with environment(dict(BUDDY_CODEX_FIXTURE_SCENARIO='missing-auth')):
@@ -320,6 +369,7 @@ def qualify(executable, output, session, version, backend, api):
             startup = assert_startup_logs_clean(output)
             qualification = dict(result='passed', version=version, session=session,
                 startupDiagnostics=startup,
+                savedReviewPublication=publication,
                 **binary, largeWindow=driver.large_size, headless=sdk, privateTransportTraceContentAbsent=True, ownedSdkChildrenAbsent=True, unrelatedSentinelAlive=True, readOnlySessionSha256=transcript_sha,
                 sessionRequestPaging=dict(requests=21, compactWindow=[900, 650], nextAndPreviousActivated=True, scrollContentReached=True, sourceErrorRetained=True),
                 dataSource='Synthetic offline SDK provider, scoped loopback GitHub, and isolated anonymous Convex')

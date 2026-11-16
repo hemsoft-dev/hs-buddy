@@ -11,6 +11,29 @@ spec = importlib.util.spec_from_file_location('copilot_desktop', Path(__file__).
 copilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copilot)
 
+class ReviewPublication(unittest.TestCase):
+    def test_committed_comment_with_lost_ack_and_strict_attempt_receipt(self):
+        with copilot.CopilotGitHubBackend() as backend:
+            body = {'body': '## 🤖 AI Review\n\nSynthetic assistant answer\n\n---\n*Published from HS Buddy — fixture review*'}
+            for acknowledged in (True, False):
+                backend.publication_ack = acknowledged
+                request = Request(backend.url + '/repos/fixture-org/native-demo/issues/7/comments',
+                    data=json.dumps(body).encode(), headers={'Authorization': 'Bearer native-fixture-synthetic-account', 'Content-Type': 'application/json'}, method='POST')
+                with urlopen(request) as response:
+                    receipt = json.load(response)
+                    self.assertEqual('id' in receipt, acknowledged)
+            self.assertEqual(len(backend.comments['synthetic-account']), 2)
+            results = [dict(category='pr-review', status='completed', result='Synthetic assistant answer', model='fixture')] * 2
+            self.assertEqual(copilot.require_review_publications(backend.requests, results)['refreshReplay'], 0)
+            for field, value in (('account', 'other-account'), ('path', '/repos/other/repo/issues/7/comments'), ('body', {'body': 'wrong answer'})):
+                changed = json.loads(json.dumps(backend.requests))
+                changed[0][field] = value
+                with self.subTest(field=field), self.assertRaises(RuntimeError):
+                    copilot.require_review_publications(changed, results)
+            with self.assertRaises(RuntimeError):
+                copilot.require_review_publications(backend.requests + backend.requests[:1], results)
+
+
 class SessionErrorScope(unittest.TestCase):
     def test_captured_errors_are_unique_and_footer_alone_cannot_satisfy_the_wait(self):
         ocr = copilot.settings.ocr
@@ -312,7 +335,7 @@ class CopilotQualificationTests(unittest.TestCase):
         self.assertEqual(driver.assert_name, 'review-dark')
         self.assertTrue(driver.dispatched)
         self.assertEqual(driver.model, 'gpt-4.1')
-        self.assertEqual(screenshots.call_count, 1)
+        screenshots.assert_any_call(Path('unused-synthetic-review-output') / 'review-context-dark.png', 'synthetic-account', 'Run and save')
         review_notice.assert_called_once_with(Path('unused-synthetic-review-output') / 'review-result-dark.png',
             'Captured review', 'Captured review', 'Freshness has not been checked')
 

@@ -2,6 +2,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+pub mod publish;
 #[path = "copilot_results/summaries.rs"]
 pub mod summaries;
 
