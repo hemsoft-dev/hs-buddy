@@ -167,7 +167,7 @@ def qualify_review_sound(driver, config, output, api):
     config.write_text(json.dumps(saved), encoding="utf-8")
     start = len(api.requests)
     try:
-        capture = driver.drive("review-completion-dark", [
+        actions = [
             ("sidebar", "My PRs"), ("input", "Filter loaded items", "First private"),
             ("content", "#7 First private navigation review"),
             ("content", "Request CodeRabbit…"), ("content", "Confirm action"),
@@ -175,7 +175,12 @@ def qualify_review_sound(driver, config, output, api):
             # inside the disposable installed fixture, not an agent CI loop.
             ("sleep", 22), ("wait_content", "a new or updated review is available"),
             ("capture", "review-completed-dark"),
-        ], record=True)
+        ]
+        if driver.session == "x11":
+            # A retained pointer can open Dashboard's tooltip over My PRs
+            # on restart. Clear it through Buddy's own title bar first.
+            actions.insert(0, ("hover", "title"))
+        capture = driver.drive("review-completion-dark", actions, record=True)
         requests = [request for request in api.requests[start:]
             if request["method"] == "POST" and request["path"].endswith("/issues/7/comments")]
         if len(requests) != 1 or requests[0]["account"] != "fixture-one" or requests[0]["body"] != dict(body="@coderabbitai full review"):

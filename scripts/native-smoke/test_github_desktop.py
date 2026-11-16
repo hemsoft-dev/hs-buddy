@@ -16,6 +16,35 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_review_fixture_clears_the_captured_x11_tooltip_before_sidebar_input(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'github-review-tooltip-occlusion.json').read_text(encoding='utf-8'))
+        with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
+            desktop.settings.ocr.sidebar_label(evidence['occluded'], 'My PRs')
+        for session in ('x11', 'windows', 'macos'):
+            with self.subTest(session=session), TemporaryDirectory() as temporary:
+                output = Path(temporary).resolve()
+                config = output / 'config.json'
+                config.write_text(json.dumps(dict(native={}, notifications={})))
+                api = Mock(requests=[])
+                def drive(name, actions, record):
+                    words = evidence['occluded'] if session == 'x11' else evidence['clear']
+                    rested = 0
+                    for kind, *values in actions:
+                        if kind == 'hover':
+                            self.assertEqual((session, values), ('x11', ['title']))
+                            words = evidence['clear']
+                            rested += 1
+                        if kind == 'sidebar':
+                            desktop.settings.ocr.sidebar_label(words, values[0])
+                            break
+                    self.assertEqual(rested, int(session == 'x11'))
+                    api.requests.append(dict(method='POST', path='/repos/team/private/issues/7/comments',
+                        account='fixture-one', body=dict(body='@coderabbitai full review')))
+                    return output / name
+                with patch.object(desktop, 'check'):
+                    desktop.qualify_review_sound(Mock(drive=drive, session=session), config, output, api)
+
     def test_review_completion_requires_one_scoped_request_and_restores_settings(self):
         cases = ((receipt, aliased) for receipt in (None, "wrong-account", "duplicate", "correct")
             for aliased in (False, True))
