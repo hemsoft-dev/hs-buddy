@@ -14,6 +14,16 @@ tasks searches loaded task names, descriptions, labels and project names.
 Project selection and filtering do not send task changes. Lists have explicit
 pages and scrolling; Tab reaches inputs and actions.
 
+Today and Upcoming offer Collapse and Expand for each nonempty account day,
+including Overdue. Each button names its day and matching task count. Collapse
+hides that day's rows before pagination and returns to the first page. The
+button remains available when all matching rows are hidden. Enter and Space
+activate the focused button; Tab moves between controls. Filtering updates the
+counts without expanding hidden days. These view preferences last for the open
+native Tasks view, stay separate for each account, and do not affect Projects.
+They do not change tasks or credentials. Empty days and task creation remain
+under the existing planner behavior.
+
 Each loaded list names its scope. Load calendar tasks reads overdue tasks and
 the next seven days through Todoist's filter endpoint. Opening a project from
 that scope loads the project's complete active list, including undated tasks.
@@ -147,3 +157,16 @@ python -B -m unittest discover -s scripts/native-smoke -p 'test_todoist*.py'
 
 Installed qualification requires the owned CI desktop. Do not set CI flags to
 run its input or vault automation on a personal desktop.
+
+The calendar section regression tests use real GPUI controls in headless test
+windows, a fixed account clock and synthetic tasks. They cover pointer and
+keyboard activation, filtered counts, pagination, account isolation and retained
+failure state without a runtime, credential store or service connection:
+
+```sh
+cd rust
+cargo test --locked -p buddy-app todoist_view::calendar_groups_tests
+```
+
+These source tests do not establish installed or rendered qualification for
+calendar section controls. That evidence remains a hosted desktop delivery gate.
