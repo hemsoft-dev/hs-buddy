@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1695] - 2026-11-16
+
+### Changed
+
+- Replay captured Mac Settings restart evidence
+
 ## [0.1.1694] - 2026-11-16
 
 ### Changed

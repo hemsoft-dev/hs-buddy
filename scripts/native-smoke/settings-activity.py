@@ -43,7 +43,7 @@ def qualify(driver, backend, config, output, verify):
         restored = driver.drive("category-restored-light", [
             ("resize", 900, 650), ("capture", "restored-accounts-light"),
         ])
-        verify(restored / "restored-accounts-light.png", "Settings", "Welcome to Buddy", "GitHub enterprise slug")
+        verify(restored / "restored-accounts-light.png", "Settings", "Welcome to Buddy", "enterprise slug")
         restarted = backend.query("buddyStats:get")
         require_delta(after, restarted, 0)
         (output / "category-activity.json").write_text(json.dumps(dict(

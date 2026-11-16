@@ -55,8 +55,14 @@ class CategoryActivity(unittest.TestCase):
             self.assertEqual((receipt["explicitOpens"], receipt["restartOpens"]), (3, 0))
 
     def test_actual_windows_ocr_requires_unique_accounts_content_without_button_ocr(self):
-        fixture = json.loads(Path(__file__).with_name("fixtures").joinpath("settings-category-restored-windows.json").read_text())
-        for missing in (None, "Welcome to Buddy", "GitHub enterprise slug"):
+        self.require_captured_accounts_content("settings-category-restored-windows.json")
+
+    def test_actual_macos_ocr_requires_unique_accounts_content_without_button_ocr(self):
+        self.require_captured_accounts_content("settings-category-restored-macos-intel.json")
+
+    def require_captured_accounts_content(self, filename):
+        fixture = json.loads(Path(__file__).with_name("fixtures").joinpath(filename).read_text())
+        for missing in (None, "Welcome to Buddy", "enterprise slug"):
             with self.subTest(missing=missing), TemporaryDirectory() as directory:
                 output = Path(directory)
                 config = output / "config.json"

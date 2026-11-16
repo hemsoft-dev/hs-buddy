@@ -38,8 +38,11 @@ preserves a primary failure if restoration also fails.
 The restart copies the complete light palette from the existing fixture factory;
 changing only the theme name would retain explicit dark colors. Compact Accounts
 content is identified by its welcome text and enterprise field, rather than the
-Add account button text omitted by the captured Windows OCR. The original OCR
-replay must pass, while removing either unique Accounts marker must still fail.
+Add account button text omitted by the captured Windows and Intel Mac OCR.
+The field check requires `enterprise slug`; the captured Mac OCR misreads its
+preceding GitHub label. Both original OCR replays must pass, while removing either
+unique Accounts marker must still fail. Neither replay proves fixed-head rendered
+or installed acceptance.
 
 Current-head hosted execution and rendered PR attachments remain delivery gates.
 Local headless tests do not prove installed Windows 11 or Mac interaction.
