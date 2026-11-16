@@ -17,9 +17,17 @@ spec.loader.exec_module(desktop)
 
 class InstalledEvidence(unittest.TestCase):
     def test_review_completion_requires_one_scoped_request_and_restores_settings(self):
-        for receipt in (None, "wrong-account", "duplicate", "correct"):
-            with self.subTest(receipt=receipt), TemporaryDirectory() as temporary:
-                output = Path(temporary)
+        cases = ((receipt, aliased) for receipt in (None, "wrong-account", "duplicate", "correct")
+            for aliased in (False, True))
+        for receipt, aliased in cases:
+            with self.subTest(receipt=receipt, aliased=aliased), TemporaryDirectory() as temporary:
+                if aliased:
+                    # Reproduce a lexical alias without requiring symlink
+                    # privileges or a runner's particular short-path spelling.
+                    segment = Path(temporary) / "alias-segment"
+                    segment.mkdir()
+                    temporary = str(segment / "..")
+                output = Path(temporary).resolve()
                 config = output / "config.json"
                 original = dict(playSoundOnReviewComplete=False, reviewCompleteSoundPath="", retained="yes")
                 config.write_text(json.dumps(dict(native={}, notifications=original)))
