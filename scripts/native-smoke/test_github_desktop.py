@@ -117,6 +117,56 @@ class InstalledEvidence(unittest.TestCase):
     def browser_footer_fixture(self):
         return json.loads(Path(__file__).with_name('fixtures').joinpath('browser-status-footer.json').read_text(encoding='utf-8'))
 
+    @patch.object(desktop.sys, 'platform', 'win32')
+    def test_actual_windows_browser_capture_uses_strict_smooth_footer_measurement(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'browser-windows-footer-counts.json').read_text(encoding='utf-8'))
+        for missing in (False, True):
+            with self.subTest(missing=missing), TemporaryDirectory() as temporary:
+                image = Path(temporary) / 'page-dark.png'
+                header = b'\x89PNG\r\n\x1a\n' + b'\0' * 8
+                image.write_bytes(header + struct.pack('>II', evidence['width'], evidence['height']))
+                original = image.read_bytes()
+                crops = []
+                def run(*args, **kwargs):
+                    self.assertEqual(args[0], 'ffmpeg')
+                    width, height = struct.unpack('>II', Path(args[args.index('-i') + 1]).read_bytes()[16:24])
+                    filters = args[args.index('-vf') + 1]
+                    if filters.startswith('crop='):
+                        crops.append(filters)
+                        height = int(filters.split(':')[1])
+                    else:
+                        scale = 2 if 'iw*2' in filters else 3
+                        width *= scale
+                        height *= scale
+                    Path(args[-1]).write_bytes(header + struct.pack('>II', width, height))
+                    return ''
+                def recognize(path, mode):
+                    words = evidence['layouts'].get(path.with_suffix(f'.footer-ocr-{mode}.json').name, [])
+                    return [word for word in words if not desktop.settings.ocr.normalize(word['text']).endswith('jobs')] if missing else words
+                with patch.object(desktop.settings, 'run', side_effect=run), \
+                        patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                    if missing:
+                        with self.assertRaisesRegex(RuntimeError, 'no unique native status footer'):
+                            list(desktop.browser_analysis(image))
+                        self.assertEqual(crops, [])
+                    else:
+                        list(desktop.browser_analysis(image))
+                        self.assertEqual(crops, ['crop=iw:753:0:0:exact=1'])
+                self.assertEqual(image.read_bytes(), original)
+
+    @patch.object(desktop.sys, 'platform', 'win32')
+    def test_windows_footer_fallback_does_not_hide_ambiguity_or_tool_failures(self):
+        for error in (desktop.settings.ocr.AmbiguousLabel('competing footer labels'),
+                subprocess.CalledProcessError(1, ['tesseract'])):
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(desktop.settings.ocr, 'status_content_image', side_effect=error) as status, \
+                    patch.object(desktop.settings.ocr, 'analysis_images') as analysis:
+                with self.assertRaises(type(error)):
+                    list(desktop.browser_analysis(Path('owned.png')))
+                status.assert_called_once()
+                analysis.assert_not_called()
+
     def replay_browser_footer(self, temporary, *, missing_page=False, missing_footer=False):
         fixture = self.browser_footer_fixture()
         image = Path(temporary) / 'blocked-dark.png'
