@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1698] - 2026-11-16
+
+### Changed
+
+- Keep fixture servers alive for owned sessions
+
 ## [0.1.1697] - 2026-11-16
 
 ### Changed

@@ -183,6 +183,16 @@ async fn review_regression_fix3_an_issue_less_worklog_does_not_hide_valid_templa
 
 #[tokio::test]
 async fn a_preflight_failure_keeps_the_exact_ready_capture_until_one_explicit_dispatch() {
+    preflight_failure_after_user_pause(std::time::Duration::ZERO).await;
+}
+
+#[tokio::test]
+async fn a_user_pause_before_preflight_keeps_the_exact_ready_capture() {
+    // Exceed the old fixture idle expiry without delaying an active HTTP request.
+    preflight_failure_after_user_pause(std::time::Duration::from_secs(6)).await;
+}
+
+async fn preflight_failure_after_user_pause(pause: std::time::Duration) {
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("config.json");
     let service = crate::tempo::transport::tests::Fixture::new(vec![
@@ -206,6 +216,9 @@ async fn a_preflight_failure_keeps_the_exact_ready_capture_until_one_explicit_di
     )
     .await
     .unwrap();
+    if !pause.is_zero() {
+        tokio::time::sleep(pause).await;
+    }
     let captured = draft();
     let body = captured.encode().unwrap();
     assert!(session.submit(captured).await.is_err());
@@ -889,6 +902,16 @@ async fn a_timezone_change_before_capture_preserves_the_snapshot_without_publish
 #[tokio::test]
 async fn a_confirmed_write_retires_its_journal_but_requires_a_successful_refresh_before_the_next_write()
  {
+    confirmed_write_after_user_pause(std::time::Duration::ZERO).await;
+}
+
+#[tokio::test]
+async fn a_user_pause_before_submit_keeps_confirmation_and_refresh_guards() {
+    // Exercise the unchanged journal/refresh assertions after a legitimate pause.
+    confirmed_write_after_user_pause(std::time::Duration::from_secs(6)).await;
+}
+
+async fn confirmed_write_after_user_pause(pause: std::time::Duration) {
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("config.json");
     let mut row = single_worklog();
@@ -908,6 +931,9 @@ async fn a_confirmed_write_retires_its_journal_but_requires_a_successful_refresh
     let mut session = Session::connect_current_month_at(&config, client, jira, now())
         .await
         .unwrap();
+    if !pause.is_zero() {
+        tokio::time::sleep(pause).await;
+    }
     let report = session.submit(draft()).await.unwrap();
     assert!(
         report.phase == WritePhase::Confirmed

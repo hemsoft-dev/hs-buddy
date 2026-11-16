@@ -1,13 +1,16 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use super::*;
 
 pub(in crate::tempo) struct Fixture {
     pub(in crate::tempo) base: Url,
     pub(in crate::tempo) requests: Arc<Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
 }
 impl Fixture {
@@ -17,16 +20,18 @@ impl Fixture {
         listener.set_nonblocking(true).unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let capture = requests.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = stop.clone();
         let join = std::thread::spawn(move || {
             for response in responses {
-                let deadline = Instant::now() + Duration::from_secs(5);
                 let mut stream = loop {
+                    // A user pause is not the end of the fixture's lifetime.
+                    if stopping.load(Ordering::Acquire) {
+                        return;
+                    }
                     match listener.accept() {
                         Ok((stream, _)) => break stream,
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            if Instant::now() >= deadline {
-                                return;
-                            }
                             std::thread::sleep(Duration::from_millis(5));
                         }
                         Err(_) => return,
@@ -59,6 +64,7 @@ impl Fixture {
         Self {
             base,
             requests,
+            stop,
             join: Some(join),
         }
     }
@@ -74,6 +80,7 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
         self.join.take().unwrap().join().unwrap();
     }
 }
