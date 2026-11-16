@@ -204,6 +204,7 @@ async fn subscribe_once(
     tx: &UnboundedSender<ConvexUpdate>,
 ) -> Result<(), (String, bool)> {
     let hint = "is the local backend running?";
+    crate::http::initialize_tls();
     let mut client = ConvexClient::new(url).await.map_err(|err| {
         (
             format!("Convex connection failed: {err} ({url}); {hint}"),
@@ -361,6 +362,7 @@ mod live_tests {
             env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
                 .try_init();
         let url = convex_url();
+        crate::http::initialize_tls();
         println!("connecting to {url}");
         let mut client = match ConvexClient::new(&url).await {
             Ok(c) => c,
