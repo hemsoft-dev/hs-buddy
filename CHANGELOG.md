@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1694] - 2026-11-16
+
+### Fixed
+
+- Select TLS provider independently of telemetry
+
 ## [0.1.1693] - 2026-11-16
 
 ### Fixed

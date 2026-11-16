@@ -106,9 +106,7 @@ impl Telemetry {
         }
     }
     fn build(config: Config) -> Result<Enabled, opentelemetry_otlp::ExporterBuildError> {
-        // reqwest 0.13 requires an installed provider with rustls-no-provider.
-        // Keep the existing default when an embedding process has selected one.
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        crate::http::initialize_tls();
         let resource = Resource::builder_empty()
             .with_attributes([
                 KeyValue::new("service.name", config.service.clone()),
