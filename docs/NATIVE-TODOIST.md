@@ -168,5 +168,7 @@ cd rust
 cargo test --locked -p buddy-app todoist_view::calendar_groups_tests
 ```
 
-These source tests do not establish installed or rendered qualification for
-calendar section controls. That evidence remains a hosted desktop delivery gate.
+These source tests do not establish installed or rendered qualification. The
+installed fixture does: on Today it collapses Overdue, checks that its task is
+hidden while the Expand control and the next day remain, then expands it again
+before the read-only navigation check confirms that no command was sent.
