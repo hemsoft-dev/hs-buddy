@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1701] - 2026-11-17
+
+### Changed
+
+- Record React Doctor 0.9.22 as the pinned analyzer
+
 ## [0.1.1700] - 2026-11-17
 
 ### Changed
