@@ -9,11 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1694] - 2026-11-17
+
+### Added
+
+- Open workspace tab actions on right-click (#960)
+
 ## [0.1.1693] - 2026-11-16
 
 ### Added
 
-- Open workspace tab actions on right-click
+- Group native session history by workspace (#956)
 
 ## [0.1.1692] - 2026-11-15
 
