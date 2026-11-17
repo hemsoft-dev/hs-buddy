@@ -220,7 +220,7 @@ impl CopilotRequestHandler for Fixture {
                 "| Check | Result |\n| --- | --- |\n| Offline stream | Passed |\n\n`native Rust` output.",
             ];
             if code_block {
-                pieces.push("\n\n```rust\nlet snippet = \"copy only this\";\n```\n");
+                pieces.push("\n\n```rust\n// copy only this\n```\n");
             }
             pieces
         };

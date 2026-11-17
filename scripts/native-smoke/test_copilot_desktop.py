@@ -293,11 +293,22 @@ class CopilotQualificationTests(unittest.TestCase):
         for name, actions, _ in driver.runs:
             self.assertIn(('input', 'Message', 'BUDDYSTREAM61527 ' + copilot.CODE_MARKER), actions)
             capture, click = actions.index(('capture', name)), actions.index(('content', 'Copy code'))
-            self.assertLess(actions.index(('wait_scroll_up', 'Copy code', 'Saved to results')), capture)
+            saved = actions.index(('wait_scroll_text', 'Saved to results'))
+            if name.endswith('light'):
+                # The compact pane hides the saved status, so reveal from a
+                # row that stays visible after the resize.
+                resize = actions.index(('resize', 900, 650))
+                reveal = actions.index(('reveal_text', copilot.CODE_LINE, 'Offline stream'))
+                self.assertLess(saved, resize)
+                self.assertLess(resize, reveal)
+            else:
+                self.assertNotIn(('resize', 900, 650), actions)
+                reveal = actions.index(('wait_scroll_up', 'Copy code', 'Saved to results'))
+                self.assertLess(saved, reveal)
+            self.assertLess(reveal, capture)
             self.assertLess(capture, click)
-            self.assertEqual(('resize', 900, 650) in actions, name.endswith('light'))
             self.assertIn(name, copilot.STARTUP_SCENES)
-        self.assertEqual([call.args[1:] for call in screenshots.call_args_list], [('Copy code', 'copy only this')] * 2)
+        self.assertEqual([call.args[1:] for call in screenshots.call_args_list], [('Copy code', copilot.CODE_LINE)] * 2)
 
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this

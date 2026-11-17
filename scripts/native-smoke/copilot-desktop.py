@@ -168,6 +168,7 @@ def assert_private_content_not_logged(output):
 
 
 CODE_MARKER = 'BUDDYCODE48213'
+CODE_LINE = 'copy only this'
 STARTUP_SCENES = ('chat-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
@@ -235,15 +236,20 @@ def code_copy(driver, appearance):
     # Copy code control beside the first code line, then activate it on the
     # installed app. Headless GPUI tests prove the copied text.
     name = 'code-copy-' + appearance
-    compact = [('resize', 900, 650)] if appearance == 'light' else []
+    if appearance == 'light':
+        # The compact conversation pane is about one code block tall and hides
+        # the saved status. Reveal the code line in small steps from a table
+        # row that stays visible; its Copy code control sits just above it.
+        reveal = [('resize', 900, 650), ('reveal_text', CODE_LINE, 'Offline stream')]
+    else:
+        reveal = [('wait_scroll_up', 'Copy code', 'Saved to results')]
     scene = driver.drive(name, [
         ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
         ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
         ('input', 'Message', 'BUDDYSTREAM61527 ' + CODE_MARKER), ('content', 'Run and save'),
-        ('wait_scroll_text', 'Saved to results'), *compact,
-        ('wait_scroll_up', 'Copy code', 'Saved to results'), ('capture', name), ('content', 'Copy code'),
+        ('wait_scroll_text', 'Saved to results'), *reveal, ('capture', name), ('content', 'Copy code'),
     ], record=appearance == 'dark')
-    github.check(scene / (name + '.png'), 'Copy code', 'copy only this')
+    github.check(scene / (name + '.png'), 'Copy code', CODE_LINE)
 
 
 def review_pull_request(driver):
