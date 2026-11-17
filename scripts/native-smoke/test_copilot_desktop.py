@@ -275,6 +275,30 @@ class CopilotQualificationTests(unittest.TestCase):
                     flow(driver)
                 self.assertEqual(driver.clicked, expected)
 
+    def test_code_copy_captures_the_visible_control_before_activating_it(self):
+        class CodeDriver:
+            def __init__(self):
+                self.runs = []
+
+            def drive(self, name, actions, record=False):
+                self.runs.append((name, actions, record))
+                return Path('unused-' + name)
+
+        driver = CodeDriver()
+        with patch.object(copilot.github, 'check') as screenshots:
+            copilot.code_copy(driver, 'dark')
+            copilot.code_copy(driver, 'light')
+        self.assertEqual([(name, record) for name, _, record in driver.runs],
+            [('code-copy-dark', True), ('code-copy-light', False)])
+        for name, actions, _ in driver.runs:
+            self.assertIn(('input', 'Message', 'BUDDYSTREAM61527 ' + copilot.CODE_MARKER), actions)
+            capture, click = actions.index(('capture', name)), actions.index(('content', 'Copy code'))
+            self.assertLess(actions.index(('wait_scroll_up', 'Copy code', 'Saved to results')), capture)
+            self.assertLess(capture, click)
+            self.assertEqual(('resize', 900, 650) in actions, name.endswith('light'))
+            self.assertIn(name, copilot.STARTUP_SCENES)
+        self.assertEqual([call.args[1:] for call in screenshots.call_args_list], [('Copy code', 'copy only this')] * 2)
+
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this
         # configured model. Chat's earlier, view-local choice does not carry over.

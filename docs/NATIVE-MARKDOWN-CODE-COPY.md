@@ -34,11 +34,11 @@ updated streaming content. The original source fails the missing-control case.
 The same synthetic document passed through the installed Electron Markdown
 pipeline establishes the code-only text and trailing newline contract.
 
-Local tests are source evidence. Delivery still requires exact-head independent
-review, hosted native/performance gates, and installed screenshots and a recording
-in both themes at large and compact sizes. Capture the first code line, language
-label and button together to check that the control covers no text. The eventual
-PR must embed those attachments. Existing publication and main-matrix holds
-prevent new hosted capture now. Electron stays primary; broader parity, Windows
-11, profile migration and cutover remain open under
+Local tests are source evidence. The hosted native qualification also runs the
+installed app. Its `code-copy-dark` scene at 1200x820 and its compact
+`code-copy-light` scene at 900x650 send an offline prompt whose synthetic answer
+ends with one fenced Rust block. Each scene captures the language label, the
+Copy code button and the first code line together, then activates the button.
+The dark scene is recorded. Electron stays primary; broader parity, Windows 11,
+profile migration and cutover remain open under
 [issue 823](https://github.com/hemsoft-dev/hs-buddy/issues/823).

@@ -184,6 +184,10 @@ impl CopilotRequestHandler for Fixture {
         let streaming = body
             .as_ref()
             .is_some_and(|body| body.to_string().contains("BUDDYSTREAM61527"));
+        // Installed-app evidence for per-block Copy code needs a fenced block.
+        let code_block = body
+            .as_ref()
+            .is_some_and(|body| body.to_string().contains("BUDDYCODE48213"));
         if request.method != "POST"
             || request.url != "https://hs-buddy-fixture.invalid/v1/chat/completions"
             || (!cancelling && !streaming)
@@ -210,11 +214,15 @@ impl CopilotRequestHandler for Fixture {
         let pieces = if cancelling {
             vec!["Partial synthetic answer 界"]
         } else {
-            vec![
+            let mut pieces = vec![
                 "## Synthetic assistant\n\n",
                 "Unicode: 界 ✓\n\n",
                 "| Check | Result |\n| --- | --- |\n| Offline stream | Passed |\n\n`native Rust` output.",
-            ]
+            ];
+            if code_block {
+                pieces.push("\n\n```rust\nlet snippet = \"copy only this\";\n```\n");
+            }
+            pieces
         };
         let mut chunks:Vec<Bytes>=pieces.into_iter().map(|content|Bytes::from(format!("data: {}\n\n",json!({"id":"buddy-offline","object":"chat.completion.chunk","created":0,"model":MODEL,"choices":[{"index":0,"delta":{"content":content},"finish_reason":null}]})))).collect();
         if !cancelling {
