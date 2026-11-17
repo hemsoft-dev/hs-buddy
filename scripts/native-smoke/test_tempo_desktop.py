@@ -4,6 +4,7 @@ import ast
 from copy import deepcopy
 from http.client import HTTPConnection, RemoteDisconnected
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -158,6 +159,107 @@ class FixtureScenarios(unittest.TestCase):
                 self.assertEqual(api.respond('GET', '/rest/api/3/myself', authorization, b'')[0], 401)
                 self.assertEqual(api.respond('GET', '/rest/api/3/myself', authorization, b'')[0], 200)
             self.assertEqual(api.writes, [])
+
+
+class ReadyEscapeIntegration(unittest.TestCase):
+    @staticmethod
+    def request(api, method, path, body=None):
+        address = urlsplit(api.url)
+        authorization = ('Basic ' + base64.b64encode((desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode()
+            if path.startswith('/rest/') else 'Bearer ' + desktop.tempo.TEMPO_TOKEN)
+        connection = HTTPConnection(address.hostname, address.port, timeout=3)
+        try:
+            connection.request(method, path, body=json.dumps(body) if body is not None else None,
+                headers={'Authorization': authorization})
+            response = connection.getresponse()
+            response.read()
+            return response.status
+        finally:
+            connection.close()
+
+    def capture_ready(self, api, config):
+        api.checkpoint_config = config
+        api.preflight_after_lookup = True
+        self.assertEqual(self.request(api, 'GET', '/4/accounts?limit=50&offset=0'), 200)
+        for status in (200, 200, 503):
+            self.assertEqual(self.request(api, 'GET', '/rest/api/3/myself'), status)
+        self.assertEqual(len(api.snapshot()['readyCheckpoints']), 1)
+
+    def test_http_observer_binds_original_checkpoint_and_service_records_before_retry(self):
+        with tempfile.TemporaryDirectory() as directory, desktop.ScenarioFixture() as api:
+            config = Path(directory) / 'config.json'
+            checkpoint = config.parent / 'native-tempo-change-synthetic.json'
+            original = b'original synthetic checkpoint bytes\n'
+            checkpoint.write_bytes(original)
+            self.capture_ready(api, config)
+            with self.assertRaisesRegex(RuntimeError, 'original Ready checkpoint'):
+                desktop.require_ready_escape_checkpoints(api)  # An unfinished observation is not a pass.
+            self.assertEqual(self.request(api, 'GET', '/rest/api/3/myself'), 200)
+            proof = desktop.require_ready_escape_checkpoints(api)
+            self.assertEqual(proof['checkpointSha256'], hashlib.sha256(original).hexdigest())
+            self.assertEqual(checkpoint.read_bytes(), original)
+            self.assertEqual([row['stage'] for row in proof['observations']],
+                ['ready-before-escape', 'before-explicit-retry'])
+            self.assertTrue(all(row['method'] == 'GET' for row in api.snapshot()['attempts']))
+            self.assertEqual((len(api.snapshot()['attempts']), api.writes), (5, []))
+
+    def test_changed_missing_duplicate_checkpoint_and_intervening_write_fail_closed(self):
+        for change in ('changed', 'missing', 'duplicate', 'write'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory, desktop.ScenarioFixture() as api:
+                config = Path(directory) / 'config.json'
+                checkpoint = config.parent / 'native-tempo-change-synthetic.json'
+                checkpoint.write_bytes(b'original synthetic recovery')
+                self.capture_ready(api, config)
+                if change == 'changed':
+                    checkpoint.write_bytes(b'changed synthetic recovery')
+                elif change == 'missing':
+                    checkpoint.unlink()
+                elif change == 'duplicate':
+                    checkpoint.with_name('native-tempo-change-duplicate.json').write_bytes(b'duplicate')
+                else:
+                    body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                        startDate='2026-10-14', timeSpentSeconds=3600, attributes=[])
+                    self.assertEqual(self.request(api, 'POST', '/4/worklogs', body), 200)
+                self.assertEqual(self.request(api, 'GET', '/rest/api/3/myself'), 200)
+                with self.assertRaisesRegex(RuntimeError, 'original Ready checkpoint'):
+                    desktop.require_ready_escape_checkpoints(api)
+
+    def test_ready_escape_capture_and_recording_stay_before_retry_in_one_native_process(self):
+        tree = ast.parse(Path(desktop.__file__).read_text(encoding='utf-8'))
+        call, = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute) and node.func.attr == 'drive'
+            and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == 'template-dark']
+        self.assertTrue(ast.literal_eval(next(arg.value for arg in call.keywords if arg.arg == 'record')))
+        actions = CellInput.stage_actions('template-dark', 'windows')
+        before = actions.index(('capture', 'unsent-captured-change-dark'))
+        escape = actions.index(('key', 'Escape'))
+        captured = actions.index(('capture', 'ready-editor-after-escape-dark'))
+        retry = actions.index(('click', 'Retry captured change'))
+        self.assertLess(before, escape)
+        self.assertLess(escape, captured)
+        self.assertLess(captured, retry)
+        self.assertIn(('wait_scroll_text', 'Hours or H:MM:SS', 'Tempo timesheet'), actions[escape:captured])
+        self.assertFalse(any(action[0] == 'input' for action in actions[before:retry]))
+        self.assertIn('readyEscapeRetainsEditorAndCheckpoint', Path(desktop.__file__).read_text())
+
+    def test_ready_recording_requires_original_video_and_frames(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, 'recording'):
+                desktop.recording_inventory(output, 'template-dark')
+            scene = output / 'template-dark'
+            (scene / 'frames').mkdir(parents=True)
+            (scene / 'interaction.mp4').write_bytes(b'original encoded video fixture')
+            probe = dict(streams=[dict(codec_type='video')], format=dict(duration='2.5'))
+            with patch.object(desktop.settings, 'run', return_value=json.dumps(probe)):
+                with self.assertRaisesRegex(RuntimeError, 'original unresized'):
+                    desktop.recording_inventory(output, 'template-dark')
+                for index in range(10):
+                    (scene / 'frames' / f'frame-{index:03}.png').write_bytes(b'original frame fixture')
+                receipt = desktop.recording_inventory(output, 'template-dark')
+            self.assertEqual(receipt['path'], 'template-dark/interaction.mp4')
+            self.assertEqual(receipt['originalFrameCount'], 10)
+            self.assertEqual(receipt['sha256'], hashlib.sha256(b'original encoded video fixture').hexdigest())
 
 
 class CellInput(unittest.TestCase):

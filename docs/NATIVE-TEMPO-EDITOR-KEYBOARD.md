@@ -75,15 +75,36 @@ or assert recovery-journal bytes. Those integration gates remain owed. A real
 `Session` currently requires a connected snapshot and journal context; changing
 its constructors, fixture transport or recovery storage is outside this slice.
 
+The existing installed Tempo scenario now has a pending integration assertion.
+Its template create reaches the existing synthetic dispatch-preflight failure,
+after the real session has captured an unsent `Ready` write. In that same native
+process, the scenario presses Escape and requires the duration/date editor
+fields to remain in an original screenshot before the explicit retry. The
+fixture reads the original owned recovery bytes at the failure and at the next
+identity check before retry. It requires identical checkpoint and service-record
+digests, with zero intervening service mutation attempts. The existing assertion
+still requires the later explicit retry to create exactly one worklog.
+
+That template scene now requires its own original silent recording and frames,
+in addition to the existing copy recording. Local loopback tests verify the
+observer and reject changed, missing or duplicate checkpoint files, intervening
+service writes, incomplete observations and missing recordings. They use
+synthetic temporary bytes and mocked recording metadata. They do not run the
+native session or prove the installed behavior. The real scenario, capture and
+recording remain unexecuted until publication clearance permits hosted CI.
+
 ## File allocation
 
 The existing owner `chief-dispatch-0c035271-buddy823` retains
 `tempo_view/editor.rs`, `tempo_view/editor_escape_tests.rs` and this document,
 plus normal generated commit metadata. The local transition and tests stay in
 those files. Core Tempo session, recovery, fixture and transport files,
-connection and worker code, shared hosted fixtures, dependencies, locks,
-workflows and the other retained parity slices stay excluded. No second writer
-or concurrency protocol is introduced.
+connection and worker code, dependencies, locks, workflows and the other
+retained parity slices stay excluded. The same owner separately coordinated
+`scripts/native-smoke/tempo-desktop.py` and its contract tests for the integration
+assertion above, after verifying no overlap with the 14 live PRs or six other
+local candidates. Other hosted drivers and shared publishing fixtures stay
+excluded. No second writer or concurrency protocol is introduced.
 
 ## Delivery gates
 

@@ -54,6 +54,23 @@ class ScenarioFixture(tempo.TempoFixture):
         self.preflight_after_lookup = False
         self.preflight_identity_reads = None
         self.preflight_failures = []
+        self.checkpoint_config = None
+        self.ready_checkpoints = []
+        self.checkpoint_before_retry = False
+
+    def observe_ready_checkpoint(self, stage):
+        if self.checkpoint_config is None:
+            return
+        observation = dict(stage=stage,
+            mutationAttempts=sum(row['method'] in ('POST', 'PUT', 'DELETE') for row in self.attempts),
+            writes=len(self.writes))
+        try:
+            observation['sha256'] = hashlib.sha256(pending_bytes(self.checkpoint_config)).hexdigest()
+            observation['recordsSha256'] = hashlib.sha256(
+                json.dumps(self.records, sort_keys=True).encode('utf-8')).hexdigest()
+        except (OSError, RuntimeError) as error:
+            observation['problem'] = type(error).__name__
+        self.ready_checkpoints.append(observation)
 
     def arm_lost_reply_after(self, confirmed):
         if type(confirmed) is not int or confirmed < 0 or confirmed > 10:
@@ -65,11 +82,16 @@ class ScenarioFixture(tempo.TempoFixture):
 
     def respond(self, method, target, authorization, raw):
         path = urlsplit(target).path
+        if method == 'GET' and path == '/rest/api/3/myself' and self.checkpoint_before_retry:
+            self.checkpoint_before_retry = False
+            self.observe_ready_checkpoint('before-explicit-retry')
         if method == 'GET' and path == '/rest/api/3/myself' and self.preflight_identity_reads is not None:
             if self.preflight_identity_reads == 0:
                 self.preflight_identity_reads = None
                 mutations = sum(row['method'] in ('POST', 'PUT', 'DELETE') for row in self.attempts)
                 self.preflight_failures.append(dict(writes=len(self.writes), mutationAttempts=mutations))
+                self.observe_ready_checkpoint('ready-before-escape')
+                self.checkpoint_before_retry = True
                 return 503, dict(error='Synthetic dispatch checkpoint unavailable')
             self.preflight_identity_reads -= 1
         if (method == 'POST' and path == '/4/worklogs' and self.deny_next_create
@@ -96,7 +118,8 @@ class ScenarioFixture(tempo.TempoFixture):
 
     def snapshot(self):
         with self.lock:
-            return deepcopy(dict(records=self.records, attempts=self.attempts, writes=self.writes, rejections=self.rejections, preflightFailures=self.preflight_failures))
+            return deepcopy(dict(records=self.records, attempts=self.attempts, writes=self.writes, rejections=self.rejections, preflightFailures=self.preflight_failures,
+                readyCheckpoints=self.ready_checkpoints))
 
 
 @contextmanager
@@ -131,6 +154,20 @@ def pending_bytes(config):
     if len(paths) != 1 or paths[0].is_symlink() or not paths[0].is_file():
         raise RuntimeError('Expected one original owned Tempo recovery record')
     return paths[0].read_bytes()
+
+
+def require_ready_escape_checkpoints(api):
+    observations = api.snapshot()['readyCheckpoints']
+    if (len(observations) != 2
+            or [row.get('stage') for row in observations] != ['ready-before-escape', 'before-explicit-retry']
+            or any(row.get('problem') or row.get('mutationAttempts') != 0 or row.get('writes') != 0
+                or not re.fullmatch('[0-9a-f]{64}', row.get('sha256', ''))
+                or not re.fullmatch('[0-9a-f]{64}', row.get('recordsSha256', '')) for row in observations)
+            or observations[0]['sha256'] != observations[1]['sha256']
+            or observations[0]['recordsSha256'] != observations[1]['recordsSha256']):
+        raise RuntimeError('Escape did not preserve the original Ready checkpoint and service records before explicit retry')
+    return dict(checkpointSha256=observations[0]['sha256'], serviceRecordsSha256=observations[0]['recordsSha256'],
+        observations=observations)
 
 
 def assert_copy(api, original, expected_start):
@@ -187,6 +224,7 @@ def evidence_inventory(output):
         'grid-navigation-dark/filtered-cell-dark.png', 'grid-navigation-dark/second-page-dark.png',
         'template-dark/template-new-draft-dark.png', 'template-dark/template-created-dark.png',
         'template-dark/unsent-captured-change-dark.png', 'template-dark/discard-confirmation-dark.png',
+        'template-dark/ready-editor-after-escape-dark.png',
         'denied-write-dark/invalid-duration-dark.png', 'denied-write-dark/permission-denied-dark.png',
         'denied-write-dark/denied-hours-retained-dark.png', 'denied-write-dark/denied-description-retained-dark.png',
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
@@ -213,7 +251,13 @@ def evidence_inventory(output):
         if not (width >= 800 and height >= 600):
             raise RuntimeError('The original Tempo capture is below its supported dimensions')
         screenshots.append(dict(path=name, width=width, height=height, sha256=hashlib.sha256(data).hexdigest()))
-    recording = output / 'copy-dark/interaction.mp4'
+    recording = recording_inventory(output, 'copy-dark')
+    ready_recording = recording_inventory(output, 'template-dark')
+    return dict(screenshots=screenshots, recording=recording, readyEscapeRecording=ready_recording)
+
+
+def recording_inventory(output, scene):
+    recording = output / scene / 'interaction.mp4'
     if recording.is_symlink() or not recording.is_file() or recording.stat().st_size == 0:
         raise RuntimeError('Missing the installed Tempo interaction recording')
     probe = json.loads(settings.run('ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', recording))
@@ -221,12 +265,12 @@ def evidence_inventory(output):
             or not any(stream['codec_type'] == 'video' for stream in probe['streams'])
             or float(probe['format']['duration']) <= 0):
         raise RuntimeError('The Tempo recording needs a video stream and no audio')
-    frames = sorted((output / 'copy-dark/frames').glob('frame-*.png'))
+    frames = sorted((output / scene / 'frames').glob('frame-*.png'))
     if len(frames) < 10 or any(path.is_symlink() for path in frames):
         raise RuntimeError('Missing the original unresized Tempo recording frames')
-    return dict(screenshots=screenshots, recording=dict(path=recording.relative_to(output).as_posix(),
+    return dict(path=recording.relative_to(output).as_posix(),
         sha256=hashlib.sha256(recording.read_bytes()).hexdigest(), duration=probe['format']['duration'],
-        originalFrameCount=len(frames), silent=True))
+        originalFrameCount=len(frames), silent=True)
 
 
 def qualify(executable, output, session, version, source, backend):
@@ -242,6 +286,7 @@ def qualify(executable, output, session, version, source, backend):
     if marker.exists():
         raise RuntimeError('Tempo qualification needs a fresh owned marker')
     with ScenarioFixture() as api:
+        api.checkpoint_config = config
         marker.write_text(json.dumps(api.marker()), encoding='utf-8')
         primary = None
         try:
@@ -307,12 +352,17 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'Create worklog', 'Description'), ('click', 'Create worklog'),
                     ('wait_scroll_up', 'This captured change has not been sent'),
                     ('capture', 'unsent-captured-change-dark'),
+                    ('key', 'Escape'),
+                    ('wait_scroll_text', 'Hours or H:MM:SS', 'Tempo timesheet'),
+                    ('capture', 'ready-editor-after-escape-dark'),
+                    ('wait_scroll_up', 'This captured change has not been sent'),
                     ('click', 'Discard local recovery'), ('wait_text', 'Keep recovery'),
                     ('capture', 'discard-confirmation-dark'), ('click', 'Keep recovery'),
                     ('click', 'Retry captured change'),
                     ('wait_scroll_up', 'Tempo confirmed the worklog change'), ('capture', 'template-created-dark'),
-                ])
+                ], record=True)
                 state = require_writes(api, 1)
+                ready_escape = require_ready_escape_checkpoints(api)
                 if state['preflightFailures'] != [dict(writes=0, mutationAttempts=0)]:
                     raise RuntimeError('The explicit captured retry did not follow exactly one unsent preflight failure')
                 body = write_body(state['writes'][0])
@@ -322,6 +372,7 @@ def qualify(executable, output, session, version, source, backend):
                 if state['writes'][0]['method'] != 'POST' or body != expected_template:
                     raise RuntimeError('The template did not create one hour with explicit no billing')
                 github.check(templates / 'template-new-draft-dark.png', 'Create worklog', 'No billing account', 'Synthetic prior month template')
+                github.check(templates / 'ready-editor-after-escape-dark.png', 'Hours or H:MM:SS', 'Work date')
                 github.check(templates / 'discard-confirmation-dark.png', 'Discard this unsent captured change', 'Keep recovery')
                 before_denied = state['records']
                 with api.lock:
@@ -537,6 +588,7 @@ def qualify(executable, output, session, version, source, backend):
                     gridSingleEditAndMultiLogTimelineVerified=True,
                     templateCreatesOneHourWithExplicitNoBilling=True,
                     unsentCaptureExplicitRetryCreatesExactlyOnce=True,
+                    readyEscapeRetainsEditorAndCheckpoint=ready_escape,
                     copyPreservesExactSecondsBillableAttributesAndSource=True,
                     movedEditLoadsItsMonthAndPreservesOriginalFields=True,
                     draftReauthenticationRetainsInputsAndRequiresFreshLookup=True,
