@@ -19,6 +19,8 @@ use crate::runtime::Runtime;
 use crate::zoom::zpx;
 
 const PAGE: usize = 20;
+#[path = "sessions_groups.rs"]
+mod groups;
 
 #[cfg(test)]
 #[path = "sessions_tests.rs"]
@@ -38,6 +40,7 @@ pub(super) struct SessionsView {
     busy: bool,
     navigation_generation: u64,
     error: Option<String>,
+    groups: groups::Groups,
 }
 impl SessionsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -75,6 +78,7 @@ impl SessionsView {
             busy: false,
             navigation_generation: 0,
             error: None,
+            groups: groups::Groups::default(),
         }
     }
     fn choose(&mut self, cx: &mut Context<Self>) {
@@ -125,6 +129,8 @@ impl SessionsView {
                 this.busy = false;
                 match result {
                     Ok(Ok(Ok((root, scan, path)))) => {
+                        this.groups
+                            .reconcile(&scan.sessions, this.loaded_source.as_ref() == Some(&path));
                         this.loaded_source = Some(path);
                         this.root = Some(root);
                         this.scan = Arc::new(scan);
@@ -199,6 +205,16 @@ impl SessionsView {
         .detach();
         cx.notify();
     }
+    fn toggle_workspace(&mut self, key: &str, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.groups.toggle(key);
+        self.page = self
+            .page
+            .min(self.groups.row_count().saturating_sub(1) / PAGE);
+        cx.notify();
+    }
 }
 impl Render for SessionsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -223,14 +239,27 @@ impl Render for SessionsView {
             .min_h_0()
             .gap_1()
             .overflow_y_scroll();
-        for (index, session) in self
-            .scan
-            .sessions
-            .iter()
-            .enumerate()
-            .skip(self.page * PAGE)
-            .take(PAGE)
-        {
+        for row in self.groups.page(self.page, PAGE) {
+            let index = match row {
+                groups::Row::Group(index) => {
+                    let key = self.groups.groups[index].key.clone();
+                    list = list.child(
+                        Button::new(gpui_kit::SharedString::from(format!(
+                            "copilot-session-workspace-{key}"
+                        )))
+                        .label(self.groups.label(index))
+                        .w_full()
+                        .selected(self.groups.is_expanded(index))
+                        .disabled(self.busy)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.toggle_workspace(&key, cx)),
+                        ),
+                    );
+                    continue;
+                }
+                groups::Row::Session(index) => index,
+            };
+            let session = &self.scan.sessions[index];
             let title = if !session.title.is_empty() {
                 session.title.clone()
             } else if !session.first_prompt.is_empty() {
@@ -239,12 +268,14 @@ impl Render for SessionsView {
                 format!("Session {}", session.session_id)
             };
             list = list.child(
-                Button::new(("copilot-session-row", index))
-                    .label(format!("{} · {}", session.workspace_name, title))
-                    .w_full()
-                    .selected(self.selected == Some(index))
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, _, cx| this.open(index, cx))),
+                div().pl(zpx(10.0)).child(
+                    Button::new(("copilot-session-row", index))
+                        .label(title)
+                        .w_full()
+                        .selected(self.selected == Some(index))
+                        .disabled(self.busy)
+                        .on_click(cx.listener(move |this, _, _, cx| this.open(index, cx))),
+                ),
             );
         }
         let mut detail = v_flex()
@@ -376,8 +407,9 @@ impl Render for SessionsView {
                 "Reading session files…".into()
             } else {
                 format!(
-                    "{} sessions · {} skipped{}",
+                    "{} sessions in {} workspaces · {} skipped{}",
                     self.scan.sessions.len(),
+                    self.groups.groups.len(),
                     self.scan.skipped,
                     if self.scan.truncated {
                         " · Scan limit reached; the list is incomplete"
@@ -402,7 +434,7 @@ impl Render for SessionsView {
                         Button::new("copilot-session-next")
                             .label("Next sessions")
                             .disabled(
-                                (self.page + 1) * PAGE >= self.scan.sessions.len() || self.busy,
+                                (self.page + 1) * PAGE >= self.groups.row_count() || self.busy,
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.page += 1;
@@ -460,6 +492,8 @@ impl SessionsView {
         let scan = self.scan.clone();
         let detail = self.detail.clone();
         let digest = self.digest.clone();
+        let groups = self.groups.clone();
+        let page = self.page;
         let mut d =
             crate::shell::navigation::Destination::section(Some(crate::app::Section::Copilot));
         d.key = format!("copilot-sessions:{source:?}:{file:?}");
@@ -479,7 +513,12 @@ impl SessionsView {
                     (None, None) => true,
                     _ => false,
                 };
-                if same_root && view.loaded_source == source && view.selected == selected {
+                if same_root
+                    && view.loaded_source == source
+                    && view.selected == selected
+                    && view.page == page
+                    && view.groups == groups
+                {
                     return;
                 }
                 view.navigation_generation += 1;
@@ -487,6 +526,8 @@ impl SessionsView {
                 view.loaded_source = source.clone();
                 view.root = root.clone();
                 view.scan = scan.clone();
+                view.groups = groups.clone();
+                view.page = page;
                 view.selected = selected;
                 view.detail = detail.clone();
                 view.digest = digest.clone();
