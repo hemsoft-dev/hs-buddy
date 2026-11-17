@@ -9,11 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1694] - 2026-11-17
+## [0.1.1695] - 2026-11-17
 
 ### Fixed
 
 - Acknowledge unmaintained chrono advisory until jiff migration
+
+## [0.1.1694] - 2026-11-17
+
+### Changed
+
+- Add Electron launcher script with local Convex backend
 
 ## [0.1.1693] - 2026-11-16
 
