@@ -9,41 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1698] - 2026-11-16
+## [0.1.1694] - 2026-11-17
+
+### Added
+
+- Play configured review completion sounds (#950)
 
 ### Changed
 
-- Keep fixture servers alive for owned sessions
-
-## [0.1.1697] - 2026-11-16
-
-### Changed
-
-- Require restored Mac review row before completion capture (#950)
-
-## [0.1.1696] - 2026-11-16
-
-### Fixed
-
-- Restore retained PR tab above X11 tooltip
-
-## [0.1.1695] - 2026-11-16
-
-### Fixed
-
-- Clear X11 tooltip before review fixture input
-
-## [0.1.1694] - 2026-11-16
-
-### Fixed
-
-- Canonicalize the review sound fixture root
+- Keep Tempo fixture servers alive for owned sessions
 
 ## [0.1.1693] - 2026-11-16
 
 ### Added
 
-- Play configured review completion sounds
+- Group native session history by workspace (#956)
 
 ## [0.1.1692] - 2026-11-15
 
