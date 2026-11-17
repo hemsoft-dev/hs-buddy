@@ -25,6 +25,7 @@ def load(name):
     return module
 
 terminal = load('terminal-desktop')
+session_workspaces = load('session-workspaces')
 github, settings = terminal.github, terminal.settings
 
 class CopilotGitHubBackend(github.GitHubBackend):
@@ -166,7 +167,7 @@ def assert_private_content_not_logged(output):
             raise RuntimeError('Private synthetic assistant/session data appeared in app diagnostics')
 
 
-STARTUP_SCENES = ('chat-dark', 'review-dark', 'usage-light', 'codex-auth-error-light', 'sessions-light')
+STARTUP_SCENES = ('chat-dark', 'review-dark', 'session-workspaces-dark', 'usage-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -272,6 +273,7 @@ def qualify(executable, output, session, version, backend, api):
     metrics = output / 'enterprise-metrics.json'
     metrics.write_text(json.dumps({'Enterprise': 'Synthetic enterprise', 'Organization': 'fixture-org', 'Users': [dict(User='fixture-member', grossQuantity=19, grossAmount=.19, netAmount=.1, topModel='Synthetic Model')]}))
     user_directory, transcript, transcript_sha = session_fixture(output)
+    workspace_files = session_workspaces.prepare(user_directory, transcript)
     github.mutate(backend, 'githubAccounts:create', dict(username='synthetic-account', org='fixture-org', usageProvider='copilot'))
     github.mutate(backend, 'githubAccounts:create', dict(username='codex-fixture', org='fixture-org', usageProvider='codex'))
     driver = settings.Driver(executable, output, session, backend, HERE.parent.parent)
@@ -284,7 +286,7 @@ def qualify(executable, output, session, version, backend, api):
         with environment(dict(BUDDY_COPILOT_FIXTURE='1', BUDDY_CONFIG_PATH=config, BUDDY_CONVEX_URL=backend.url,
                 CODEX_HOME=output / 'empty-codex', BUDDY_CODEX_FIXTURE_SCENARIO='normal', COPILOT_METRICS_FILE=metrics,
                 RUST_LOG='warn,github_copilot_sdk=trace,convex=trace,tungstenite=trace,tokio_tungstenite=trace')), github.fixture_environment(api.url), \
-                session_source_guard(transcript, transcript_sha, output):
+                session_source_guard(transcript, transcript_sha, output), session_workspaces.source_guard(workspace_files, output):
             sdk = headless(executable, output, config, backend)
             assert_no_owned_children(output)
             terminal.verify_sentinel(sentinel, 'headless SDK cleanup')
@@ -294,6 +296,8 @@ def qualify(executable, output, session, version, backend, api):
             assert_no_owned_children(output)
             write_section(config, 'github')
             review_pull_request(driver)
+            write_section(config, 'copilot')
+            session_workspaces.qualify_dark(driver, user_directory, github.check)
             light = json.loads(fixture(output / 'light-template', 'light').read_text())['ui']
             write_section(config, 'copilot', light)
             usage_pages(driver)
@@ -304,6 +308,7 @@ def qualify(executable, output, session, version, backend, api):
                 ('content', 'Sessions'), ('input', 'VS Code User directory', str(user_directory), 'Scan folder'), ('content', 'Scan folder'),
                 ('wait_text', 'Synthetic session'), ('content', 'Synthetic session'), ('wait_text', '100 prompt tokens'),
                 ('capture', 'session-detail-light'), ('resize', 900, 650), ('capture', 'session-compact-light'),
+                *session_workspaces.compact_actions(),
                 ('wait_scroll_above', 'Inspect synthetic request 20', 'Next requests'),
                 ('input', 'VS Code User directory', str(output / 'missing-directory'), 'Scan folder'), ('content', 'Scan folder'),
                 ('wait_content', SESSION_SOURCE_ERROR), ('content', 'Next requests'),
@@ -313,6 +318,7 @@ def qualify(executable, output, session, version, backend, api):
             ])
             github.check(sessions / 'session-detail-light.png', '100 prompt tokens', '25 output tokens', '0.25')
             github.check(sessions / 'session-error-light.png', SESSION_SOURCE_ERROR, 'Loaded source')
+            session_workspaces.check_light(sessions, github.check)
             terminal.verify_sentinel(sentinel, 'all native Copilot app shutdowns')
             assert_no_owned_children(output)
             (output / 'requests.json').write_text(json.dumps(api.requests, indent=2))
