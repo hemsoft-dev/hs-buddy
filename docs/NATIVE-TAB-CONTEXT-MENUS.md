@@ -36,12 +36,10 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-These tests do not inspect rendered pixels or prove installed behavior. Before
-delivery, the PR must include exact-head hosted dark/light screenshots and an
-interaction recording at 1200x820 and 900x650, plus the applicable native and
-performance gates and a clean independent review. The macOS queue-drain hold
-currently prevents a matrix-triggering publication. No Home GUI or personal
-profile is used to bypass that hold.
+These tests do not inspect rendered pixels or prove installed behavior. The
+hosted native scenes under `scripts/native-smoke` do not exercise this menu yet:
+none of their platform input drivers sends a right-click, so rendered evidence
+needs a dedicated scene.
 
 Electron remains primary. Convex and gpui-kit 0.8.1 remain unchanged. Other
 in-flight parity slices, session ownership, Windows11 qualification and the
