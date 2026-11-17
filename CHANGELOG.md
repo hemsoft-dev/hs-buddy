@@ -9,17 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1694] - 2026-11-16
+## [0.1.1695] - 2026-11-16
 
 ### Fixed
 
 - Contain saved review panes below filters (#954)
 
-## [0.1.1693] - 2026-11-16
+## [0.1.1694] - 2026-11-16
 
 ### Added
 
 - Publish saved native PR reviews (#954)
+
+## [0.1.1693] - 2026-11-16
+
+### Added
+
+- Group native session history by workspace (#956)
 
 ## [0.1.1692] - 2026-11-15
 
