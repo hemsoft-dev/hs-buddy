@@ -313,12 +313,25 @@ pub(super) fn next_start_time(seconds: u64) -> NaiveTime {
 
 impl TempoView {
     fn cancel_editor(&mut self, editor_id: uuid::Uuid, cx: &mut Context<Self>) -> bool {
+        let phase = self
+            .connection
+            .as_ref()
+            .and_then(|connection| connection.session.pending_phase());
+        self.cancel_editor_in_phase(editor_id, phase, cx)
+    }
+
+    /// Local draft transition. The callback above reads the live session phase;
+    /// this operation never submits, discards or changes that recovery state.
+    fn cancel_editor_in_phase(
+        &mut self,
+        editor_id: uuid::Uuid,
+        phase: Option<WritePhase>,
+        cx: &mut Context<Self>,
+    ) -> bool {
         // Check live state too: a queued event must not dismiss a replacement
         // draft or discard inputs after an operation has captured their write.
         if self.busy
-            || self.connection.as_ref().is_some_and(|connection| {
-                connection.session.pending_phase() == Some(WritePhase::Ready)
-            })
+            || phase == Some(WritePhase::Ready)
             || self
                 .editor
                 .as_ref()
@@ -334,7 +347,26 @@ impl TempoView {
     }
 }
 
+#[derive(Clone, Copy)]
+struct EditorCancelBinding {
+    editor_id: uuid::Uuid,
+    disabled: bool,
+}
+
+impl EditorCancelBinding {
+    fn cancel(self, view: &mut TempoView, cx: &mut Context<TempoView>) -> bool {
+        !self.disabled && view.cancel_editor(self.editor_id, cx)
+    }
+}
+
 impl Editor {
+    fn cancel_binding(&self, disabled: bool) -> EditorCancelBinding {
+        EditorCancelBinding {
+            editor_id: self.id,
+            disabled,
+        }
+    }
+
     pub(super) fn render_ui(
         &self,
         busy: bool,
@@ -353,14 +385,13 @@ impl Editor {
         use gpui_kit::{InteractiveElement, IntoElement, ParentElement, Styled, div};
         // Inputs are sized to their values and actions sit inline, as in the
         // incumbent forms, instead of spanning the whole pane.
-        let editor_id = self.id;
+        let cancel = self.cancel_binding(busy);
         let mut body = v_flex()
             // Capture before an Input or Textarea handles Escape locally.
             // Only focus inside this editor reaches the listener.
             .capture_key_down(
                 cx.listener(move |this, event: &gpui_kit::KeyDownEvent, _, cx| {
-                    if event.keystroke.key == "escape" && !busy && this.cancel_editor(editor_id, cx)
-                    {
+                    if event.keystroke.key == "escape" && cancel.cancel(this, cx) {
                         cx.stop_propagation();
                     }
                 }),
@@ -519,7 +550,7 @@ impl Editor {
                         .label("Cancel editor")
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.cancel_editor(editor_id, cx);
+                            cancel.cancel(this, cx);
                         })),
                 ),
         )

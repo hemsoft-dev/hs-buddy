@@ -263,3 +263,102 @@ fn escape_cancels_create_and_edit_from_focused_inputs_without_touching_account_s
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn ready_capture_retains_the_draft_while_other_phases_keep_existing_cancel_policy(
+    cx: &mut TestAppContext,
+) {
+    let (handle, view) = setup(cx);
+    cx.update_window(handle, |_, window, cx| {
+        for edit in [false, true] {
+            for phase in [
+                None,
+                Some(WritePhase::Ready),
+                Some(WritePhase::InFlight),
+                Some(WritePhase::Unconfirmed),
+                Some(WritePhase::Confirmed),
+                Some(WritePhase::Rejected),
+            ] {
+                view.update(cx, |view, cx| {
+                    open_editor(view, edit, window, cx);
+                    let id = view.editor.as_ref().unwrap().id;
+                    let generation = view.generation;
+                    let metadata = view.metadata.clone();
+                    // Supply only the phase value. No Session, service, vault or
+                    // recovery journal is constructed or changed by this test.
+                    let cancelled = view.cancel_editor_in_phase(id, phase, cx);
+                    if phase == Some(WritePhase::Ready) {
+                        assert!(!cancelled, "A captured Ready write owns the draft");
+                        let editor = view.editor.as_ref().unwrap();
+                        assert_eq!(editor.id, id);
+                        assert_eq!(editor.hours.read(cx).value(), "2:15:01");
+                        assert_eq!(editor.description.read(cx).value(), "Unsaved draft 界");
+                        assert_eq!(editor.billing_filter.read(cx).value(), "account filter");
+                        assert_eq!(editor.original.is_some(), edit);
+                        if let Some(original) = &editor.original {
+                            assert_eq!(original.seconds, 3601);
+                            assert_eq!(original.id.get(), worklog().id.get());
+                        }
+                        assert_eq!(view.error.as_deref(), Some("Synthetic editor error"));
+                    } else {
+                        assert!(cancelled, "Retain existing idle Cancel policy: {phase:?}");
+                        assert!(view.editor.is_none() && view.error.is_none());
+                        assert!(!view.cancel_editor_in_phase(id, phase, cx));
+                    }
+                    assert_eq!(view.generation, generation);
+                    assert!(Arc::ptr_eq(&view.metadata, &metadata));
+                    assert_eq!(view.notice.as_deref(), Some("Retain this notice"));
+                    assert_eq!(view.from.read(cx).value(), "2026-11-01");
+                    assert_eq!(view.to.read(cx).value(), "2026-11-30");
+                    assert!(view.connection.is_none() && view.data.is_none() && !view.busy);
+                });
+                assert!(!cx.has_global::<Runtime>());
+            }
+        }
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn retained_cancel_binding_rechecks_busy_state_and_cannot_cancel_a_replacement_draft(
+    cx: &mut TestAppContext,
+) {
+    let (handle, view) = setup(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| open_editor(view, false, window, cx));
+        focus_editor(&view, 4, window, cx);
+        let original_id = view.read(cx).editor.as_ref().unwrap().id;
+        let retained = view.read(cx).editor.as_ref().unwrap().cancel_binding(false);
+        // GPUI redraws dirty windows before platform key dispatch. Retain the
+        // exact binding captured by both controls to exercise a stale callback.
+        view.update(cx, |view, cx| {
+            view.busy = true;
+            assert!(!retained.cancel(view, cx));
+            assert_eq!(view.editor.as_ref().unwrap().id, original_id);
+            assert_eq!(view.error.as_deref(), Some("Synthetic editor error"));
+
+            view.busy = false;
+            open_editor(view, true, window, cx);
+            let replacement_id = view.editor.as_ref().unwrap().id;
+            assert_ne!(original_id, replacement_id);
+            assert!(!retained.cancel(view, cx));
+            assert_eq!(view.editor.as_ref().unwrap().id, replacement_id);
+            assert_eq!(
+                view.editor.as_ref().unwrap().hours.read(cx).value(),
+                "2:15:01"
+            );
+            assert_eq!(view.error.as_deref(), Some("Synthetic editor error"));
+
+            let disabled = view.editor.as_ref().unwrap().cancel_binding(true);
+            assert!(!disabled.cancel(view, cx));
+            assert_eq!(view.editor.as_ref().unwrap().id, replacement_id);
+        });
+        assert!(!cx.has_global::<Runtime>());
+
+        // The real key path still permits cancellation with a fresh binding.
+        focus_editor(&view, 4, window, cx);
+        window.press("escape", cx);
+        assert!(view.read(cx).editor.is_none() && view.read(cx).error.is_none());
+    })
+    .unwrap();
+}

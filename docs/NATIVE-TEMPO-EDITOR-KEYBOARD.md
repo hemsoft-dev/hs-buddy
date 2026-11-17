@@ -44,11 +44,46 @@ cover busy Escape and disabled pointer cancellation, stale editor identity,
 ordinary pointer cancellation, unrelated keys and Escape from another form.
 The original source fails the focused create-input Escape assertion.
 
+Additional tests retain the exact cancellation binding captured by the Escape
+listener and button. They change live busy state or replace the draft before
+invoking it. An old idle binding must retain a now-busy draft, and an old editor
+binding must retain a replacement draft. A disabled binding remains disabled.
+A fresh frame and focus then permit normal keyboard cancellation. These tests
+invoke the retained binding directly because GPUI redraws dirty windows before
+platform key dispatch, which would replace the stale callback under test.
+
 Fixtures use synthetic drafts and GPUI's test platform, without a Runtime,
 service connection, OS credential store or host window. Busy-state tests check
-that draft inputs, the original worklog and its error remain. The source keeps
-the existing `Ready` guard; these isolated tests do not construct a service
-session or claim recovery integration qualification.
+that draft inputs, the original worklog and its error remain.
+
+The cancellation callback reads the live session phase on every invocation and
+passes that value to the local draft transition. A headless phase matrix drives
+this transition with `Ready`, `InFlight`, `Unconfirmed`, `Confirmed`, `Rejected`
+and no pending phase, for both create and edit drafts. `Ready` retains the
+editor identity, original worklog, unsaved values and error. Other phases keep
+the button's existing idle cancellation policy. The tests also retain the page
+range, notice, metadata and generation. Removing the `Ready` guard must make
+the new phase test fail.
+
+Controlled guard removals made the phase test fail for `Ready`, and made the
+retained-binding test fail separately for live busy state and editor identity.
+Each experiment restored the original source bytes before the final checks.
+
+This matrix supplies phase values directly. It does not construct a service
+session, authenticate restored recovery, exercise the session-to-phase adapter
+or assert recovery-journal bytes. Those integration gates remain owed. A real
+`Session` currently requires a connected snapshot and journal context; changing
+its constructors, fixture transport or recovery storage is outside this slice.
+
+## File allocation
+
+The existing owner `chief-dispatch-0c035271-buddy823` retains
+`tempo_view/editor.rs`, `tempo_view/editor_escape_tests.rs` and this document,
+plus normal generated commit metadata. The local transition and tests stay in
+those files. Core Tempo session, recovery, fixture and transport files,
+connection and worker code, shared hosted fixtures, dependencies, locks,
+workflows and the other retained parity slices stay excluded. No second writer
+or concurrency protocol is introduced.
 
 ## Delivery gates
 
