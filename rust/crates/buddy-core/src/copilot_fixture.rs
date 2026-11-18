@@ -184,6 +184,10 @@ impl CopilotRequestHandler for Fixture {
         let streaming = body
             .as_ref()
             .is_some_and(|body| body.to_string().contains("BUDDYSTREAM61527"));
+        // Installed-app evidence for per-block Copy code needs a fenced block.
+        let code_block = body
+            .as_ref()
+            .is_some_and(|body| body.to_string().contains("BUDDYCODE48213"));
         if request.method != "POST"
             || request.url != "https://hs-buddy-fixture.invalid/v1/chat/completions"
             || (!cancelling && !streaming)
@@ -209,6 +213,12 @@ impl CopilotRequestHandler for Fixture {
         self.observe();
         let pieces = if cancelling {
             vec!["Partial synthetic answer 界"]
+        } else if code_block {
+            // Keep the block near the top so compact captures need little scrolling.
+            vec![
+                "## Synthetic assistant\n\n",
+                "```rust\n// copy only this\n```\n",
+            ]
         } else {
             vec![
                 "## Synthetic assistant\n\n",
