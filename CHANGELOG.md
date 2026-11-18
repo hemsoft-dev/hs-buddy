@@ -9,81 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1698] - 2026-11-18
+
+### Added
+
+- Record explicit bookmark tab activity (#952)
+- Record explicit Settings category activity (#958)
+- Open workspace tab actions on right-click (#960)
+
+### Fixed
+
+- Collapse Todoist calendar day sections (#961)
+- Copy individual Markdown code blocks (#962)
+- Preserve cache identity and retry cleanup with React Doctor
+- Qualify Windows browser captures with strict contrast fallback
+- Match the Copilot SDK 1.0.32 runtime pin
+- Select TLS provider independently of telemetry
+
+### Changed
+
+- Combine the 2026-11-17 Dependabot updates
+- Record React Doctor 0.9.22 as the pinned analyzer
+- Initialize TLS in the telemetry-disabled regression
+- Keep the cache identity regression outside the large suite
+- Correct and replay Settings restart evidence and light palette (#958)
+- Capture Todoist calendar day collapse in installed fixture (#961)
+- Capture compact code copy in the saved result (#962)
+
 ## [0.1.1697] - 2026-11-17
 
 ### Added
 
 - Play configured review completion sounds (#950)
-- Record explicit bookmark tab activity
-- Open workspace tab actions on right-click (#960)
 
 ### Changed
 
 - Keep Tempo fixture servers alive for owned sessions
-
-## [0.1.1701] - 2026-11-18
-
-### Changed
-
-- Integrate main CI advisory fixes
-
-## [0.1.1700] - 2026-11-17
-
-### Changed
-
-- Integrate main session workspace grouping
-
-## [0.1.1699] - 2026-11-16
-
-### Changed
-
-- Replay captured Mac Settings restart evidence
-
-## [0.1.1698] - 2026-11-16
-
-### Changed
-
-- Correct Settings restart evidence and light palette
-
-## [0.1.1697] - 2026-11-16
-
-### Added
-
-- Record explicit Settings category activity
-
-### Fixed
-
-- Collapse Todoist calendar day sections (#961)
-
-### Changed
-
-- Capture Todoist calendar day collapse in installed fixture (#961)
-
-## [0.1.1698] - 2026-11-18
-
-### Changed
-
-- Capture compact code copy in the saved result (#962)
-
-## [0.1.1697] - 2026-11-17
-
-### Fixed
-
-- Copy individual Markdown code blocks (#962)
-
-### Changed
-
-- Combine the 2026-11-17 Dependabot updates
-- Keep the cache identity regression outside the large suite
-- Initialize TLS in the telemetry-disabled regression
-- Record React Doctor 0.9.22 as the pinned analyzer
-
-### Fixed
-
-- Preserve cache identity and retry cleanup with React Doctor
-- Qualify Windows browser captures with strict contrast fallback
-- Match the Copilot SDK 1.0.32 runtime pin
-- Select TLS provider independently of telemetry
 
 ## [0.1.1696] - 2026-11-17
 
