@@ -20,6 +20,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Keep Tempo fixture servers alive for owned sessions
 
+## [0.1.1701] - 2026-11-18
+
+### Changed
+
+- Integrate main CI advisory fixes
+
+## [0.1.1700] - 2026-11-17
+
+### Changed
+
+- Integrate main session workspace grouping
+
+## [0.1.1699] - 2026-11-16
+
+### Changed
+
+- Replay captured Mac Settings restart evidence
+
+## [0.1.1698] - 2026-11-16
+
+### Changed
+
+- Correct Settings restart evidence and light palette
+
+## [0.1.1697] - 2026-11-16
+
+### Added
+
+- Record explicit Settings category activity
+
 ## [0.1.1696] - 2026-11-17
 
 ### Fixed

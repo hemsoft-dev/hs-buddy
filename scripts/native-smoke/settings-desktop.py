@@ -862,6 +862,7 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     run("bun", checkout / "scripts/build-config-companion.ts", output, cwd=checkout)
     driver = Driver(executable, output, session, backend, checkout)
     driver.placement = placement
+    load("settings-activity").qualify(driver, backend, config, output, verify_text)
     account_actions = [("nav", "Accounts"), ("capture", "first-run-dark")]
     for index, name in enumerate(("fixture-native-one", "fixture-native-two")):
         account_actions += [("leftfield", "Organization|GitHub username", name),
@@ -954,7 +955,7 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
         raise RuntimeError("Theme changes committed an unrelated unsaved draft")
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session, largeWindow=driver.large_size,
         binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "all seven panels",
-        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
+        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "Settings category activity and restart non-replay", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
 
 
 def main():
