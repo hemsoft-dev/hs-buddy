@@ -21,4 +21,6 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
       - run: bun install --frozen-lockfile
-      - run: bun audit --audit-level=high
+      # GHSA-fc5q-39xc-vjpf (picomatch <=4.0.7 ReDoS) has no patched release and
+      # reaches only devDependencies. Remove the ignore under #972 once one ships.
+      - run: bun audit --audit-level=high --ignore=GHSA-fc5q-39xc-vjpf
