@@ -9,53 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1701] - 2026-11-17
-
-### Changed
-
-- Record React Doctor 0.9.22 as the pinned analyzer
-
-## [0.1.1700] - 2026-11-17
-
-### Changed
-
-- Initialize TLS in the telemetry-disabled regression
-
-## [0.1.1699] - 2026-11-17
-
-### Fixed
-
-- Select TLS provider independently of telemetry
-
-## [0.1.1698] - 2026-11-17
-
-### Fixed
-
-- Match the Copilot SDK 1.0.32 runtime pin
-
 ## [0.1.1697] - 2026-11-17
 
+### Changed
+
+- Combine the 2026-11-17 Dependabot updates
+- Keep the cache identity regression outside the large suite
+- Initialize TLS in the telemetry-disabled regression
+- Record React Doctor 0.9.22 as the pinned analyzer
+
 ### Fixed
 
+- Preserve cache identity and retry cleanup with React Doctor
 - Qualify Windows browser captures with strict contrast fallback
+- Match the Copilot SDK 1.0.32 runtime pin
+- Select TLS provider independently of telemetry
 
 ## [0.1.1696] - 2026-11-17
 
-### Changed
+### Fixed
 
-- Keep the cache identity regression outside the large suite
+- Ignore unpatched picomatch ReDoS advisory in npm audit
 
 ## [0.1.1695] - 2026-11-17
 
 ### Fixed
 
-- Preserve cache identity and retry cleanup with React Doctor
+- Acknowledge unmaintained chrono advisory until jiff migration
 
 ## [0.1.1694] - 2026-11-17
 
 ### Changed
 
-- Combine the 2026-11-17 Dependabot updates
+- Add Electron launcher script with local Convex backend
 
 ## [0.1.1693] - 2026-11-16
 

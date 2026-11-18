@@ -14,7 +14,12 @@ yanked = "deny"
 # transitively (rustybuzz, ttf-parser, paste, instant, rustls-pemfile) that
 # only their upstreams can replace.
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    # chrono is unmaintained with no safe upgrade. buddy-core and buddy-app
+    # still use it directly; the jiff migration is tracked in #969, which
+    # removes this entry.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; migration to jiff tracked in hemsoft-dev/hs-buddy#969" },
+]
 
 [licenses]
 version = 2
