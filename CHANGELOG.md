@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Record explicit Settings category activity
 
+### Fixed
+
+- Collapse Todoist calendar day sections (#961)
+
+### Changed
+
+- Capture Todoist calendar day collapse in installed fixture (#961)
+
 ## [0.1.1696] - 2026-11-17
 
 ### Fixed
