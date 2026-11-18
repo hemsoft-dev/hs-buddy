@@ -223,7 +223,7 @@ try {
                 $recorder = $null
             }
             'sleep' { Start-Sleep -Milliseconds ([int]$parts[1]) }
-            { $_ -in 'waittext64', 'waitcontent64', 'waitmodeltext64', 'waitscrolltext64', 'waituptext64', 'revealtext64' } {
+            { $_ -in 'waittext64', 'waitcontent64', 'waitmodeltext64', 'waitscrolltext64', 'waitscrollend64', 'waituptext64', 'revealtext64' } {
                 # Explicit scroll waits may reveal content on this owned HWND.
                 # Never advance until the exact status is visibly observed.
                 $hasAnchor = $parts[0] -eq 'revealtext64' -or (($parts[0] -in @('waitscrolltext64', 'waituptext64')) -and $parts.Count -eq 3)
@@ -245,9 +245,13 @@ try {
                         break
                     } catch {
                         if ($started -ge $timeoutSeconds) { throw }
-                        if ($parts[0] -in 'waitscrolltext64', 'waituptext64', 'revealtext64') {
+                        if ($parts[0] -in 'waitscrolltext64', 'waitscrollend64', 'waituptext64', 'revealtext64') {
                             if ($hasAnchor -and $null -eq $scrollPoint) { $scrollPoint = Find-OwnedLabelPoint $parts[2] 'button' }
-                            Scroll-OwnedWindow $scrollDelta $scrollPoint
+                            # A bounded page's end matches the Unix above-anchor
+                            # wait: an OCR miss can consume most of the wait, so
+                            # take two coarse steps before inspecting another frame.
+                            $steps = if ($parts[0] -eq 'waitscrollend64') { 2 } else { 1 }
+                            for ($step = 0; $step -lt $steps; $step++) { Scroll-OwnedWindow $scrollDelta $scrollPoint }
                         }
                         Start-Sleep -Milliseconds 100
                     }

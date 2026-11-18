@@ -401,7 +401,7 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[1], "waitmodeltext64:" + desktop.b64("Synthetic offline model"))
             self.assertEqual(commands[2], "waittext64:" + desktop.b64("Saved to results"))
             self.assertEqual(commands[3], "key:13")
-            self.assertEqual(commands[4], "waitscrolltext64:" + desktop.b64("Inspect synthetic request 20"))
+            self.assertEqual(commands[4], "waitscrollend64:" + desktop.b64("Inspect synthetic request 20"))
             self.assertEqual(execute.call_args.kwargs["timeout"], 180 + desktop.MODEL_CATALOG_TIMEOUT - 15)
 
     def test_windows_cold_start_wait_uses_the_cold_budget(self):
@@ -1048,7 +1048,7 @@ class WindowsScrollAnchors(unittest.TestCase):
         arguments = json.loads(result.stdout)
         self.assertEqual(arguments[3:], ["--label", "Rename", "--between-labels", *values[1:]])
 
-    def run_wait(self, visible_after, anchor_visible):
+    def run_wait(self, visible_after, anchor_visible, command="waitscrolltext64", anchored=True):
         """Run the real wait case against stub locators; return its call journal."""
         stubs = (
             "$journal = [Collections.Generic.List[string]]::new(); $script:probes = 0\n"
@@ -1063,8 +1063,8 @@ class WindowsScrollAnchors(unittest.TestCase):
             "  return @(1, 2)\n"
             "}\n"
             "function Scroll-OwnedWindow($Delta, $Point) { $journal.Add('scroll') }\n"
-            "$parts = @('waitscrolltext64', '" + base64.b64encode(b"Next rows").decode() + "', '"
-            + base64.b64encode(b"Load date range").decode() + "')\n"
+            "$parts = @('" + command + "', '" + base64.b64encode(b"Next rows").decode() + "'"
+            + ((", '" + base64.b64encode(b"Load date range").decode() + "'") if anchored else "") + ")\n"
             "try {\n" + self.wait_block() + "\n} catch { $journal.Add('error:' + $_) }\n"
             "$journal -join '|'\n")
         with tempfile.TemporaryDirectory(prefix="buddy-wait-anchor-") as root:
@@ -1113,6 +1113,13 @@ class WindowsScrollAnchors(unittest.TestCase):
             "find:Next rows", "scroll", "find:Next rows"])
         self.assertEqual(self.run_wait(1, anchor_visible=False),
             ["find:Next rows", "find:Load date range", "error:anchor scrolled away"])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
+    def test_page_end_wait_takes_two_coarse_steps_per_miss_like_the_unix_driver(self):
+        # PR #970 run 44192077472: one wheel step per slow OCR miss left
+        # request 20 clipped below the Copilot session viewport at the deadline.
+        self.assertEqual(self.run_wait(2, anchor_visible=False, command="waitscrollend64", anchored=False),
+            ["find:Next rows", "scroll", "scroll", "find:Next rows", "scroll", "scroll", "find:Next rows"])
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell is required to execute the Windows action case")
     def test_a_slow_probe_that_began_before_the_deadline_earns_one_fresh_probe(self):

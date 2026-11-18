@@ -284,7 +284,11 @@ class Driver:
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
-                    command = "waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
+                    # Windows aims above-anchor waits at the window middle,
+                    # stepping twice per miss like the Unix driver.
+                    command = ("waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text"
+                        else "waituptext64:" if kind == "wait_scroll_up" else "waitscrollend64:" if kind == "wait_scroll_above"
+                        else "waitscrolltext64:")
                     commands.append(command + ":".join(map(b64, encoded)))
                 elif kind in COLD_START_WAITS:
                     commands.append("waitmodeltext64:" + b64(values[0]))
