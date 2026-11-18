@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Ignore unpatched picomatch ReDoS advisory in npm audit
 
+### Changed
+
+- Run full Rust qualification after merge, not on every PR
+
 ## [0.1.1695] - 2026-11-17
 
 ### Fixed
