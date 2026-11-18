@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1697] - 2026-11-17
+
+### Added
+
+- Play configured review completion sounds (#950)
+
+### Changed
+
+- Keep Tempo fixture servers alive for owned sessions
+
 ## [0.1.1696] - 2026-11-17
 
 ### Fixed

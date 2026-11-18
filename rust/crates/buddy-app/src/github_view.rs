@@ -113,6 +113,7 @@ pub struct GitHubView {
     review_abort: Option<AbortHandle>,
     review_poll_at: Option<Instant>,
     review_loading: bool,
+    review_sound: crate::notification_audio::SoundPreview,
 }
 
 struct LoadContext {
@@ -219,6 +220,7 @@ impl GitHubView {
             review_abort: None,
             review_poll_at: None,
             review_loading: false,
+            review_sound: Default::default(),
         }
     }
 

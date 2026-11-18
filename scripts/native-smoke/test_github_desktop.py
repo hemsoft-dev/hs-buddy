@@ -16,6 +16,99 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_review_fixture_uses_visible_retained_routes_when_tooltip_covers_sidebar(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'github-review-tooltip-occlusion.json').read_text(encoding='utf-8'))
+        with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
+            desktop.settings.ocr.sidebar_label(evidence['occluded'], 'My PRs')
+        mac = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'github-review-macos-tooltip.json').read_text(encoding='utf-8'))
+        bottom = mac['geometry']['workspace'][1]
+        with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
+            desktop.settings.ocr.sidebar_label(mac['words'], 'My PRs', workspace_bottom=bottom)
+        mac_content = desktop.settings.ocr.content_words(mac['words'], workspace_bottom=bottom)
+        row = desktop.settings.ocr.locate_label(mac_content, '#7 First private navigation review')
+        without_row = [word for word in mac_content if not (
+            row['top'] <= word['top'] < row['top'] + row['height']
+            and row['left'] <= word['left'] < row['left'] + row['width'])]
+        with self.assertRaises(RuntimeError):
+            desktop.settings.ocr.locate_label(without_row, '#7 First private navigation review')
+        for session in ('x11', 'windows', 'macos'):
+            with self.subTest(session=session), TemporaryDirectory() as temporary:
+                output = Path(temporary).resolve()
+                config = output / 'config.json'
+                config.write_text(json.dumps(dict(native={}, notifications={})))
+                api = Mock(requests=[])
+                def drive(name, actions, record):
+                    words = mac['words'] if session == 'macos' else evidence['occluded'] if session == 'x11' else evidence['clear']
+                    navigation = []
+                    for kind, *values in actions:
+                        # The continued failure proves hover does not clear
+                        # this frame. Never substitute a hypothetical image.
+                        if kind == 'workspace':
+                            self.assertEqual(session, 'x11')
+                            desktop.settings.ocr.locate_label(
+                                desktop.settings.ocr.workspace_words(words), values[0])
+                            navigation.append(kind)
+                            break
+                        if kind == 'sidebar':
+                            desktop.settings.ocr.sidebar_label(words, values[0],
+                                **({'workspace_bottom': bottom} if session == 'macos' else {}))
+                            navigation.append(kind)
+                            break
+                        if kind == 'wait_content':
+                            self.assertEqual(session, 'macos')
+                            content = desktop.settings.ocr.content_words(words, workspace_bottom=bottom)
+                            desktop.settings.ocr.locate_label(content, values[0])
+                            navigation.append(kind)
+                            break
+                    self.assertEqual(navigation, [{'x11': 'workspace', 'windows': 'sidebar', 'macos': 'wait_content'}[session]])
+                    self.assertNotIn(('hover', 'title'), actions)
+                    api.requests.append(dict(method='POST', path='/repos/team/private/issues/7/comments',
+                        account='fixture-one', body=dict(body='@coderabbitai full review')))
+                    return output / name
+                with patch.object(desktop, 'check'):
+                    desktop.qualify_review_sound(Mock(drive=drive, session=session), config, output, api)
+
+    def test_review_completion_requires_one_scoped_request_and_restores_settings(self):
+        cases = ((receipt, aliased) for receipt in (None, "wrong-account", "duplicate", "correct")
+            for aliased in (False, True))
+        for receipt, aliased in cases:
+            with self.subTest(receipt=receipt, aliased=aliased), TemporaryDirectory() as temporary:
+                if aliased:
+                    # Reproduce a lexical alias without requiring symlink
+                    # privileges or a runner's particular short-path spelling.
+                    segment = Path(temporary) / "alias-segment"
+                    segment.mkdir()
+                    temporary = str(segment / "..")
+                output = Path(temporary).resolve()
+                config = output / "config.json"
+                original = dict(playSoundOnReviewComplete=False, reviewCompleteSoundPath="", retained="yes")
+                config.write_text(json.dumps(dict(native={}, notifications=original)))
+                api = Mock(requests=[])
+                def drive(name, actions, record):
+                    current = json.loads(config.read_text())
+                    self.assertTrue(current["notifications"]["playSoundOnReviewComplete"])
+                    sound = Path(current["notifications"]["reviewCompleteSoundPath"])
+                    self.assertTrue(sound.is_file())
+                    self.assertTrue(sound.is_relative_to(output))
+                    if receipt:
+                        api.requests.append(dict(method="POST", path="/repos/team/private/issues/7/comments",
+                            account="fixture-two" if receipt == "wrong-account" else "fixture-one",
+                            body=dict(body="@coderabbitai full review")))
+                        if receipt == "duplicate":
+                            api.requests.append(dict(api.requests[-1]))
+                    return output / name
+                with patch.object(desktop, "check") as check:
+                    if receipt == "correct":
+                        desktop.qualify_review_sound(Mock(drive=drive), config, output, api)
+                        check.assert_called_once()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "exactly one scoped"):
+                            desktop.qualify_review_sound(Mock(drive=drive), config, output, api)
+                        check.assert_not_called()
+                self.assertEqual(json.loads(config.read_text())["notifications"], original)
+
     def test_restarted_qualification_requires_the_actual_needs_review_fixture_row(self):
         capture = json.loads(Path(__file__).with_name('fixtures').joinpath('github-restored-needs-review.json').read_text())
         original_check = desktop.check
