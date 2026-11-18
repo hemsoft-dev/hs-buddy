@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Play configured review completion sounds (#950)
 - Record explicit bookmark tab activity
+- Open workspace tab actions on right-click (#960)
 
 ### Changed
 
