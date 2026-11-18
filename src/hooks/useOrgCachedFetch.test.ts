@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
+import { useLayoutEffect } from 'react'
 import {
   applyResolvedOrgCache,
   applyResolvedOrgCacheIfCurrent,
@@ -50,6 +51,29 @@ describe('applyResolvedOrgCache', () => {
     expect(setError).toHaveBeenCalledWith(null)
     expect(setPhase).toHaveBeenCalledWith('ready')
   })
+})
+
+it('commits only the new organization data after an identity change', () => {
+  const committed: Array<string | null> = []
+  const { rerender } = renderHook(
+    ({ cacheKey }) => {
+      const state = useOrgCachedFetch({
+        accounts: [],
+        org: cacheKey,
+        cacheKey,
+        initialData: cacheKey,
+        enqueue: vi.fn() as ReturnType<typeof useTaskQueue>['enqueue'],
+        taskName: 'identity',
+        fetchFn: vi.fn(),
+      })
+      useLayoutEffect(() => {
+        committed.push(state.data)
+      }, [cacheKey, state.data])
+    },
+    { initialProps: { cacheKey: 'first' } }
+  )
+  rerender({ cacheKey: 'second' })
+  expect(committed).toEqual(['first', 'second'])
 })
 
 describe('useOrgCachedFetch', () => {

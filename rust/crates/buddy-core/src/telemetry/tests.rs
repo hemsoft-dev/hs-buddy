@@ -237,6 +237,8 @@ fn default_tls_builder_works_without_telemetry() {
         return;
     }
     assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+    // Native startup selects TLS before optional telemetry or any clients.
+    crate::http::initialize_tls();
     assert!(!Telemetry::from_config(None).is_enabled());
     // Convex's WebSocket transport uses this builder without a custom provider.
     let _ = rustls::ClientConfig::builder();

@@ -71,6 +71,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Copy individual Markdown code blocks (#962)
 
+### Changed
+
+- Combine the 2026-11-17 Dependabot updates
+- Keep the cache identity regression outside the large suite
+- Initialize TLS in the telemetry-disabled regression
+- Record React Doctor 0.9.22 as the pinned analyzer
+
+### Fixed
+
+- Preserve cache identity and retry cleanup with React Doctor
+- Qualify Windows browser captures with strict contrast fallback
+- Match the Copilot SDK 1.0.32 runtime pin
+- Select TLS provider independently of telemetry
+
 ## [0.1.1696] - 2026-11-17
 
 ### Fixed
