@@ -232,24 +232,29 @@ def chat_turns(driver):
 
 
 def code_copy(driver, appearance):
-    # The marker adds one fenced block to the offline answer. Capture its
-    # Copy code control beside the first code line, then activate it on the
+    # The marker answers with a heading and one fenced block. Capture its Copy
+    # code control beside the first code line, then activate it on the
     # installed app. Headless GPUI tests prove the copied text.
     name = 'code-copy-' + appearance
+    captures = [name]
     if appearance == 'light':
-        # The compact conversation pane is about one code block tall and hides
-        # the saved status. Reveal the code line in small steps from a table
-        # row that stays visible; its Copy code control sits just above it.
-        reveal = [('resize', 900, 650), ('reveal_text', CODE_LINE, 'Offline stream')]
+        # At 900x650 the chat pane is shorter than one wheel step, so use the
+        # saved result's taller pane. Revealing the code line keeps the control
+        # just above it in view.
+        captures.append('code-copy-compact-light')
+        reveal = [('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
+            ('wait_text', 'Synthetic assistant'), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', name),
+            ('resize', 900, 650), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', captures[1])]
     else:
-        reveal = [('wait_scroll_up', 'Copy code', 'Saved to results')]
+        reveal = [('wait_scroll_up', 'Copy code', 'Saved to results'), ('capture', name)]
     scene = driver.drive(name, [
         ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
         ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
         ('input', 'Message', 'BUDDYSTREAM61527 ' + CODE_MARKER), ('content', 'Run and save'),
-        ('wait_scroll_text', 'Saved to results'), *reveal, ('capture', name), ('content', 'Copy code'),
+        ('wait_scroll_text', 'Saved to results'), *reveal, ('content', 'Copy code'),
     ], record=appearance == 'dark')
-    github.check(scene / (name + '.png'), 'Copy code', CODE_LINE)
+    for capture in captures:
+        github.check(scene / (capture + '.png'), 'Copy code', CODE_LINE)
 
 
 def review_pull_request(driver):

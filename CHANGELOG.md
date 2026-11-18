@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1698] - 2026-11-18
+
+### Changed
+
+- Capture compact code copy in the saved result (#962)
+
 ## [0.1.1697] - 2026-11-17
 
 ### Fixed

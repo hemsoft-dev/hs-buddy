@@ -292,23 +292,35 @@ class CopilotQualificationTests(unittest.TestCase):
             [('code-copy-dark', True), ('code-copy-light', False)])
         for name, actions, _ in driver.runs:
             self.assertIn(('input', 'Message', 'BUDDYSTREAM61527 ' + copilot.CODE_MARKER), actions)
-            capture, click = actions.index(('capture', name)), actions.index(('content', 'Copy code'))
+            self.assertIn(name, copilot.STARTUP_SCENES)
             saved = actions.index(('wait_scroll_text', 'Saved to results'))
+            click = actions.index(('content', 'Copy code'))
+            self.assertEqual(click, len(actions) - 1)
             if name.endswith('light'):
-                # The compact pane hides the saved status, so reveal from a
-                # row that stays visible after the resize.
-                resize = actions.index(('resize', 900, 650))
-                reveal = actions.index(('reveal_text', copilot.CODE_LINE, 'Offline stream'))
-                self.assertLess(saved, resize)
-                self.assertLess(resize, reveal)
+                # The compact chat pane is too short, so both captures use the
+                # saved result and reveal the code line before each capture.
+                inspect = actions.index(('content', 'Inspect saved result'))
+                large, resize = actions.index(('capture', name)), actions.index(('resize', 900, 650))
+                compact = actions.index(('capture', 'code-copy-compact-light'))
+                reveals = [index for index, action in enumerate(actions)
+                    if action == ('reveal_text', copilot.CODE_LINE, 'Copy prompt')]
+                self.assertEqual(len(reveals), 2)
+                self.assertLess(saved, inspect)
+                self.assertLess(inspect, reveals[0])
+                self.assertLess(reveals[0], large)
+                self.assertLess(large, resize)
+                self.assertLess(resize, reveals[1])
+                self.assertLess(reveals[1], compact)
             else:
                 self.assertNotIn(('resize', 900, 650), actions)
                 reveal = actions.index(('wait_scroll_up', 'Copy code', 'Saved to results'))
                 self.assertLess(saved, reveal)
-            self.assertLess(reveal, capture)
-            self.assertLess(capture, click)
-            self.assertIn(name, copilot.STARTUP_SCENES)
-        self.assertEqual([call.args[1:] for call in screenshots.call_args_list], [('Copy code', copilot.CODE_LINE)] * 2)
+                self.assertLess(reveal, actions.index(('capture', name)))
+        self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
+            ('code-copy-dark.png', 'Copy code', copilot.CODE_LINE),
+            ('code-copy-light.png', 'Copy code', copilot.CODE_LINE),
+            ('code-copy-compact-light.png', 'Copy code', copilot.CODE_LINE),
+        ])
 
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this

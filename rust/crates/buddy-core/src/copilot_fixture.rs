@@ -213,16 +213,18 @@ impl CopilotRequestHandler for Fixture {
         self.observe();
         let pieces = if cancelling {
             vec!["Partial synthetic answer 界"]
+        } else if code_block {
+            // Keep the block near the top so compact captures need little scrolling.
+            vec![
+                "## Synthetic assistant\n\n",
+                "```rust\n// copy only this\n```\n",
+            ]
         } else {
-            let mut pieces = vec![
+            vec![
                 "## Synthetic assistant\n\n",
                 "Unicode: 界 ✓\n\n",
                 "| Check | Result |\n| --- | --- |\n| Offline stream | Passed |\n\n`native Rust` output.",
-            ];
-            if code_block {
-                pieces.push("\n\n```rust\n// copy only this\n```\n");
-            }
-            pieces
+            ]
         };
         let mut chunks:Vec<Bytes>=pieces.into_iter().map(|content|Bytes::from(format!("data: {}\n\n",json!({"id":"buddy-offline","object":"chat.completion.chunk","created":0,"model":MODEL,"choices":[{"index":0,"delta":{"content":content},"finish_reason":null}]})))).collect();
         if !cancelling {
