@@ -127,7 +127,10 @@ Qualification copies that executable to the runner's temporary directory.
 The package also lets CodeQL discover and build the Swift source automatically.
 
 The Rust workflow preserves formatting, warnings-denied Clippy, workspace
-tests, and the dependency audit. It builds and installs an NSIS package, Intel
+tests, and the dependency audit. Pull requests run those checks on Ubuntu and
+Windows only. Pushes to `main` and manual dispatches
+(`gh workflow run rust.yml --ref <branch>`) run the full four-OS qualification
+below. It builds and installs an NSIS package, Intel
 and ARM DMGs, and a DEB. Linux installs the DEB into a fresh Ubuntu 24.04
 container and checks ELF runtime libraries before installing any test tools.
 Build dependencies cannot satisfy that check. It then runs independent

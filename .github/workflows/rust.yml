@@ -43,9 +43,14 @@ on:
 permissions:
   contents: read
 
+# Pull requests get a fast Ubuntu and Windows check. The full four-OS
+# packaging, installed UI, and performance qualification runs after merge on
+# main, and on demand for a branch: gh workflow run rust.yml --ref <branch>.
+# A newer pull request push cancels its stale run. On main, the running
+# qualification finishes and GitHub replaces only the pending one.
 concurrency:
   group: rust-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -64,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15-intel, macos-15]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04", "windows-2025"]' || '["ubuntu-24.04", "windows-2025", "macos-15-intel", "macos-15"]') }}
     env:
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: 4
@@ -237,6 +242,7 @@ jobs:
           rust-version: stable
 
       - name: Install pinned native packager
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           version="$(node -p "require('./desktop-package.json').packagerVersion")"
@@ -250,11 +256,13 @@ jobs:
         run: sudo mdutil -a -i off
 
       - name: Build native release package
+        if: github.event_name != 'pull_request'
         id: package
         working-directory: .
         run: node scripts/package-native.mjs
 
       - name: Upload native measurement binary
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: buddy-performance-binary-${{ matrix.os }}
@@ -264,7 +272,7 @@ jobs:
           if-no-files-found: error
 
       - name: Install and qualify Windows package
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && github.event_name != 'pull_request'
         working-directory: .
         shell: pwsh
         env:
@@ -273,7 +281,7 @@ jobs:
           & scripts/native-smoke/install-windows.ps1 -PackageDirectory $env:PACKAGE_DIRECTORY -Output "$env:RUNNER_TEMP/native-evidence/windows"
 
       - name: Install and qualify Unix package
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && github.event_name != 'pull_request'
         timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 180 || matrix.os == 'macos-15' && 120 || 90 }}
         working-directory: .
         shell: bash
@@ -282,7 +290,7 @@ jobs:
         run: bash scripts/native-smoke/install-unix.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence"
 
       - name: Qualify Ubuntu installed runtime upgrade and rollback
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
         timeout-minutes: 25
         working-directory: .
         shell: bash
@@ -295,13 +303,13 @@ jobs:
             bash scripts/native-smoke/linux-lifecycle-session.sh "$PACKAGE_DIRECTORY" "$RUNNER_TEMP/native-evidence/linux-lifecycle"
 
       - name: Stage native evidence without fixture symlinks
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         working-directory: .
         shell: bash
         run: python scripts/native-smoke/prepare-evidence.py "$RUNNER_TEMP/native-evidence" "$RUNNER_TEMP/native-upload"
 
       - name: Upload native packages and qualification evidence
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: buddy-native-${{ matrix.os }}
@@ -318,7 +326,7 @@ jobs:
   matching-fixture-performance:
     name: Performance / ${{ matrix.os }}
     needs: check
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:

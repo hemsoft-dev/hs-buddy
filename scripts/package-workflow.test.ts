@@ -83,10 +83,10 @@ it('keeps Spotlight off the native DMG while it is detached', () => {
   expect(step).toContain("if: runner.os == 'macOS'")
 })
 
-it('runs every installed macOS scene on every Rust run', () => {
+it('runs every installed macOS scene on every full Rust run', () => {
   // #913: a Local Network prompt from a unit-test HTTP server covered the app
   // and swallowed clicks. With the cause fixed, no Mac scene sits behind an
-  // opt-in input, and pushes and pull requests qualify all of them.
+  // opt-in input, and every full (main or dispatched) run qualifies all of them.
   const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
   const unix = readFileSync('scripts/native-smoke/install-unix.sh', 'utf8').replaceAll('\r\n', '\n')
   // A manual run must not cancel, or be cancelled by, a push run on the same ref.
@@ -122,6 +122,37 @@ it('runs every installed macOS scene on every Rust run', () => {
   expect(readFileSync('scripts/native-smoke/install-windows.ps1', 'utf8')).toContain(
     "'settings-desktop.py'"
   )
+})
+
+it('keeps pull requests fast and qualifies installed packages after merge', () => {
+  // Four-OS packaging, installed UI and performance qualification held each
+  // native PR for hours on scarce macOS runners. Pull requests now run the
+  // Ubuntu and Windows source checks; main and dispatched runs stay complete.
+  const native = readFileSync('.github/workflows/rust.yml', 'utf8').replaceAll('\r\n', '\n')
+  const pr = "github.event_name != 'pull_request'"
+  expect(native).toContain("  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n")
+  expect(native).toContain(
+    `'["ubuntu-24.04", "windows-2025"]' || '["ubuntu-24.04", "windows-2025", "macos-15-intel", "macos-15"]'`
+  )
+  const step = (name: string) =>
+    native.split(`- name: ${name}\n`)[1]?.split('\n      - ', 1)[0] ?? ''
+  for (const name of [
+    'Install pinned native packager',
+    'Build native release package',
+    'Upload native measurement binary',
+    'Install and qualify Windows package',
+    'Install and qualify Unix package',
+    'Qualify Ubuntu installed runtime upgrade and rollback',
+    'Stage native evidence without fixture symlinks',
+    'Upload native packages and qualification evidence',
+  ]) {
+    expect(step(name), name).toContain(pr)
+  }
+  for (const name of ['Format', 'Clippy', 'Test', 'Package and visual failure guards']) {
+    expect(step(name), name).not.toContain(pr)
+  }
+  const performance = native.split('\n  matching-fixture-performance:\n')[1] ?? ''
+  expect(performance).toContain(`if: \${{ !cancelled() && ${pr} }}`)
 })
 
 it('gives native jobs measured headroom with a bounded hang limit', () => {
