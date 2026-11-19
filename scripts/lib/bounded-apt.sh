@@ -23,8 +23,11 @@ buddy_apt() {
   for attempt in 1 2; do
     if ((attempt > 1)) && [[ "$step" == install ]]; then
       # A limit that stopped dpkg mid-unpack leaves it interrupted; finish that
-      # first, bounded too, since it can rerun the script that stalled.
-      ${privilege[@]+"${privilege[@]}"} timeout --kill-after=30 "$limit" dpkg --configure -a || true
+      # first, bounded too, since it can rerun the script that stalled. apt-get
+      # runs dpkg in its own session, so the limit kills apt-get but not dpkg:
+      # wait for that dpkg to exit and release its lock inside the same bound.
+      ${privilege[@]+"${privilege[@]}"} timeout --kill-after=30 "$limit" sh -c \
+        'while command -v pgrep >/dev/null && pgrep -x dpkg >/dev/null; do sleep 2; done; exec dpkg --configure -a' || true
     fi
     # The `+` form expands an empty array under `set -u` in bash 3.2 (macOS) too.
     ${privilege[@]+"${privilege[@]}"} timeout --kill-after=30 "$limit" apt-get \

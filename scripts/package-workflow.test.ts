@@ -325,7 +325,12 @@ describe('bounded apt installs', () => {
 
   it('bounds each attempt and names the mirror and step on failure', () => {
     expect(helper).toContain('timeout --kill-after=30 "$limit" apt-get')
-    expect(helper).toContain('timeout --kill-after=30 "$limit" dpkg --configure -a')
+    expect(helper).toContain('timeout --kill-after=30 "$limit" sh -c')
+    // The killed apt-get leaves its dpkg running and holding the lock; the
+    // recovery waits for it inside the same bound instead of failing on it.
+    expect(helper).toContain(
+      "'while command -v pgrep >/dev/null && pgrep -x dpkg >/dev/null; do sleep 2; done; exec dpkg --configure -a'"
+    )
     expect(helper).toContain('limit="${BUDDY_APT_LIMIT:-$limit}"')
     expect(helper).toContain(
       '-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30'
