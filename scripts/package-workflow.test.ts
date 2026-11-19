@@ -381,6 +381,51 @@ describe('bounded apt installs', () => {
   })
 })
 
+describe('cached apt downloads', () => {
+  const read = (path: string) => readFileSync(path, 'utf8').replaceAll('\r\n', '\n')
+  const workflow = read('.github/workflows/rust.yml')
+  const jobs = {
+    'native-build': workflow.split('\n  matching-fixture-performance:\n')[0],
+    'native-runtime': workflow.split('\n  matching-fixture-performance:\n')[1] ?? '',
+  }
+
+  it.each(Object.entries(jobs))(
+    '%s restores, cleans and saves downloads around its install',
+    (key, job) => {
+      const steps = job.split(/\n\s+- (?=name:|uses:)/)
+      const index = (name: string) => steps.findIndex(step => step.startsWith(`name: ${name}\n`))
+      const install = steps.findIndex(step => step.includes('buddy_apt sudo install'))
+      const order = [
+        'Prepare cached apt downloads',
+        'Restore cached apt downloads',
+        'Drop superseded apt downloads',
+        'Save cached apt downloads',
+      ].map(index)
+      expect(order.every(position => position > -1)).toBe(true)
+      expect(order[1]).toBeLessThan(install)
+      expect(order[2]).toBeGreaterThan(install)
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+
+      const restore = steps[order[1]]
+      const save = steps[order[3]]
+      // Restore and save must name the same path, or the cache version differs.
+      for (const step of [restore, save]) {
+        expect(step).toContain('path: /var/cache/apt/archives/*.deb')
+        expect(step).toContain("if: runner.os == 'Linux'")
+      }
+      expect(restore).toContain('uses: actions/cache/restore@')
+      expect(restore).toContain(`key: apt-${key}-\${{ steps.apt-image.outputs.image }}-`)
+      expect(restore).toMatch(new RegExp(`\\n\\s+apt-${key}-(?:\\n|$)`))
+      expect(save).toContain('uses: actions/cache/save@')
+      expect(save).toContain('key: ${{ steps.apt-cache.outputs.cache-primary-key }}')
+      expect(save).toContain("steps.apt-cache.outputs.cache-hit != 'true'")
+      // The runner user restores into apt's root-owned archive directory.
+      expect(steps[order[0]]).toContain('sudo chown "$USER" /var/cache/apt/archives')
+      expect(steps[order[2]]).toContain('sudo apt-get autoclean')
+    }
+  )
+})
+
 describe('performance runtime provisioning', () => {
   // The performance job runs the prebuilt native binary and an unpacked
   // Electron build; it compiles nothing. Run 42134408589 timed out on Ubuntu
