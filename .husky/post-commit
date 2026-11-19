@@ -1,42 +1,7 @@
 #!/bin/sh
-set -e
-# post-commit: generate changelog entry and amend the commit.
-#
-# This hook auto-generates a CHANGELOG.md entry from the commit message of
-# the commit that just completed, then amends the commit to include it.
-#
-# Uses a flag file (.git/.post-commit-amend) to prevent an infinite loop:
-#   1. First run: generates changelog, amends commit with --no-verify, sets flag
-#   2. Amend triggers post-commit again, but flag is present → exits immediately
-#   3. Flag is deleted so the next real commit starts fresh
-#
-# This is the established "post-commit amend" pattern for auto-generated files
-# that need the commit message (which isn't available in pre-commit).
-
-# Use git rev-parse for worktree/submodule safety (`.git` may be a file)
-GIT_DIR="$(git rev-parse --git-dir)"
-AMEND_FLAG="$GIT_DIR/.post-commit-amend"
-COMMIT_MSG="$GIT_DIR/COMMIT_EDITMSG"
-
-if [ -f "$AMEND_FLAG" ]; then
-	rm "$AMEND_FLAG"
-	exit 0
-fi
-
-# Generate changelog entry from the commit message file
-bun scripts/changelog-from-commit.ts "$COMMIT_MSG" 2>&1 || echo "⚠ changelog-from-commit failed (non-fatal)" >&2
-
-# Only amend if CHANGELOG.md was modified by the script (not pre-existing edits).
-# Check the staged + unstaged diff against HEAD to see if the script changed it.
-if ! git diff HEAD --quiet -- CHANGELOG.md 2>/dev/null; then
-	git add CHANGELOG.md
-	touch "$AMEND_FLAG"
-	if ! git commit --amend -C HEAD --no-verify; then
-		rm -f "$AMEND_FLAG"
-	fi
-fi
-
-# Rebuild codeindex (non-blocking, non-fatal)
+# post-commit: rebuild the local code index (non-blocking, non-fatal).
+# Commits no longer write CHANGELOG.md; release notes are generated from merged
+# pull request titles when a release is published.
 if command -v codeindex >/dev/null 2>&1; then
 	codeindex index --quiet &
 fi

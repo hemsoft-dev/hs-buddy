@@ -1,14 +1,13 @@
 /**
- * Auto-increment the PATCH (revision) version on every commit/build.
+ * Increment the PATCH (revision) version to cut a release.
  *
- * 1. Bumps the patch number in package.json
- * 2. Renderer components read the version from src/constants/appVersion.ts,
- *    which re-exports package.json as the single source of truth.
+ * Run it in a pull request when the next merge to main should be published:
+ * the release workflow publishes a package.json version that differs from its
+ * parent commit, with notes generated from the merged pull request titles.
+ * The renderer (src/constants/appVersion.ts) and the native build
+ * (rust/crates/buddy-app/build.rs) both read the version from package.json.
  *
- * CHANGELOG header creation is handled by changelog-from-commit.ts
- * (runs in the post-commit hook after this commit, then amends to include it).
- *
- * Usage: bun scripts/bump-revision.ts
+ * Usage: bun run bump
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -24,8 +23,5 @@ const newVersion = `${major}.${minor}.${patch + 1}`
 pkg.version = newVersion
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
 console.log(`✓ package.json  ${major}.${minor}.${patch} → ${newVersion}`)
-
-// CHANGELOG header creation is handled by changelog-from-commit.ts
-// (runs in the post-commit hook after this commit, then amends to include it).
 
 console.log(`\n🏷️  Revision bumped to ${newVersion}`)

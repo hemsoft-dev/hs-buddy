@@ -2,12 +2,13 @@
 
 # Changelog
 
-All notable changes to this project will be documented in this file.
+Release notes after 0.1.1698 are on
+[GitHub Releases](https://github.com/hemsoft-dev/hs-buddy/releases), generated
+from the titles of the pull requests merged since the previous release. This
+file keeps the history up to 0.1.1698 and is no longer updated.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
 
 ## [0.1.1698] - 2026-11-18
 

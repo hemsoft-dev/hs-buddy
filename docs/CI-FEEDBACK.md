@@ -60,7 +60,10 @@ The release workflow listens only for a completed, successful `CI` run caused by
 `main` push. Before publishing, it verifies that the triggering run contains one
 successful `ci-complete` job and its head SHA is still the live `main` SHA. A
 package-version change is eligible; if its run was superseded, the next successful
-same-version commit carries it forward until that version is published. The
+same-version commit carries it forward until that version is published. Commits
+no longer bump the version: a pull request runs `bun run bump` when its merge
+should be released, and the release notes are generated from the titles of the
+pull requests merged since the previous tag. The
 workflow creates an owned annotated tag at the exact qualified SHA, creates a
 CI-run-marked draft, and rechecks the exact tag object, draft ID, and live `main`
 at the publication decision point. If the candidate is superseded before
