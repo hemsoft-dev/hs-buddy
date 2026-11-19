@@ -131,8 +131,8 @@ class RetainedCompactCapture(unittest.TestCase):
         self.assertEqual(struct.unpack(">II", CAPTURE.read_bytes()[16:24]), (900, 650))
         self.assertEqual(PROVENANCE["engine"]["tesseract"], "tesseract 5.3.4")
 
-    def test_default_profile_still_rejects_the_capture_in_all_nine_layouts(self):
-        for platform in ("win32", "darwin"):
+    def test_macos_default_profile_still_rejects_the_capture_in_all_nine_layouts(self):
+        for platform in ("darwin",):
             with self.subTest(platform=platform), Replay(self.directory) as replay:
                 with self.assertRaisesRegex(RuntimeError, NO_FOOTER):
                     self.check(replay, platform)

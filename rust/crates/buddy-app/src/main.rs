@@ -402,6 +402,7 @@ fn main() {
         // SAFETY: the first statement of `main`, before any thread starts.
         unsafe { std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1") };
     }
+    buddy_core::http::initialize_tls();
     match command_line::parse(std::env::args_os().skip(1)) {
         Ok(command_line::Command::Open) => {}
         #[cfg(windows)]

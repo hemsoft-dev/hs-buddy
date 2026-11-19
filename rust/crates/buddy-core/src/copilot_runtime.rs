@@ -16,7 +16,7 @@ use crate::copilot_sdk::{client_options, private_directory};
 /// The runtime bundled by the pinned `github-copilot-sdk`. Keep it equal to the
 /// `version=` line of that crate's `cli-version.txt`: a stale value rejects the
 /// extracted runtime and every turn fails as ServiceUnavailable (#912).
-pub const RUNTIME_VERSION: &str = "1.0.105";
+pub const RUNTIME_VERSION: &str = "1.0.110";
 const READY: &[u8] = b"prepare\n";
 #[cfg(windows)]
 const PROGRAM: &str = "copilot-runtime.exe";

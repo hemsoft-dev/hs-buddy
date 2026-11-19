@@ -1,0 +1,17 @@
+{
+  "head": "09470dfacfff40f34074028a843529cd718d8a39",
+  "jobUrl": "https://github.com/hemsoft-dev/hs-buddy/actions/runs/43855858658/job/133259808253",
+  "artifactId": 14223716269,
+  "artifactSha256": "543e724797a9d7f3667001c048269f9752fede0a4d3a3729a17673352ec65c1a",
+  "note": "Original captured OCR replay; image itself retained in CI evidence and inspected. This is not new-head rendered evidence.",
+  "captures": {
+    "three-category-opens-dark.png": {
+      "sha256": "b7059435c197cf1bac4cc09830c348f22f2b5cee74e470c9b75560c9ba43f294",
+      "ocrPsm11": "ao x\n\n\u00a9 suday fie edit view help\n\n#8\n\nog\n\nes\n\nls... y\n\ncs)\n\nreload synced settings\n\nsettings\n\naccounts:\n\nappearance\n\npull requests copilot\n\nnotifications\n\nweather advanced\n\ndark\n\nlight\n\nreset colors\n\naccent color\n\n#02639c\n\nsave\n\ntext color\n\na\n\n2\n\n#ececee\n\nsave\n\nbackground color\n\n#elele\n\nsave\n\n*\n\n\u2018secondary background\n\n#252526\n\nsave\n\nstatus bar background\n\n#181818\n\nsave\n\nstatus bar text,\n\n#9d9d9d\n\nsave\n\noprs\n\non:\n\n302m\n\noschedules 0 jobs\n\nno gh account"
+    },
+    "restored-accounts-light.png": {
+      "sha256": "eefbc2c3e5fb187aef54391c9f530d31d6ca6d2003b1e74827492571297c8c80",
+      "ocrPsm11": "2b\n\na\n\ndashboard x\n\ne\n\n\u2014\n\nq\n\nsettings\n\na ea\n\n| wens i scares]\n\nsettings reloaded\n\n\u2018configure a github username and organization. authentication stays in github cll\n\n\u2018welcome to buddy. add your first account to get started.\n\ngithiub username\n\norganization\n\n(\n\nj\n\ngithub enterprise slug\n\n\u00a9\n\na\n\nq\n\n2% no gh account\n\n\u00a9 115439am\n\noprs oschedules ojobs"
+    }
+  }
+}

@@ -76,10 +76,18 @@ def analysis_images(path):
 
 
 def browser_analysis(path):
-    # Hosted Tesseract 5.3.4 read the compact dark footer as OQjobs from the
-    # nearest-neighbor copy. Measure it with the profile that reads the body.
+    # Keep already-qualified profiles first. Some Windows captures read zero
+    # counts as Q-prefixed labels in every default layout. Only that missing
+    # footer permits the existing Linux contrast profile; ambiguity and tool
+    # failures still stop immediately. Use the selected profile for the body.
     smooth = sys.platform == "linux"
-    image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
+    try:
+        image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
+    except settings.ocr.MissingStatusFooter:
+        if sys.platform != "win32":
+            raise
+        smooth = True
+        image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
     yield from settings.ocr.analysis_images(image, settings.run, smooth_inverted=smooth)
 
 

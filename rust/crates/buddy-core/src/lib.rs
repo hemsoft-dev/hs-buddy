@@ -34,6 +34,7 @@ pub mod pollen;
 pub mod pollen_credentials;
 pub mod ralph;
 pub mod secrets;
+pub mod settings_activity;
 pub mod settings_backend;
 mod sha256;
 pub mod stats;

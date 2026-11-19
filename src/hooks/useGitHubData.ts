@@ -104,18 +104,23 @@ export function useGitHubData<T>({
   const [loading, setLoading] = useState(cacheKey !== null && !cachedEntry)
   const [error, setError] = useState<string | null>(null)
 
-  // Reset state when the identity (cacheKey) changes — useLayoutEffect fires
-  // before paint so stale data from the previous key never flashes on screen.
+  // Reset this render before children can observe the previous identity's data.
+  const [renderedKey, setRenderedKey] = useState(cacheKey)
+  if (renderedKey !== cacheKey) {
+    setRenderedKey(cacheKey)
+    const { data: nextData, hasCache } = resolveNextCacheState<T>(cacheKey)
+    setData(nextData)
+    setLoading(cacheKey !== null && !hasCache)
+    setError(null)
+  }
+
+  // Invalidate the old request when the new identity commits.
   const prevKeyRef = useRef(cacheKey)
   useLayoutEffect(() => {
     if (prevKeyRef.current !== cacheKey) {
       prevKeyRef.current = cacheKey
       // Invalidate any in-flight request from the previous cacheKey
       requestIdRef.current += 1
-      const { data: nextData, hasCache } = resolveNextCacheState<T>(cacheKey)
-      setData(nextData)
-      setLoading(cacheKey !== null && !hasCache)
-      setError(null)
     }
   }, [cacheKey])
 

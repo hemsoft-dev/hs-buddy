@@ -2,13 +2,19 @@
 use crate::{app::BuddyApp, zoom::zpx};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme, Selectable as _, Sizable as _, h_flex};
 use gpui_kit::{
-    Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
-    div,
+    Context, DismissEvent, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, WeakEntity, div,
+};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
 };
 pub const TAB_BAR_HEIGHT: f32 = 35.0;
+type Overlay = Rc<Cell<bool>>;
+type OverlaySlot = Rc<RefCell<Option<Overlay>>>;
 
 #[derive(Default)]
 struct TabScroll {
@@ -16,6 +22,78 @@ struct TabScroll {
     active: Option<String>,
     keys: Vec<String>,
     width: gpui_kit::Pixels,
+}
+
+fn tab_menu(
+    mut menu: PopupMenu,
+    owner: WeakEntity<BuddyApp>,
+    key: &str,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let Some(app) = owner.upgrade() else {
+        return menu;
+    };
+    let tabs = &app.read(cx).tabs;
+    let Some(index) = tabs.items.iter().position(|tab| tab.key == key) else {
+        return menu;
+    };
+    let count = tabs.items.len();
+    for (label, action, disabled) in [
+        ("Close", 0, false),
+        ("Close Others", 1, count <= 1),
+        ("Close to the Right", 2, index + 1 == count),
+        ("Close All", 3, false),
+        ("Move Left", 4, false),
+        ("Move Right", 5, false),
+    ] {
+        let owner = owner.clone();
+        let key = key.to_string();
+        menu = menu.item(PopupMenuItem::new(label).disabled(disabled).on_click(
+            move |_, window, cx| {
+                let _ = owner.update(cx, |app, cx| {
+                    // The target can disappear while a popup is open. In
+                    // particular, a stale Close All must not close new tabs.
+                    if !app.tabs.items.iter().any(|tab| tab.key == key) {
+                        return;
+                    }
+                    match action {
+                        0 => app.tabs.close(&key),
+                        1 => app.tabs.retain(&key, false),
+                        2 => app.tabs.retain(&key, true),
+                        3 => app.tabs.close_all(),
+                        4 => app.tabs.move_tab(&key, -1),
+                        _ => app.tabs.move_tab(&key, 1),
+                    }
+                    app.restore_tab(window, cx);
+                });
+            },
+        ));
+    }
+    menu
+}
+
+fn set_overlay(open: &Cell<bool>, value: bool, cx: &mut gpui_kit::App) {
+    if open.replace(value) != value {
+        crate::browser_view::Overlays::set(value, cx);
+    }
+}
+
+/// A bulk close can remove the trigger before its open-change callback runs.
+/// Every menu therefore releases its guard on dismissal and on entity release.
+fn menu_overlay(owner: WeakEntity<BuddyApp>, open: Overlay, cx: &mut Context<PopupMenu>) {
+    let release_open = open.clone();
+    let release_owner = owner.clone();
+    cx.on_release(move |_, cx| {
+        set_overlay(&release_open, false, cx);
+        let _ = release_owner.update(cx, |_, cx| cx.notify());
+    })
+    .detach();
+    let menu = cx.entity();
+    cx.subscribe(&menu, move |_, _, _: &DismissEvent, cx| {
+        set_overlay(&open, false, cx);
+        let _ = owner.update(cx, |_, cx| cx.notify());
+    })
+    .detach();
 }
 
 pub fn render(
@@ -109,7 +187,18 @@ pub fn render(
         let keyboard_scroll = scroll.clone();
         let close = key.clone();
         let menu_key = key.clone();
+        let context_key = key.clone();
         let weak = cx.entity().downgrade();
+        let context_owner = weak.clone();
+        let dropdown_open = window
+            .use_keyed_state(
+                gpui_kit::ElementId::Name(format!("tab-menu-guard:{}", tab.key).into()),
+                cx,
+                |_, _| OverlaySlot::default(),
+            )
+            .read(cx)
+            .clone();
+        let dropdown_release = dropdown_open.clone();
         let active = app.tabs.active.as_ref() == Some(&key);
         tabs = tabs.child(
             h_flex()
@@ -189,40 +278,33 @@ pub fn render(
                         .xsmall()
                         .label("⋯")
                         .accessibility_label(format!("{} tab actions", tab.label))
-                        .dropdown_menu(move |mut menu, _, _| {
-                            for (label, action) in [
-                                ("Close", 0),
-                                ("Close Others", 1),
-                                ("Close to the Right", 2),
-                                ("Close All", 3),
-                                ("Move Left", 4),
-                                ("Move Right", 5),
-                            ] {
-                                let weak = weak.clone();
-                                let key = menu_key.clone();
-                                menu = menu.item(PopupMenuItem::new(label).on_click(
-                                    move |_, window, cx| {
-                                        weak.update(cx, |this, cx| {
-                                            match action {
-                                                0 => this.tabs.close(&key),
-                                                1 => this.tabs.retain(&key, false),
-                                                2 => this.tabs.retain(&key, true),
-                                                3 => this.tabs.close_all(),
-                                                4 => this.tabs.move_tab(&key, -1),
-                                                _ => this.tabs.move_tab(&key, 1),
-                                            }
-                                            this.restore_tab(window, cx);
-                                        })
-                                        .ok();
-                                    },
-                                ));
+                        .dropdown_menu(move |menu, _, cx| {
+                            // A released previous menu must not clear the
+                            // newly opened menu's guard during a rapid reopen.
+                            let open = Overlay::default();
+                            if let Some(previous) =
+                                dropdown_release.borrow_mut().replace(open.clone())
+                            {
+                                set_overlay(&previous, false, cx);
                             }
-                            menu
+                            // Dropdown content is built only when shown; its
+                            // open-change notification can precede this build.
+                            set_overlay(&open, true, cx);
+                            menu_overlay(weak.clone(), open, cx);
+                            tab_menu(menu, weak.clone(), &menu_key, cx)
                         })
-                        .on_open_change(|open, _, cx| {
-                            crate::browser_view::Overlays::set(*open, cx)
+                        .on_open_change(move |open, _, cx| {
+                            if let Some(current) = dropdown_open.borrow().as_ref() {
+                                set_overlay(current, *open, cx);
+                            }
                         }),
-                ),
+                )
+                .context_menu(move |menu, _, cx| {
+                    let open = Rc::new(Cell::new(false));
+                    set_overlay(&open, true, cx);
+                    menu_overlay(context_owner.clone(), open, cx);
+                    tab_menu(menu, context_owner.clone(), &context_key, cx)
+                }),
         );
     }
     strip = strip.child(tabs).child(div().w(zpx(2.0)));

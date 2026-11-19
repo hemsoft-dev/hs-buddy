@@ -40,6 +40,30 @@ function clearRetryState(
   exhausted.delete(key)
 }
 
+function armRetry(
+  key: string,
+  timers: Map<string, number>,
+  attempts: Map<string, number>,
+  exhausted: Set<string>,
+  notify: () => void
+) {
+  if (timers.has(key)) return
+  const attempt = attempts.get(key) ?? 0
+  if (attempt >= MAX_RECONCILIATION_RETRIES) {
+    exhausted.add(key)
+    return
+  }
+  attempts.set(key, attempt + 1)
+  const timer = window.setTimeout(
+    () => {
+      timers.delete(key)
+      notify()
+    },
+    RECONCILIATION_RETRY_MS * 2 ** attempt
+  )
+  timers.set(key, timer)
+}
+
 export function useUsageProviderRetry(
   retryContext: string
 ): [number, ScheduleRetry, CanAttemptReconciliation] {
@@ -62,21 +86,9 @@ export function useUsageProviderRetry(
     const exhaustedKeys = exhausted.current
     const handleRetry = (event: Event) => {
       const { key } = (event as CustomEvent<OverrideRetryEvent>).detail
-      if (activeTimers.has(key)) return
-      const attempt = activeAttempts.get(key) ?? 0
-      if (attempt >= MAX_RECONCILIATION_RETRIES) {
-        exhaustedKeys.add(key)
-        return
-      }
-      activeAttempts.set(key, attempt + 1)
-      const timer = window.setTimeout(
-        () => {
-          activeTimers.delete(key)
-          setRevision(current => current + 1)
-        },
-        RECONCILIATION_RETRY_MS * 2 ** attempt
-      )
-      activeTimers.set(key, timer)
+      armRetry(key, activeTimers, activeAttempts, exhaustedKeys, () => {
+        setRevision(current => current + 1)
+      })
     }
     const handleCancel = (event: Event) => {
       const { key } = (event as CustomEvent<OverrideRetryEvent>).detail

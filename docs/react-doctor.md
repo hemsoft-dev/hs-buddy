@@ -11,7 +11,7 @@ the neighboring `.md` workflow definitions. React Doctor's
 files so findings must be fixed in workflow sources or in hand-maintained YAML.
 
 Run `bun install --frozen-lockfile`, then `bun run react-doctor`. Windows and
-Ubuntu use React Doctor 0.9.13 from the exact development dependency and
+Ubuntu use React Doctor 0.9.22 from the exact development dependency and
 `bun.lock`, with the same `doctor.config.json`. Node runs the CLI; Bun runs the
 repository wrapper. No external score service is required. The PowerShell
 `scripts/run-react-doctor.ps1 -ScoreOnly` command delegates to this full scan.
@@ -59,6 +59,11 @@ were simplified. The remaining findings were triaged as follows:
 | `src/hooks/useCopilotSessions.ts`, `src/hooks/useTodoist.ts` | Loading resets already occur in `finally`, guarded against unmounted updates. |
 | `src/components/PullRequestHistoryPanel.tsx` | The loading reset is in `finally` and restricted to the latest request. Private rendering components stay beside their only caller; an exact-file override covers `no-multi-component-file`. |
 | `src/components/settings/SettingsNotifications.tsx` | The URL is held in a ref and revoked by the shared callback on completion, failure, replacement, and unmount. |
+
+The 0.9.22 update added no suppressions. Its new findings were fixed in code:
+`useGitHubData` and `useOrgCachedFetch` now reset state during render when the
+cache key changes instead of in a layout effect, and `useUsageProviderRetry`
+moves retry-timer arming from its event handler into `armRetry`.
 
 To verify regression detection, temporarily add a component that assigns
 `ref.current` during render under `src/`, run `bun run react-doctor`, and confirm

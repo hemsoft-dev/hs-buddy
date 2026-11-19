@@ -1,8 +1,18 @@
 //! Assistant output is text. Media and raw HTML cannot initiate resource loads.
+use gpui_kit::base::Disableable as _;
+use gpui_kit::component::button::Button;
 use gpui_kit::component::text::{
-    MarkdownExtensions, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView, markdown_ast,
+    MarkdownExtensions, MarkdownNode, MarkdownParseContext, MarkdownPlugin, TextView,
+    TextViewStyle, markdown_ast,
 };
-use gpui_kit::{ElementId, IntoElement};
+use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex};
+use gpui_kit::{
+    ClipboardItem, ElementId, IntoElement, ParentElement, StyleRefinement, Styled, div, px,
+};
+
+#[cfg(test)]
+#[path = "markdown_copy_tests.rs"]
+mod copy_tests;
 
 struct SuppressedMedia {
     block: bool,
@@ -54,6 +64,34 @@ fn web_link(value: &str) -> Option<String> {
 pub(crate) fn response(id: impl Into<ElementId>, source: String) -> impl IntoElement {
     TextView::markdown(id, source)
         .selectable(true)
+        .style(TextViewStyle::default().code_block(StyleRefinement::default().pt(px(44.))))
+        .code_block_actions(|block, _, cx| {
+            let code = block.code();
+            h_flex()
+                .gap_2()
+                .children(block.lang().filter(|lang| !lang.is_empty()).map(|lang| {
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(lang)
+                }))
+                .child(
+                    Button::new(("buddy-copy-code", block.span.map_or(0, |span| span.start)))
+                        .small()
+                        .label("Copy code")
+                        .accessibility_label("Copy code")
+                        .tab_stop(true)
+                        .disabled(code.is_empty())
+                        .on_click(move |_, _, cx| {
+                            if !code.is_empty() {
+                                // Match Electron's pre/code text, including its final newline.
+                                cx.write_to_clipboard(ClipboardItem::new_string(format!(
+                                    "{code}\n"
+                                )));
+                            }
+                        }),
+                )
+        })
         .markdown_extensions(
             MarkdownExtensions::default()
                 .plugin(SuppressedMedia { block: true })

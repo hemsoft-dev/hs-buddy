@@ -6,6 +6,30 @@ const PAGE: usize = 30;
 const PROJECT_PAGE: usize = 8;
 
 impl TodoistView {
+    pub(super) fn toggle_calendar_group(
+        &mut self,
+        account: &Id,
+        group: &str,
+        cx: &mut Context<Self>,
+    ) {
+        // A retained callback must not alter another account or project view.
+        if self.pane == Pane::Projects
+            || self
+                .data
+                .as_ref()
+                .is_none_or(|data| &data.account != account)
+        {
+            return;
+        }
+        let key = format!("{}:{group}", account.as_str());
+        if !self.collapsed_days.remove(&key) {
+            self.collapsed_days.insert(key);
+        }
+        self.task_page = 0;
+        self.delete_target = None;
+        cx.notify();
+    }
+
     pub(super) fn can_write(&self) -> bool {
         !self.busy && self.data.is_some() && self.planner.as_ref().is_some_and(Planner::can_submit)
     }
@@ -232,6 +256,46 @@ impl TodoistView {
                     .get(&task.project_id)
                     .is_some_and(|project| project.name.to_lowercase().contains(&needle))
         });
+        let matching_tasks = !rows.is_empty();
+        if self.pane != Pane::Projects {
+            let mut groups: Vec<(String, usize)> = Vec::new();
+            for (group, _) in &rows {
+                if let Some((last, count)) = groups.last_mut()
+                    && last == group
+                {
+                    *count += 1;
+                } else {
+                    groups.push((group.clone(), 1));
+                }
+            }
+            let mut controls = h_flex().flex_wrap().gap_2();
+            for (index, (group, count)) in groups.into_iter().enumerate() {
+                let account = data.account.clone();
+                let collapsed = self
+                    .collapsed_days
+                    .contains(&format!("{}:{group}", account.as_str()));
+                let label = format!(
+                    "{} {group} ({count})",
+                    if collapsed { "Expand" } else { "Collapse" }
+                );
+                controls = controls.child(
+                    Button::new(("todoist-calendar-day", index))
+                        .label(label.clone())
+                        .accessibility_label(label)
+                        .selected(!collapsed)
+                        .tab_stop(true)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_calendar_group(&account, &group, cx);
+                        })),
+                );
+            }
+            body = body.child(controls);
+            rows.retain(|(group, _)| {
+                !self
+                    .collapsed_days
+                    .contains(&format!("{}:{group}", data.account.as_str()))
+            });
+        }
         let page = self.task_page.min(rows.len().saturating_sub(1) / PAGE);
         let mut list = v_flex()
             .gap_3()
@@ -364,7 +428,9 @@ impl TodoistView {
             list = list.child(row);
         }
         if rows.is_empty() {
-            list = list.child(div().child(if needle.is_empty() {
+            list = list.child(div().child(if matching_tasks {
+                "All matching tasks are in collapsed days."
+            } else if needle.is_empty() {
                 "No tasks in this view."
             } else {
                 "No tasks match this filter."

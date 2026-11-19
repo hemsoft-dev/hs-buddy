@@ -6,7 +6,14 @@ use std::time::Duration;
 pub const USER_AGENT: &str = "hs-buddy/1.0";
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Select Buddy's provider independently of optional telemetry. An embedding
+/// process's existing selection is retained; repeated initialization is safe.
+pub fn initialize_tls() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 pub fn client() -> reqwest::Client {
+    initialize_tls();
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(REQUEST_TIMEOUT)
