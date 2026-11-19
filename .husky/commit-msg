@@ -1,5 +1,5 @@
 set -e
 
 # Validate commit message follows conventional commits.
-# No file modifications here — changelog is generated in post-commit.
+# No file modifications here.
 bunx commitlint --edit "$1"

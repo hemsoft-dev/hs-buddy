@@ -69,9 +69,6 @@ function createFixture() {
     `#!/usr/bin/env sh
 printf 'bun %s\\n' "$*" >> "$HOOK_TEST_LOG"
 if [ "$*" = "$HOOK_FAIL_COMMAND" ]; then
-  # Simulate a crash mid-write: mutate the file before reporting failure so
-  # rollback assertions can tell a real restore from a no-op.
-  printf '{\\n  "version": "0.0.2-crashed"\\n}\\n' > "$HOOK_PACKAGE_JSON"
   exit 17
 fi
 `
@@ -81,8 +78,7 @@ fi
     `#!/usr/bin/env sh
 printf 'npx %s\\n' "$*" >> "$HOOK_TEST_LOG"
 printf 'const value = 1\\n' > "$HOOK_FORMAT_FILE"
-printf '{\\n  "version": "0.0.1"\\n}\\n' > "$HOOK_PACKAGE_JSON"
-git add "$HOOK_FORMAT_FILE" "$HOOK_PACKAGE_JSON"
+git add "$HOOK_FORMAT_FILE"
 `
   )
   executable(
@@ -112,7 +108,6 @@ function runHook(fixture: ReturnType<typeof createFixture>, failCommand = '') {
       env: isolatedEnvironment({
         HOOK_FAIL_COMMAND: failCommand,
         HOOK_FORMAT_FILE: shellPath(fixture.source),
-        HOOK_PACKAGE_JSON: shellPath(fixture.packageJson),
         HOOK_TEST_BIN: shellPath(fixture.fakeBin),
         HOOK_TEST_LOG: shellPath(fixture.log),
       }),
@@ -154,31 +149,22 @@ describe('pre-commit hook ordering', () => {
       'bun run typecheck',
       'npx lint-staged',
       'bun run coverage:ratchet',
-      'bun scripts/bump-revision.ts',
       '',
     ])
     expect(readFileSync(fixture.source, 'utf8')).toBe('const value = 1\n')
     expect(git(fixture.root, 'show', ':src.ts')).toBe('const value = 1\n')
   }, 35_000)
 
-  it('restores package.json when the revision bump fails after formatting', () => {
+  it('never changes the package version or the changelog', () => {
     const fixture = createFixture()
+    const packageBefore = readFileSync(fixture.packageJson, 'utf8')
 
-    const result = runHook(fixture, 'scripts/bump-revision.ts')
+    const result = runHook(fixture)
 
-    expect(result.status).toBe(17)
-    expect(result.stderr).toContain('package.json restored')
-
-    // Formatting (a completed earlier phase-2 step) stays applied and staged;
-    // the documented recovery is `git restore --staged --worktree .`.
-    expect(readFileSync(fixture.source, 'utf8')).toBe('const value = 1\n')
-    expect(git(fixture.root, 'show', ':src.ts')).toBe('const value = 1\n')
-
-    // The fake bun half-wrote a bumped version before crashing; the restore
-    // must roll that mutation back to the pre-bump (formatted) content in
-    // both the worktree and the index.
-    const formattedPackageJson = '{\n  "version": "0.0.1"\n}\n'
-    expect(readFileSync(fixture.packageJson, 'utf8')).toBe(formattedPackageJson)
-    expect(git(fixture.root, 'show', ':package.json')).toBe(formattedPackageJson)
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(fixture.packageJson, 'utf8')).toBe(packageBefore)
+    expect(git(fixture.root, 'show', ':package.json')).toBe(packageBefore)
+    const commands = hook.split('\n').filter(line => !line.trimStart().startsWith('#'))
+    expect(commands.filter(line => /bump-revision|CHANGELOG|package\.json/.test(line))).toEqual([])
   }, 35_000)
 })

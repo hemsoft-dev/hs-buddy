@@ -8,9 +8,9 @@
 #   failure aborts the commit but may leave reformatted staged files and
 #   generated files in place; recover with
 #   `git restore --staged --worktree .` if unwanted.
-# - The revision bump restores package.json itself when it fails or when the
-#   hook is interrupted mid-bump, so the most common late generator failure
-#   strands nothing.
+# - Commits never change the package version or CHANGELOG.md, so concurrent
+#   pull requests do not conflict on them. Releases bump the version on
+#   purpose (`bun run bump`); see docs/CI-FEEDBACK.md.
 
 set -e
 
@@ -43,32 +43,6 @@ npx lint-staged
 # Ratchet coverage thresholds up (never down)
 bun run coverage:ratchet
 
-# Auto-bump revision: package.json only (renderer reads from appVersion.ts)
-# Snapshot package.json so a failed or interrupted bump cannot strand
-# half-applied mutations.
-BUMP_SNAPSHOT="$(mktemp "${TMPDIR:-/tmp}/hs-buddy-pre-commit-pkg.XXXXXX")"
-cp package.json "$BUMP_SNAPSHOT"
-discard_bump_snapshot() {
-  rm -f "$BUMP_SNAPSHOT"
-}
-trap discard_bump_snapshot EXIT
-interrupted_during_bump() {
-  cp "$BUMP_SNAPSHOT" package.json 2>/dev/null || true
-  echo "pre-commit: interrupted during revision bump; package.json restored to its pre-bump content" >&2
-  exit 130
-}
-trap interrupted_during_bump INT TERM
-
-bump_status=0
-bun scripts/bump-revision.ts || bump_status=$?
-trap - INT TERM
-
-if [ "$bump_status" -ne 0 ]; then
-  cp "$BUMP_SNAPSHOT" package.json
-  echo "pre-commit: bump-revision failed; package.json restored to its pre-bump content" >&2
-  exit "$bump_status"
-fi
-
 # Stage all auto-generated files so they're included in this commit
 # (git add in pre-commit IS included in the commit — verified)
-git add vitest.config.ts package.json
+git add vitest.config.ts
