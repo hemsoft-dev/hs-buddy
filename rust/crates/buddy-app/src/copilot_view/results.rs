@@ -15,6 +15,8 @@ use gpui_kit::{
 use super::markdown;
 use crate::runtime::Runtime;
 use crate::zoom::zpx;
+#[path = "results_publish.rs"]
+mod publish;
 #[cfg(test)]
 #[path = "results_tests.rs"]
 mod tests;
@@ -50,6 +52,7 @@ pub(super) struct ResultsView {
     detail_error: Option<String>,
     notice: Option<String>,
     skipped: usize,
+    publication: publish::State,
 }
 fn status_label(status: Status) -> &'static str {
     match status {
@@ -66,6 +69,11 @@ impl ResultsView {
         let category = cx.new(|cx| InputState::new(window, cx).placeholder("Category"));
         cx.subscribe(&category, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
+        cx.observe_global::<crate::settings::Settings>(|this, cx| {
+            this.publication.pending = None;
+            cx.notify();
+        })
+        .detach();
         Self {
             backend: CopilotBackend::new(&buddy_core::convex_data::convex_url()).ok(),
             category,
@@ -90,12 +98,14 @@ impl ResultsView {
             detail_error: None,
             notice: None,
             skipped: 0,
+            publication: publish::State::default(),
         }
     }
     fn busy(&self) -> bool {
         self.list_loading || self.detail_loading || self.write_loading
     }
     pub fn activate(&mut self, cx: &mut Context<Self>) {
+        self.publication.pending = None;
         if !self.initialized {
             self.load(true, cx);
         }
@@ -168,6 +178,7 @@ impl ResultsView {
         cx.notify();
     }
     fn load(&mut self, newest: bool, cx: &mut Context<Self>) {
+        self.publication.pending = None;
         if self.busy() || !cx.has_global::<Runtime>() {
             return;
         }
@@ -234,6 +245,7 @@ impl ResultsView {
         self.load(true, cx);
     }
     fn open(&mut self, id: String, cx: &mut Context<Self>) {
+        self.publication.pending = None;
         if self.busy() || !cx.has_global::<Runtime>() {
             return;
         }
@@ -276,6 +288,7 @@ impl ResultsView {
         cx.notify();
     }
     fn remove(&mut self, cx: &mut Context<Self>) {
+        self.publication.pending = None;
         if self.busy() || !self.delete_confirm {
             return;
         }
@@ -396,6 +409,7 @@ impl ResultsView {
                     .outline()
                     .disabled(self.busy())
                     .on_click(cx.listener(|this, _, _, cx| {
+                        this.publication.pending = None;
                         this.delete_confirm = true;
                         cx.notify();
                     })),
@@ -419,6 +433,7 @@ impl ResultsView {
             );
         }
         detail = detail.child(actions);
+        detail = detail.child(self.publication_controls(cx));
         if self.delete_confirm {
             detail = detail.child(
                 v_flex()
@@ -605,6 +620,9 @@ impl Render for ResultsView {
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    // Centering an intrinsically tall detail pane paints it over the filters.
+                    .items_stretch()
+                    .overflow_hidden()
                     .gap_4()
                     .child(list)
                     .child(self.detail(cx)),
