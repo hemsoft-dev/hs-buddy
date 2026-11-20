@@ -477,13 +477,33 @@ class Driver:
         for _ in range(2 if self.session == "macos" else 1):
             self.scroll(window, -120, point)
 
+    def settled_in_view(self, window, directory, text):
+        """Read one fresh frame with a single sparse pass, never the full ladder."""
+        image = directory / "wait-settle.png"
+        window.screenshot(image)
+        try:
+            ocr.locate_image(image, text, sparse_only=True)
+        except RuntimeError:
+            return False
+        return True
+
     def wait_scrolled(self, window, directory, text, anchor=None, *, above_anchor=False, up=False):
         if above_anchor and anchor is None:
             raise RuntimeError("Scrolling above a control requires its measured label")
-        point = None
+        point, settled = None, False
 
         def move():
-            nonlocal point
+            nonlocal point, settled
+            if not settled:
+                settled = True
+                # The first frame can precede the page's own load. On Ubuntu
+                # (run 44786129019) Tempo's range row rendered during that
+                # first OCR pass; the coarse step then passed it, and a
+                # one-way scroll never returns. Read one fresh frame before
+                # the first step. A hit only skips this step: the caller
+                # still requires its own complete observation.
+                if self.settled_in_view(window, directory, text):
+                    return
             if anchor is not None and point is None:
                 point = (self.scroll_anchor(window, directory, anchor, above=True) if above_anchor
                     else self.scroll_anchor(window, directory, anchor))

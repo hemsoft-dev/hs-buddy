@@ -48,9 +48,34 @@ class ReviewPublication(unittest.TestCase):
             copilot.review_publication_unconfirmed(driver)
         capture = driver.actions.index(('capture', 'publish-unconfirmed-retained-light'))
         # The check needs the status's last words, so the wait before the
-        # capture must scroll until they are visible, not just its first line.
+        # capture must scroll until its last line is visible, not just its first.
         required = check.call_args.args[1:]
-        self.assertEqual(driver.actions[capture - 1], ('wait_scroll_text', required[-1]))
+        kind, waited = driver.actions[capture - 1]
+        self.assertEqual(kind, 'wait_scroll_text')
+        # A wait matches inside one OCR line and the status wraps differently
+        # per platform font: run 44786129019 broke it after "will" on both
+        # Macs. Only a single word survives every wrap.
+        self.assertEqual(len(waited.split()), 1)
+        status = 'Publication unconfirmed. Check the PR on GitHub before any further action. This session will not resend it.'
+        source = Path(__file__).resolve().parents[2] / 'rust/crates/buddy-app/src/copilot_view/results_publish.rs'
+        self.assertIn(status, source.read_text(encoding='utf-8'))
+        self.assertIn(required[-1], status)
+        self.assertEqual(status.split().count(waited), 1)
+        self.assertIn(waited, status.split()[-2:])
+        self.assertIn(waited, required[-1].split())
+
+    def test_the_mac_wrapped_status_is_found_by_its_word_and_not_by_its_phrase(self):
+        # Vision lines from the failing macOS capture's layout: the status
+        # ends "This session will" / "not resend it."
+        def line(number, top, text):
+            return [dict(text=word, left=340 + 60 * index, top=top, width=52, height=14, line=str(number))
+                for index, word in enumerate(text.split())]
+        words = line(1, 394, 'Publication unconfirmed. Check the PR on GitHub before any further action. This session will') \
+            + line(2, 414, 'not resend it.')
+        ocr = copilot.settings.ocr
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(words, copilot.UNCONFIRMED_ENDING)
+        self.assertEqual(ocr.locate_label(words, copilot.UNCONFIRMED_LAST_LINE_WORD)['top'], 414)
 
     def test_committed_comment_with_lost_ack_and_strict_attempt_receipt(self):
         with copilot.CopilotGitHubBackend() as backend:

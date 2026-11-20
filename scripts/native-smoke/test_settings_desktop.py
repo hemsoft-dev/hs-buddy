@@ -121,6 +121,7 @@ class DesktopLimits(unittest.TestCase):
         # Actual Intel 900x650 capture: default centre (450,325) is above
         # the detail viewport at y327. Its visible metrics are inside it.
         driver.scroll_anchor = Mock(return_value=(570, 444))
+        driver.settled_in_view = Mock(return_value=False)
         state = {'progress': 0}
 
         def scroll(_window, delta, point=None, *, precise=None):
@@ -160,11 +161,13 @@ class DesktopLimits(unittest.TestCase):
                     moves.append(delta)
                     clock['now'] += .7
 
-                def recognize(_image, text):
+                def recognize(_image, text, sparse_only=False):
                     self.assertEqual(text, 'Inspect synthetic request 20')
                     if never_visible or len(moves) < 2:
-                        # Retained Intel OCR outputs span about eight seconds.
-                        clock['now'] += 8
+                        # Retained Intel OCR outputs span about eight seconds
+                        # for the eight passes of a full miss. The settle read
+                        # before the first step is one of those passes.
+                        clock['now'] += 1 if sparse_only else 8
                         raise RuntimeError('The last request is still offscreen')
                     clock['now'] += .4
                     return dict(left=341, top=450, width=161, height=13)
@@ -193,7 +196,7 @@ class DesktopLimits(unittest.TestCase):
         driver.scroll_anchor = Mock(return_value=(547, 529))
         clock, moves = {'now': 0}, []
         driver.scroll = lambda *args, **kwargs: moves.append((args, kwargs))
-        def recognize(_image, text):
+        def recognize(_image, text, sparse_only=False):
             clock['now'] += 20
             if len(moves) < 2:
                 raise RuntimeError('Captured page ends at Request 20 header; prompt is clipped')
@@ -213,10 +216,63 @@ class DesktopLimits(unittest.TestCase):
         driver.scroll_anchor.assert_not_called()
         driver.scroll.assert_not_called()
 
+    def settle_driver(self):
+        driver = object.__new__(desktop.Driver)
+        driver.session = 'x11'
+        driver.scroll_anchor = Mock(return_value=(150, 100))
+        driver.scroll = Mock()
+        return driver
+
+    def test_a_status_that_renders_during_the_first_ocr_pass_is_not_scrolled_past(self):
+        # Native run 44786129019, Ubuntu: the first frame preceded Tempo's
+        # load, so "Load date range" was missing. It was on screen in the frame
+        # the anchor lookup captured seconds later, yet the wait took its
+        # coarse step and passed the row. A one-way scroll never returned.
+        driver = self.settle_driver()
+        calls = []
+
+        def recognize(image, text, sparse_only=False):
+            calls.append((image.name, sparse_only))
+            if len(calls) == 1:
+                raise RuntimeError('The page is still loading')
+            return dict(left=452, top=300, width=114, height=14)
+
+        window = Mock()
+        with patch.object(desktop.ocr, 'locate_image', side_effect=recognize), patch.object(desktop.time, 'sleep'):
+            driver.wait_scrolled(window, Path('owned-capture'), 'Load date range', 'Tempo timesheet')
+        driver.scroll.assert_not_called()
+        driver.scroll_anchor.assert_not_called()
+        # One cheap pass decides, then the wait makes its own full observation.
+        self.assertEqual(calls, [('wait-status.png', False), ('wait-settle.png', True), ('wait-status.png', False)])
+        self.assertEqual(window.screenshot.call_count, 3)
+
+    def test_the_settle_read_happens_once_and_a_miss_keeps_the_coarse_scroll(self):
+        driver = self.settle_driver()
+        calls = []
+
+        def recognize(image, text, sparse_only=False):
+            calls.append((image.name, sparse_only))
+            if driver.scroll.call_count < 2:
+                raise RuntimeError('The status is still below the viewport')
+            return dict(left=340, top=520, width=180, height=14)
+
+        with patch.object(desktop.ocr, 'locate_image', side_effect=recognize), patch.object(desktop.time, 'sleep'):
+            driver.wait_scrolled(Mock(), Path('owned-capture'), 'Create copies', 'Copy worklogs to Today')
+        self.assertEqual([sparse for _name, sparse in calls], [False, True, False, False])
+        self.assertEqual(driver.scroll.call_count, 2)
+        driver.scroll_anchor.assert_called_once()
+
+    def test_an_ambiguous_settle_read_counts_as_a_miss(self):
+        driver = self.settle_driver()
+        with patch.object(desktop.ocr, 'locate_image', side_effect=desktop.ocr.AmbiguousLabel('two matches')) as locate:
+            self.assertFalse(driver.settled_in_view(Mock(), Path('owned-capture'), 'Refresh'))
+        self.assertEqual(locate.call_args.kwargs, dict(sparse_only=True))
+
     def test_unanchored_scroll_waits_keep_the_existing_default_target(self):
         driver = object.__new__(desktop.Driver)
         driver.scroll_anchor = Mock()
         driver.scroll = Mock()
+        driver.settled_in_view = Mock(return_value=False)
         window = Mock()
         with patch.object(desktop, 'wait_visible', side_effect=lambda _w, _d, _t, *, scroll: scroll()):
             driver.wait_scrolled(window, Path('owned-capture'), 'fixture-member')
@@ -270,6 +326,7 @@ class DesktopLimits(unittest.TestCase):
         driver.session = 'x11'
         driver.scroll_anchor = Mock(return_value=(536, 524))
         driver.scroll = Mock()
+        driver.settled_in_view = Mock(return_value=False)
         window, directory = Mock(), Path("owned-capture")
         with patch.object(desktop, "wait_visible", side_effect=lambda _w, _d, _t, *, scroll: (scroll(), scroll())):
             driver.wait_scrolled(window, directory, "Inspect synthetic request 20", "Next requests", above_anchor=True)

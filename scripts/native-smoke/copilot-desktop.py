@@ -173,6 +173,8 @@ def assert_private_content_not_logged(output):
 
 CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
+UNCONFIRMED_ENDING = 'will not resend'
+UNCONFIRMED_LAST_LINE_WORD = 'resend'
 STARTUP_SCENES = ('chat-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
@@ -297,10 +299,13 @@ def review_publication_unconfirmed(driver):
         ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed'),
         ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
         # The two-line status ends below a 650px window on Ubuntu; wait for its
-        # last words so the capture holds the whole status, not its first line.
-        ('wait_scroll_text', 'will not resend'), ('capture', 'publish-unconfirmed-retained-light'),
+        # last line so the capture holds the whole status, not its first line.
+        # A wait matches within one OCR line, and the Mac font breaks the
+        # status between "will" and "not resend it" (run 44786129019), so
+        # wait for one word of that line. The check below joins lines.
+        ('wait_scroll_text', UNCONFIRMED_LAST_LINE_WORD), ('capture', 'publish-unconfirmed-retained-light'),
     ], record=True)
-    github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', 'will not resend')
+    github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', UNCONFIRMED_ENDING)
 
 
 def require_review_publications(requests, results):

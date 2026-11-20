@@ -157,7 +157,7 @@ def check_task(api, identifier, **expected):
 def captures(output):
     result = []
     for path in sorted(output.glob('*/*.png')):
-        if path.stem in ('locator', 'wait-status', 'failed-click') or '.ocr-analysis-' in path.name:
+        if path.stem in ('locator', 'wait-status', 'wait-settle', 'failed-click') or '.ocr-analysis-' in path.name:
             continue
         data = path.read_bytes()
         if data[:8] != b'\x89PNG\r\n\x1a\n':
