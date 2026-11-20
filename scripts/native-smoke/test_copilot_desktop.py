@@ -34,6 +34,24 @@ class ReviewPublication(unittest.TestCase):
                 self.assertIn(('content', 'Confirm publication'), actions)
                 self.assertIn(('content', 'Refresh this result'), actions)
 
+    def test_retained_unconfirmed_capture_waits_for_the_whole_status(self):
+        class RecordingDriver:
+            def __init__(self):
+                self.actions = []
+
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check') as check:
+            copilot.review_publication_unconfirmed(driver)
+        capture = driver.actions.index(('capture', 'publish-unconfirmed-retained-light'))
+        # The check needs the status's last words, so the wait before the
+        # capture must scroll until they are visible, not just its first line.
+        required = check.call_args.args[1:]
+        self.assertEqual(driver.actions[capture - 1], ('wait_scroll_text', required[-1]))
+
     def test_committed_comment_with_lost_ack_and_strict_attempt_receipt(self):
         with copilot.CopilotGitHubBackend() as backend:
             body = {'body': '## 🤖 AI Review\n\nSynthetic assistant answer\n\n---\n*Published from HS Buddy — fixture review*'}

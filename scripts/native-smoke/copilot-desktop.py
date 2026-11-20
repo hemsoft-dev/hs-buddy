@@ -296,7 +296,9 @@ def review_publication_unconfirmed(driver):
         ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-compact-light'),
         ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed'),
         ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
-        ('wait_scroll_text', 'Publication unconfirmed'), ('capture', 'publish-unconfirmed-retained-light'),
+        # The two-line status ends below a 650px window on Ubuntu; wait for its
+        # last words so the capture holds the whole status, not its first line.
+        ('wait_scroll_text', 'will not resend'), ('capture', 'publish-unconfirmed-retained-light'),
     ], record=True)
     github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', 'will not resend')
 
