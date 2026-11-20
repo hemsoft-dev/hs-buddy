@@ -175,7 +175,7 @@ impl ConfigLock {
         loop {
             match std::fs::create_dir(&dir) {
                 Ok(()) => return Ok(Some(Self::owned(vec![dir]))),
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(err) if contended(&err) => {
                     if let Claim::Owned(lock) = claim_stale(&dir) {
                         return Ok(Some(lock));
                     }
@@ -193,6 +193,16 @@ impl ConfigLock {
             }
         }
     }
+}
+
+/// Whether `create_dir` failed because another holder has the lock path.
+/// Windows refuses to create a directory whose previous instance a holder
+/// has just released but that is still being deleted (another handle keeps
+/// it pending) with "access denied", not "already exists". That is the same
+/// contention, so the writer waits within its deadline instead of failing.
+fn contended(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::AlreadyExists
+        || (cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied)
 }
 
 /// Take over a stale lock in place: become the owner of the existing
@@ -409,6 +419,19 @@ mod tests {
             .expect("open the directory for its timestamps")
             .set_modified(at)
             .expect("set the lock's mtime");
+    }
+
+    #[test]
+    fn a_lock_still_being_deleted_on_windows_counts_as_contention() {
+        use std::io::{Error, ErrorKind};
+        assert!(contended(&Error::from(ErrorKind::AlreadyExists)));
+        // Run 44208260197 (windows-2025): a writer hit "Access is denied"
+        // creating the lock right after the other process released it.
+        assert_eq!(
+            contended(&Error::from(ErrorKind::PermissionDenied)),
+            cfg!(windows)
+        );
+        assert!(!contended(&Error::from(ErrorKind::NotFound)));
     }
 
     #[test]
