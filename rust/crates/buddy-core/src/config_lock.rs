@@ -138,7 +138,30 @@ fn redate(level: &Path) {
 }
 
 fn read_owner(level: &Path) -> Option<String> {
-    std::fs::read_to_string(level.join(OWNER)).ok()
+    with_retry(|| std::fs::read_to_string(level.join(OWNER))).ok()
+}
+
+/// Run `op`, retrying briefly like [`remove_level`] when it fails for a
+/// reason other than the answers `NotFound` and `AlreadyExists`: on Windows
+/// an indexer or antivirus scan of a just-written token file can refuse
+/// access for a moment, which would otherwise read as a lost lock.
+fn with_retry<T>(mut op: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let mut attempt = 1;
+    loop {
+        match op() {
+            Err(err)
+                if attempt < REMOVE_ATTEMPTS
+                    && !matches!(
+                        err.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::AlreadyExists
+                    ) =>
+            {
+                attempt += 1;
+                std::thread::sleep(REMOVE_RETRY);
+            }
+            result => return result,
+        }
+    }
 }
 
 fn new_token() -> String {
@@ -154,13 +177,15 @@ fn new_token() -> String {
 /// Mark `level` as owned; `None` when the token cannot be written.
 fn take_ownership(level: &Path) -> Option<String> {
     let token = new_token();
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(level.join(OWNER))
-        .and_then(|mut file| std::io::Write::write_all(&mut file, token.as_bytes()))
-        .ok()
-        .map(|()| token)
+    with_retry(|| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(level.join(OWNER))
+    })
+    .and_then(|mut file| std::io::Write::write_all(&mut file, token.as_bytes()))
+    .ok()
+    .map(|()| token)
 }
 
 impl ConfigLock {
@@ -419,6 +444,36 @@ mod tests {
             .expect("open the directory for its timestamps")
             .set_modified(at)
             .expect("set the lock's mtime");
+    }
+
+    #[test]
+    fn token_access_retries_transient_failures_but_not_answers() {
+        use std::io::{Error, ErrorKind};
+        let mut calls = 0;
+        let read = with_retry(|| {
+            calls += 1;
+            if calls < 3 {
+                Err(Error::from(ErrorKind::PermissionDenied))
+            } else {
+                Ok("token")
+            }
+        });
+        assert_eq!((read.unwrap(), calls), ("token", 3));
+        for answer in [ErrorKind::NotFound, ErrorKind::AlreadyExists] {
+            let mut calls = 0;
+            let result: std::io::Result<()> = with_retry(|| {
+                calls += 1;
+                Err(Error::from(answer))
+            });
+            assert_eq!((result.unwrap_err().kind(), calls), (answer, 1));
+        }
+        let mut calls = 0;
+        let result: std::io::Result<()> = with_retry(|| {
+            calls += 1;
+            Err(Error::from(ErrorKind::PermissionDenied))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, REMOVE_ATTEMPTS);
     }
 
     #[test]
