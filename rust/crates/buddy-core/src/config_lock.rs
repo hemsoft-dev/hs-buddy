@@ -138,7 +138,30 @@ fn redate(level: &Path) {
 }
 
 fn read_owner(level: &Path) -> Option<String> {
-    std::fs::read_to_string(level.join(OWNER)).ok()
+    with_retry(|| std::fs::read_to_string(level.join(OWNER))).ok()
+}
+
+/// Run `op`, retrying briefly like [`remove_level`] when it fails for a
+/// reason other than the answers `NotFound` and `AlreadyExists`: on Windows
+/// an indexer or antivirus scan of a just-written token file can refuse
+/// access for a moment, which would otherwise read as a lost lock.
+fn with_retry<T>(mut op: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let mut attempt = 1;
+    loop {
+        match op() {
+            Err(err)
+                if attempt < REMOVE_ATTEMPTS
+                    && !matches!(
+                        err.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::AlreadyExists
+                    ) =>
+            {
+                attempt += 1;
+                std::thread::sleep(REMOVE_RETRY);
+            }
+            result => return result,
+        }
+    }
 }
 
 fn new_token() -> String {
@@ -154,13 +177,15 @@ fn new_token() -> String {
 /// Mark `level` as owned; `None` when the token cannot be written.
 fn take_ownership(level: &Path) -> Option<String> {
     let token = new_token();
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(level.join(OWNER))
-        .and_then(|mut file| std::io::Write::write_all(&mut file, token.as_bytes()))
-        .ok()
-        .map(|()| token)
+    with_retry(|| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(level.join(OWNER))
+    })
+    .and_then(|mut file| std::io::Write::write_all(&mut file, token.as_bytes()))
+    .ok()
+    .map(|()| token)
 }
 
 impl ConfigLock {
@@ -175,7 +200,7 @@ impl ConfigLock {
         loop {
             match std::fs::create_dir(&dir) {
                 Ok(()) => return Ok(Some(Self::owned(vec![dir]))),
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(err) if contended(&err) => {
                     if let Claim::Owned(lock) = claim_stale(&dir) {
                         return Ok(Some(lock));
                     }
@@ -193,6 +218,16 @@ impl ConfigLock {
             }
         }
     }
+}
+
+/// Whether `create_dir` failed because another holder has the lock path.
+/// Windows refuses to create a directory whose previous instance a holder
+/// has just released but that is still being deleted (another handle keeps
+/// it pending) with "access denied", not "already exists". That is the same
+/// contention, so the writer waits within its deadline instead of failing.
+fn contended(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::AlreadyExists
+        || (cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied)
 }
 
 /// Take over a stale lock in place: become the owner of the existing
@@ -409,6 +444,49 @@ mod tests {
             .expect("open the directory for its timestamps")
             .set_modified(at)
             .expect("set the lock's mtime");
+    }
+
+    #[test]
+    fn token_access_retries_transient_failures_but_not_answers() {
+        use std::io::{Error, ErrorKind};
+        let mut calls = 0;
+        let read = with_retry(|| {
+            calls += 1;
+            if calls < 3 {
+                Err(Error::from(ErrorKind::PermissionDenied))
+            } else {
+                Ok("token")
+            }
+        });
+        assert_eq!((read.unwrap(), calls), ("token", 3));
+        for answer in [ErrorKind::NotFound, ErrorKind::AlreadyExists] {
+            let mut calls = 0;
+            let result: std::io::Result<()> = with_retry(|| {
+                calls += 1;
+                Err(Error::from(answer))
+            });
+            assert_eq!((result.unwrap_err().kind(), calls), (answer, 1));
+        }
+        let mut calls = 0;
+        let result: std::io::Result<()> = with_retry(|| {
+            calls += 1;
+            Err(Error::from(ErrorKind::PermissionDenied))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, REMOVE_ATTEMPTS);
+    }
+
+    #[test]
+    fn a_lock_still_being_deleted_on_windows_counts_as_contention() {
+        use std::io::{Error, ErrorKind};
+        assert!(contended(&Error::from(ErrorKind::AlreadyExists)));
+        // Run 44208260197 (windows-2025): a writer hit "Access is denied"
+        // creating the lock right after the other process released it.
+        assert_eq!(
+            contended(&Error::from(ErrorKind::PermissionDenied)),
+            cfg!(windows)
+        );
+        assert!(!contended(&Error::from(ErrorKind::NotFound)));
     }
 
     #[test]
