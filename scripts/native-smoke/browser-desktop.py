@@ -210,6 +210,10 @@ def first_pass(driver, theme):
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
+        # Repeat after the title-qualified captures: reusing a URL selects
+        # its bookmark title. It counts without a new HTTP visit.
+        ("workspace", "Bookmarks: All"), ("content", "Fixture page"),
+        ("wait_text", "Visit 1"),
     ], record=True)
     github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
     github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe", browser=True)
@@ -287,6 +291,16 @@ def saved_tabs(config):
     return [tab["url"] for tab in json.loads(config.read_text(encoding="utf-8"))["native"].get("browser", {}).get("tabs", [])]
 
 
+def require_bookmark_activity(backend, before, opens):
+    after = backend.query("buddyStats:get")
+    expected = dict(tabsOpened=opens, prsViewed=0, prsReviewed=0,
+        prsMergedWatched=0, appLaunches=0, totalUptimeMs=0)
+    observed = {field: after.get(field, 0) - before.get(field, 0) for field in expected}
+    if observed != expected:
+        raise RuntimeError(f"Bookmark tab activity differs from explicit opens: {observed}, expected {expected}")
+    return after
+
+
 def qualify(executable, output, session, version, backend, site):
     binary = github.installed_binary(executable, version)
     config = fixture(output, "dark")
@@ -298,11 +312,20 @@ def qualify(executable, output, session, version, backend, site):
     driver = BrowserDriver(executable, output, session, backend, CHECKOUT)
     # WebView2 can't create pages on the driver's hidden Windows desktop.
     driver.input_desktop = True
+    activity_before = backend.query("buddyStats:get")
     first_pass(driver, "dark")
+    activity_opened = require_bookmark_activity(backend, activity_before, 3)
     restart_pass(driver, "dark", 2)
+    activity_restored = require_bookmark_activity(backend, activity_before, 3)
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
     terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
     light_pass(driver, 3)
+    activity_switched = require_bookmark_activity(backend, activity_before, 3)
+    (output / "bookmark-activity.json").write_text(json.dumps(dict(
+        before=activity_before, opened=activity_opened, restored=activity_restored,
+        switched=activity_switched, dataSource="isolated anonymous Convex fixture",
+        checks=["three explicit opens including repeated URL", "restart persistence",
+            "tab restoration and switching do not write", "PR/session counters unchanged"]), indent=2), encoding="utf-8")
     with site.lock:
         result = evaluate(audit_records(audit), dict(site.beacons), site.downloads,
             frame_origin(site.server.server_port))

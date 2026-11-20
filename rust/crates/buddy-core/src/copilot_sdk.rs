@@ -210,6 +210,7 @@ pub fn client_options(
         return Err(LaunchError::InvalidCredential);
     }
     private_directory(state_root)?;
+    crate::http::initialize_tls();
     let mut options = ClientOptions::default();
     options.program = CliProgram::Path(verified_runtime.to_owned());
     options.mode = ClientMode::Empty;

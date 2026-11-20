@@ -16,6 +16,99 @@ spec.loader.exec_module(desktop)
 
 
 class InstalledEvidence(unittest.TestCase):
+    def test_review_fixture_uses_visible_retained_routes_when_tooltip_covers_sidebar(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'github-review-tooltip-occlusion.json').read_text(encoding='utf-8'))
+        with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
+            desktop.settings.ocr.sidebar_label(evidence['occluded'], 'My PRs')
+        mac = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'github-review-macos-tooltip.json').read_text(encoding='utf-8'))
+        bottom = mac['geometry']['workspace'][1]
+        with self.assertRaisesRegex(RuntimeError, 'None of the requested visible labels'):
+            desktop.settings.ocr.sidebar_label(mac['words'], 'My PRs', workspace_bottom=bottom)
+        mac_content = desktop.settings.ocr.content_words(mac['words'], workspace_bottom=bottom)
+        row = desktop.settings.ocr.locate_label(mac_content, '#7 First private navigation review')
+        without_row = [word for word in mac_content if not (
+            row['top'] <= word['top'] < row['top'] + row['height']
+            and row['left'] <= word['left'] < row['left'] + row['width'])]
+        with self.assertRaises(RuntimeError):
+            desktop.settings.ocr.locate_label(without_row, '#7 First private navigation review')
+        for session in ('x11', 'windows', 'macos'):
+            with self.subTest(session=session), TemporaryDirectory() as temporary:
+                output = Path(temporary).resolve()
+                config = output / 'config.json'
+                config.write_text(json.dumps(dict(native={}, notifications={})))
+                api = Mock(requests=[])
+                def drive(name, actions, record):
+                    words = mac['words'] if session == 'macos' else evidence['occluded'] if session == 'x11' else evidence['clear']
+                    navigation = []
+                    for kind, *values in actions:
+                        # The continued failure proves hover does not clear
+                        # this frame. Never substitute a hypothetical image.
+                        if kind == 'workspace':
+                            self.assertEqual(session, 'x11')
+                            desktop.settings.ocr.locate_label(
+                                desktop.settings.ocr.workspace_words(words), values[0])
+                            navigation.append(kind)
+                            break
+                        if kind == 'sidebar':
+                            desktop.settings.ocr.sidebar_label(words, values[0],
+                                **({'workspace_bottom': bottom} if session == 'macos' else {}))
+                            navigation.append(kind)
+                            break
+                        if kind == 'wait_content':
+                            self.assertEqual(session, 'macos')
+                            content = desktop.settings.ocr.content_words(words, workspace_bottom=bottom)
+                            desktop.settings.ocr.locate_label(content, values[0])
+                            navigation.append(kind)
+                            break
+                    self.assertEqual(navigation, [{'x11': 'workspace', 'windows': 'sidebar', 'macos': 'wait_content'}[session]])
+                    self.assertNotIn(('hover', 'title'), actions)
+                    api.requests.append(dict(method='POST', path='/repos/team/private/issues/7/comments',
+                        account='fixture-one', body=dict(body='@coderabbitai full review')))
+                    return output / name
+                with patch.object(desktop, 'check'):
+                    desktop.qualify_review_sound(Mock(drive=drive, session=session), config, output, api)
+
+    def test_review_completion_requires_one_scoped_request_and_restores_settings(self):
+        cases = ((receipt, aliased) for receipt in (None, "wrong-account", "duplicate", "correct")
+            for aliased in (False, True))
+        for receipt, aliased in cases:
+            with self.subTest(receipt=receipt, aliased=aliased), TemporaryDirectory() as temporary:
+                if aliased:
+                    # Reproduce a lexical alias without requiring symlink
+                    # privileges or a runner's particular short-path spelling.
+                    segment = Path(temporary) / "alias-segment"
+                    segment.mkdir()
+                    temporary = str(segment / "..")
+                output = Path(temporary).resolve()
+                config = output / "config.json"
+                original = dict(playSoundOnReviewComplete=False, reviewCompleteSoundPath="", retained="yes")
+                config.write_text(json.dumps(dict(native={}, notifications=original)))
+                api = Mock(requests=[])
+                def drive(name, actions, record):
+                    current = json.loads(config.read_text())
+                    self.assertTrue(current["notifications"]["playSoundOnReviewComplete"])
+                    sound = Path(current["notifications"]["reviewCompleteSoundPath"])
+                    self.assertTrue(sound.is_file())
+                    self.assertTrue(sound.is_relative_to(output))
+                    if receipt:
+                        api.requests.append(dict(method="POST", path="/repos/team/private/issues/7/comments",
+                            account="fixture-two" if receipt == "wrong-account" else "fixture-one",
+                            body=dict(body="@coderabbitai full review")))
+                        if receipt == "duplicate":
+                            api.requests.append(dict(api.requests[-1]))
+                    return output / name
+                with patch.object(desktop, "check") as check:
+                    if receipt == "correct":
+                        desktop.qualify_review_sound(Mock(drive=drive), config, output, api)
+                        check.assert_called_once()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "exactly one scoped"):
+                            desktop.qualify_review_sound(Mock(drive=drive), config, output, api)
+                        check.assert_not_called()
+                self.assertEqual(json.loads(config.read_text())["notifications"], original)
+
     def test_restarted_qualification_requires_the_actual_needs_review_fixture_row(self):
         capture = json.loads(Path(__file__).with_name('fixtures').joinpath('github-restored-needs-review.json').read_text())
         original_check = desktop.check
@@ -116,6 +209,56 @@ class InstalledEvidence(unittest.TestCase):
 
     def browser_footer_fixture(self):
         return json.loads(Path(__file__).with_name('fixtures').joinpath('browser-status-footer.json').read_text(encoding='utf-8'))
+
+    @patch.object(desktop.sys, 'platform', 'win32')
+    def test_actual_windows_browser_capture_uses_strict_smooth_footer_measurement(self):
+        evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'browser-windows-footer-counts.json').read_text(encoding='utf-8'))
+        for missing in (False, True):
+            with self.subTest(missing=missing), TemporaryDirectory() as temporary:
+                image = Path(temporary) / 'page-dark.png'
+                header = b'\x89PNG\r\n\x1a\n' + b'\0' * 8
+                image.write_bytes(header + struct.pack('>II', evidence['width'], evidence['height']))
+                original = image.read_bytes()
+                crops = []
+                def run(*args, **kwargs):
+                    self.assertEqual(args[0], 'ffmpeg')
+                    width, height = struct.unpack('>II', Path(args[args.index('-i') + 1]).read_bytes()[16:24])
+                    filters = args[args.index('-vf') + 1]
+                    if filters.startswith('crop='):
+                        crops.append(filters)
+                        height = int(filters.split(':')[1])
+                    else:
+                        scale = 2 if 'iw*2' in filters else 3
+                        width *= scale
+                        height *= scale
+                    Path(args[-1]).write_bytes(header + struct.pack('>II', width, height))
+                    return ''
+                def recognize(path, mode):
+                    words = evidence['layouts'].get(path.with_suffix(f'.footer-ocr-{mode}.json').name, [])
+                    return [word for word in words if not desktop.settings.ocr.normalize(word['text']).endswith('jobs')] if missing else words
+                with patch.object(desktop.settings, 'run', side_effect=run), \
+                        patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                    if missing:
+                        with self.assertRaisesRegex(RuntimeError, 'no unique native status footer'):
+                            list(desktop.browser_analysis(image))
+                        self.assertEqual(crops, [])
+                    else:
+                        list(desktop.browser_analysis(image))
+                        self.assertEqual(crops, ['crop=iw:753:0:0:exact=1'])
+                self.assertEqual(image.read_bytes(), original)
+
+    @patch.object(desktop.sys, 'platform', 'win32')
+    def test_windows_footer_fallback_does_not_hide_ambiguity_or_tool_failures(self):
+        for error in (desktop.settings.ocr.AmbiguousLabel('competing footer labels'),
+                subprocess.CalledProcessError(1, ['tesseract'])):
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(desktop.settings.ocr, 'status_content_image', side_effect=error) as status, \
+                    patch.object(desktop.settings.ocr, 'analysis_images') as analysis:
+                with self.assertRaises(type(error)):
+                    list(desktop.browser_analysis(Path('owned.png')))
+                status.assert_called_once()
+                analysis.assert_not_called()
 
     def replay_browser_footer(self, temporary, *, missing_page=False, missing_footer=False):
         fixture = self.browser_footer_fixture()

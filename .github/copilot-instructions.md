@@ -33,7 +33,7 @@ Classify every finding into exactly one tier. Only raise review comments for Cri
 - **Do NOT raise individual review comments for Nitpick findings.** If you have nitpicks, mention them briefly in your review summary — not as separate threads.
 - **Label every comment** with its severity: `[Critical]`, `[Medium]`, or `[Nitpick]`.
 - **Be specific and actionable.** State what the bug is, why it matters, and suggest a fix.
-- **Do not comment on files you didn't review** (e.g., auto-generated version bumps, changelog entries, coverage config).
+- **Do not comment on files you didn't review** (e.g., auto-generated coverage config).
 - **Do not re-raise resolved findings.** If a comment was addressed in a previous round, do not raise it again — even if the implementation differs from your suggestion.
 - **Limit total comments to the most impactful findings.** Aim for 1–5 comments per review, not 10+. Prioritize ruthlessly.
 
@@ -44,5 +44,6 @@ Classify every finding into exactly one tier. Only raise review comments for Cri
 - **Backend**: Convex serverless database
 - **Package manager**: Bun
 - **Linting**: ESLint (flat config), Knip (dead code), e18e (dependency health)
-- **Git hooks**: Husky (pre-commit runs lint-staged + tests + typecheck, post-commit generates changelog)
-- **Auto-generated files** (ignore these in review): `package.json` version field, `AboutModal.tsx` version string, `TitleBar.tsx` version string, `WelcomePanel.tsx` version string, `CHANGELOG.md` entries, `vitest.config.ts` coverage thresholds
+- **Git hooks**: Husky (pre-commit runs lint-staged + tests + typecheck)
+- **Auto-generated files** (ignore these in review): `vitest.config.ts` coverage thresholds
+- **Releases**: a pull request that raises the `package.json` version cuts a release; notes come from merged pull request titles, and `CHANGELOG.md` is frozen at 0.1.1698

@@ -40,6 +40,29 @@ class CaptureFraming(unittest.TestCase):
             self.assertEqual(actions[capture - 1], ('wait_scroll_text', 'No due date', 'Synthetic undated task'))
             api.close.assert_called_once()
 
+    def test_calendar_day_capture_collapses_and_restores_overdue_before_leaving_today(self):
+        with tempfile.TemporaryDirectory(prefix='buddy-calendar-capture-') as temporary:
+            root = Path(temporary)
+            config = root / 'config.json'
+            config.write_text('{"native":{}}')
+            api = Mock()
+            api.snapshot.return_value = dict(tasks=[], projects=[], created=0, traffic=[])
+            driver = Mock()
+            driver.drive.side_effect = RuntimeError('stopped before any native input')
+            with patch.object(desktop.github, 'installed_binary', return_value={}), \
+                    patch.object(desktop, 'fixture', return_value=config), \
+                    patch.object(desktop.settings, 'Driver', return_value=driver), \
+                    patch.object(desktop.ScenarioFixture, 'start', return_value=api):
+                with self.assertRaises(RuntimeError):
+                    desktop.qualify(root / 'unused.exe', root, 'windows', 'test', Mock(url='http://127.0.0.1:9'))
+            actions = driver.drive.call_args.args[1]
+            today = actions.index(('capture', 'today-dark'))
+            self.assertEqual(actions[today + 1:today + 8], [
+                ('content', 'Collapse Overdue'), ('wait_text', 'Expand Overdue'),
+                ('capture', 'today-overdue-collapsed-dark'),
+                ('content', 'Expand Overdue'), ('wait_text', 'Synthetic overdue task'),
+                ('capture', 'today-overdue-expanded-dark'), ('content', 'Upcoming')])
+
 
 class FailureScenarios(unittest.TestCase):
     def setUp(self):

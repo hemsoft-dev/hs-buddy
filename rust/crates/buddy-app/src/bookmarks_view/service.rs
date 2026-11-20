@@ -31,6 +31,8 @@ pub(super) trait Service: Send + Sync {
     fn remove(&self, id: String) -> Reply<()>;
     fn reorder(&self, updates: Vec<(String, f64)>) -> Reply<()>;
     fn record_visit(&self, id: String) -> Reply<()>;
+    /// Best effort, once per explicit embedded open; never replay an uncertain write.
+    fn record_tab_open(&self) -> BoxFuture<'static, ()>;
     /// The page's title, or nothing; failures are quiet, as in Electron.
     fn page_title(&self, url: String) -> BoxFuture<'static, Option<String>>;
     /// The model's raw reply, or nothing when Copilot is unavailable or fails.
@@ -75,6 +77,12 @@ impl Service for Live {
     fn record_visit(&self, id: String) -> Reply<()> {
         let url = self.url.clone();
         Box::pin(async move { client::record_visit(&url, &id).await })
+    }
+    fn record_tab_open(&self) -> BoxFuture<'static, ()> {
+        let url = self.url.clone();
+        Box::pin(async move {
+            let _ = buddy_core::stats::tab_activity::record(&url).await;
+        })
     }
     fn page_title(&self, url: String) -> BoxFuture<'static, Option<String>> {
         Box::pin(async move { title::fetch_page_title(&url).await.ok() })

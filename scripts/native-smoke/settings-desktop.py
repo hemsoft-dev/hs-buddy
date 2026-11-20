@@ -284,7 +284,11 @@ class Driver:
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
-                    command = "waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text" else "waituptext64:" if kind == "wait_scroll_up" else "waitscrolltext64:"
+                    # Windows aims above-anchor waits at the window middle,
+                    # stepping twice per miss like the Unix driver.
+                    command = ("waitcontent64:" if kind == "wait_content" else "waittext64:" if kind == "wait_text"
+                        else "waituptext64:" if kind == "wait_scroll_up" else "waitscrollend64:" if kind == "wait_scroll_above"
+                        else "waitscrolltext64:")
                     commands.append(command + ":".join(map(b64, encoded)))
                 elif kind in COLD_START_WAITS:
                     commands.append("waitmodeltext64:" + b64(values[0]))
@@ -858,6 +862,7 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     run("bun", checkout / "scripts/build-config-companion.ts", output, cwd=checkout)
     driver = Driver(executable, output, session, backend, checkout)
     driver.placement = placement
+    load("settings-activity").qualify(driver, backend, config, output, verify_text)
     account_actions = [("nav", "Accounts"), ("capture", "first-run-dark")]
     for index, name in enumerate(("fixture-native-one", "fixture-native-two")):
         account_actions += [("leftfield", "Organization|GitHub username", name),
@@ -950,7 +955,7 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
         raise RuntimeError("Theme changes committed an unrelated unsaved draft")
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session, largeWindow=driver.large_size,
         binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "all seven panels",
-        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
+        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "Settings category activity and restart non-replay", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
 
 
 def main():

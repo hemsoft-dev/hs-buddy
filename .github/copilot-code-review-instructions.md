@@ -54,10 +54,8 @@ Classify every finding into exactly one tier.
 - **Label every comment** with its severity: `[Critical]` or `[Medium]`.
 - **Be specific and actionable.** State what the bug is, why it matters, and
   suggest a fix.
-- **Do not comment on auto-generated files**: `package.json` version field,
-  `AboutModal.tsx` version string, `TitleBar.tsx` version string,
-  `WelcomePanel.tsx` version string, `CHANGELOG.md` entries,
-  `vitest.config.ts` coverage thresholds.
+- **Do not comment on auto-generated files**: `vitest.config.ts` coverage
+  thresholds.
 - **Do not re-raise resolved findings.** If a comment was addressed in a
   previous round, do not raise it again.
 - **Limit total comments to the most impactful findings.** Aim for 1–5
@@ -70,5 +68,6 @@ Classify every finding into exactly one tier.
 - **Backend**: Convex serverless database
 - **Package manager**: Bun
 - **Linting**: ESLint (flat config), Knip (dead code), e18e (dependency health)
-- **Git hooks**: Husky (pre-commit runs lint-staged + tests + typecheck,
-  post-commit generates changelog)
+- **Git hooks**: Husky (pre-commit runs lint-staged + tests + typecheck)
+- **Releases**: a pull request that raises the `package.json` version cuts a
+  release; notes come from merged pull request titles.

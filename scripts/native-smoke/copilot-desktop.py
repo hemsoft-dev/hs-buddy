@@ -167,11 +167,13 @@ def assert_private_content_not_logged(output):
         raise RuntimeError('Actual app diagnostics were not captured for privacy validation')
     for path in paths:
         text = path.read_text(encoding='utf-8', errors='replace')
-        if any(marker in text for marker in ('BUDDYSTREAM61527', 'BUDDYCANCEL73429', 'Partial synthetic answer', 'fixture-member', 'Review a synthetic change')):
+        if any(marker in text for marker in ('BUDDYSTREAM61527', 'BUDDYCANCEL73429', CODE_MARKER, 'Partial synthetic answer', 'fixture-member', 'Review a synthetic change')):
             raise RuntimeError('Private synthetic assistant/session data appeared in app diagnostics')
 
 
-STARTUP_SCENES = ('chat-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'codex-auth-error-light', 'sessions-light')
+CODE_MARKER = 'BUDDYCODE48213'
+CODE_LINE = 'copy only this'
+STARTUP_SCENES = ('chat-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -231,6 +233,32 @@ def chat_turns(driver):
     github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results')
     github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant')
     github.check(dark / 'cancelled-compact-dark.png', 'Cancelled', 'Partial synthetic answer')
+
+
+def code_copy(driver, appearance):
+    # The marker answers with a heading and one fenced block. Capture its Copy
+    # code control beside the first code line, then activate it on the
+    # installed app. Headless GPUI tests prove the copied text.
+    name = 'code-copy-' + appearance
+    captures = [name]
+    if appearance == 'light':
+        # At 900x650 the chat pane is shorter than one wheel step, so use the
+        # saved result's taller pane. Revealing the code line keeps the control
+        # just above it in view.
+        captures.append('code-copy-compact-light')
+        reveal = [('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
+            ('wait_text', 'Synthetic assistant'), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', name),
+            ('resize', 900, 650), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', captures[1])]
+    else:
+        reveal = [('wait_scroll_up', 'Copy code', 'Saved to results'), ('capture', name)]
+    scene = driver.drive(name, [
+        ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
+        ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
+        ('input', 'Message', 'BUDDYSTREAM61527 ' + CODE_MARKER), ('content', 'Run and save'),
+        ('wait_scroll_text', 'Saved to results'), *reveal, ('content', 'Copy code'),
+    ], record=appearance == 'dark')
+    for capture in captures:
+        github.check(scene / (capture + '.png'), 'Copy code', CODE_LINE)
 
 
 def review_pull_request(driver):
@@ -338,6 +366,7 @@ def qualify(executable, output, session, version, backend, api):
                 chat_turns(driver)
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
             assert_no_owned_children(output)
+            code_copy(driver, 'dark')
             write_section(config, 'github')
             review_pull_request(driver)
             write_section(config, 'copilot')
@@ -350,6 +379,7 @@ def qualify(executable, output, session, version, backend, api):
             (output / 'review-publication.json').write_text(json.dumps(publication, indent=2))
             write_section(config, 'copilot', light)
             usage_pages(driver)
+            code_copy(driver, 'light')
             with environment(dict(BUDDY_CODEX_FIXTURE_SCENARIO='missing-auth')):
                 missing = driver.drive('codex-auth-error-light', [('content', 'Usage'), ('content', 'codex-fixture'), ('content', 'Refresh usage'), ('wait_text', 'No Codex ChatGPT login found'), ('capture', 'codex-auth-error-light')])
                 github.check(missing / 'codex-auth-error-light.png', 'No Codex ChatGPT login found')

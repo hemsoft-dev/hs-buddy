@@ -2,28 +2,60 @@
 
 # Changelog
 
-All notable changes to this project will be documented in this file.
+Release notes after 0.1.1698 are on
+[GitHub Releases](https://github.com/hemsoft-dev/hs-buddy/releases), generated
+from the titles of the pull requests merged since the previous release. This
+file keeps the history up to 0.1.1698 and is no longer updated.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1698] - 2026-11-18
+
+### Added
+
+- Record explicit bookmark tab activity (#952)
+- Record explicit Settings category activity (#958)
+- Open workspace tab actions on right-click (#960)
+
+### Fixed
+
+- Collapse Todoist calendar day sections (#961)
+- Copy individual Markdown code blocks (#962)
+- Preserve cache identity and retry cleanup with React Doctor
+- Qualify Windows browser captures with strict contrast fallback
+- Match the Copilot SDK 1.0.32 runtime pin
+- Select TLS provider independently of telemetry
+
+### Changed
+
+- Combine the 2026-11-17 Dependabot updates
+- Record React Doctor 0.9.22 as the pinned analyzer
+- Initialize TLS in the telemetry-disabled regression
+- Keep the cache identity regression outside the large suite
+- Correct and replay Settings restart evidence and light palette (#958)
+- Capture Todoist calendar day collapse in installed fixture (#961)
+- Capture compact code copy in the saved result (#962)
 
 ## [0.1.1697] - 2026-11-17
 
 ### Added
 
-- Publish saved native PR reviews (#954)
+- Play configured review completion sounds (#950)
 
-### Fixed
+### Changed
 
-- Contain saved review panes below filters (#954)
+- Keep Tempo fixture servers alive for owned sessions
 
 ## [0.1.1696] - 2026-11-17
 
 ### Fixed
 
 - Ignore unpatched picomatch ReDoS advisory in npm audit
+
+### Changed
+
+- Run full Rust qualification after merge, not on every PR
 
 ## [0.1.1695] - 2026-11-17
 

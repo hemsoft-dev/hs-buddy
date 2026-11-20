@@ -320,6 +320,53 @@ class CopilotQualificationTests(unittest.TestCase):
                     flow(driver)
                 self.assertEqual(driver.clicked, expected)
 
+    def test_code_copy_captures_the_visible_control_before_activating_it(self):
+        class CodeDriver:
+            def __init__(self):
+                self.runs = []
+
+            def drive(self, name, actions, record=False):
+                self.runs.append((name, actions, record))
+                return Path('unused-' + name)
+
+        driver = CodeDriver()
+        with patch.object(copilot.github, 'check') as screenshots:
+            copilot.code_copy(driver, 'dark')
+            copilot.code_copy(driver, 'light')
+        self.assertEqual([(name, record) for name, _, record in driver.runs],
+            [('code-copy-dark', True), ('code-copy-light', False)])
+        for name, actions, _ in driver.runs:
+            self.assertIn(('input', 'Message', 'BUDDYSTREAM61527 ' + copilot.CODE_MARKER), actions)
+            self.assertIn(name, copilot.STARTUP_SCENES)
+            saved = actions.index(('wait_scroll_text', 'Saved to results'))
+            click = actions.index(('content', 'Copy code'))
+            self.assertEqual(click, len(actions) - 1)
+            if name.endswith('light'):
+                # The compact chat pane is too short, so both captures use the
+                # saved result and reveal the code line before each capture.
+                inspect = actions.index(('content', 'Inspect saved result'))
+                large, resize = actions.index(('capture', name)), actions.index(('resize', 900, 650))
+                compact = actions.index(('capture', 'code-copy-compact-light'))
+                reveals = [index for index, action in enumerate(actions)
+                    if action == ('reveal_text', copilot.CODE_LINE, 'Copy prompt')]
+                self.assertEqual(len(reveals), 2)
+                self.assertLess(saved, inspect)
+                self.assertLess(inspect, reveals[0])
+                self.assertLess(reveals[0], large)
+                self.assertLess(large, resize)
+                self.assertLess(resize, reveals[1])
+                self.assertLess(reveals[1], compact)
+            else:
+                self.assertNotIn(('resize', 900, 650), actions)
+                reveal = actions.index(('wait_scroll_up', 'Copy code', 'Saved to results'))
+                self.assertLess(saved, reveal)
+                self.assertLess(reveal, actions.index(('capture', name)))
+        self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
+            ('code-copy-dark.png', 'Copy code', copilot.CODE_LINE),
+            ('code-copy-light.png', 'Copy code', copilot.CODE_LINE),
+            ('code-copy-compact-light.png', 'Copy code', copilot.CODE_LINE),
+        ])
+
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this
         # configured model. Chat's earlier, view-local choice does not carry over.

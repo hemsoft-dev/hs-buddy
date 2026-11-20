@@ -346,6 +346,7 @@ pub(crate) async fn connect(url: &str) -> Result<ConvexClient, BackendError> {
     {
         return Err(BackendError::Unavailable);
     }
+    crate::http::initialize_tls();
     tokio::time::timeout(REQUEST_TIMEOUT, ConvexClient::new(url))
         .await
         .map_err(|_| BackendError::Unavailable)?

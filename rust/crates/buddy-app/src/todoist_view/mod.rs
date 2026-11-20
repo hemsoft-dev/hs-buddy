@@ -1,9 +1,11 @@
 //! Native Todoist planning. Service mutations require explicit user actions.
+#[cfg(test)]
+mod calendar_groups_tests;
 mod editor;
 mod tasks;
 #[cfg(test)]
 mod tests;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use buddy_core::todoist::{
     Client, Id, WritePhase, credentials,
@@ -48,6 +50,7 @@ pub struct TodoistView {
     token: Entity<InputState>,
     filter: Entity<InputState>,
     pane: Pane,
+    collapsed_days: HashSet<String>,
     project: Option<Id>,
     task_page: usize,
     project_page: usize,
@@ -98,6 +101,7 @@ impl TodoistView {
             token,
             filter,
             pane: Pane::Today,
+            collapsed_days: HashSet::new(),
             project: None,
             task_page: 0,
             project_page: 0,

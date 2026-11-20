@@ -173,6 +173,18 @@ Husky runs automatically on commit:
 
 > **Tip**: Use `--no-verify` only if you've already validated locally.
 
+Commits do not change the package version or `CHANGELOG.md`, so parallel pull
+requests do not conflict on them.
+
+### Releases
+
+To publish a release, run `bun run bump` in a pull request. It raises the patch
+version in `package.json`. When that pull request merges and CI passes on
+`main`, the release workflow tags the commit and publishes notes generated from
+the pull request titles merged since the previous release. Pull request titles
+are the release notes, so write them as Conventional Commits that describe the
+user-visible change.
+
 ## Testing Expectations
 
 Coverage is enforced independently for each maintained suite, in statements/branches/functions/lines order:

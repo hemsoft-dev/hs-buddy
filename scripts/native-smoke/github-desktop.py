@@ -7,6 +7,7 @@ import sys
 import os
 from pathlib import Path
 import urllib.request
+import wave
 
 from desktop import fixture, require_version
 import importlib.util
@@ -75,10 +76,18 @@ def analysis_images(path):
 
 
 def browser_analysis(path):
-    # Hosted Tesseract 5.3.4 read the compact dark footer as OQjobs from the
-    # nearest-neighbor copy. Measure it with the profile that reads the body.
+    # Keep already-qualified profiles first. Some Windows captures read zero
+    # counts as Q-prefixed labels in every default layout. Only that missing
+    # footer permits the existing Linux contrast profile; ambiguity and tool
+    # failures still stop immediately. Use the selected profile for the body.
     smooth = sys.platform == "linux"
-    image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
+    try:
+        image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
+    except settings.ocr.MissingStatusFooter:
+        if sys.platform != "win32":
+            raise
+        smooth = True
+        image = settings.ocr.status_content_image(path, settings.run, suffix=".browser-ocr.png", smooth_inverted=smooth)
     yield from settings.ocr.analysis_images(image, settings.run, smooth_inverted=smooth)
 
 
@@ -144,6 +153,56 @@ def preserve_failed_requests(output, requests, failure):
             (output / "requests.json").write_text(json.dumps(requests, indent=2), encoding="utf-8")
     except Exception as diagnostic_error:
         failure.add_note(f"Request diagnostic failed: {type(diagnostic_error).__name__}")
+
+
+def qualify_review_sound(driver, config, output, api):
+    """Capture completion with isolated settings, never a production account.
+
+    Headless native tests prove sound-request counts. This capture proves the
+    installed review transition, not physical speaker output on a hosted VM.
+    """
+    sound = output / "review-complete.wav"
+    with wave.open(str(sound), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8000)
+        audio.writeframes(b"\0\0" * 800)
+    saved = json.loads(config.read_text(encoding="utf-8-sig"))
+    initial_notifications = saved.get("notifications", {})
+    saved["notifications"] = dict(initial_notifications,
+        playSoundOnReviewComplete=True, reviewCompleteSoundPath=str(sound.resolve()))
+    saved["native"]["activeSection"] = "github"
+    config.write_text(json.dumps(saved), encoding="utf-8")
+    start = len(api.requests)
+    try:
+        actions = [
+            ("sidebar", "My PRs"), ("input", "Filter loaded items", "First private"),
+            ("content", "#7 First private navigation review"),
+            ("content", "Request CodeRabbit…"), ("content", "Confirm action"),
+            # Native monitoring polls every 20 seconds. This bounded wait is
+            # inside the disposable installed fixture, not an agent CI loop.
+            ("sleep", 22), ("wait_content", "a new or updated review is available"),
+            ("capture", "review-completed-dark"),
+        ]
+        if driver.session == "x11":
+            # The preceding activity pass retained this tab. Restore it
+            # above Dashboard's tooltip, which can cover the sidebar label.
+            actions[0] = ("workspace", "My PRs")
+        elif driver.session == "macos":
+            # The hosted Mac capture also retains My PRs, but Dashboard's
+            # tooltip covers its sidebar label. Require the restored PR row
+            # before filtering; this completion fixture needs no list reopen.
+            actions[0] = ("wait_content", "#7 First private navigation review")
+        capture = driver.drive("review-completion-dark", actions, record=True)
+        requests = [request for request in api.requests[start:]
+            if request["method"] == "POST" and request["path"].endswith("/issues/7/comments")]
+        if len(requests) != 1 or requests[0]["account"] != "fixture-one" or requests[0]["body"] != dict(body="@coderabbitai full review"):
+            raise RuntimeError("Review completion must follow exactly one scoped synthetic review request")
+        check(capture / "review-completed-dark.png", "CodeRabbit", "review is available")
+    finally:
+        current = json.loads(config.read_text(encoding="utf-8-sig"))
+        current["notifications"] = initial_notifications
+        config.write_text(json.dumps(current), encoding="utf-8")
 
 
 def qualify(executable, output, session, version, backend, api):
@@ -214,6 +273,7 @@ def qualify(executable, output, session, version, backend, api):
             "no refresh write", "no retained-tab write",
             "restart persistence", "session and uptime untouched"]), indent=2))
 
+    qualify_review_sound(driver, config, output, api)
     reset_section(config)
     navigation = driver.drive("navigation-dark", [
         ("content", "Repositories"), ("content", "fixture-org/native-demo"), ("tab", "Commits"),
@@ -265,7 +325,7 @@ def qualify(executable, output, session, version, backend, api):
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
-        checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment",
+        checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
             "repository/commit/issue navigation", "profile/calendar/teams", "Convex bookmark and favorite",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 

@@ -42,6 +42,15 @@ the tab model. The sidebar open callback is never retained in tabs or history.
 Electron remains the default. Assistant panel and folder explorer behavior
 remain outside this activity slice.
 
+## Embedded bookmark activity
+
+[#952](https://github.com/hemsoft-dev/hs-buddy/issues/952) adds explicit bookmark
+opens to lifetime `tabsOpened` through the same
+atomic Convex mutation. Repeated opens count as in Electron; browser-tab reuse,
+switching and restart restoration do not introduce extra writes. This bounded
+bookmark slice leaves other view-open counters and session/uptime ownership
+deferred. It does not authorize native cutover.
+
 ## Validation
 
 Focused native tests cover aggregation through a read-only fixture transport,

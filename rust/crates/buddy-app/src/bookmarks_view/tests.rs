@@ -50,6 +50,7 @@ struct Fake {
     removed: Mutex<Vec<String>>,
     reorders: Mutex<Vec<Vec<(String, f64)>>>,
     visits: Mutex<Vec<String>>,
+    tab_opens: AtomicUsize,
     title: Mutex<Option<String>>,
     titles: Mutex<Vec<String>>,
     suggestions: Mutex<Vec<SuggestRequest>>,
@@ -142,6 +143,10 @@ impl Service for Fake {
     fn record_visit(&self, id: String) -> Reply<()> {
         self.visits.lock().unwrap().push(id);
         done(Ok(()))
+    }
+    fn record_tab_open(&self) -> BoxFuture<'static, ()> {
+        self.tab_opens.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async {})
     }
     fn page_title(&self, url: String) -> BoxFuture<'static, Option<String>> {
         self.titles.lock().unwrap().push(url);
@@ -654,6 +659,30 @@ fn open_hands_every_bookmark_to_the_browser_and_external_open_checks_first(
     );
     // Only accepted addresses count as visits.
     assert_eq!(*fake.visits.lock().unwrap(), ["good", "good"]);
+    assert_eq!(fake.tab_opens.load(Ordering::SeqCst), 3);
+}
+
+#[gpui_kit::test]
+fn repeated_embedded_opens_count_but_missing_external_and_restores_do_not(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let fake = Fake::with(library());
+    let (mut visual, view) = open(cx, &fake);
+    assert_eq!(fake.tab_opens.load(Ordering::SeqCst), 0);
+    for _ in 0..2 {
+        view.update(&mut visual, |view, cx| view.open("rust", cx));
+    }
+    assert_eq!(fake.tab_opens.load(Ordering::SeqCst), 2);
+    view.update(&mut visual, |view, cx| {
+        view.open("missing", cx);
+        view.open_externally("rust", cx);
+        view.set_active(false, cx);
+        view.set_active(true, cx);
+    });
+    let destination = view.read_with(&visual, |state, _| state.destination(view.clone()));
+    visual.update(|window, cx| (destination.restore)(window, cx));
+    visual.run_until_parked();
+    assert_eq!(fake.tab_opens.load(Ordering::SeqCst), 2);
 }
 
 #[gpui_kit::test]

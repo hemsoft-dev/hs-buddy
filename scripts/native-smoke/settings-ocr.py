@@ -18,6 +18,10 @@ class AmbiguousLabel(RuntimeError):
     """A later OCR mode must not hide competing visible controls."""
 
 
+class MissingStatusFooter(RuntimeError):
+    """No complete footer was measurable in any bounded analysis layout."""
+
+
 def normalize(text):
     return "".join(character for character in text.casefold() if character.isalnum())
 
@@ -152,7 +156,7 @@ def status_content_image(path, run, suffix=".content-ocr.png", border=False, zoo
                 bottom = (footer_border(path, footer, scale, run, zoom) if border else
                     int((footer["top"] - footer["height"] / 2) / scale))
                 return crop_content_image(path, bottom, run, suffix)
-    raise RuntimeError("The content screenshot has no unique native status footer")
+    raise MissingStatusFooter("The content screenshot has no unique native status footer")
 
 
 def chrome_rows(words):

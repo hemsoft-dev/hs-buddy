@@ -189,6 +189,8 @@ def qualify(executable, output, session, version, backend):
                 ('wait_text', 'No API token is saved'), ('capture', 'missing-token-dark'),
                 ('input', 'Todoist API token', todoist.TOKEN, {'labelBottomOffset': 32}), ('content', 'Save and connect'),
                 ('wait_text', 'Synthetic today task'), ('capture', 'today-dark'),
+                ('content', 'Collapse Overdue'), ('wait_text', 'Expand Overdue'), ('capture', 'today-overdue-collapsed-dark'),
+                ('content', 'Expand Overdue'), ('wait_text', 'Synthetic overdue task'), ('capture', 'today-overdue-expanded-dark'),
                 ('content', 'Upcoming'), ('wait_scroll_text', 'Synthetic upcoming task', 'Synthetic today task'), ('capture', 'upcoming-dark'),
                 ('content', 'Projects'), ('content', 'Synthetic Beta'),
                 ('wait_scroll_text', 'No due date', 'Synthetic undated task'),
@@ -196,6 +198,10 @@ def qualify(executable, output, session, version, backend):
                 ('capture', 'projects-compact-keyboard-dark'),
             ])
             github.check(connected / 'today-dark.png', 'America/Winnipeg', 'Synthetic today task', 'Overdue')
+            github.check(connected / 'today-overdue-collapsed-dark.png', 'Expand Overdue', 'Synthetic today task',
+                         absent=('Synthetic overdue task',))
+            github.check(connected / 'today-overdue-expanded-dark.png', 'Collapse Overdue', 'Synthetic overdue task',
+                         'Synthetic today task')
             github.check(connected / 'project-undated-dark.png', 'Synthetic undated task', 'No due date')
             github.check(connected / 'projects-compact-keyboard-dark.png',
                          'Synthetic undated task', 'No due date', 'Synthetic Beta',

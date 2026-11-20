@@ -85,6 +85,16 @@ users reuse the incumbent backend and shared configuration contracts.
 
 ## Qualification
 
+Native monitored Copilot and CodeRabbit reviews honor the existing notification
+sound settings when a new review completes. Waiting, failed, stale and duplicate
+results do not play a sound. Completion consumes the watch before playback, so a
+missing device or invalid audio cannot repeat a submitted review request.
+The current enabled setting and path are read at completion. Playback reuses the
+bounded, cancellable native audio worker. Headless fixtures record sound requests
+without opening an audio device; these tests do not prove speaker output.
+The installed synthetic fixture also requests one CodeRabbit review with sound
+enabled and captures its completed status, then restores its isolated settings.
+
 Run the standard Rust workspace checks from `rust/`: formatting, warnings-denied
 Clippy, workspace tests, release build, and the CI dependency audit. The two
 native component tests exercise draft/account boundaries and stale/uncertain
