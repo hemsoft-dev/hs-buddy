@@ -17,6 +17,8 @@ on:
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
+      # linux-desktop-tools.sh sources it; test_linux_desktop_tools.py runs here.
+      - 'scripts/lib/bounded-apt.sh'
       - 'electron/services/pollenCredentials*'
       - 'public/icon-512.png'
       - 'public/icon.ico'
@@ -34,6 +36,8 @@ on:
       - 'scripts/package-native*'
       - 'scripts/native-binary.mjs'
       - 'scripts/native-smoke/**'
+      # linux-desktop-tools.sh sources it; test_linux_desktop_tools.py runs here.
+      - 'scripts/lib/bounded-apt.sh'
       - 'electron/services/pollenCredentials*'
       - 'public/icon-512.png'
       - 'public/icon.ico'

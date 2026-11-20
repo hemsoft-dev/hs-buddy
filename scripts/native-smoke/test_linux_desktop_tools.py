@@ -78,6 +78,17 @@ class LinuxDesktopTools(unittest.TestCase):
         self.assertIn("Mirrors: http://azure.archive.ubuntu.com/ubuntu/", message)
         self.assertEqual(message.count("azure"), 1)
 
+    def test_retry_waits_for_the_killed_installs_dpkg_inside_the_same_limit(self):
+        # Two polls see the orphaned dpkg, the third finds it gone.
+        busy = "polls=0; pgrep() { polls=$((polls + 1)); printf 'pgrep %s\\n' \"$*\" >&2; ((polls <= 2)); }; sleep() { :; }\n"
+        result = run(busy + "buddy_apt sudo install -y xvfb || echo failed=$?", status=124)
+        self.assertEqual(result.stdout.splitlines()[-1], "failed=1")
+        lines = result.stderr.splitlines()
+        self.assertEqual(lines.count("pgrep -x dpkg"), 3)
+        recovery = lines.index("dpkg --configure -a")
+        self.assertGreater(recovery, max(i for i, line in enumerate(lines) if line == "pgrep -x dpkg"))
+        self.assertEqual(lines[recovery - 1], "timeout --kill-after=30 596")
+
     def test_failed_update_reports_its_exit_status(self):
         result = run("buddy_apt update || echo failed=$?", status=100)
         self.assertEqual(result.stdout.splitlines()[-1], "failed=1")
