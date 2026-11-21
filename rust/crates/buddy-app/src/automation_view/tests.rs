@@ -62,9 +62,13 @@ fn shell_totals_follow_unfiltered_snapshots_and_preserve_stale_counts(
                 ] {
                     view.page = 3;
                     view.job_page = 2;
+                    // An open editor or run detail would otherwise cover the list.
+                    view.form = Some(Form::new_job(None, false, window, cx));
+                    view.selected_run = Some("run-1".into());
                     view.show_target(target, cx);
                     assert!(view.pane == expected);
                     assert_eq!((view.page, view.job_page), (0, 0));
+                    assert!(view.form.is_none() && view.selected_run.is_none());
                 }
                 view
             })
