@@ -41,6 +41,50 @@ impl TerminalView {
         result
     }
 
+    /// Every pane in every workspace, with its saved directory.
+    fn all_panes(&self) -> Vec<(String, String)> {
+        let mut result = Vec::new();
+        if let Some(editor) = &self.editor {
+            for node in editor.document().document()["nodes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                panes(&node["layout"], &mut result);
+            }
+        }
+        result
+    }
+
+    /// `TerminalPane.tsx` writes back the directory a shell started in. The
+    /// pane may belong to a workspace that is no longer shown (the user can
+    /// switch while a shell starts), so it is found across the whole layout.
+    pub(super) fn record_start_directory(
+        &mut self,
+        pane: &str,
+        directory: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.visible_panes().iter().any(|(id, _)| id == pane) {
+            self.grid_event(pane, &GridEvent::WorkingDirectory(directory), cx);
+            return;
+        }
+        let Some((_, saved)) = self.all_panes().into_iter().find(|(id, _)| id == pane) else {
+            return;
+        };
+        if saved == directory {
+            return;
+        }
+        if self
+            .cwd_drafts
+            .get(pane)
+            .is_none_or(|draft| draft == &saved)
+        {
+            self.cwd_drafts.insert(pane.into(), directory.clone());
+        }
+        self.edit_workspace(|document| document.update_cwd(pane, &directory), cx);
+    }
+
     pub(super) fn close_owned(&mut self, session: Arc<Session>, cx: &mut Context<Self>) {
         self.run(
             cx,
@@ -201,11 +245,7 @@ impl TerminalView {
                                     ),
                                     None => this.start_notices.remove(ticket.pane()),
                                 };
-                                this.grid_event(
-                                    ticket.pane(),
-                                    &GridEvent::WorkingDirectory(directory),
-                                    cx,
-                                );
+                                this.record_start_directory(ticket.pane(), directory, cx);
                             }
                         }
                         StartCompletion::Failed => {}
