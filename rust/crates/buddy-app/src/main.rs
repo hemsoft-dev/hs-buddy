@@ -510,11 +510,7 @@ fn main() {
         cx.on_action(|_: &About, cx| {
             #[cfg(target_os = "macos")]
             macos_menu::show_window(cx);
-            if let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied()) {
-                window
-                    .update(cx, |_, window, cx| shell::about::open(window, cx))
-                    .ok();
-            }
+            shell::about::show(cx);
         });
         #[cfg(not(target_os = "macos"))]
         cx.on_window_closed(|cx, _| {

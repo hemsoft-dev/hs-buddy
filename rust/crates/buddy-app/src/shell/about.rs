@@ -134,6 +134,19 @@ fn content(cx: &App) -> impl IntoElement + use<> {
         )
 }
 
+/// Help > About Buddy. The title-bar menu dispatches this while its window
+/// is still handling the click, when that window cannot be updated again, so
+/// the dialog opens once the current update has finished.
+pub fn show(cx: &mut App) {
+    cx.defer(|cx| {
+        if let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied())
+            && let Err(error) = window.update(cx, |_, window, cx| open(window, cx))
+        {
+            log::warn!("About Buddy could not open: {error}");
+        }
+    });
+}
+
 /// Opens the dialog; Escape and the close button dismiss it.
 pub fn open(window: &mut Window, cx: &mut App) {
     crate::browser_view::Overlays::set(true, cx);
@@ -167,6 +180,25 @@ mod tests {
             window.click("about-github", cx);
         });
         assert_eq!(visual.opened_url().as_deref(), Some(REPOSITORY_URL));
+    }
+
+    /// Dispatched from inside its window, as the title-bar menu does.
+    #[gpui_kit::test]
+    fn about_opens_from_a_menu_inside_its_window(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::component::WindowExt as _;
+        let window = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            gpui_kit::open_window(Default::default(), cx, |_, cx| cx.new(|_| Empty)).unwrap()
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(window.0, cx);
+        visual.update(|window, cx| {
+            assert!(!window.has_active_dialog(cx));
+            show(cx);
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| assert!(window.has_active_dialog(cx)));
     }
 
     struct Empty;
