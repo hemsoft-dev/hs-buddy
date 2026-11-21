@@ -6,7 +6,10 @@ use buddy_core::terminal_workspaces::StartCompletion;
 use gpui_kit::{AppContext as _, Context};
 use serde_json::Value;
 
-use super::{TerminalView, grid::TerminalGrid};
+use super::{
+    TerminalView,
+    grid::{GridEvent, TerminalGrid},
+};
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 
@@ -139,9 +142,12 @@ impl TerminalView {
                 cx,
                 async move {
                     tokio::task::spawn_blocking(move || {
-                        let shell =
-                            ShellSpec::configured(configuration.as_ref(), &PathBuf::from(cwd))
-                                .map_err(str::to_string)?;
+                        let (shell, unavailable) = ShellSpec::configured_or_home(
+                            configuration.as_ref(),
+                            &PathBuf::from(cwd),
+                        )
+                        .map_err(str::to_string)?;
+                        let directory = shell.directory.to_string_lossy().into_owned();
                         let executable =
                             std::env::current_exe().map_err(|error| error.to_string())?;
                         Session::spawn(
@@ -149,37 +155,59 @@ impl TerminalView {
                             shell,
                             TerminalSize::new(80, 24).expect("valid initial grid"),
                         )
-                        .map(Arc::new)
+                        .map(|session| (Arc::new(session), directory, unavailable))
                         .map_err(|error| error.to_string())
                     })
                     .await
                     .map_err(|_| "Terminal startup worker did not finish.".to_string())
                     .and_then(|result| result)
                 },
-                move |this, result, cx| match this.sessions.complete_start(&ticket, result) {
-                    StartCompletion::Attached => {
-                        let session = this
-                            .sessions
-                            .resource(ticket.pane())
-                            .expect("attached resource")
-                            .clone();
-                        let grid = cx.new(|cx| TerminalGrid::new(session, cx));
-                        let bound = ticket.clone();
-                        cx.subscribe(&grid, move |this, _, event, cx| {
-                            if this.sessions.matches(&bound) {
-                                this.grid_event(bound.pane(), event, cx);
-                            }
-                        })
-                        .detach();
-                        this.grids.insert(ticket.pane().into(), grid);
-                        if this.selected_pane.as_deref() == Some(ticket.pane()) {
-                            this.focus_grid = true;
+                move |this, result, cx| {
+                    let (result, started) = match result {
+                        Ok((session, directory, unavailable)) => {
+                            (Ok(session), Some((directory, unavailable)))
                         }
-                        this.update_grid_visibility(cx);
+                        Err(error) => (Err(error), None),
+                    };
+                    match this.sessions.complete_start(&ticket, result) {
+                        StartCompletion::Attached => {
+                            let session = this
+                                .sessions
+                                .resource(ticket.pane())
+                                .expect("attached resource")
+                                .clone();
+                            let grid = cx.new(|cx| TerminalGrid::new(session, cx));
+                            let bound = ticket.clone();
+                            cx.subscribe(&grid, move |this, _, event, cx| {
+                                if this.sessions.matches(&bound) {
+                                    this.grid_event(bound.pane(), event, cx);
+                                }
+                            })
+                            .detach();
+                            this.grids.insert(ticket.pane().into(), grid);
+                            if this.selected_pane.as_deref() == Some(ticket.pane()) {
+                                this.focus_grid = true;
+                            }
+                            this.update_grid_visibility(cx);
+                            // `TerminalPane.tsx` writes back the directory the
+                            // shell started in, so an empty or vanished folder
+                            // becomes the real one in the saved layout.
+                            if let Some((directory, unavailable)) = started {
+                                if let Some(missing) = unavailable {
+                                    this.status =
+                                        Some(super::panel::fallback_notice(&missing, &directory));
+                                }
+                                this.grid_event(
+                                    ticket.pane(),
+                                    &GridEvent::WorkingDirectory(directory),
+                                    cx,
+                                );
+                            }
+                        }
+                        StartCompletion::Failed => {}
+                        StartCompletion::Obsolete(Some(session)) => this.close_owned(session, cx),
+                        StartCompletion::Obsolete(None) => {}
                     }
-                    StartCompletion::Failed => {}
-                    StartCompletion::Obsolete(Some(session)) => this.close_owned(session, cx),
-                    StartCompletion::Obsolete(None) => {}
                 },
             );
         }

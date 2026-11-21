@@ -14,6 +14,37 @@ use super::TerminalSize;
 use super::input::MAX_PASTE_BYTES;
 use super::protocol::{Command, Event, OUTPUT_CHUNK_BYTES, read_frame, write_frame};
 
+/// Electron's fallback `WT_SESSION` and `WT_PROFILE_ID` values.
+const WINDOWS_TERMINAL_MARKERS: [(&str, &str); 2] = [
+    ("WT_SESSION", "b916bc1b-75a7-4c9a-8a38-6e8d06032505"),
+    ("WT_PROFILE_ID", "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}"),
+];
+
+/// The variables a shell starts with on top of the inherited environment
+/// (`buildTerminalEnv` in `terminalPathUtils.ts`): colour support, the
+/// terminal's name, and on Windows Windows Terminal's markers so prompt
+/// tools enable colour and Unicode glyphs. A marker the parent already has
+/// is kept. `COLORFGBG` is not sent: Electron's fixed `15;0` describes its
+/// always-dark terminal, while this one follows the app's light or dark theme.
+fn terminal_environment(
+    windows: bool,
+    inherited: impl Fn(&str) -> bool,
+) -> Vec<(&'static str, &'static str)> {
+    let mut environment = vec![
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("TERM_PROGRAM", "hs-buddy"),
+    ];
+    if windows {
+        environment.extend(
+            WINDOWS_TERMINAL_MARKERS
+                .into_iter()
+                .filter(|(key, _)| !inherited(key)),
+        );
+    }
+    environment
+}
+
 type Output = Arc<Mutex<io::Stdout>>;
 
 fn expected_pty_eof(error: &io::Error) -> bool {
@@ -121,8 +152,9 @@ fn run() -> io::Result<()> {
     let mut command = CommandBuilder::new(&shell.program);
     command.args(&shell.arguments);
     command.cwd(&shell.directory);
-    command.env("TERM", "xterm-256color");
-    command.env("COLORTERM", "truecolor");
+    for (key, value) in terminal_environment(cfg!(windows), |key| std::env::var_os(key).is_some()) {
+        command.env(key, value);
+    }
     let child = pair
         .slave
         .spawn_command(command)
@@ -307,6 +339,33 @@ fn run() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shells_start_with_electrons_terminal_environment() {
+        let names = |windows, inherited: &[&str]| {
+            terminal_environment(windows, |key| inherited.contains(&key))
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(false, &[]), ["TERM", "COLORTERM", "TERM_PROGRAM"]);
+        assert_eq!(
+            names(true, &[]),
+            [
+                "TERM",
+                "COLORTERM",
+                "TERM_PROGRAM",
+                "WT_SESSION",
+                "WT_PROFILE_ID"
+            ]
+        );
+        // A real Windows Terminal session keeps its own markers.
+        assert_eq!(
+            names(true, &["WT_SESSION"]),
+            ["TERM", "COLORTERM", "TERM_PROGRAM", "WT_PROFILE_ID"]
+        );
+        assert!(terminal_environment(false, |_| false).contains(&("TERM_PROGRAM", "hs-buddy")));
+    }
     #[test]
     fn stream_permission_failures_are_not_clean_terminal_eof() {
         assert!(!expected_pty_eof(&io::Error::new(

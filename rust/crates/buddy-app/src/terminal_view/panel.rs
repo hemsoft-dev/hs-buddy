@@ -21,6 +21,8 @@ struct Tab {
     grid: Option<Entity<TerminalGrid>>,
     starting: bool,
     error: Option<String>,
+    /// Why the shell started somewhere other than the saved folder.
+    notice: Option<String>,
 }
 
 #[derive(Clone)]
@@ -116,6 +118,7 @@ impl TerminalPanel {
             grid: None,
             starting: false,
             error: None,
+            notice: None,
         }
     }
 
@@ -369,15 +372,19 @@ impl TerminalPanel {
             .cloned();
         let receiver = Runtime::global(cx).spawn(async move {
             tokio::task::spawn_blocking(move || {
-                let shell = ShellSpec::configured(shell_config.as_ref(), &PathBuf::from(cwd))
-                    .map_err(str::to_string)?;
+                let (shell, unavailable) =
+                    ShellSpec::configured_or_home(shell_config.as_ref(), &PathBuf::from(cwd))
+                        .map_err(str::to_string)?;
                 let directory = shell.directory.to_string_lossy().into_owned();
                 Session::spawn(
                     &std::env::current_exe().map_err(|e| e.to_string())?,
                     shell,
                     TerminalSize::new(80, 24).expect("valid size"),
                 )
-                .map(|session| (Arc::new(session), directory))
+                .map(|session| {
+                    let notice = unavailable.map(|missing| fallback_notice(&missing, &directory));
+                    (Arc::new(session), directory, notice)
+                })
                 .map_err(|e| e.to_string())
             })
             .await
@@ -392,7 +399,8 @@ impl TerminalPanel {
                     };
                     this.tabs[index].starting = false;
                     match result {
-                        Ok((session, directory)) => {
+                        Ok((session, directory, notice)) => {
+                            this.tabs[index].notice = notice;
                             if this.tabs[index].metadata.cwd != directory {
                                 this.tabs[index].metadata.cwd = directory;
                                 this.changed(cx);
@@ -516,10 +524,17 @@ impl Render for TerminalPanel {
         for tab in &self.tabs {
             let select = tab.id.clone();
             let close = tab.id.clone();
+            // `title={tab.cwd || tab.title}`: hovering shows the directory.
+            let hover = if tab.metadata.cwd.is_empty() {
+                tab.metadata.title.clone()
+            } else {
+                tab.metadata.cwd.clone()
+            };
             let button = Button::new(format!("panel-tab-{}", tab.id))
                 .ghost()
                 .xsmall()
                 .label(tab.metadata.title.clone())
+                .tooltip(hover)
                 .selected(self.selected.as_ref() == Some(&tab.id));
             if let Some(color) = tab
                 .metadata
@@ -815,6 +830,7 @@ impl Render for TerminalPanel {
                                 {
                                     tab.grid = None;
                                     tab.error = None;
+                                    tab.notice = None;
                                 }
                                 this.start_selected(cx);
                                 cx.notify();
@@ -822,7 +838,14 @@ impl Render for TerminalPanel {
                     )
                     .into_any_element()
             } else if let Some(grid) = &tab.grid {
-                grid.clone().into_any_element()
+                match &tab.notice {
+                    Some(notice) => v_flex()
+                        .size_full()
+                        .child(div().px_3().py_1().child(notice.clone()))
+                        .child(div().flex_1().min_h_0().child(grid.clone()))
+                        .into_any_element(),
+                    None => grid.clone().into_any_element(),
+                }
             } else {
                 div().p_3().child("Shell is starting.").into_any_element()
             }
@@ -838,6 +861,14 @@ impl Render for TerminalPanel {
         };
         root.child(div().flex_1().min_h_0().min_w_0().child(content))
     }
+}
+
+/// Electron falls back to home without a word; here the user is told.
+pub(super) fn fallback_notice(missing: &std::path::Path, started: &str) -> String {
+    format!(
+        "Started in {started} because the saved folder {} is unavailable.",
+        missing.display()
+    )
 }
 
 #[cfg(test)]

@@ -5,6 +5,22 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, Styled};
 use serde_json::Value;
 
+/// `NODE_COLORS` in `TerminalSidebar.tsx`, in its order, after Default
+/// (Electron's "remove colour").
+pub(super) const WORKSPACE_COLORS: [(&str, Option<&str>); 11] = [
+    ("Default", None),
+    ("Teal", Some("#4ec9b0")),
+    ("Blue", Some("#569cd6")),
+    ("Orange", Some("#ce9178")),
+    ("Yellow", Some("#dcdcaa")),
+    ("Purple", Some("#c586c0")),
+    ("Amber", Some("#d7ba7d")),
+    ("Sky", Some("#9cdcfe")),
+    ("Red", Some("#f14c4c")),
+    ("Green", Some("#23d18b")),
+    ("Bright blue", Some("#3b8eea")),
+];
+
 pub(super) fn next_order(nodes: &[Value], parent: Option<&str>) -> f64 {
     nodes
         .iter()
@@ -98,17 +114,7 @@ impl TerminalView {
                 ),
         );
         let mut colors = h_flex().flex_wrap().gap_2().child("Workspace color");
-        for (index, (name, color)) in [
-            ("Default", None),
-            ("Teal", Some("#4ec9b0")),
-            ("Blue", Some("#569cd6")),
-            ("Amber", Some("#d7ba7d")),
-            ("Purple", Some("#c586c0")),
-            ("Red", Some("#f14c4c")),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        for (index, (name, color)) in WORKSPACE_COLORS.into_iter().enumerate() {
             let workspace = id.clone();
             colors = colors.child(
                 Button::new(format!("terminal-workspace-color-{index}"))
