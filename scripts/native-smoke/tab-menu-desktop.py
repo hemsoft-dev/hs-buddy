@@ -218,8 +218,10 @@ def qualify(executable, output, session, version, backend, api):
 
     def drive(name, actions):
         # A pass that quits on the Dashboard saves it as the next launch's
-        # section; every pass must start in the GitHub view, on My PRs.
-        terminal.write_config(config, lambda value: value["native"].update(activeSection="github"))
+        # section; every pass must start in the GitHub view, on My PRs. The
+        # Dashboard is "no section", and the app then omits the whole
+        # `native` object from the file (Ubuntu, run 44854538756).
+        terminal.write_config(config, lambda value: value.setdefault("native", {}).update(activeSection="github"))
         return measured(driver, backend, baseline, name, actions, journal)
     check_dismissed(drive("menu-dark", dismissed_actions("dark", False)), "dark", False)
     check_commands(drive("commands-dark", command_actions()))

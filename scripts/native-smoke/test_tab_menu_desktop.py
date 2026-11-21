@@ -394,10 +394,16 @@ class NoBackendChange(unittest.TestCase):
                     section=config["native"]["activeSection"], accounts=config["github"]["accounts"],
                     marker=(self.profile / "github-fixture.allow").read_text(),
                     queries=len(backend.paths)))
-                # The app saves the section it quits on: `None` is the Dashboard.
+                # The app saves the section it quits on. The Dashboard is no
+                # section, and `NativeConfig::is_default` then drops the whole
+                # `native` object from the file, as it did on Ubuntu in run
+                # 44854538756.
                 frames, _ = replay(actions)
                 last = list(frames.values())[-1]["active"]
-                config["native"]["activeSection"] = None if last == scene.DASHBOARD else "github"
+                if last == scene.DASHBOARD:
+                    del config["native"]
+                else:
+                    config["native"] = dict(activeSection="github")
                 (self.profile / "config.json").write_text(json.dumps(config), encoding="utf-8")
                 return self.profile / name
 
