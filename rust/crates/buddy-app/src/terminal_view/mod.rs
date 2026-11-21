@@ -69,6 +69,9 @@ pub struct TerminalView {
     show_properties: bool,
     show_organization: bool,
     failure_details: BTreeSet<String>,
+    /// Per pane: why its shell started somewhere other than its saved folder.
+    /// Kept apart from `status`, which every workspace save rewrites.
+    start_notices: BTreeMap<String, String>,
     copied_failure: Option<String>,
     status: Option<String>,
     error: Option<String>,
@@ -159,6 +162,7 @@ impl TerminalView {
             show_properties: false,
             show_organization: false,
             failure_details: BTreeSet::new(),
+            start_notices: BTreeMap::new(),
             copied_failure: None,
             status: None,
             error: None,

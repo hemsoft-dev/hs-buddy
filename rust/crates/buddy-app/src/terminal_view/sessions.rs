@@ -112,6 +112,7 @@ impl TerminalView {
 
     pub(super) fn restart_pane(&mut self, pane: &str, cx: &mut Context<Self>) {
         self.failure_details.remove(pane);
+        self.start_notices.remove(pane);
         if self.copied_failure.as_deref() == Some(pane) {
             self.copied_failure = None;
         }
@@ -193,10 +194,13 @@ impl TerminalView {
                             // shell started in, so an empty or vanished folder
                             // becomes the real one in the saved layout.
                             if let Some((directory, unavailable)) = started {
-                                if let Some(missing) = unavailable {
-                                    this.status =
-                                        Some(super::panel::fallback_notice(&missing, &directory));
-                                }
+                                match unavailable {
+                                    Some(missing) => this.start_notices.insert(
+                                        ticket.pane().into(),
+                                        super::panel::fallback_notice(&missing, &directory),
+                                    ),
+                                    None => this.start_notices.remove(ticket.pane()),
+                                };
                                 this.grid_event(
                                     ticket.pane(),
                                     &GridEvent::WorkingDirectory(directory),

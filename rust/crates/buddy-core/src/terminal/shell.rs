@@ -44,7 +44,8 @@ impl ShellSpec {
     }
 
     /// [`ShellSpec::configured`], except that a saved directory which no longer
-    /// exists starts the shell in the home directory, as Electron's
+    /// exists, or which this user cannot enter, starts the shell in the home
+    /// directory, as Electron's
     /// `parseValidCwd` does. The unavailable directory is returned so the
     /// caller can say where the shell started and why; the fallback is never
     /// silent.
@@ -52,8 +53,7 @@ impl ShellSpec {
         settings: Option<&Value>,
         directory: &Path,
     ) -> Result<(Self, Option<PathBuf>), &'static str> {
-        let unavailable =
-            !directory.as_os_str().is_empty() && !(directory.is_absolute() && directory.is_dir());
+        let unavailable = !directory.as_os_str().is_empty() && !enterable_directory(directory);
         if unavailable {
             let spec = Self::configured(settings, Path::new(""))?;
             return Ok((spec, Some(directory.to_path_buf())));
@@ -116,6 +116,28 @@ impl ShellSpec {
 
 /// UTF-8 console encoding, then Electron's `buildPowerShellOsc7Setup` prompt
 /// hook: each prompt reports `$PWD` as OSC 7, so the tab and pane follow `cd`.
+/// An absolute directory this user may list and enter. Electron's
+/// `inspectCwdAccess` asks for read access; entering also needs search
+/// (execute) permission on Unix, or the shell cannot start there.
+fn enterable_directory(directory: &Path) -> bool {
+    if !directory.is_absolute() || !directory.is_dir() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        let Ok(path) = std::ffi::CString::new(directory.as_os_str().as_bytes()) else {
+            return false;
+        };
+        // SAFETY: `path` is a valid NUL-terminated C string for the call.
+        unsafe { libc::access(path.as_ptr(), libc::R_OK | libc::X_OK) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::read_dir(directory).is_ok()
+    }
+}
+
 #[cfg(windows)]
 fn default_arguments(_: &Path) -> Vec<String> {
     vec![
@@ -130,7 +152,7 @@ fn default_arguments(_: &Path) -> Vec<String> {
 
 /// Wraps the existing prompt so a user profile's prompt still runs.
 #[cfg_attr(not(windows), allow(dead_code))]
-const POWERSHELL_OSC7_PROMPT: &str = r#"$__hsb_op=$function:prompt;function global:prompt{$e=[char]0x1b;[Console]::Write("$e]7;file:///$($PWD.Path.Replace('\','/'))$e\");& $__hsb_op}"#;
+const POWERSHELL_OSC7_PROMPT: &str = r#"$__hsb_op=$function:prompt;function global:prompt{$e=[char]0x1b;$u=(($PWD.ProviderPath -replace '\\','/') -split '/' | ForEach-Object {if($_ -match '^[A-Za-z]:$'){$_}else{[Uri]::EscapeDataString($_)}}) -join '/';[Console]::Write("$e]7;file:///$u$e\");& $__hsb_op}"#;
 
 #[cfg(unix)]
 fn default_arguments(_: &Path) -> Vec<String> {
@@ -224,15 +246,30 @@ mod tests {
 
     #[test]
     fn the_powershell_prompt_hook_reports_the_directory_as_osc_7() {
-        // The same text as Electron's `buildPowerShellOsc7Setup()` value: the
-        // path with forward slashes in an OSC 7 terminated by ESC \, then the
-        // prompt that was there before.
+        // Electron's `buildPowerShellOsc7Setup()` hook, with each path segment
+        // percent-encoded (except the drive) so `#`, `%` and spaces survive the
+        // file URL; the prompt that was there before still runs.
         assert!(POWERSHELL_OSC7_PROMPT.starts_with("$__hsb_op=$function:prompt;"));
-        assert!(
-            POWERSHELL_OSC7_PROMPT
-                .contains(r#"[Console]::Write("$e]7;file:///$($PWD.Path.Replace('\','/'))$e\")"#)
-        );
+        assert!(POWERSHELL_OSC7_PROMPT.contains("[Uri]::EscapeDataString($_)"));
+        assert!(POWERSHELL_OSC7_PROMPT.contains(r#"[Console]::Write("$e]7;file:///$u$e\")"#));
         assert!(POWERSHELL_OSC7_PROMPT.ends_with("& $__hsb_op}"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_the_user_cannot_enter_also_starts_in_home() {
+        use std::os::unix::fs::PermissionsExt as _;
+        // SAFETY: geteuid has no preconditions.
+        if unsafe { libc::geteuid() } == 0 {
+            return; // root may enter any directory
+        }
+        let locked = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(locked.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+        let result = ShellSpec::configured_or_home(None, locked.path());
+        std::fs::set_permissions(locked.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (spec, unavailable) = result.unwrap();
+        assert_eq!(unavailable.as_deref(), Some(locked.path()));
+        assert_eq!(spec.directory, default_directory().unwrap());
     }
 
     #[test]
