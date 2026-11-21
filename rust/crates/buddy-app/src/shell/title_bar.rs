@@ -37,7 +37,9 @@ fn app_icon(palette: &BuddyPalette, background: gpui_kit::Hsla) -> impl IntoElem
 }
 
 /// `.title-bar-title`: the brand, icon, product name and version, centred on
-/// the bar whatever the menus' width, as Electron's absolutely centred title.
+/// the whole bar as Electron's absolutely centred title is. It fills the
+/// window's width, not the title bar's inner area, which the platform's
+/// window controls and left inset make asymmetric.
 fn title(palette: &BuddyPalette, background: gpui_kit::Hsla) -> impl IntoElement {
     h_flex()
         .absolute()
@@ -102,7 +104,6 @@ pub fn render(
     let background = theme.background;
 
     let content = h_flex()
-        .relative()
         .flex_1()
         .h_full()
         .items_center()
@@ -110,8 +111,6 @@ pub fn render(
         .pl(zpx(4.0))
         .text_size(zpx(12.0))
         .text_color(foreground)
-        // Painted first so the menus and buttons stay on top of it.
-        .child(title(&palette, background))
         .child(
             h_flex()
                 .gap(zpx(2.0))
@@ -204,11 +203,20 @@ pub fn render(
     // size, so the bar itself stays at 100% (controls keep their fixed size,
     // as in VS Code) while its height and Buddy's content follow the zoom.
     let title_bar_height = scaled(cx, TITLE_BAR_HEIGHT);
+    // The title is painted first, under a transparent bar, so the menus and
+    // buttons stay on top of it and keep their clicks.
     zoom::unzoomed(
-        TitleBar::new()
+        div()
+            .relative()
             .h(title_bar_height)
             .bg(title_bar_bg)
-            .child(zoom::zoomed(cx, content)),
+            .child(zoom::zoomed(cx, title(&palette, background)))
+            .child(
+                TitleBar::new()
+                    .h(title_bar_height)
+                    .bg(gpui_kit::transparent_black())
+                    .child(zoom::zoomed(cx, content)),
+            ),
     )
 }
 
