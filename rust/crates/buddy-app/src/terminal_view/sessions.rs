@@ -56,6 +56,24 @@ impl TerminalView {
         result
     }
 
+    /// Saves a pending start directory once the pane's shell is known to have
+    /// run; a launch that failed leaves the saved folder as it was.
+    pub(super) fn confirm_start_directory(&mut self, pane: &str, cx: &mut Context<Self>) {
+        let Some(started) = self
+            .grids
+            .get(pane)
+            .and_then(|grid| grid.read(cx).started())
+        else {
+            return;
+        };
+        let Some(directory) = self.pending_start_directories.remove(pane) else {
+            return;
+        };
+        if started {
+            self.record_start_directory(pane, directory, cx);
+        }
+    }
+
     /// `TerminalPane.tsx` writes back the directory a shell started in. The
     /// pane may belong to a workspace that is no longer shown (the user can
     /// switch while a shell starts), so it is found across the whole layout.
@@ -111,6 +129,8 @@ impl TerminalView {
         self.grids.retain(|pane, _| wanted.contains(pane));
         self.failure_details.retain(|pane| wanted.contains(pane));
         self.start_notices.retain(|pane, _| wanted.contains(pane));
+        self.pending_start_directories
+            .retain(|pane, _| wanted.contains(pane));
         if self
             .copied_failure
             .as_ref()
@@ -158,6 +178,7 @@ impl TerminalView {
     pub(super) fn restart_pane(&mut self, pane: &str, cx: &mut Context<Self>) {
         self.failure_details.remove(pane);
         self.start_notices.remove(pane);
+        self.pending_start_directories.remove(pane);
         if self.copied_failure.as_deref() == Some(pane) {
             self.copied_failure = None;
         }
@@ -246,7 +267,9 @@ impl TerminalView {
                                     ),
                                     None => this.start_notices.remove(ticket.pane()),
                                 };
-                                this.record_start_directory(ticket.pane(), directory, cx);
+                                this.pending_start_directories
+                                    .insert(ticket.pane().into(), directory);
+                                this.confirm_start_directory(ticket.pane(), cx);
                             }
                         }
                         StartCompletion::Failed => {}

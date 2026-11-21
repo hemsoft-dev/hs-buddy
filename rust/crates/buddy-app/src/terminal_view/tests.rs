@@ -87,6 +87,14 @@ fn a_start_directory_reaches_a_pane_in_a_hidden_workspace(cx: &mut gpui_kit::Tes
             assert_eq!(saved["nodes"][0]["layout"]["cwd"], "/home/fixture");
             assert_eq!(saved["nodes"][1]["layout"]["cwd"], "/home/fixture");
             assert_eq!(saved["activeNodeId"], "b");
+            // A start directory waits for its shell: without a running grid
+            // nothing is saved and the request stays pending.
+            view.pending_start_directories
+                .insert("pane-a".into(), "/elsewhere".into());
+            view.confirm_start_directory("pane-a", cx);
+            let saved = view.editor.as_ref().unwrap().document().document();
+            assert_eq!(saved["nodes"][0]["layout"]["cwd"], "/home/fixture");
+            assert!(view.pending_start_directories.contains_key("pane-a"));
             // A deleted pane's notice goes with it.
             view.start_notices
                 .insert("deleted-pane".into(), "Started in /home".into());

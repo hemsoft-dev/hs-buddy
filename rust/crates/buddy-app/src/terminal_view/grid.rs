@@ -80,6 +80,16 @@ pub struct TerminalGrid {
 
 impl EventEmitter<GridEvent> for TerminalGrid {}
 
+/// A shell that ran (and may since have exited) started in its directory; one
+/// that failed or was closed before running did not.
+fn started(status: &SessionStatus) -> Option<bool> {
+    match status {
+        SessionStatus::Starting => None,
+        SessionStatus::Running | SessionStatus::Exited(_) => Some(true),
+        SessionStatus::Failed(_) | SessionStatus::Closed => Some(false),
+    }
+}
+
 impl TerminalGrid {
     pub fn new(session: Arc<Session>, cx: &mut Context<Self>) -> Self {
         let snapshot = session.snapshot();
@@ -120,6 +130,12 @@ impl TerminalGrid {
 
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+    }
+
+    /// Whether the shell actually started: `None` while the host has not yet
+    /// reported, `Some(false)` when it never ran.
+    pub fn started(&self) -> Option<bool> {
+        started(&self.session_status)
     }
 
     pub fn launch_failure(&self) -> Option<&str> {
@@ -544,6 +560,17 @@ impl Render for TerminalGrid {
 #[cfg(test)]
 mod tests {
     use super::native_text;
+
+    #[test]
+    fn only_a_shell_that_ran_started_in_its_directory() {
+        use super::{SessionStatus, started};
+        assert_eq!(started(&SessionStatus::Starting), None);
+        assert_eq!(started(&SessionStatus::Running), Some(true));
+        assert_eq!(started(&SessionStatus::Exited(0)), Some(true));
+        assert_eq!(started(&SessionStatus::Failed("spawn".into())), Some(false));
+        assert_eq!(started(&SessionStatus::Closed), Some(false));
+    }
+
     #[test]
     fn alt_commands_remain_distinct_from_altgr_option_and_committed_unicode_text() {
         assert!(!native_text(Some("f"), false, true, false));
