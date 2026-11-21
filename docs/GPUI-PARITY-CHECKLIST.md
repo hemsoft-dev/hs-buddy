@@ -14,8 +14,8 @@ One row is newer: Escape in the Tempo worklog editor, ported by
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 300 are ported,
-201 are partly ported, 92 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 298 are ported,
+203 are partly ported, 92 are missing natively, 5 are a
 placeholder natively and 24 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
@@ -24,11 +24,11 @@ placeholder natively and 24 do not apply to a native app.
 | [GitHub repositories and pull requests](parity/github.md) | 82 | 20 | 0 | 42 | 19 | 1 |
 | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | 47 | 4 | 0 | 13 | 30 | 0 |
 | [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 19 | 0 | 26 | 26 | 3 |
-| [Todoist and Tempo](parity/planning.md) | 71 | 12 | 0 | 17 | 41 | 1 |
+| [Todoist and Tempo](parity/planning.md) | 71 | 12 | 0 | 18 | 40 | 1 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 10 | 0 | 24 | 52 | 3 |
-| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 7 | 4 | 23 | 23 | 2 |
+| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 7 | 4 | 24 | 22 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 11 | 0 | 29 | 54 | 7 |
-| **All areas** | **622** | **92** | **5** | **201** | **300** | **24** |
+| **All areas** | **622** | **92** | **5** | **203** | **298** | **24** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
@@ -111,8 +111,9 @@ menu items, shortcut registrations and store keys and looked for the native
 counterpart of each. A second, independent pass then opened every cited line,
 corrected the state where the code did not support it, and searched for
 capabilities the first pass had missed. The second pass made 209
-corrections. A script then confirmed that all 2,954 cited paths exist and that
-every cited line number is inside its file.
+corrections. A script then confirmed that every cited path exists and that
+every cited line number is inside its file. Review of the pull request that
+added these pages corrected two more rows.
 
 What that does and does not establish:
 
@@ -124,8 +125,12 @@ What that does and does not establish:
   deciding code is in an external crate or package. Each area page ends with
   its own list.
 - Granularity is uneven by design: one row per route or meaningful action
-  group, not one per button. A *Ported* row can still hide a small difference
-  nobody looked for.
+  group, not one per button.
+- *Ported* is the least checked state. Review of the pull request that added
+  these pages sampled the rows and found two marked *Ported* that differ in
+  behavior: the embedded browser's address check and the Today task list. Both
+  are corrected, but the remaining *Ported* rows have not been re-checked
+  since. Treat a *Ported* row as "no difference found", not as "proven equal".
 
 ## Keeping it current
 
