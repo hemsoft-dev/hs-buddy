@@ -87,6 +87,13 @@ fn a_start_directory_reaches_a_pane_in_a_hidden_workspace(cx: &mut gpui_kit::Tes
             assert_eq!(saved["nodes"][0]["layout"]["cwd"], "/home/fixture");
             assert_eq!(saved["nodes"][1]["layout"]["cwd"], "/home/fixture");
             assert_eq!(saved["activeNodeId"], "b");
+            // A deleted pane's notice goes with it.
+            view.start_notices
+                .insert("deleted-pane".into(), "Started in /home".into());
+            view.start_notices
+                .insert("pane-a".into(), "Started in /home".into());
+            view.synchronize_sessions(cx);
+            assert_eq!(view.start_notices.keys().collect::<Vec<_>>(), ["pane-a"]);
         })
     });
 }

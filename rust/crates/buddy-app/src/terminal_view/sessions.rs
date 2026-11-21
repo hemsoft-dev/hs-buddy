@@ -110,6 +110,7 @@ impl TerminalView {
         let retired = self.sessions.synchronize(editor.document());
         self.grids.retain(|pane, _| wanted.contains(pane));
         self.failure_details.retain(|pane| wanted.contains(pane));
+        self.start_notices.retain(|pane, _| wanted.contains(pane));
         if self
             .copied_failure
             .as_ref()
