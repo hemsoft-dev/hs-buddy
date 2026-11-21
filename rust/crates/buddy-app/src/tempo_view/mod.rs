@@ -226,18 +226,13 @@ impl TempoView {
     }
     fn apply_range(&mut self, cx: &mut Context<Self>) {
         let parsed = (|| {
-            let from = self
-                .from
-                .read(cx)
-                .value()
-                .parse()
-                .map_err(|_| buddy_core::tempo::Error::InvalidRange)?;
-            let to = self
-                .to
-                .read(cx)
-                .value()
-                .parse()
-                .map_err(|_| buddy_core::tempo::Error::InvalidRange)?;
+            // Name the grammar: an inferred `.parse()` follows whatever type
+            // `DateRange::new` takes, and jiff's own date parser reads other
+            // text than the one these fields have always accepted.
+            let from = buddy_core::wire_time::typed_date(&self.from.read(cx).value())
+                .ok_or(buddy_core::tempo::Error::InvalidRange)?;
+            let to = buddy_core::wire_time::typed_date(&self.to.read(cx).value())
+                .ok_or(buddy_core::tempo::Error::InvalidRange)?;
             DateRange::new(from, to)
         })();
         match parsed {

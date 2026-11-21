@@ -120,6 +120,27 @@ pub fn date(text: &str) -> Option<Date> {
     Some(date)
 }
 
+/// A date as chrono's `NaiveDate::from_str` read it: [`date`], with
+/// whitespace also allowed before each `-` and after the day.
+pub fn typed_date(text: &str) -> Option<Date> {
+    let mut scan = Scan(text);
+    let year = scan.year()?;
+    scan.0 = scan.0.trim_start();
+    scan.literal('-')?;
+    let month = scan.number(2)?;
+    scan.0 = scan.0.trim_start();
+    scan.literal('-')?;
+    let day = scan.number(2)?;
+    scan.0 = scan.0.trim_start();
+    scan.end()?;
+    Date::new(
+        i16::try_from(year).ok()?,
+        i8::try_from(month).ok()?,
+        i8::try_from(day).ok()?,
+    )
+    .ok()
+}
+
 /// `%H:%M`.
 pub fn hour_minute(text: &str) -> Option<Time> {
     let mut scan = Scan(text);
@@ -313,6 +334,41 @@ mod tests {
             "+99999999999999999999-01-01",
         ] {
             assert_eq!(date(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn typed_dates_also_allow_whitespace_around_the_separators_and_at_the_end() {
+        // chrono's `NaiveDate::from_str` accepted each of these in the Tempo
+        // range fields; jiff's own `Date::from_str` refuses all but the first.
+        for (text, canonical) in [
+            ("2026-11-01", "2026-11-01"),
+            ("2026-11-1", "2026-11-01"),
+            (" 2026-11-01", "2026-11-01"),
+            ("2026-11-01 ", "2026-11-01"),
+            ("2026 - 11 - 1", "2026-11-01"),
+            ("2026\t-11-01\n", "2026-11-01"),
+            ("+2026-11-01", "2026-11-01"),
+            ("26-1-6", "0026-01-06"),
+        ] {
+            assert_eq!(typed_date(text).unwrap().to_string(), canonical, "{text:?}");
+        }
+        // jiff's own parser accepts these; chrono refused them.
+        for text in [
+            "",
+            "20261101",
+            "2026-11-01T09:00",
+            "2026-11-01 09:00",
+            "2026-11-01[Europe/Paris]",
+            "2026-11-01T09:00+02:00",
+            "2026-11",
+            "2026-11-01-",
+            "2026-13-01",
+            "2026-02-30",
+            "2026-11-011",
+            "+10000-01-01",
+        ] {
+            assert_eq!(typed_date(text), None, "{text:?}");
         }
     }
 

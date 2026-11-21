@@ -265,13 +265,19 @@ pub fn read(path: &Path) -> Result<Snapshot, &'static str> {
     if !metadata.is_file() || metadata.len() > MAX_BYTES as u64 {
         return Err(ERROR);
     }
-    let modified =
-        jiff::Timestamp::try_from(metadata.modified().map_err(|_| ERROR)?).map_err(|_| ERROR)?;
+    let modified = modified_text(metadata.modified().map_err(|_| ERROR)?);
     let mut bytes = Vec::new();
     file.take(MAX_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| ERROR)?;
-    parse(&bytes, &crate::wire_time::rfc3339_utc(modified))
+    parse(&bytes, &modified)
+}
+/// The fallback date for a file that states none. A modification time jiff
+/// cannot hold leaves it empty rather than failing the whole read.
+fn modified_text(modified: std::time::SystemTime) -> String {
+    jiff::Timestamp::try_from(modified)
+        .map(crate::wire_time::rfc3339_utc)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -309,6 +315,20 @@ mod tests {
             }
             assert_eq!(read(&path).unwrap().generated_at, text);
         }
+    }
+    #[test]
+    fn a_modification_time_past_the_representable_range_leaves_the_fallback_date_empty() {
+        let epoch = std::time::UNIX_EPOCH;
+        let seconds = std::time::Duration::from_secs;
+        assert_eq!(
+            modified_text(epoch + seconds(1_792_144_800)),
+            "2026-10-16T10:00:00+00:00"
+        );
+        // 10000-01-01T00:00:00Z: NTFS, btrfs and tmpfs can all store it.
+        assert_eq!(modified_text(epoch + seconds(253_402_300_800)), "");
+        // The file's own date still wins, so such a file reads normally.
+        let snapshot = parse(br#"{"GeneratedAtUtc":"2026-10-16T10:00:00Z"}"#, "").unwrap();
+        assert_eq!(snapshot.generated_at, "2026-10-16T10:00:00Z");
     }
     #[test]
     fn nested_daily_usage_and_direct_aggregates_keep_models_status_and_source() {
