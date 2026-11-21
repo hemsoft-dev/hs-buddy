@@ -278,6 +278,38 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
+    fn a_file_without_its_own_timestamp_is_dated_by_its_modification_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("metrics.json");
+        for (seconds, nanoseconds, text) in [
+            (1_792_144_800, 0, "2026-10-16T10:00:00+00:00"),
+            (1_792_144_800, 123_000_000, "2026-10-16T10:00:00.123+00:00"),
+            (
+                1_792_144_800,
+                123_456_000,
+                "2026-10-16T10:00:00.123456+00:00",
+            ),
+            (
+                1_792_144_800,
+                123_456_789,
+                "2026-10-16T10:00:00.123456789+00:00",
+            ),
+            (1_792_144_800, 100, "2026-10-16T10:00:00.000000100+00:00"),
+            (0, 0, "1970-01-01T00:00:00+00:00"),
+        ] {
+            std::fs::write(&path, b"{}").unwrap();
+            let time = std::time::UNIX_EPOCH + std::time::Duration::new(seconds, nanoseconds);
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(time).unwrap();
+            drop(file);
+            if std::fs::metadata(&path).unwrap().modified().unwrap() != time {
+                // This file system stores coarser times than the case needs.
+                continue;
+            }
+            assert_eq!(read(&path).unwrap().generated_at, text);
+        }
+    }
+    #[test]
     fn nested_daily_usage_and_direct_aggregates_keep_models_status_and_source() {
         let bytes=serde_json::to_vec(&json!({"Organization":"Synthetic team","Days":[1,2],"Users":[
             {"User":"inactive","Responses":[{"Response":{"usageItems":[]}}]},

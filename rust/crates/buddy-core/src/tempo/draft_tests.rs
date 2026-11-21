@@ -380,3 +380,57 @@ fn individually_valid_attributes_cannot_create_an_unbounded_outgoing_body() {
     let draft = Draft::edit(&row).unwrap();
     assert!(matches!(draft.encode(), Err(Error::DraftTooLarge)));
 }
+
+#[test]
+fn a_recovered_body_must_spell_its_date_and_start_time_canonically() {
+    let draft = Draft::copy_to_date(
+        &row(),
+        "2026-11-01".parse().unwrap(),
+        "08:15:01".parse().unwrap(),
+    )
+    .unwrap();
+    let body = String::from_utf8(draft.encode().unwrap()).unwrap();
+    assert!(
+        body.contains(r#""startDate":"2026-11-01""#) && body.contains(r#""startTime":"08:15:01""#)
+    );
+    let recovers = |from: &str, to: &str| {
+        assert!(body.contains(from));
+        Draft::recover_body(DraftKind::Create, None, body.replace(from, to).as_bytes()).is_ok()
+    };
+    for time in ["08:15:01", "00:00:00", "23:59:59"] {
+        assert!(recovers("08:15:01", time), "{time:?}");
+    }
+    for time in [
+        "8:15:01",
+        "08:15:1",
+        " 08:15:01",
+        "08:15:01 ",
+        "08:15",
+        "08:15:01.0",
+        "08:15:01.5",
+        "08:15:60",
+        "24:00:00",
+        "08:60:00",
+        "081501",
+        "T08:15:01",
+        "",
+    ] {
+        assert!(!recovers("08:15:01", time), "{time:?}");
+    }
+    for date in ["2026-11-01", "0001-01-01", "9999-12-31", "2028-02-29"] {
+        assert!(recovers("2026-11-01", date), "{date:?}");
+    }
+    for date in [
+        "2026-11-1",
+        "2026-1-001",
+        " 2026-11-1",
+        "+2026-11-1",
+        "0000-01-01",
+        "2026-02-30",
+        "20261101",
+        "2026-11-01T00:00:00Z",
+        "",
+    ] {
+        assert!(!recovers("2026-11-01", date), "{date:?}");
+    }
+}

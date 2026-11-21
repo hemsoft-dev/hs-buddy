@@ -254,6 +254,88 @@ mod tests {
     }
 
     #[test]
+    fn window_times_are_utc_milliseconds_with_a_z_suffix() {
+        for (reset, seconds, reset_at, period_start) in [
+            (
+                json!(1_792_144_800),
+                json!(18000),
+                "2026-10-16T10:00:00.000Z",
+                "2026-10-16T05:00:00.000Z",
+            ),
+            // Fractions of a millisecond are dropped, not rounded.
+            (
+                json!(1_792_144_800.123_9),
+                json!(0.25),
+                "2026-10-16T10:00:00.123Z",
+                "2026-10-16T09:59:59.873Z",
+            ),
+            (
+                json!(-1.5),
+                json!(3600),
+                "1969-12-31T23:59:58.500Z",
+                "1969-12-31T22:59:58.500Z",
+            ),
+            (
+                json!(253_402_207_200_i64),
+                json!(604800),
+                "9999-12-30T22:00:00.000Z",
+                "9999-12-23T22:00:00.000Z",
+            ),
+            (
+                json!(-62_135_596_800_i64),
+                json!(18000),
+                "0001-01-01T00:00:00.000Z",
+                "0000-12-31T19:00:00.000Z",
+            ),
+        ] {
+            let usage = parse(&response(raw(json!(10), seconds, reset), Value::Null), 0).unwrap();
+            assert_eq!(usage.windows[0].reset_at, reset_at);
+            assert_eq!(usage.windows[0].period_start, period_start);
+        }
+        assert_eq!(
+            serde_json::to_value(
+                &parse(
+                    &response(raw(json!(25), json!(18000), json!(18000)), Value::Null),
+                    7_200_000,
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+            json!({"planType":"fixture-plan","fetchedAt":7_200_000,"windows":[{
+                "kind":"five-hour","label":"5-hour allowance","usedPercent":25.0,
+                "remainingPercent":75.0,"resetAt":"1970-01-01T05:00:00.000Z",
+                "durationSeconds":18000.0,"periodStart":"1970-01-01T00:00:00.000Z",
+                "projectedPercent":62.5}]})
+        );
+    }
+
+    #[test]
+    fn window_times_after_year_9999_keep_a_signed_year() {
+        for (reset, reset_at) in [
+            (json!(253_402_300_799_i64), "9999-12-31T23:59:59.000Z"),
+            (json!(253_402_300_800_i64), "+10000-01-01T00:00:00.000Z"),
+            (json!(8_210_266_876_799_i64), "+262142-12-31T23:59:59.000Z"),
+        ] {
+            let usage = parse(
+                &response(raw(json!(10), json!(18000), reset), Value::Null),
+                0,
+            )
+            .unwrap();
+            assert_eq!(usage.windows[0].reset_at, reset_at);
+        }
+        assert_eq!(
+            parse(
+                &response(
+                    raw(json!(10), json!(18000), json!(8_210_266_876_800_i64)),
+                    Value::Null
+                ),
+                0
+            ),
+            Err(ParseError::NoWindows)
+        );
+    }
+
+    #[test]
     fn bounds_response_and_plan_text_before_ui_or_history_storage() {
         assert_eq!(
             parse(&vec![b' '; MAX_RESPONSE_BYTES + 1], 0),

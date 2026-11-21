@@ -109,3 +109,87 @@ fn month_overflows_and_arbitrary_ranges_cannot_silently_change_selection() {
     let custom = DateRange::new(day("2026-10-02"), day("2026-10-08")).unwrap();
     assert!(matches!(custom.shift_month(1), Err(Error::InvalidRange)));
 }
+
+#[test]
+fn today_follows_daylight_changes_odd_offsets_and_a_skipped_calendar_day() {
+    for (zone, at, today) in [
+        ("America/New_York", "2026-03-08T04:59:59Z", "2026-03-07"),
+        ("America/New_York", "2026-03-08T05:00:00Z", "2026-03-08"),
+        ("America/New_York", "2026-03-09T03:59:59Z", "2026-03-08"),
+        ("America/New_York", "2026-03-09T04:00:00Z", "2026-03-09"),
+        ("America/New_York", "2026-11-01T03:59:59Z", "2026-10-31"),
+        ("America/New_York", "2026-11-01T04:00:00Z", "2026-11-01"),
+        ("America/New_York", "2026-11-02T04:59:59Z", "2026-11-01"),
+        ("America/New_York", "2026-11-02T05:00:00Z", "2026-11-02"),
+        // Midnight itself was skipped: 23:59:59 was followed by 01:00:00.
+        ("America/Sao_Paulo", "2018-11-04T02:59:59Z", "2018-11-03"),
+        ("America/Sao_Paulo", "2018-11-04T03:00:00Z", "2018-11-04"),
+        // Samoa crossed the date line and had no December 30.
+        ("Pacific/Apia", "2011-12-30T09:59:59Z", "2011-12-29"),
+        ("Pacific/Apia", "2011-12-30T10:00:00Z", "2011-12-31"),
+        ("Pacific/Chatham", "2026-06-30T11:14:59Z", "2026-06-30"),
+        ("Pacific/Chatham", "2026-06-30T11:15:00Z", "2026-07-01"),
+        ("Asia/Kathmandu", "2026-06-30T18:14:59Z", "2026-06-30"),
+        ("Asia/Kathmandu", "2026-06-30T18:15:00Z", "2026-07-01"),
+        (
+            "Pacific/Kiritimati",
+            "2026-06-30T09:59:59.999999999Z",
+            "2026-06-30",
+        ),
+        ("Pacific/Kiritimati", "2026-06-30T10:00:00Z", "2026-07-01"),
+        ("UTC", "0001-01-01T00:00:00Z", "0001-01-01"),
+        ("UTC", "9999-12-30T22:00:00Z", "9999-12-30"),
+    ] {
+        let calendar = AccountCalendar::from_zone(Some(zone)).unwrap();
+        assert_eq!(
+            calendar.today_at(instant(at)).unwrap(),
+            day(today),
+            "{zone} {at}"
+        );
+    }
+}
+#[test]
+fn ranges_stay_inside_years_1_to_9999_and_weeks_start_on_monday() {
+    assert_eq!(
+        dates(DateRange::week_containing(day("0001-01-07")).unwrap()),
+        (day("0001-01-01"), day("0001-01-07"))
+    );
+    assert_eq!(
+        dates(DateRange::week_containing(day("2026-10-18")).unwrap()),
+        (day("2026-10-12"), day("2026-10-18"))
+    );
+    assert_eq!(
+        dates(DateRange::week_containing(day("2026-10-19")).unwrap()),
+        (day("2026-10-19"), day("2026-10-25"))
+    );
+    assert_eq!(
+        dates(DateRange::week_containing(day("9999-12-26")).unwrap()),
+        (day("9999-12-20"), day("9999-12-26"))
+    );
+    // 9999-12-27 is a Monday, so its week would end in the year 10000.
+    for text in ["9999-12-27", "9999-12-31"] {
+        assert!(matches!(
+            DateRange::week_containing(day(text)),
+            Err(Error::InvalidRange)
+        ));
+    }
+    assert!(DateRange::new(day("2026-01-01"), day("2027-01-01")).is_ok());
+    assert!(DateRange::new(day("0001-01-01"), day("0001-12-31")).is_ok());
+    assert!(matches!(
+        DateRange::new(day("0000-12-31"), day("0001-01-01")),
+        Err(Error::InvalidRange)
+    ));
+    assert_eq!(
+        dates(DateRange::month_containing(day("9999-12-15")).unwrap()),
+        (day("9999-12-01"), day("9999-12-31"))
+    );
+    assert_eq!(
+        dates(
+            DateRange::month_containing(day("2026-03-31"))
+                .unwrap()
+                .shift_month(-13)
+                .unwrap()
+        ),
+        (day("2025-02-01"), day("2025-02-28"))
+    );
+}

@@ -214,3 +214,23 @@ fn invalid_fields_and_json_expansion_are_rejected_before_a_request_can_exist() {
         Err(Error::InvalidDraft)
     ));
 }
+
+#[test]
+fn due_dates_are_sent_as_zero_padded_calendar_dates_within_years_1_to_9999() {
+    let draft = |due: &str| CreateDraft {
+        content: "Synthetic task".into(),
+        description: String::new(),
+        project: None,
+        priority: Priority::from_api(1).unwrap(),
+        due: Some(due.parse().unwrap()),
+    };
+    for date in ["2026-10-16", "0001-02-03", "9999-12-31", "2028-02-29"] {
+        let request = WriteRequest::create(WriteScope::new(), &draft(date)).unwrap();
+        let body: serde_json::Value = serde_json::from_str(request.commands()).unwrap();
+        assert_eq!(body[0]["args"]["due"], json!({"date":date}));
+    }
+    assert!(matches!(
+        WriteRequest::create(WriteScope::new(), &draft("0000-12-31")),
+        Err(Error::InvalidDraft)
+    ));
+}

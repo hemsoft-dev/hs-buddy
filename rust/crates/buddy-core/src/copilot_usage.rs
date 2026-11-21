@@ -652,6 +652,101 @@ mod tests {
         assert_eq!(pool.reset_at.to_rfc3339(), "2026-11-01T00:00:00+00:00");
     }
 
+    /// Whether a parsed instant is the one this RFC 3339 text names.
+    fn same<T: PartialEq + std::str::FromStr>(value: T, text: &str) -> bool {
+        text.parse().is_ok_and(|expected: T| value == expected)
+    }
+
+    #[test]
+    fn quota_reset_dates_are_rfc_3339_or_the_first_of_next_month() {
+        let now = "2026-10-07T12:34:56Z".parse().unwrap();
+        let reset = |text: &str| {
+            let json = serde_json::json!({"quota_reset_date_utc":text,
+                "quota_snapshots":{"premium_interactions":{"entitlement":1,"remaining":1}}});
+            parse_personal_quota(&json.to_string(), now)
+                .unwrap()
+                .reset_at
+        };
+        for (text, instant) in [
+            ("2026-11-01T00:00:00Z", "2026-11-01T00:00:00Z"),
+            ("2026-11-01T00:00:00.000Z", "2026-11-01T00:00:00Z"),
+            ("2026-10-31T20:00:00-04:00", "2026-11-01T00:00:00Z"),
+            ("2026-11-01 00:00:00.5+00:00", "2026-11-01T00:00:00.5Z"),
+            ("2026-11-15t08:30:45z", "2026-11-15T08:30:45Z"),
+        ] {
+            assert!(same(reset(text), instant), "{text:?}");
+        }
+        let fallback = first_of_next_month_utc(2026, 10);
+        assert!(same(fallback, "2026-11-01T00:00:00Z"));
+        for text in [
+            "",
+            "2026-11-15",
+            "2026-11-15T08:30:45",
+            "2026-11-15T08:30Z",
+            "2026-11-15T08:30:45+0000",
+            "2026-11-15T08:30:45Z[UTC]",
+            "20261115T083045Z",
+            "1794731445",
+        ] {
+            assert!(reset(text) == fallback, "{text:?}");
+        }
+        let absent =
+            r#"{"quota_snapshots":{"premium_interactions":{"entitlement":1,"remaining":1}}}"#;
+        assert!(parse_personal_quota(absent, now).unwrap().reset_at == fallback);
+        let december = "2026-12-31T23:59:59Z".parse().unwrap();
+        assert!(same(
+            parse_personal_quota(absent, december).unwrap().reset_at,
+            "2027-01-01T00:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn projection_period_starts_one_month_before_reset_at_the_same_minute() {
+        let pool = |reset: &str| UsagePool {
+            used: 1000,
+            allotment: 0,
+            overage_count: 0,
+            reset_at: reset.parse().unwrap(),
+        };
+        let total = |reset: &str, now: &str| {
+            compute_projection(&pool(reset), now.parse().unwrap())
+                .map(|projection| projection.projected_total)
+        };
+        // Mar 31 -> Feb 28: a 31 day period, 14 of them elapsed.
+        assert_eq!(
+            total("2026-03-31T00:00:00Z", "2026-03-14T00:00:00Z"),
+            Some(2214)
+        );
+        // Leap year: Mar 31 -> Feb 29, a 31 day period.
+        assert_eq!(
+            total("2028-03-31T00:00:00Z", "2028-03-15T12:00:00Z"),
+            Some(2000)
+        );
+        // January resets start in December of the year before.
+        assert_eq!(
+            total("2027-01-15T06:30:00Z", "2026-12-25T06:30:00Z"),
+            Some(3100)
+        );
+        // Seconds and fractions of the reset are dropped from the period start.
+        assert_eq!(
+            total("2026-11-01T00:00:59.999Z", "2026-10-11T00:00:00Z"),
+            Some(3100)
+        );
+        assert_eq!(
+            total("2026-11-01T10:20:30Z", "2026-10-01T10:20:00.999Z"),
+            None
+        );
+        assert_eq!(
+            total("2026-11-01T10:20:30Z", "2026-10-01T10:20:01Z"),
+            Some(31_000)
+        );
+        // After the reset the elapsed window is capped at the whole period.
+        assert_eq!(
+            total("2026-11-01T00:00:00Z", "2027-06-01T00:00:00Z"),
+            Some(1000)
+        );
+    }
+
     #[test]
     fn aggregates_pools_and_projections() {
         let now = Utc.with_ymd_and_hms(2026, 10, 11, 0, 0, 0).unwrap();

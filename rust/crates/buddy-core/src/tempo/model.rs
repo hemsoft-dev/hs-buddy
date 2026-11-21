@@ -393,3 +393,7 @@ pub fn parse_schedule(bytes: &[u8]) -> Result<Vec<DaySchedule>, Error> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod tests;

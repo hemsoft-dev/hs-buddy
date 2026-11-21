@@ -126,3 +126,7 @@ impl DueDate {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "date_forms_tests.rs"]
+mod tests;

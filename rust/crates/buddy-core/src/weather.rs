@@ -443,6 +443,44 @@ mod tests {
     }
 
     #[test]
+    fn forecast_days_are_named_from_their_date() {
+        for (date, name) in [
+            ("2026-10-12", "Mon"),
+            ("2026-10-13", "Tue"),
+            ("2026-10-14", "Wed"),
+            ("2026-10-15", "Thu"),
+            ("2026-10-16", "Fri"),
+            ("2026-10-17", "Sat"),
+            ("2026-10-18", "Sun"),
+            ("2028-02-29", "Tue"),
+            ("0001-01-01", "Mon"),
+            ("9999-12-31", "Fri"),
+            // Padding and leading whitespace are optional.
+            ("2026-10-7", "Wed"),
+            (" 2026-10-17", "Sat"),
+            ("2026- 1- 5", "Mon"),
+            ("+2026-10-17", "Sat"),
+            ("0-1-1", "Sat"),
+            ("-0001-01-01", "Fri"),
+        ] {
+            assert_eq!(day_name(date, 1), name, "{date:?}");
+        }
+        for date in [
+            "",
+            "2026-02-30",
+            "2026-13-01",
+            "20261017",
+            "2026-10-17 ",
+            "2026-10-17T00:00:00Z",
+            "2026/10/17",
+            "17 Oct 2026",
+        ] {
+            assert_eq!(day_name(date, 1), "", "{date:?}");
+        }
+        assert_eq!(day_name("not a date", 0), "Today");
+    }
+
+    #[test]
     fn parses_nominatim_search_result() {
         let json = r#"[{"lat":"35.7796","lon":"-78.6382","display_name":"Raleigh, Wake County, North Carolina, United States",
                         "address":{"city":"Raleigh","state":"North Carolina","country":"United States"}}]"#;
