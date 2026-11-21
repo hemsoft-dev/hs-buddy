@@ -86,6 +86,20 @@ function Click-OwnedPoint([int] $X, [int] $Y) {
     Note "click messages posted client=$X,$Y"
     Start-Sleep -Milliseconds 600
 }
+# The secondary (right) button: WM_RBUTTONDOWN/WM_RBUTTONUP with MK_RBUTTON
+# held on the press. Posted to the owned window like a left click, never SendInput.
+# https://learn.microsoft.com/windows/win32/inputdev/wm-rbuttondown
+function SecondaryClick-OwnedPoint([int] $X, [int] $Y) {
+    $lp = [Drive]::MakeLParam($X, $Y)
+    Note "secondary click client=$X,$Y hwnd=$h"
+    if (-not [Drive]::PostMessageW($h, 0x200, 0, $lp)) { throw 'Owned mouse move was not posted' }
+    Start-Sleep -Milliseconds 150
+    if (-not [Drive]::PostMessageW($h, 0x204, 2, $lp)) { throw 'Owned secondary mouse down was not posted' }
+    Start-Sleep -Milliseconds 80
+    if (-not [Drive]::PostMessageW($h, 0x205, 0, $lp)) { throw 'Owned secondary mouse up was not posted' }
+    Note "secondary click messages posted client=$X,$Y"
+    Start-Sleep -Milliseconds 600
+}
 function Scroll-OwnedWindow([int] $Delta, [hashtable] $Position) {
     $pt = New-Object Drive+POINT
     $pt.x = if ($Position) { $Position.X } else { 600 }
@@ -298,6 +312,12 @@ try {
                 $boundaries = @($parts[2..3] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
                 $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
                 Click-OwnedPoint $point.X $point.Y
+            }
+            'workspace_menu64' {
+                # The same OCR scope and target as workspace64; only the button differs.
+                if ($parts.Count -ne 2) { throw 'A tab menu needs one visible tab title' }
+                $point = Find-OwnedLabelPoint $parts[1] 'workspace'
+                SecondaryClick-OwnedPoint $point.X $point.Y
             }
             { $_ -in 'nav64', 'tab64', 'click64', 'content64', 'workspace64', 'sidebar64', 'input64', 'field64', 'leftfield64', 'rightfield64', 'save64' } {
                 $mode = switch ($parts[0]) { 'nav64' {'navigation'} 'tab64' {'tab'} 'content64' {'content'} 'workspace64' {'workspace'} 'sidebar64' {'sidebar'} 'input64' {'input'} 'field64' {'field'} 'leftfield64' {'leftfield'} 'rightfield64' {'rightfield'} 'save64' {'save'} default {'button'} }

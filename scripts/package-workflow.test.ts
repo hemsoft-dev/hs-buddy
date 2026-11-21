@@ -116,12 +116,15 @@ it('runs every installed macOS scene on every full Rust run', () => {
     'crew',
     'bookmarks',
     'browser',
+    'tab-menu',
   ])
   expect(unix.slice(0, darwin)).toContain('python3 "$1/settings-desktop.py"')
   expect(unix.slice(0, darwin)).toContain('python3 "$1/github-desktop.py"')
-  expect(readFileSync('scripts/native-smoke/install-windows.ps1', 'utf8')).toContain(
-    "'settings-desktop.py'"
-  )
+  const windows = readFileSync('scripts/native-smoke/install-windows.ps1', 'utf8')
+  expect(windows).toContain("'settings-desktop.py'")
+  // #971: the tab menu scene runs on every hosted package, not only on macOS.
+  expect(unix.slice(0, darwin)).toContain('python3 "$1/tab-menu-desktop.py"')
+  expect(windows).toContain("'tab-menu-desktop.py'")
 })
 
 it('keeps pull requests fast and qualifies installed packages after merge', () => {

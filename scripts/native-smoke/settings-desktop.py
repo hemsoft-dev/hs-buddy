@@ -150,6 +150,8 @@ MODEL_CATALOG_TIMEOUT = 200
 # a Ralph stub's pwsh took 36 s to start on the hosted Intel Mac). It shares
 # the bounded cold-start wait with model discovery on every platform.
 COLD_START_WAITS = ("wait_models", "wait_cold_start")
+# Right-click one global workspace tab by its visible title, opening its menu.
+SECONDARY_WORKSPACE = "workspace_menu"
 
 
 def wait_visible(window, directory, text, timeout=15, scroll=None, content=False):
@@ -263,7 +265,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "content", "workspace", "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "content", "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -373,7 +375,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             action = dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)
+                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)
                             if self.session == "macos":
                                 action["started"] = stamp()
                             receipt.write(json.dumps(action) + "\n")
@@ -694,6 +696,12 @@ class Driver:
         if kind == "cell":
             return self.interact_cell(window, directory, values)
         image = directory / "locator.png"
+        # A tab's menu is addressed exactly like a click on that tab: the same
+        # OCR scope and target point. Only the button differs.
+        secondary = kind == SECONDARY_WORKSPACE
+        if secondary and len(values) != 1:
+            raise RuntimeError("A tab menu needs one visible tab title")
+        locator = "workspace" if secondary else kind
         hint = values[2] if kind == "input" and len(values) == 3 else None
         offset = 20
         if isinstance(hint, dict):
@@ -706,7 +714,7 @@ class Driver:
         if kind == "between":
             label = self.locate(window, image, kind, values[0], between=values[1:])
         elif row_control is None:
-            label = self.locate(window, image, kind, values[0])
+            label = self.locate(window, image, locator, values[0])
         else:
             label = self.locate(window, image, kind, values[0], row_control=row_control)
         if kind == "box":
@@ -759,7 +767,10 @@ class Driver:
             target = [origin[0] + x, origin[1] + y]
             try:
                 with mac_input_guard(window):
-                    helper.click(*target)
+                    if secondary:
+                        helper.secondary_click(*target)
+                    else:
+                        helper.click(*target)
             except Exception as failure:
                 try:
                     self.input_receipt(helper, directory, "failed-click", kind, values[0], target)
@@ -771,7 +782,8 @@ class Driver:
             self.capture_click_boundary(window, directory, kind, values[0], target)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
-            run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
+            # X11 button 3 is the secondary (right) button.
+            run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 3 if secondary else 1)
         time.sleep(0.4)
         if kind in ("input", "field", "leftfield", "rightfield"):
             if self.session == "macos":

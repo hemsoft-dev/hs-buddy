@@ -9,6 +9,12 @@ from receipt_clock import stamp
 
 COMBINED_SESSION = 0
 MODIFIER_MASK = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20)
+# kCGMouseButtonLeft and kCGMouseButtonRight; the event types are
+# kCGEventMouseMoved (5), Left/RightMouseDown (1, 3) and Left/RightMouseUp (2, 4).
+# https://developer.apple.com/documentation/coregraphics/cgeventtype
+LEFT_BUTTON, RIGHT_BUTTON = 0, 1
+MOUSE_PHASES = {LEFT_BUTTON: ({5: "move", 1: "down", 2: "up"}, "leftButtonMatches"),
+    RIGHT_BUTTON: ({5: "move", 3: "down", 4: "up"}, "rightButtonMatches")}
 
 
 class Point(c.Structure):
@@ -71,20 +77,23 @@ class OwnedMacInput:
         if result.stdout.strip() != str(self.process.pid):
             raise RuntimeError("The owned Mac app must be frontmost before CI input")
 
-    def constructed_mouse(self, event, kind, x, y):
+    def constructed_mouse(self, event, kind, x, y, button=LEFT_BUTTON):
         """Read ONLY our already-created mouse object, never external events."""
         try:
             actual = self.graphics.CGEventGetType(event)
             point = self.graphics.CGEventGetLocation(event)
-            button = self.graphics.CGEventGetIntegerValueField(event, 3)
-            clicks = self.graphics.CGEventGetIntegerValueField(event, 1) if kind in (1, 2) else None
+            number = self.graphics.CGEventGetIntegerValueField(event, 3)
+            pressed = kind != 5
+            clicks = self.graphics.CGEventGetIntegerValueField(event, 1) if pressed else None
             flags = self.graphics.CGEventGetFlags(event)
-            return dict(status="observed", actualType={5: "move", 1: "down", 2: "up"}.get(actual, "other"),
-                typeMatches=actual == kind,
-                locationMatches=math.isclose(point.x, x, rel_tol=0, abs_tol=1 / 1024)
+            # A right press is never receipted as a matching left button.
+            phases, matches = MOUSE_PHASES[button]
+            return {"status": "observed", "actualType": phases.get(actual, "other"),
+                "typeMatches": actual == kind,
+                "locationMatches": math.isclose(point.x, x, rel_tol=0, abs_tol=1 / 1024)
                     and math.isclose(point.y, y, rel_tol=0, abs_tol=1 / 1024),
-                leftButtonMatches=button == 0, clickStateMatches=clicks == 1 if kind in (1, 2) else None,
-                flagsClear=flags == 0)
+                matches: number == button, "clickStateMatches": clicks == 1 if pressed else None,
+                "flagsClear": flags == 0}
         except Exception:
             # Ancillary observation must not interrupt the required up/release
             # or retain an exception's potentially sensitive contents.
@@ -140,26 +149,36 @@ class OwnedMacInput:
         raise RuntimeError("The disposable Mac keyboard modifier state did not clear")
 
     def click(self, x, y):
-        self.last_click_trace = []
-        self.release_modifiers()
         # System Events' accessibility click can invoke a button without focusing
         # GPUI's text input. Send the actual mouse events to the owned process.
-        for kind in (5, 1, 2):  # mouse moved, left down, left up
-            event = self.graphics.CGEventCreateMouseEvent(None, kind, Point(x, y), 0)
-            if event and kind in (1, 2):
+        self.press(x, y, (5, 1, 2), LEFT_BUTTON)  # mouse moved, left down, left up
+
+    def secondary_click(self, x, y):
+        """Right-click the owned app, the gesture that opens its context menus."""
+        self.press(x, y, (5, 3, 4), RIGHT_BUTTON)  # mouse moved, right down, right up
+
+    def press(self, x, y, kinds, button):
+        self.last_click_trace = []
+        self.release_modifiers()
+        state = "leftButtonDown" if button == LEFT_BUTTON else "rightButtonDown"
+        for kind in kinds:
+            # The pointer move names no pressed button, as in a left click.
+            held = LEFT_BUTTON if kind == 5 else button
+            event = self.graphics.CGEventCreateMouseEvent(None, kind, Point(x, y), held)
+            if event and kind != 5:
                 # kCGMouseEventClickState=1, value 1 is a single click.
                 self.graphics.CGEventSetIntegerValueField(event, 1, 1)
-            self.post(event, mouse=(kind, x, y))
+            self.post(event, mouse=(kind, x, y, held))
             time.sleep(0.05)
             # State telemetry is not proof that the GPUI callback ran. Keep
             # every phase of the one click, without retrying a failed action.
             try:
-                down = bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, 0))
+                down = bool(self.graphics.CGEventSourceButtonState(COMBINED_SESSION, button))
             except Exception:
                 # Ancillary telemetry must not interrupt the down/up sequence.
                 down = None
-            phase = dict(eventType=kind, leftButtonDown=down,
-                constructedEvent=self.last_constructed_mouse)
+            phase = {"eventType": kind, state: down,
+                "constructedEvent": self.last_constructed_mouse}
             timing = getattr(self, "last_post_timing", None)
             if isinstance(timing, dict):
                 phase["postCall"] = timing
