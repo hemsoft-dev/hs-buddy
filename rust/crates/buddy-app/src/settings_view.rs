@@ -1181,6 +1181,24 @@ impl SettingsView {
         cx.notify();
     }
 
+    #[cfg(test)]
+    pub(crate) fn seed_other_panel(&mut self, cx: &mut Context<Self>) {
+        self.select_panel(Panel::Notifications);
+        cx.notify();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn showing_accounts(&self) -> bool {
+        self.panel == Panel::Accounts
+    }
+
+    /// `settings-accounts`: the Accounts panel, from the status bar's account
+    /// and the dashboard's Settings and Configure Accounts actions.
+    pub(crate) fn show_accounts(&mut self, cx: &mut Context<Self>) {
+        self.select_panel(Panel::Accounts);
+        cx.notify();
+    }
+
     fn select_panel(&mut self, panel: Panel) {
         if self.panel != panel {
             self.stop_preview();

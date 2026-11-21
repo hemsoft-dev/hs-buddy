@@ -87,6 +87,27 @@ pub enum Section {
     Settings,
 }
 
+/// A specific view another part of the shell can open: Electron's view ids
+/// such as `pr-my-prs`, `settings-accounts`, `automation-runs` or
+/// `copilot-usage`, passed to its `onNavigate`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewTarget {
+    /// The section at its retained page.
+    Section(Section),
+    MyPrs,
+    AutomationJobs,
+    AutomationSchedules,
+    AutomationRuns,
+    SettingsAccounts,
+    CopilotUsage,
+}
+
+impl From<Section> for ViewTarget {
+    fn from(section: Section) -> Self {
+        Self::Section(section)
+    }
+}
+
 impl Section {
     pub const ALL: [Section; 11] = [
         Section::GitHub,
@@ -225,6 +246,35 @@ impl BuddyApp {
         let destination = self.destination(section, cx);
         self.tabs.open(destination);
         self.show_section(section, cx);
+    }
+
+    /// Opens `target`'s section, then its view. The section's tab follows the
+    /// view as it changes (see `observe_navigation`).
+    pub(crate) fn open_target(&mut self, target: ViewTarget, cx: &mut Context<Self>) {
+        match target {
+            ViewTarget::Section(section) => self.set_section(Some(section), cx),
+            ViewTarget::MyPrs => {
+                self.set_section(Some(Section::GitHub), cx);
+                self.github_view
+                    .update(cx, |view, cx| view.show_status_prs(cx));
+            }
+            ViewTarget::AutomationJobs
+            | ViewTarget::AutomationSchedules
+            | ViewTarget::AutomationRuns => {
+                self.set_section(Some(Section::Automation), cx);
+                self.automation_view
+                    .update(cx, |view, cx| view.show_target(target, cx));
+            }
+            ViewTarget::SettingsAccounts => {
+                self.set_section(Some(Section::Settings), cx);
+                self.settings_view
+                    .update(cx, |view, cx| view.show_accounts(cx));
+            }
+            ViewTarget::CopilotUsage => {
+                self.set_section(Some(Section::Copilot), cx);
+                self.copilot_view.update(cx, |view, cx| view.show_usage(cx));
+            }
+        }
     }
 
     fn destination(
@@ -437,8 +487,8 @@ impl BuddyApp {
         let dashboard = cx.new(|cx| DashboardView::new(window, cx, section.is_none()));
         cx.observe(&dashboard, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&dashboard, |this, _, event, cx| {
-            let DashboardEvent::Navigate(section) = event;
-            this.set_section(Some(*section), cx);
+            let DashboardEvent::Navigate(target) = event;
+            this.open_target(*target, cx);
         })
         .detach();
 
@@ -1244,7 +1294,7 @@ mod tests {
         }
     }
 
-    fn assert_automation_status_click(cx: &mut gpui_kit::TestAppContext, schedules: bool) {
+    fn assert_automation_status_click(cx: &mut gpui_kit::TestAppContext, target: ViewTarget) {
         use gpui_kit::test::TestWindowExt as _;
         let (window, shell) = status_click_shell(cx);
         let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
@@ -1255,10 +1305,10 @@ mod tests {
                     .read(cx)
                     .automation_view
                     .clone()
-                    .update(cx, |view, cx| view.seed_status_click_page(cx));
+                    .update(cx, |view, cx| view.seed_status_click_page(target, cx));
                 window.draw(cx).clear(cx);
                 window.click(
-                    if schedules {
+                    if target == ViewTarget::AutomationSchedules {
                         "status-schedules"
                     } else {
                         "status-jobs"
@@ -1270,7 +1320,7 @@ mod tests {
                 assert_eq!(app.automation_view.entity_id(), retained);
                 app.automation_view
                     .read(cx)
-                    .assert_status_click_reset(schedules);
+                    .assert_status_click_reset(target);
             });
         }
     }
@@ -1284,15 +1334,77 @@ mod tests {
         ) {
             return;
         }
-        assert_automation_status_click(cx, true);
+        assert_automation_status_click(cx, ViewTarget::AutomationSchedules);
     }
 
+    /// Electron's `N jobs` item opens `automation-runs`, the run history.
     #[gpui_kit::test]
-    fn status_jobs_click_selects_jobs_and_resets_pages(cx: &mut gpui_kit::TestAppContext) {
-        if status_click_child("app::tests::status_jobs_click_selects_jobs_and_resets_pages") {
+    fn status_jobs_click_selects_run_history_and_resets_pages(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child("app::tests::status_jobs_click_selects_run_history_and_resets_pages")
+        {
             return;
         }
-        assert_automation_status_click(cx, false);
+        assert_automation_status_click(cx, ViewTarget::AutomationRuns);
+    }
+
+    /// `@account` appears only when `gh` has an active account, as
+    /// `GitHubAccountItem` renders nothing otherwise.
+    #[gpui_kit::test]
+    fn status_account_item_shows_only_with_an_active_account(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child("app::tests::status_account_item_shows_only_with_an_active_account") {
+            return;
+        }
+        use gpui_kit::test::TestWindowExt as _;
+        let (window, shell) = status_click_shell(cx);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            assert!(window.try_find("status-account").is_none());
+            shell.update(cx, |app, cx| {
+                app.active_account = Some("octo".into());
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            // Its click runs `open_target(SettingsAccounts)`, proven by
+            // `view_targets_open_their_specific_views`. Clicking here would
+            // render Settings, whose stored-credential check needs a Tokio
+            // reactor that the deterministic test scheduler cannot host.
+            assert!(window.try_find("status-account").is_some());
+        });
+    }
+
+    /// The dashboard's Open Usage, Configure Accounts and quick actions open
+    /// the specific list Electron names, not the section's retained page.
+    #[gpui_kit::test]
+    fn view_targets_open_their_specific_views(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child("app::tests::view_targets_open_their_specific_views") {
+            return;
+        }
+        let (window, shell) = status_click_shell(cx);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.update(|_, cx| {
+            shell.update(cx, |app, cx| {
+                app.settings_view
+                    .update(cx, |view, cx| view.seed_other_panel(cx));
+                app.open_target(ViewTarget::SettingsAccounts, cx);
+                assert_eq!(app.active_section, Some(Section::Settings));
+                assert!(app.settings_view.read(cx).showing_accounts());
+
+                assert!(!app.copilot_view.read(cx).showing_usage());
+                app.open_target(ViewTarget::CopilotUsage, cx);
+                assert_eq!(app.active_section, Some(Section::Copilot));
+                assert!(app.copilot_view.read(cx).showing_usage());
+
+                app.open_target(ViewTarget::AutomationJobs, cx);
+                assert_eq!(app.active_section, Some(Section::Automation));
+                app.automation_view
+                    .read(cx)
+                    .assert_status_click_reset(ViewTarget::AutomationJobs);
+
+                app.open_target(ViewTarget::Section(Section::GitHub), cx);
+                assert_eq!(app.active_section, Some(Section::GitHub));
+            });
+        });
     }
 
     struct HistoryShortcutProbe {

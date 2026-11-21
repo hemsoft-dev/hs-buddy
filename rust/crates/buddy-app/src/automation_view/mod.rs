@@ -67,15 +67,19 @@ impl AutomationView {
         )
     }
 
-    pub(crate) fn show_status_list(&mut self, schedules: bool, cx: &mut Context<Self>) {
-        self.select_pane(
-            if schedules {
-                Pane::Schedules
-            } else {
-                Pane::Jobs
-            },
-            cx,
-        );
+    /// The status bar's and dashboard's direct links: the Jobs, Schedules or
+    /// run History list, from its first page. Like the sidebar's list links,
+    /// they leave an open editor or run detail for the list itself.
+    pub(crate) fn show_target(&mut self, target: crate::app::ViewTarget, cx: &mut Context<Self>) {
+        use crate::app::ViewTarget;
+        let pane = match target {
+            ViewTarget::AutomationSchedules => Pane::Schedules,
+            ViewTarget::AutomationRuns => Pane::History,
+            _ => Pane::Jobs,
+        };
+        self.form = None;
+        self.selected_run = None;
+        self.select_pane(pane, cx);
     }
 
     fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {

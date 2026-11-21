@@ -75,6 +75,16 @@ impl CopilotView {
             self.usage.update(cx, |usage, cx| usage.activate(cx));
         }
     }
+    #[cfg(test)]
+    pub(crate) fn showing_usage(&self) -> bool {
+        self.pane == Pane::Usage
+    }
+
+    /// `copilot-usage`: the dashboard's Open Usage action.
+    pub(crate) fn show_usage(&mut self, cx: &mut Context<Self>) {
+        self.select(Pane::Usage, cx);
+    }
+
     fn select(&mut self, pane: Pane, cx: &mut Context<Self>) {
         self.pane = pane;
         self.set_active(true, cx);

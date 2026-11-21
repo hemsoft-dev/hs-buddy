@@ -111,6 +111,44 @@ def check(path, *markers, absent=(), browser=False):
     raise RuntimeError("GitHub screenshot does not show all required text in one OCR layout") from missing
 
 
+# Normalized OCR words of the background PR sync item: "Syncing PR lists…",
+# "Next sync 4m 12s", "Auto-refresh active" or "Auto-refresh off".
+SYNC_WORDS = ("syncing", "sync", "autorefresh")
+
+
+def verify_status_bar(words):
+    """Require the assistant indicator, the brand and the PR sync item on the
+    one native status footer row, not merely anywhere in the window."""
+    ocr = settings.ocr
+    footer = ocr.status_footer(words)
+    if footer is None:
+        raise RuntimeError("No native status footer is visible")
+    row = {ocr.normalize(word["text"]) for word in words
+        if abs(word["top"] - footer["top"]) <= footer["height"] / 2}
+    missing = [name for name, present in (
+        ("Copilot", "copilot" in row), ("Buddy", "buddy" in row),
+        ("PR sync", any(word in row for word in SYNC_WORDS))) if not present]
+    if missing:
+        raise RuntimeError("Status footer is missing " + ", ".join(missing))
+
+
+def check_status_bar(path):
+    failure = None
+    for image in analysis_images(path):
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            image.with_suffix(f".status-words-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+            try:
+                verify_status_bar(words)
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as error:
+                failure = error
+                continue
+            return
+    raise RuntimeError("Screenshot does not show the status bar items in one OCR layout") from failure
+
+
 def check_column(path, anchor, *markers):
     missing = None
     wanted = [" ".join(marker.split()).casefold() for marker in markers]
@@ -293,6 +331,18 @@ def qualify(executable, output, session, version, backend, api):
     if "fixture-author" not in json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["favoriteUsers"]:
         raise RuntimeError("The installed favorite action was not persisted")
 
+    # StatusBar.tsx: the assistant indicator and brand in the centre, and the
+    # background sync item for the configured accounts' PR lists.
+    value = json.loads(config.read_text(encoding="utf-8-sig"))
+    value["ui"]["assistantOpen"] = True
+    value["native"]["activeSection"] = "github"
+    config.write_text(json.dumps(value), encoding="utf-8")
+    status = driver.drive("status-bar-dark", [("sleep", 3), ("capture", "status-bar-dark")])
+    check_status_bar(status / "status-bar-dark.png")
+    value = json.loads(config.read_text(encoding="utf-8-sig"))
+    value["ui"]["assistantOpen"] = False
+    config.write_text(json.dumps(value), encoding="utf-8")
+
     light_template = output / "light-template"
     light_config = fixture(light_template, "light")
     value = json.loads(config.read_text(encoding="utf-8-sig"))
@@ -326,7 +376,7 @@ def qualify(executable, output, session, version, backend, api):
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
-            "repository/commit/issue navigation", "profile/calendar/teams", "Convex bookmark and favorite",
+            "repository/commit/issue navigation", "profile/calendar/teams", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 
 

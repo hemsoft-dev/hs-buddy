@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::app::ViewTarget;
 use buddy_core::automation::models::{Job, MissedPolicy, Run, Schedule, Shell, WorkerType};
 use serde_json::json;
 
@@ -53,12 +54,21 @@ fn shell_totals_follow_unfiltered_snapshots_and_preserve_stale_counts(
                 view.snapshot.schedules.clear();
                 view.snapshot.connected = true;
                 assert_eq!(view.status_totals(), (Some(0), Some(0), false));
-                for (schedules, expected) in [(true, Pane::Schedules), (false, Pane::Jobs)] {
+                for (target, expected) in [
+                    (ViewTarget::AutomationSchedules, Pane::Schedules),
+                    (ViewTarget::AutomationJobs, Pane::Jobs),
+                    (ViewTarget::AutomationRuns, Pane::History),
+                    (ViewTarget::AutomationJobs, Pane::Jobs),
+                ] {
                     view.page = 3;
                     view.job_page = 2;
-                    view.show_status_list(schedules, cx);
+                    // An open editor or run detail would otherwise cover the list.
+                    view.form = Some(Form::new_job(None, false, window, cx));
+                    view.selected_run = Some("run-1".into());
+                    view.show_target(target, cx);
                     assert!(view.pane == expected);
                     assert_eq!((view.page, view.job_page), (0, 0));
+                    assert!(view.form.is_none() && view.selected_run.is_none());
                 }
                 view
             })
@@ -897,22 +907,25 @@ fn control_a_per_view_quit_hook_is_gone_with_its_view(cx: &mut gpui_kit::TestApp
 
 // Test-only state access for the root shell's real status-bar mouse tests.
 impl AutomationView {
-    pub(crate) fn seed_status_click_page(&mut self, cx: &mut Context<Self>) {
-        self.pane = Pane::History;
+    /// A retained page on a different list than `target` opens.
+    pub(crate) fn seed_status_click_page(&mut self, target: ViewTarget, cx: &mut Context<Self>) {
+        self.pane = if target == ViewTarget::AutomationRuns {
+            Pane::Jobs
+        } else {
+            Pane::History
+        };
         self.page = 3;
         self.job_page = 2;
         cx.notify();
     }
 
-    pub(crate) fn assert_status_click_reset(&self, schedules: bool) {
-        assert!(
-            self.pane
-                == if schedules {
-                    Pane::Schedules
-                } else {
-                    Pane::Jobs
-                }
-        );
+    pub(crate) fn assert_status_click_reset(&self, target: ViewTarget) {
+        let expected = match target {
+            ViewTarget::AutomationSchedules => Pane::Schedules,
+            ViewTarget::AutomationRuns => Pane::History,
+            _ => Pane::Jobs,
+        };
+        assert!(self.pane == expected);
         assert_eq!((self.page, self.job_page), (0, 0));
     }
 }
