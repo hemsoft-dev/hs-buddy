@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 from desktop import fixture
@@ -122,18 +123,55 @@ def tab_row_words(capture):
         return [word for word in words if top <= word["top"] + word["height"] / 2 < bottom]
 
 
+def crop_band(capture, top, bottom):
+    """The painted tab band alone, cropped as the tab locator crops it."""
+    band = capture.with_suffix(".tab-band.png")
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(capture),
+        "-vf", f"crop=iw:{bottom-top}:0:{top}:exact=1", "-frames:v", "1", str(band)],
+        capture_output=True, check=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    return band
+
+
+def tab_band_words(capture):
+    """Read the cropped tab band, the tab locator's own second attempt.
+
+    A focus ring around a tab can garble its title in a full-frame read: on
+    Ubuntu (run 44860271775) "GitHub: My PRs" read as "[Gubs My PRE)" after
+    Escape returned focus to that tab. The band alone reads it cleanly.
+    """
+    ocr = settings.ocr
+    top, bottom = ocr.workspace_geometry(capture)
+    band = crop_band(capture, top, bottom)
+    words = ocr.recognize_windows(band) if sys.platform == "win32" else ocr.recognize(band, 11)
+    band.with_suffix(".ocr.json").write_text(json.dumps(words), encoding="utf-8")
+    return words
+
+
 def require_tab_row(capture, present, absent=()):
     """Require open and closed workspace tabs by the titles in the tab row.
 
     A title counts as closed only on a frame whose remaining titles the same
     read found, so an unreadable row cannot pass for a closed tab. The GitHub
-    view repeats these names below the row, where they never count.
+    view repeats these names below the row, where they never count. When the
+    full-frame read misses an open title, the cropped band is read instead,
+    and every title, open and closed, is then judged on that one read.
     """
     if not present:
         raise RuntimeError("A closed tab needs another title read from the same frame")
     row = tab_row_words(capture)
-    for title in present:
-        settings.ocr.locate_label(row, title)
+    try:
+        for title in present:
+            settings.ocr.locate_label(row, title)
+    except settings.ocr.AmbiguousLabel:
+        raise
+    except RuntimeError as missing:
+        try:
+            row = tab_band_words(capture)
+        except RuntimeError as failure:
+            raise failure from missing
+        for title in present:
+            settings.ocr.locate_label(row, title)
     for title in absent:
         try:
             settings.ocr.locate_label(row, title)

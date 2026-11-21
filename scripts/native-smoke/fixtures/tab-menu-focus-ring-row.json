@@ -1,0 +1,1001 @@
+{
+ "note": "Ubuntu 24.04 run 44860271775 job 136713162658, tab-menu menu-light/dismissed-light.png at 900x650 after Escape: the focus ring on the GitHub: My PRs tab made sparse Tesseract read it as '[Gubs My PRE)'. 'full' is the hosted read of the whole frame (tab-row words only); 'band' is Tesseract 5 on this machine over the cropped tab band.",
+ "bandTop": 34,
+ "bandBottom": 68,
+ "full": [
+  {
+   "text": "Buddy",
+   "left": 43,
+   "top": 11,
+   "width": 37,
+   "height": 13,
+   "line": "1/1/1"
+  },
+  {
+   "text": "File",
+   "left": 96,
+   "top": 11,
+   "width": 19,
+   "height": 10,
+   "line": "1/1/1"
+  },
+  {
+   "text": "Edit",
+   "left": 127,
+   "top": 11,
+   "width": 22,
+   "height": 10,
+   "line": "1/1/1"
+  },
+  {
+   "text": "View",
+   "left": 160,
+   "top": 12,
+   "width": 28,
+   "height": 9,
+   "line": "1/1/1"
+  },
+  {
+   "text": "Help",
+   "left": 200,
+   "top": 11,
+   "width": 26,
+   "height": 13,
+   "line": "1/1/1"
+  },
+  {
+   "text": "#8",
+   "left": 856,
+   "top": 11,
+   "width": 33,
+   "height": 11,
+   "line": "2/1/1"
+  },
+  {
+   "text": "5",
+   "left": 53,
+   "top": 49,
+   "width": 3,
+   "height": 5,
+   "line": "3/1/1"
+  },
+  {
+   "text": "Dashboard",
+   "left": 70,
+   "top": 30,
+   "width": 74,
+   "height": 42,
+   "line": "3/1/1"
+  },
+  {
+   "text": "x",
+   "left": 154,
+   "top": 30,
+   "width": 18,
+   "height": 42,
+   "line": "3/1/1"
+  },
+  {
+   "text": "[Gubs",
+   "left": 185,
+   "top": 30,
+   "width": 53,
+   "height": 42,
+   "line": "3/1/1"
+  },
+  {
+   "text": "My",
+   "left": 245,
+   "top": 30,
+   "width": 14,
+   "height": 42,
+   "line": "3/1/1"
+  },
+  {
+   "text": "PRE)",
+   "left": 266,
+   "top": 30,
+   "width": 35,
+   "height": 42,
+   "line": "3/1/1"
+  },
+  {
+   "text": "GitHub:",
+   "left": 333,
+   "top": 44,
+   "width": 41,
+   "height": 10,
+   "line": "3/1/1"
+  },
+  {
+   "text": "Repositories",
+   "left": 383,
+   "top": 45,
+   "width": 73,
+   "height": 12,
+   "line": "3/1/1"
+  },
+  {
+   "text": "x",
+   "left": 467,
+   "top": 47,
+   "width": 6,
+   "height": 7,
+   "line": "3/1/1"
+  },
+  {
+   "text": "Version",
+   "left": 658,
+   "top": 99,
+   "width": 47,
+   "height": 9,
+   "line": "4/1/1"
+  },
+  {
+   "text": "0.1.1698",
+   "left": 711,
+   "top": 99,
+   "width": 56,
+   "height": 9,
+   "line": "4/1/1"
+  },
+  {
+   "text": "\u00ae",
+   "left": 793,
+   "top": 98,
+   "width": 10,
+   "height": 10,
+   "line": "5/1/1"
+  },
+  {
+   "text": "Customize",
+   "left": 808,
+   "top": 99,
+   "width": 63,
+   "height": 9,
+   "line": "5/1/1"
+  },
+  {
+   "text": "o>",
+   "left": 87,
+   "top": 106,
+   "width": 22,
+   "height": 13,
+   "line": "6/1/1"
+  },
+  {
+   "text": "Buddy",
+   "left": 142,
+   "top": 98,
+   "width": 74,
+   "height": 23,
+   "line": "7/1/1"
+  },
+  {
+   "text": "oO",
+   "left": 83,
+   "top": 122,
+   "width": 30,
+   "height": 10,
+   "line": "8/1/1"
+  },
+  {
+   "text": "Your",
+   "left": 161,
+   "top": 130,
+   "width": 28,
+   "height": 9,
+   "line": "9/1/1"
+  },
+  {
+   "text": "Universal",
+   "left": 194,
+   "top": 128,
+   "width": 58,
+   "height": 11,
+   "line": "9/1/1"
+  },
+  {
+   "text": "Productivity",
+   "left": 259,
+   "top": 128,
+   "width": 75,
+   "height": 14,
+   "line": "9/1/1"
+  },
+  {
+   "text": "Companion",
+   "left": 339,
+   "top": 130,
+   "width": 73,
+   "height": 12,
+   "line": "9/1/1"
+  },
+  {
+   "text": "Qs",
+   "left": 828,
+   "top": 131,
+   "width": 36,
+   "height": 12,
+   "line": "10/1/1"
+  },
+  {
+   "text": "COPILOT",
+   "left": 90,
+   "top": 192,
+   "width": 46,
+   "height": 8,
+   "line": "11/1/1"
+  },
+  {
+   "text": "USAGI",
+   "left": 141,
+   "top": 192,
+   "width": 29,
+   "height": 8,
+   "line": "11/1/1"
+  },
+  {
+   "text": "Command",
+   "left": 90,
+   "top": 210,
+   "width": 110,
+   "height": 17,
+   "line": "12/1/1"
+  },
+  {
+   "text": "Center",
+   "left": 210,
+   "top": 211,
+   "width": 73,
+   "height": 16,
+   "line": "12/1/1"
+  },
+  {
+   "text": "Live",
+   "left": 560,
+   "top": 219,
+   "width": 22,
+   "height": 8,
+   "line": "13/1/1"
+  },
+  {
+   "text": "spend,",
+   "left": 586,
+   "top": 218,
+   "width": 36,
+   "height": 11,
+   "line": "13/1/1"
+  },
+  {
+   "text": "projection,",
+   "left": 627,
+   "top": 219,
+   "width": 53,
+   "height": 10,
+   "line": "13/1/1"
+  },
+  {
+   "text": "and",
+   "left": 688,
+   "top": 218,
+   "width": 20,
+   "height": 9,
+   "line": "13/1/1"
+  },
+  {
+   "text": "account",
+   "left": 713,
+   "top": 219,
+   "width": 43,
+   "height": 8,
+   "line": "13/1/1"
+  },
+  {
+   "text": "health",
+   "left": 760,
+   "top": 218,
+   "width": 33,
+   "height": 9,
+   "line": "13/1/1"
+  },
+  {
+   "text": "at",
+   "left": 798,
+   "top": 219,
+   "width": 11,
+   "height": 8,
+   "line": "13/1/1"
+  },
+  {
+   "text": "a",
+   "left": 813,
+   "top": 221,
+   "width": 5,
+   "height": 6,
+   "line": "13/1/1"
+  },
+  {
+   "text": "glance",
+   "left": 823,
+   "top": 218,
+   "width": 36,
+   "height": 11,
+   "line": "13/1/1"
+  },
+  {
+   "text": "CONNECTED",
+   "left": 131,
+   "top": 250,
+   "width": 76,
+   "height": 9,
+   "line": "14/1/1"
+  },
+  {
+   "text": "ACCOUNTS",
+   "left": 211,
+   "top": 250,
+   "width": 66,
+   "height": 9,
+   "line": "14/1/1"
+  },
+  {
+   "text": "2",
+   "left": 132,
+   "top": 271,
+   "width": 5,
+   "height": 8,
+   "line": "15/1/1"
+  },
+  {
+   "text": "connected",
+   "left": 142,
+   "top": 270,
+   "width": 56,
+   "height": 9,
+   "line": "15/1/1"
+  },
+  {
+   "text": "accounts",
+   "left": 203,
+   "top": 271,
+   "width": 49,
+   "height": 8,
+   "line": "15/1/1"
+  },
+  {
+   "text": "a",
+   "left": 97,
+   "top": 293,
+   "width": 4,
+   "height": 4,
+   "line": "16/1/1"
+  },
+  {
+   "text": "fixture-one:",
+   "left": 131,
+   "top": 289,
+   "width": 54,
+   "height": 8,
+   "line": "17/1/1"
+  },
+  {
+   "text": "gh:",
+   "left": 193,
+   "top": 289,
+   "width": 11,
+   "height": 10,
+   "line": "17/1/1"
+  },
+  {
+   "text": "To",
+   "left": 211,
+   "top": 290,
+   "width": 11,
+   "height": 7,
+   "line": "17/1/1"
+  },
+  {
+   "text": "use",
+   "left": 226,
+   "top": 292,
+   "width": 16,
+   "height": 5,
+   "line": "17/1/1"
+  },
+  {
+   "text": "GitHub",
+   "left": 246,
+   "top": 289,
+   "width": 34,
+   "height": 8,
+   "line": "17/1/1"
+  },
+  {
+   "text": "CLI",
+   "left": 284,
+   "top": 290,
+   "width": 14,
+   "height": 7,
+   "line": "17/1/1"
+  },
+  {
+   "text": "in",
+   "left": 303,
+   "top": 292,
+   "width": 8,
+   "height": 5,
+   "line": "17/1/1"
+  },
+  {
+   "text": "a",
+   "left": 315,
+   "top": 292,
+   "width": 5,
+   "height": 5,
+   "line": "17/1/1"
+  },
+  {
+   "text": "GitHub",
+   "left": 325,
+   "top": 289,
+   "width": 33,
+   "height": 8,
+   "line": "17/1/1"
+  },
+  {
+   "text": "Actions",
+   "left": 362,
+   "top": 290,
+   "width": 36,
+   "height": 7,
+   "line": "17/1/1"
+  },
+  {
+   "text": "workflow,",
+   "left": 402,
+   "top": 289,
+   "width": 47,
+   "height": 9,
+   "line": "17/1/1"
+  },
+  {
+   "text": "get",
+   "left": 453,
+   "top": 290,
+   "width": 15,
+   "height": 7,
+   "line": "18/1/1"
+  },
+  {
+   "text": "the",
+   "left": 471,
+   "top": 289,
+   "width": 16,
+   "height": 8,
+   "line": "18/1/1"
+  },
+  {
+   "text": "GH_TOKEN",
+   "left": 491,
+   "top": 290,
+   "width": 54,
+   "height": 9,
+   "line": "18/1/1"
+  },
+  {
+   "text": "environment",
+   "left": 549,
+   "top": 290,
+   "width": 63,
+   "height": 7,
+   "line": "18/1/1"
+  },
+  {
+   "text": "variable.",
+   "left": 616,
+   "top": 289,
+   "width": 39,
+   "height": 8,
+   "line": "18/1/1"
+  },
+  {
+   "text": "Example:",
+   "left": 663,
+   "top": 289,
+   "width": 42,
+   "height": 10,
+   "line": "18/1/1"
+  },
+  {
+   "text": "enw:",
+   "left": 138,
+   "top": 308,
+   "width": 17,
+   "height": 5,
+   "line": "19/1/1"
+  },
+  {
+   "text": "GH_TOKEN:",
+   "left": 144,
+   "top": 322,
+   "width": 53,
+   "height": 9,
+   "line": "20/1/1"
+  },
+  {
+   "text": "${{",
+   "left": 205,
+   "top": 321,
+   "width": 18,
+   "height": 9,
+   "line": "20/1/1"
+  },
+  {
+   "text": "github.token",
+   "left": 228,
+   "top": 321,
+   "width": 77,
+   "height": 10,
+   "line": "20/1/1"
+  },
+  {
+   "text": "}",
+   "left": 296,
+   "top": 312,
+   "width": 12,
+   "height": 28,
+   "line": "20/1/1"
+  },
+  {
+   "text": "fs]",
+   "left": 103,
+   "top": 365,
+   "width": 12,
+   "height": 7,
+   "line": "21/1/1"
+  },
+  {
+   "text": "6)",
+   "left": 103,
+   "top": 360,
+   "width": 12,
+   "height": 7,
+   "line": "22/1/1"
+  },
+  {
+   "text": "Refresh",
+   "left": 125,
+   "top": 360,
+   "width": 44,
+   "height": 10,
+   "line": "23/1/1"
+  },
+  {
+   "text": "\u2018Open",
+   "left": 204,
+   "top": 361,
+   "width": 31,
+   "height": 12,
+   "line": "24/1/1"
+  },
+  {
+   "text": "Usage",
+   "left": 240,
+   "top": 361,
+   "width": 37,
+   "height": 12,
+   "line": "24/1/1"
+  },
+  {
+   "text": ">",
+   "left": 289,
+   "top": 362,
+   "width": 9,
+   "height": 8,
+   "line": "24/1/1"
+  },
+  {
+   "text": "$0.00",
+   "left": 730,
+   "top": 412,
+   "width": 49,
+   "height": 17,
+   "line": "25/1/1"
+  },
+  {
+   "text": "e",
+   "left": 111,
+   "top": 420,
+   "width": 14,
+   "height": 16,
+   "line": "26/1/1"
+  },
+  {
+   "text": "0",
+   "left": 145,
+   "top": 413,
+   "width": 9,
+   "height": 13,
+   "line": "26/1/1"
+  },
+  {
+   "text": "TOTAL",
+   "left": 144,
+   "top": 436,
+   "width": 31,
+   "height": 6,
+   "line": "27/1/1"
+  },
+  {
+   "text": "USE",
+   "left": 180,
+   "top": 436,
+   "width": 18,
+   "height": 7,
+   "line": "27/1/1"
+  },
+  {
+   "text": "~",
+   "left": 305,
+   "top": 420,
+   "width": 16,
+   "height": 16,
+   "line": "28/1/1"
+  },
+  {
+   "text": "$0.00",
+   "left": 340,
+   "top": 412,
+   "width": 49,
+   "height": 17,
+   "line": "28/1/1"
+  },
+  {
+   "text": "TOTAL",
+   "left": 339,
+   "top": 436,
+   "width": 8,
+   "height": 6,
+   "line": "29/1/1"
+  },
+  {
+   "text": "OVERAGE",
+   "left": 359,
+   "top": 436,
+   "width": 62,
+   "height": 7,
+   "line": "29/1/1"
+  },
+  {
+   "text": "Ly",
+   "left": 500,
+   "top": 420,
+   "width": 16,
+   "height": 16,
+   "line": "30/1/1"
+  },
+  {
+   "text": "Rojec",
+   "left": 535,
+   "top": 424,
+   "width": 42,
+   "height": 21,
+   "line": "31/1/1"
+  },
+  {
+   "text": "EST.",
+   "left": 730,
+   "top": 436,
+   "width": 18,
+   "height": 7,
+   "line": "32/1/1"
+  },
+  {
+   "text": "OVERAGE",
+   "left": 754,
+   "top": 436,
+   "width": 46,
+   "height": 7,
+   "line": "32/1/1"
+  },
+  {
+   "text": "1",
+   "left": 279,
+   "top": 508,
+   "width": 12,
+   "height": 12,
+   "line": "33/1/1"
+  },
+  {
+   "text": "My",
+   "left": 301,
+   "top": 509,
+   "width": 16,
+   "height": 12,
+   "line": "33/1/1"
+  },
+  {
+   "text": "PRs",
+   "left": 322,
+   "top": 509,
+   "width": 21,
+   "height": 9,
+   "line": "33/1/1"
+  },
+  {
+   "text": "@",
+   "left": 378,
+   "top": 508,
+   "width": 14,
+   "height": 12,
+   "line": "34/1/1"
+  },
+  {
+   "text": "Organizations",
+   "left": 400,
+   "top": 509,
+   "width": 83,
+   "height": 12,
+   "line": "34/1/1"
+  },
+  {
+   "text": "@",
+   "left": 519,
+   "top": 507,
+   "width": 10,
+   "height": 14,
+   "line": "35/1/1"
+  },
+  {
+   "text": "Jobs",
+   "left": 538,
+   "top": 508,
+   "width": 25,
+   "height": 12,
+   "line": "35/1/1"
+  },
+  {
+   "text": "\u00ae",
+   "left": 599,
+   "top": 507,
+   "width": 12,
+   "height": 14,
+   "line": "36/1/1"
+  },
+  {
+   "text": "Settings",
+   "left": 621,
+   "top": 509,
+   "width": 48,
+   "height": 12,
+   "line": "36/1/1"
+  },
+  {
+   "text": "Made",
+   "left": 361,
+   "top": 554,
+   "width": 36,
+   "height": 9,
+   "line": "37/1/1"
+  },
+  {
+   "text": "w",
+   "left": 394,
+   "top": 544,
+   "width": 8,
+   "height": 28,
+   "line": "37/1/1"
+  },
+  {
+   "text": "Ob:",
+   "left": 422,
+   "top": 554,
+   "width": 23,
+   "height": 10,
+   "line": "38/1/1"
+  },
+  {
+   "text": "HemSoft",
+   "left": 457,
+   "top": 554,
+   "width": 46,
+   "height": 9,
+   "line": "39/1/1"
+  },
+  {
+   "text": "Developments",
+   "left": 508,
+   "top": 555,
+   "width": 78,
+   "height": 10,
+   "line": "39/1/1"
+  },
+  {
+   "text": "|",
+   "left": 0,
+   "top": 34,
+   "width": 48,
+   "height": 594,
+   "line": "40/1/1"
+  },
+  {
+   "text": "5PRs",
+   "left": 13,
+   "top": 635,
+   "width": 32,
+   "height": 9,
+   "line": "41/1/1"
+  },
+  {
+   "text": "0",
+   "left": 63,
+   "top": 635,
+   "width": 6,
+   "height": 9,
+   "line": "41/1/1"
+  },
+  {
+   "text": "schedules",
+   "left": 74,
+   "top": 634,
+   "width": 59,
+   "height": 10,
+   "line": "41/1/1"
+  },
+  {
+   "text": "0",
+   "left": 151,
+   "top": 635,
+   "width": 6,
+   "height": 9,
+   "line": "42/1/1"
+  },
+  {
+   "text": "jobs",
+   "left": 161,
+   "top": 634,
+   "width": 25,
+   "height": 13,
+   "line": "42/1/1"
+  },
+  {
+   "text": "2%",
+   "left": 208,
+   "top": 634,
+   "width": 10,
+   "height": 9,
+   "line": "43/1/1"
+  },
+  {
+   "text": "No",
+   "left": 224,
+   "top": 635,
+   "width": 14,
+   "height": 8,
+   "line": "43/1/1"
+  },
+  {
+   "text": "gh",
+   "left": 242,
+   "top": 634,
+   "width": 13,
+   "height": 11,
+   "line": "43/1/1"
+  },
+  {
+   "text": "account",
+   "left": 260,
+   "top": 635,
+   "width": 43,
+   "height": 8,
+   "line": "43/1/1"
+  },
+  {
+   "text": "\u00a9",
+   "left": 799,
+   "top": 634,
+   "width": 10,
+   "height": 10,
+   "line": "44/1/1"
+  },
+  {
+   "text": "04:48:50AM",
+   "left": 816,
+   "top": 635,
+   "width": 67,
+   "height": 8,
+   "line": "44/1/1"
+  }
+ ],
+ "band": [
+  {
+   "text": "<",
+   "left": 53,
+   "top": 15,
+   "width": 3,
+   "height": 5,
+   "line": "1/1/1"
+  },
+  {
+   "text": "Dashboard,",
+   "left": 79,
+   "top": 10,
+   "width": 63,
+   "height": 10,
+   "line": "2/1/1"
+  },
+  {
+   "text": "x",
+   "left": 154,
+   "top": 13,
+   "width": 6,
+   "height": 7,
+   "line": "2/1/1"
+  },
+  {
+   "text": "--",
+   "left": 172,
+   "top": 15,
+   "width": 10,
+   "height": 2,
+   "line": "2/1/1"
+  },
+  {
+   "text": "(GitHub:",
+   "left": 187,
+   "top": 6,
+   "width": 114,
+   "height": 20,
+   "line": "2/1/1"
+  },
+  {
+   "text": "My",
+   "left": 245,
+   "top": 2,
+   "width": 15,
+   "height": 28,
+   "line": "2/1/1"
+  },
+  {
+   "text": "PRs)",
+   "left": 266,
+   "top": 2,
+   "width": 26,
+   "height": 28,
+   "line": "2/1/1"
+  },
+  {
+   "text": "x",
+   "left": 296,
+   "top": 2,
+   "width": 8,
+   "height": 28,
+   "line": "2/1/1"
+  },
+  {
+   "text": "GitHub:",
+   "left": 333,
+   "top": 10,
+   "width": 45,
+   "height": 10,
+   "line": "3/1/1"
+  },
+  {
+   "text": "Repositories",
+   "left": 383,
+   "top": 11,
+   "width": 73,
+   "height": 12,
+   "line": "3/1/1"
+  },
+  {
+   "text": "x",
+   "left": 467,
+   "top": 13,
+   "width": 6,
+   "height": 7,
+   "line": "3/1/1"
+  }
+ ]
+}

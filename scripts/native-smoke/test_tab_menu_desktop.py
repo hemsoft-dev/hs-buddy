@@ -312,9 +312,12 @@ class TabRow(unittest.TestCase):
         return json.loads((HERE / "fixtures" / "github-review-tooltip-occlusion.json").read_text(encoding="utf-8"))[name]
 
     def require(self, words, present, absent=(), **patches):
+        # These frames have no image file. A band re-read holds only the tab
+        # row, so it sees the row's words and none of the view below it.
         with tempfile.TemporaryDirectory(prefix="buddy-tab-row-") as root, \
                 patch.object(scene.settings.ocr, "recognize", return_value=words), \
-                patch.object(scene.settings.ocr, "recognize_windows", return_value=words):
+                patch.object(scene.settings.ocr, "recognize_windows", return_value=words), \
+                patch.object(scene, "tab_band_words", side_effect=lambda _capture: scene.settings.ocr.workspace_words(words)):
             capture = Path(root) / "frame.png"
             with patch.multiple(scene.settings.ocr, **patches) if patches else nullcontext():
                 scene.require_tab_row(capture, present, absent)
@@ -351,6 +354,37 @@ class TabRow(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "still open"):
             self.require(words + [word("Repositories", 380, 44, "2", 85)], ("My PRs",), absent=("Repositories",),
                 workspace_geometry=geometry)
+
+    def focus_ring(self):
+        return json.loads((HERE / "fixtures" / "tab-menu-focus-ring-row.json").read_text(encoding="utf-8"))
+
+    def require_two_reads(self, full, band, present, absent=()):
+        """The full-frame read, then the cropped band; return how often the band was read."""
+        with tempfile.TemporaryDirectory(prefix="buddy-tab-band-") as root, \
+                patch.object(scene.settings.ocr, "recognize", side_effect=[full, band]), \
+                patch.object(scene.settings.ocr, "recognize_windows", side_effect=[full, band]), \
+                patch.object(scene.settings.ocr, "workspace_geometry", return_value=(34, 68)) as geometry, \
+                patch.object(scene, "crop_band", side_effect=lambda capture, top, bottom: capture.with_suffix(".tab-band.png")):
+            scene.require_tab_row(Path(root) / "dismissed-light.png", present, absent)
+            return geometry.call_count
+
+    def test_a_focus_ring_garbled_title_is_read_again_from_the_tab_band(self):
+        fixture = self.focus_ring()
+        # The hosted full-frame read alone cannot find the focused tab.
+        with self.assertRaises(RuntimeError):
+            scene.settings.ocr.locate_label(scene.settings.ocr.workspace_words(fixture["full"]), "My PRs")
+        self.assertEqual(self.require_two_reads(fixture["full"], fixture["band"], scene.TABS), 1)
+        # Both reads missing a title still fails.
+        with self.assertRaises(RuntimeError):
+            self.require_two_reads(fixture["full"], [w for w in fixture["band"] if w["text"] != "PRs)"], scene.TABS)
+
+    def test_closed_titles_are_judged_on_the_read_that_found_the_open_ones(self):
+        fixture = self.focus_ring()
+        # Repositories is open in the band read, so it cannot count as closed.
+        with self.assertRaisesRegex(RuntimeError, "'Repositories' workspace tab is still open"):
+            self.require_two_reads(fixture["full"], fixture["band"], ("Dashboard", "My PRs"), absent=("Repositories",))
+        band = [w for w in fixture["band"] if w["text"] not in ("GitHub:", "Repositories")]
+        self.assertEqual(self.require_two_reads(fixture["full"], band, ("Dashboard", "My PRs"), absent=("Repositories",)), 1)
 
     def test_two_tabs_with_one_title_are_never_resolved_by_order(self):
         words = [word("File", 96, 11, "1", 19), word("View", 160, 11, "1", 29), word("Help", 200, 11, "1", 26),
