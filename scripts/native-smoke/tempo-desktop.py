@@ -156,6 +156,11 @@ def pending_bytes(config):
     return paths[0].read_bytes()
 
 
+# Labels only the open editor shows. The create editor's heading repeats the
+# toolbar's "Log time", so it cannot tell the two states apart.
+IDLE_ESCAPE_EDITOR_LABELS = ('Issue key or ID', 'Hours or H:MM:SS')
+
+
 def require_ready_escape_checkpoints(api):
     observations = api.snapshot()['readyCheckpoints']
     if (len(observations) != 2
@@ -227,6 +232,7 @@ def evidence_inventory(output):
         'template-dark/ready-editor-after-escape-dark.png',
         'denied-write-dark/invalid-duration-dark.png', 'denied-write-dark/permission-denied-dark.png',
         'denied-write-dark/denied-hours-retained-dark.png', 'denied-write-dark/denied-description-retained-dark.png',
+        'escape-cancel-dark/escape-draft-open-dark.png', 'escape-cancel-dark/escape-draft-cancelled-dark.png',
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
         'move-dark/exact-original-editor-dark.png', 'move-dark/moved-worklog-dark.png',
         'move-dark/delete-confirmation-dark.png',
@@ -236,6 +242,8 @@ def evidence_inventory(output):
         'partial-copy-dark/three-copy-confirmation-dark.png', 'partial-copy-dark/partial-copy-unconfirmed-dark.png',
         'recovery-light/restarted-recovery-light.png', 'recovery-light/compact-keyboard-recovery-light.png',
         'discard-recovery-light/discard-confirmation-light.png', 'discard-recovery-light/discarded-local-only-light.png',
+        'escape-cancel-light/escape-draft-open-compact-light.png',
+        'escape-cancel-light/escape-draft-cancelled-compact-light.png',
         'delete-light/delete-confirmation-light.png', 'delete-light/deleted-empty-range-light.png',
         'forget-light/connection-removed-light.png', 'forgotten-restart-light/missing-after-restart-light.png',
     }
@@ -253,7 +261,8 @@ def evidence_inventory(output):
         screenshots.append(dict(path=name, width=width, height=height, sha256=hashlib.sha256(data).hexdigest()))
     recording = recording_inventory(output, 'copy-dark')
     ready_recording = recording_inventory(output, 'template-dark')
-    return dict(screenshots=screenshots, recording=recording, readyEscapeRecording=ready_recording)
+    return dict(screenshots=screenshots, recording=recording, readyEscapeRecording=ready_recording,
+        idleEscapeRecording=recording_inventory(output, 'escape-cancel-dark'))
 
 
 def recording_inventory(output, scene):
@@ -415,6 +424,23 @@ def qualify(executable, output, session, version, source, backend):
                 github.check(denied / 'permission-denied-dark.png', 'Tempo rejected the worklog change', 'draft was retained')
                 github.check(denied / 'denied-hours-retained-dark.png', 'Hours or H:MM:SS', '1:30:01')
                 github.check(denied / 'denied-description-retained-dark.png', 'Description', 'Denied native draft')
+                # An idle create draft closes on Escape from a focused editor
+                # control (#963). The editor has no visible state that only
+                # appears once it is gone, so the capture follows a fixed wait
+                # and its check requires the editor's own label to be absent.
+                escaped = driver.drive('escape-cancel-dark', [
+                    ('wait_text', 'Tempo timesheet'), ('click', 'Log time'),
+                    ('wait_scroll_text', 'Issue key or ID', 'Tempo timesheet'),
+                    ('input', 'Hours or H:MM:SS', '0:45'),
+                    ('capture', 'escape-draft-open-dark'),
+                    ('key', 'Escape'), ('sleep', 3),
+                    ('capture', 'escape-draft-cancelled-dark'),
+                ], record=True)
+                if require_writes(api, 1, rejected=1)['records'] != before_denied:
+                    raise RuntimeError('Escape cancellation of an idle draft reached the service')
+                github.check(escaped / 'escape-draft-open-dark.png', 'Issue key or ID', 'Hours or H:MM:SS')
+                github.check(escaped / 'escape-draft-cancelled-dark.png', 'Tempo timesheet', 'Load date range',
+                    absent=IDLE_ESCAPE_EDITOR_LABELS)
                 copied = driver.drive('copy-dark', week_actions() + [
                     ('wait_scroll_text', 'Copy day to Today', 'Load date range'),
                     # About 12 one-second-paced source reads precede the confirmation.
@@ -536,6 +562,23 @@ def qualify(executable, output, session, version, source, backend):
                 require_writes(api, 5, rejected=1)
                 if list(config.parent.glob('native-tempo-change-*.json')):
                     raise RuntimeError('Explicit discard left a local Tempo recovery record')
+                # The same cancellation at the compact size in the light theme,
+                # from the issue control. The recovery above is discarded, so
+                # this draft is idle.
+                before_light_escape = api.snapshot()['records']
+                escaped_light = driver.drive('escape-cancel-light', [
+                    ('wait_text', 'Tempo timesheet'), ('resize', 900, 650), ('click', 'Log time'),
+                    ('wait_scroll_text', 'Issue key or ID', 'Tempo timesheet'),
+                    ('input', 'Issue key or ID', 'FIX-17'),
+                    ('capture', 'escape-draft-open-compact-light'),
+                    ('key', 'Escape'), ('sleep', 3),
+                    ('capture', 'escape-draft-cancelled-compact-light'),
+                ])
+                if require_writes(api, 5, rejected=1)['records'] != before_light_escape:
+                    raise RuntimeError('Escape cancellation of an idle draft reached the service')
+                github.check(escaped_light / 'escape-draft-open-compact-light.png', 'Issue key or ID', 'Hours or H:MM:SS')
+                github.check(escaped_light / 'escape-draft-cancelled-compact-light.png', 'Tempo timesheet',
+                    absent=IDLE_ESCAPE_EDITOR_LABELS)
                 # A one-day range isolates the moved source, so visible action
                 # labels cannot select another worklog by discovery order.
                 deleted = driver.drive('delete-light', [
@@ -589,6 +632,7 @@ def qualify(executable, output, session, version, source, backend):
                     templateCreatesOneHourWithExplicitNoBilling=True,
                     unsentCaptureExplicitRetryCreatesExactlyOnce=True,
                     readyEscapeRetainsEditorAndCheckpoint=ready_escape,
+                    idleEscapeCancelsCreateDraftWithoutServiceRequests=True,
                     copyPreservesExactSecondsBillableAttributesAndSource=True,
                     movedEditLoadsItsMonthAndPreservesOriginalFields=True,
                     draftReauthenticationRetainsInputsAndRequiresFreshLookup=True,

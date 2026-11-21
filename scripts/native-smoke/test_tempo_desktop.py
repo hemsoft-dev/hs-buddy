@@ -242,6 +242,54 @@ class ReadyEscapeIntegration(unittest.TestCase):
         self.assertFalse(any(action[0] == 'input' for action in actions[before:retry]))
         self.assertIn('readyEscapeRetainsEditorAndCheckpoint', Path(desktop.__file__).read_text())
 
+    def test_idle_escape_scenes_capture_the_open_draft_then_its_absence_in_both_themes(self):
+        source = Path(desktop.__file__).read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        for stage, opened, cancelled, control, recorded in (
+                ('escape-cancel-dark', 'escape-draft-open-dark', 'escape-draft-cancelled-dark', 'Hours or H:MM:SS', True),
+                ('escape-cancel-light', 'escape-draft-open-compact-light', 'escape-draft-cancelled-compact-light',
+                    'Issue key or ID', False)):
+            with self.subTest(stage=stage):
+                actions = CellInput.stage_actions(stage, 'x11')
+                typed = next(index for index, action in enumerate(actions) if action[:2] == ('input', control))
+                before = actions.index(('capture', opened))
+                escape = actions.index(('key', 'Escape'))
+                after = actions.index(('capture', cancelled))
+                self.assertLess(typed, before)
+                self.assertEqual(escape, before + 1)
+                self.assertLess(escape, after)
+                # Escape cancels from a focused editor control (#963): nothing
+                # may move focus between typing into it and the key, and the
+                # Cancel editor button must not be what closes the draft.
+                self.assertFalse(any(action[0] in ('click', 'input', 'cell', 'key')
+                    for action in actions[typed + 1:escape]))
+                self.assertFalse(any(action[0] in ('click', 'input', 'cell') for action in actions[escape:after]))
+                self.assertNotIn(('click', 'Cancel editor'), actions)
+                call, = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute) and node.func.attr == 'drive'
+                    and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == stage]
+                self.assertEqual(any(arg.arg == 'record' and ast.literal_eval(arg.value) for arg in call.keywords), recorded)
+        light = CellInput.stage_actions('escape-cancel-light', 'x11')
+        self.assertLess(light.index(('resize', 900, 650)), light.index(('capture', 'escape-draft-open-compact-light')))
+        self.assertFalse(any(action[0] == 'resize' for action in CellInput.stage_actions('escape-cancel-dark', 'x11')))
+        # Each cancelled capture must prove the editor is gone, not merely that
+        # the page still renders, and the open capture must show those labels.
+        self.assertEqual(source.count('absent=IDLE_ESCAPE_EDITOR_LABELS'), 2)
+        self.assertEqual(desktop.IDLE_ESCAPE_EDITOR_LABELS, ('Issue key or ID', 'Hours or H:MM:SS'))
+        self.assertIn("idleEscapeRecording=recording_inventory(output, 'escape-cancel-dark')", source)
+
+    def test_an_open_editor_fails_the_cancelled_capture_check(self):
+        def verify(image, *markers, mode=11):
+            image.with_suffix('.ocr.txt').write_text('tempo timesheet\nlog time\nissue key or id\nhours or h:mm:ss', encoding='utf-8')
+
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / 'escape-draft-cancelled-dark.png'
+            capture.write_bytes(b'capture')
+            with patch.object(desktop.github, 'analysis_images', return_value=[capture]), \
+                    patch.object(desktop.github.settings, 'verify_text', side_effect=verify):
+                with self.assertRaises(RuntimeError):
+                    desktop.github.check(capture, 'Tempo timesheet', absent=desktop.IDLE_ESCAPE_EDITOR_LABELS)
+
     def test_ready_recording_requires_original_video_and_frames(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

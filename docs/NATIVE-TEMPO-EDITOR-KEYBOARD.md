@@ -75,53 +75,50 @@ or assert recovery-journal bytes. Those integration gates remain owed. A real
 `Session` currently requires a connected snapshot and journal context; changing
 its constructors, fixture transport or recovery storage is outside this slice.
 
-The existing installed Tempo scenario now has a pending integration assertion.
-Its template create reaches the existing synthetic dispatch-preflight failure,
-after the real session has captured an unsent `Ready` write. In that same native
-process, the scenario presses Escape and requires the duration/date editor
-fields to remain in an original screenshot before the explicit retry. The
-fixture reads the original owned recovery bytes at the failure and at the next
-identity check before retry. It requires identical checkpoint and service-record
-digests, with zero intervening service mutation attempts. The existing assertion
-still requires the later explicit retry to create exactly one worklog.
+## Installed proof
 
-That template scene now requires its own original silent recording and frames,
-in addition to the existing copy recording. Local loopback tests verify the
-observer and reject changed, missing or duplicate checkpoint files, intervening
-service writes, incomplete observations and missing recordings. They use
-synthetic temporary bytes and mocked recording metadata. They do not run the
-native session or prove the installed behavior. The real scenario, capture and
-recording remain unexecuted until publication clearance permits hosted CI.
+The [Tempo desktop qualification](../scripts/native-smoke/tempo-desktop.py)
+exercises Escape in the installed app on every hosted platform, against an
+owned loopback Tempo/Jira fixture.
 
-## File allocation
+**Idle drafts close.** Two sequences open a create draft with Log time, type
+into one editor control and press Escape without moving focus:
 
-The existing owner `chief-dispatch-0c035271-buddy823` retains
-`tempo_view/editor.rs`, `tempo_view/editor_escape_tests.rs` and this document,
-plus normal generated commit metadata. The local transition and tests stay in
-those files. Core Tempo session, recovery, fixture and transport files,
-connection and worker code, dependencies, locks, workflows and the other
-retained parity slices stay excluded. The same owner separately coordinated
-`scripts/native-smoke/tempo-desktop.py` and its contract tests for the integration
-assertion above, after verifying no overlap with the 14 live PRs or six other
-local candidates. Other hosted drivers and shared publishing fixtures stay
-excluded. No second writer or concurrency protocol is introduced.
+| Sequence              | Theme and window | Focused control | Captures                                                                  |
+| --------------------- | ---------------- | --------------- | ------------------------------------------------------------------------- |
+| `escape-cancel-dark`  | dark, 1200x820   | Hours           | `escape-draft-open-dark`, `escape-draft-cancelled-dark`, plus a recording |
+| `escape-cancel-light` | light, 900x650   | Issue key or ID | `escape-draft-open-compact-light`, `escape-draft-cancelled-compact-light` |
 
-## Delivery gates
+The editor shows nothing that appears only once it is gone, so each cancelled
+capture follows a fixed three-second wait. Its check requires the editor's own
+labels (Issue key or ID, Hours) to be absent, and the fixture must report the
+same worklogs and no new mutation attempt.
 
-This candidate is retained locally under the publication and macOS queue hold.
-It has no published PR or installed qualification. Local behavior tests are not
-rendered or installed evidence.
+**A captured write retains the draft.** The template sequence reaches the
+synthetic dispatch-preflight failure after the real session has captured an
+unsent `Ready` write. In that same native process it presses Escape and
+requires the duration and date fields to remain in `ready-editor-after-escape-dark`
+before the explicit retry. The fixture reads the owned recovery bytes at the
+failure and at the next identity check before retry. It requires identical
+checkpoint and service-record digests with zero service mutation attempts in
+between. The later explicit retry must still create exactly one worklog. This
+sequence has its own recording.
 
-After actual publication clearance, integrate a synthetic keyboard scenario
-into the existing [Tempo desktop qualification](../scripts/native-smoke/tempo-desktop.py)
-and its [contract tests](../scripts/native-smoke/test_tempo_desktop.py).
-Capture create and edit cancellation, retained busy or captured-write state,
-and unchanged worklogs in dark and light themes at 1200x820 and 900x650, with
-screenshots and a recording. Coordinate those fixture edits within the existing
-claim before touching shared paths.
+The [contract tests](../scripts/native-smoke/test_tempo_desktop.py) pin the
+order of these actions and reject changed, missing or duplicate checkpoint
+files, intervening service writes, incomplete observations and missing
+recordings. They use synthetic bytes and mocked recording metadata; the hosted
+jobs are what run the native app.
 
-Fresh exact-head independent review, required checks, native and performance
-gates, guarded merge, main qualification and clean Home/Mini sync remain owed.
-Electron remains primary, with Convex and gpui-kit 0.8.1 unchanged. This slice
-does not settle session/uptime ownership, the upstream hold or Windows 11
-installed acceptance.
+## Not covered by the installed scenes
+
+- Cancelling an **edit** draft, and Escape from the date, start-time,
+  description and billing controls. The headless tests above cover them.
+- A busy (in-flight) draft. The headless tests cover it; the installed fixture
+  answers too quickly to hold that state for a key press.
+- The session-to-phase adapter for phases other than `Ready`, and authenticated
+  restored recovery.
+
+Electron remains the primary app. This change does not settle native
+session/uptime ownership or Windows 11 installed acceptance, both tracked in
+[#823](https://github.com/hemsoft-dev/hs-buddy/issues/823).
