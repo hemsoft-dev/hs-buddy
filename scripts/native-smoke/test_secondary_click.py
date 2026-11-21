@@ -189,7 +189,9 @@ class MacSecondaryClick(unittest.TestCase):
     def test_the_driver_sends_a_tab_menu_through_the_secondary_click_only(self):
         helper, locate, written = self.interact("workspace_menu")
         # Window origin (100, 50) plus the title's middle, in window points.
-        helper.secondary_click.assert_called_once_with(526.5, 99.0)
+        # The press is on a whole point: a half-point one leaves the pointer
+        # outside the menu GPUI opens there, and the tab's tooltip covers it.
+        helper.secondary_click.assert_called_once_with(526, 99)
         helper.click.assert_not_called()
         helper.replace_text.assert_not_called()
         self.assertTrue(locate[1]["workspace"])

@@ -67,10 +67,15 @@ write. Screenshots, recordings and receipts upload with the other native
 evidence, under `tab-menu`.
 
 The scene reads the screen with OCR. It shows that a command is disabled by
-what choosing it does, not by its dimmed color. It does not cover Close, Close
-All, Move Right, the ellipsis menu, dismissal by an outside click, keyboard
-navigation inside the menu, the browser-overlay guard or a stale command
-target. The headless tests cover those. Linux runs the scene on X11 only.
+what choosing it does, not by its dimmed color. Linux runs the scene on X11
+only.
+
+The scene does not cover the ellipsis menu, dismissal by an outside click,
+keyboard navigation inside the menu, the browser-overlay guard or a stale
+command target; the headless GPUI tests cover those. It also does not cover
+Close, Close All or the move commands. Close and Close All are tested on the
+tab model in `shell/navigation.rs`, and so is Move Left, which the scene
+chooses only on a single tab to close the menu. Move Right has no test.
 
 Electron remains primary. Convex and gpui-kit 0.8.1 remain unchanged. Other
 in-flight parity slices, session ownership, Windows11 qualification and the

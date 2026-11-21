@@ -14,6 +14,8 @@ import uuid
 from receipt_clock import stamp
 
 KINDS = {5: "move", 1: "down", 2: "up"}
+# Mouse moved, right down, right up: a secondary click's posted trace.
+SECONDARY_TRACE = [5, 3, 4]
 LIMIT = 4096
 CONTROL_SECONDS = 15
 HEALTH_LIMIT = 32
@@ -513,7 +515,8 @@ def correlate(directory, received):
         if not isinstance(point, list) or len(point) != 2 or any(type(x) not in (int, float) or not math.isfinite(x) for x in point):
             return unknown
         trace = row.get("clickTrace", [])
-        if not isinstance(trace, list) or any(not isinstance(p, dict) for p in trace) or len(trace) != 3 or [p.get("eventType") for p in trace] != [5, 1, 2]:
+        if (not isinstance(trace, list) or any(not isinstance(p, dict) for p in trace) or len(trace) != 3
+                or [p.get("eventType") for p in trace] not in ([5, 1, 2], SECONDARY_TRACE)):
             return unknown
         try:
             identity = tuple(p["postCall"]["start"]["monotonicNanos"] for p in trace)
@@ -543,6 +546,14 @@ def correlate(directory, received):
         point = targets[index].get("windowPoint")
         trace = item.get("clickTrace", [])
         if not point or not trace:
+            continue
+        if [p.get("eventType") for p in trace] == SECONDARY_TRACE:
+            # The process tap observes left-button kinds only. A secondary
+            # click keeps its place in the checks above and bounds the click
+            # before it, but it cannot be joined itself.
+            first = len(result)
+            result.extend(dict(sequence=first + offset, kind=name, status="unknown")
+                for offset, name in enumerate(("move", "down", "up")))
             continue
         start = min(p["postCall"]["start"]["wallMillis"] for p in trace)
         following = inputs[index + 1].get("clickTrace", []) if index + 1 < len(inputs) else []

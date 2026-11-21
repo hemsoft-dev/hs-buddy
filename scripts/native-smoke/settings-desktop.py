@@ -756,6 +756,14 @@ class Driver:
             if kind == "save":
                 x = (control["left"] + control["width"] / 2) / scale
         if self.session == "macos":
+            if secondary:
+                # GPUI opens the menu at the press and rounds its origin to a
+                # whole point. From a half-point press the menu starts half a
+                # point past the pointer and does not occlude it, so the tab
+                # stays hovered and its tooltip, which only a left press
+                # cancels, opens over the menu's first rows. Press on a whole
+                # point, as X11 does, so the pointer lands inside the menu.
+                x, y = math.floor(x), math.floor(y)
             placement = getattr(window, "_placement", None)
             if placement is not None:
                 placement.target(kind, values[0], [x, y], label)
