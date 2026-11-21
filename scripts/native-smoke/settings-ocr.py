@@ -392,13 +392,33 @@ def recognize_windows(image):
     return json.loads(result.stdout)
 
 
+# Vision's accurate recognizer usually answers in seconds, but on the hosted
+# Intel Mac it twice took over 30 s on ordinary captures (settings scene,
+# run 44776104300; automation scene, run 44896933823), failing whole scenes.
+# A slow answer gets one longer attempt; each timeout leaves a receipt.
+MACOS_OCR_TIMEOUTS = (30, 90)
+
+
+def run_macos_helper(helper, image):
+    receipt = image.with_suffix(".ocr-timeout.json")
+    for attempt, limit in enumerate(MACOS_OCR_TIMEOUTS, start=1):
+        try:
+            return subprocess.run([str(helper), str(image)],
+                capture_output=True, text=True, encoding="utf-8", check=True, timeout=limit)
+        except subprocess.TimeoutExpired as error:
+            timeouts = json.loads(receipt.read_text(encoding="utf-8")) if receipt.exists() else []
+            timeouts.append(dict(attempt=attempt, timeoutSeconds=limit))
+            receipt.write_text(json.dumps(timeouts), encoding="utf-8")
+            if attempt == len(MACOS_OCR_TIMEOUTS):
+                raise RuntimeError(f"macOS OCR helper exceeded {limit} s on attempt {attempt}") from error
+
+
 def recognize_macos(image):
     helper = Path(os.environ.get("BUDDY_SETTINGS_OCR_HELPER", ""))
     if not helper.is_absolute() or not helper.is_file():
         raise RuntimeError("macOS OCR requires an existing absolute compiled helper")
     try:
-        result = subprocess.run([str(helper), str(image)],
-            capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+        result = run_macos_helper(helper, image)
     except subprocess.CalledProcessError as error:
         # Preserve the exact failed capture before the status wait recaptures it.
         shutil.copyfile(image, image.with_suffix(".ocr-error.png"))
