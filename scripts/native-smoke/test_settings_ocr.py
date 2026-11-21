@@ -169,6 +169,30 @@ class LabelGuards(unittest.TestCase):
             self.assertEqual(evidence["exitCode"], 1)
             self.assertIn("domain=Vision code=9", evidence["stderr"])
 
+    def test_a_slow_macos_helper_gets_one_longer_attempt_with_a_receipt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            helper, image = Path(folder) / "buddy-ocr-words", Path(folder) / "owned.png"
+            helper.write_bytes(b"synthetic prepared helper")
+            slow = subprocess.TimeoutExpired([str(helper), str(image)], 30)
+            answered = subprocess.CompletedProcess([], 0, "[]", "")
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(helper)}), \
+                    patch.object(ocr.subprocess, "run", side_effect=[slow, answered]) as run:
+                self.assertEqual(ocr.recognize_macos(image), [])
+            self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [30, 90])
+            self.assertEqual(json.loads(image.with_suffix(".ocr-timeout.json").read_text()),
+                [dict(attempt=1, timeoutSeconds=30)])
+
+    def test_a_helper_that_never_answers_still_fails_after_the_longer_attempt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            helper, image = Path(folder) / "buddy-ocr-words", Path(folder) / "owned.png"
+            helper.write_bytes(b"synthetic prepared helper")
+            slow = subprocess.TimeoutExpired([str(helper), str(image)], 30)
+            with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(helper)}), \
+                    patch.object(ocr.subprocess, "run", side_effect=[slow, slow]):
+                with self.assertRaisesRegex(RuntimeError, "exceeded 90 s on attempt 2"):
+                    ocr.recognize_macos(image)
+            self.assertEqual(len(json.loads(image.with_suffix(".ocr-timeout.json").read_text())), 2)
+
     def test_missing_prepared_macos_helper_fails_before_spawning_a_process(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch.dict(os.environ, {"BUDDY_SETTINGS_OCR_HELPER": str(Path(folder) / "missing")}), \
