@@ -1,6 +1,7 @@
 //! The dashboard (`WelcomePanel.tsx`): header, card grid, quick actions, footer.
 
 mod active_prs;
+pub(crate) use active_prs::SyncStatus;
 mod cards;
 mod header;
 pub mod primitives;
@@ -31,7 +32,7 @@ use gpui_kit::{
     IntoElement, ParentElement, Render, Styled, Subscription, Window, div,
 };
 
-use crate::app::Section;
+use crate::app::{Section, ViewTarget};
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::shell::activity_bar::ACTIVITY_BAR_WIDTH;
@@ -46,7 +47,7 @@ const FINANCE_DEFAULT_INTERVAL_MINUTES: u32 = 15;
 const CONVEX_STARTUP_GRACE: Duration = Duration::from_secs(20);
 
 pub enum DashboardEvent {
-    Navigate(Section),
+    Navigate(ViewTarget),
 }
 
 /// Card expansion saved by an earlier run (`native.expandedCards`); cards
@@ -879,6 +880,12 @@ impl DashboardView {
         (self.active_prs.total, self.active_prs.error.is_some())
     }
 
+    pub(crate) fn sync_status(&self, cx: &App) -> SyncStatus {
+        let config = &Settings::global(cx).config;
+        self.active_prs
+            .sync_status(&config.github, &config.pr, Instant::now())
+    }
+
     /// Connection error, or a reachability hint once the first load is overdue.
     pub fn convex_error(&self) -> Option<String> {
         if let Some(error) = self
@@ -1199,8 +1206,8 @@ impl DashboardView {
         cx.notify();
     }
 
-    pub fn navigate(&mut self, section: Section, cx: &mut Context<Self>) {
-        cx.emit(DashboardEvent::Navigate(section));
+    pub fn navigate(&mut self, target: impl Into<ViewTarget>, cx: &mut Context<Self>) {
+        cx.emit(DashboardEvent::Navigate(target.into()));
     }
 
     // ── Layout ───────────────────────────────────────────────────────────
@@ -1269,12 +1276,13 @@ impl DashboardView {
     }
 
     fn render_quick_actions(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let action = |id: &'static str, icon: IconName, label: &'static str, section: Section| {
+        // `handleQuickAction` in `WelcomePanel.tsx`: each pill opens its list.
+        let action = |id: &'static str, icon: IconName, label: &'static str, target: ViewTarget| {
             primitives::Pill::new(id, label)
                 .icon(icon)
                 .accent_icon()
                 .build(
-                    cx.listener(move |this, _, _, cx| this.navigate(section, cx)),
+                    cx.listener(move |this, _, _, cx| this.navigate(target, cx)),
                     cx,
                 )
         };
@@ -1286,25 +1294,25 @@ impl DashboardView {
                 "qa-my-prs",
                 IconName::GitPullRequest,
                 "My PRs",
-                Section::GitHub,
+                ViewTarget::MyPrs,
             ))
             .child(action(
                 "qa-orgs",
                 IconName::Building2,
                 "Organizations",
-                Section::GitHub,
+                ViewTarget::Section(Section::GitHub),
             ))
             .child(action(
                 "qa-jobs",
                 IconName::Zap,
                 "Jobs",
-                Section::Automation,
+                ViewTarget::AutomationJobs,
             ))
             .child(action(
                 "qa-settings",
                 IconName::Settings,
                 "Settings",
-                Section::Settings,
+                ViewTarget::SettingsAccounts,
             ))
     }
 

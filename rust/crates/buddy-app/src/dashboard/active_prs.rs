@@ -16,7 +16,75 @@ pub(super) struct ActivePrs {
     pub loading: bool,
     inputs: Option<(GitHubConfig, PrConfig)>,
     attempted: Option<Instant>,
+    /// The last time a refresh produced a total.
+    refreshed: Option<Instant>,
     generation: u64,
+}
+
+/// The status bar's background sync item (`BackgroundSyncStatus` in
+/// `StatusBar.tsx`). The native app's background GitHub sync is this
+/// refresh of the four PR lists behind the PR total.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SyncStatus {
+    /// No GitHub account is configured, so nothing syncs.
+    Hidden,
+    Syncing,
+    Idle {
+        /// Time until the next automatic refresh; `None` when none is due
+        /// (automatic refresh is off, or nothing has been attempted yet).
+        next: Option<Duration>,
+        last: Option<Duration>,
+        auto_refresh: bool,
+    },
+}
+
+impl SyncStatus {
+    pub(crate) fn label(&self) -> Option<String> {
+        match self {
+            Self::Hidden => None,
+            Self::Syncing => Some("Syncing PR lists…".to_string()),
+            Self::Idle {
+                next: Some(next), ..
+            } => Some(format!("Next sync {}", countdown(*next))),
+            Self::Idle {
+                auto_refresh: true, ..
+            } => Some("Auto-refresh active".to_string()),
+            Self::Idle { .. } => Some("Auto-refresh off".to_string()),
+        }
+    }
+
+    pub(crate) fn tooltip(&self) -> String {
+        match self {
+            Self::Hidden => String::new(),
+            Self::Syncing => "Syncing the four PR lists for every configured account".to_string(),
+            Self::Idle { next, last, .. } => format!(
+                "Last updated {} · Next refresh in {}",
+                last.map(|ago| buddy_core::format::ago(ago.as_millis() as u64))
+                    .unwrap_or_else(|| "never".to_string()),
+                next.map(countdown).unwrap_or_else(|| "—".to_string())
+            ),
+        }
+    }
+}
+
+/// `formatSecondsCountdown`: `now` once the refresh is due.
+fn countdown(remaining: Duration) -> String {
+    if remaining.is_zero() {
+        "now".to_string()
+    } else {
+        buddy_core::format::countdown(remaining.as_millis() as u64)
+    }
+}
+
+/// The automatic refresh interval: `pr.refreshInterval` minutes, at least one
+/// minute and at most one day.
+fn interval(pr: &PrConfig) -> Duration {
+    let seconds = if pr.refresh_interval.is_finite() {
+        (pr.refresh_interval * 60.0).clamp(60.0, 86400.0)
+    } else {
+        900.0
+    };
+    Duration::from_secs_f64(seconds)
 }
 
 impl ActivePrs {
@@ -36,15 +104,10 @@ impl ActivePrs {
             self.total = None;
             self.error = None;
         }
-        let seconds = if pr.refresh_interval.is_finite() {
-            (pr.refresh_interval * 60.0).clamp(60.0, 86400.0)
-        } else {
-            900.0
-        };
         let due = pr.auto_refresh
             && self
                 .attempted
-                .is_some_and(|at| at.elapsed() >= Duration::from_secs_f64(seconds));
+                .is_some_and(|at| at.elapsed() >= interval(pr));
         if !changed && (self.loading || (!force && !due)) {
             return None;
         }
@@ -64,8 +127,35 @@ impl ActivePrs {
             Ok(total) => {
                 self.total = Some(total);
                 self.error = None;
+                self.refreshed = Some(Instant::now());
             }
             Err(error) => self.error = Some(error),
+        }
+    }
+}
+
+impl ActivePrs {
+    pub(crate) fn sync_status(
+        &self,
+        github: &GitHubConfig,
+        pr: &PrConfig,
+        now: Instant,
+    ) -> SyncStatus {
+        if github.accounts.is_empty() {
+            return SyncStatus::Hidden;
+        }
+        if self.loading {
+            return SyncStatus::Syncing;
+        }
+        let next = pr
+            .auto_refresh
+            .then_some(self.attempted)
+            .flatten()
+            .map(|at| (at + interval(pr)).saturating_duration_since(now));
+        SyncStatus::Idle {
+            next,
+            last: self.refreshed.map(|at| now.saturating_duration_since(at)),
+            auto_refresh: pr.auto_refresh,
         }
     }
 }
@@ -283,6 +373,68 @@ mod tests {
         assert!(state.loading);
         state.complete(new, Ok(3));
         assert_eq!(state.total, Some(3));
+    }
+
+    fn one_account() -> GitHubConfig {
+        serde_json::from_value(serde_json::json!({"accounts":[{"username":"first","org":"team"}]}))
+            .unwrap()
+    }
+
+    #[test]
+    fn sync_status_follows_the_refresh_cycle() {
+        let mut state = ActivePrs::default();
+        let github = one_account();
+        let pr = PrConfig {
+            refresh_interval: 5.0,
+            auto_refresh: true,
+            ..Default::default()
+        };
+        let now = Instant::now();
+        assert_eq!(
+            state.sync_status(&GitHubConfig::default(), &pr, now),
+            SyncStatus::Hidden
+        );
+        let idle = state.sync_status(&github, &pr, now);
+        assert_eq!(idle.label().as_deref(), Some("Auto-refresh active"));
+        assert_eq!(idle.tooltip(), "Last updated never · Next refresh in —");
+
+        let generation = state.begin(&github, &pr, false).unwrap();
+        let syncing = state.sync_status(&github, &pr, Instant::now());
+        assert_eq!(syncing, SyncStatus::Syncing);
+        assert_eq!(syncing.label().as_deref(), Some("Syncing PR lists…"));
+
+        state.complete(generation, Ok(3));
+        let attempted = state.attempted.unwrap();
+        let later = attempted + Duration::from_secs(48);
+        state.refreshed = Some(attempted);
+        let idle = state.sync_status(&github, &pr, later);
+        assert_eq!(idle.label().as_deref(), Some("Next sync 4m 12s"));
+        assert_eq!(
+            idle.tooltip(),
+            "Last updated just now · Next refresh in 4m 12s"
+        );
+
+        let overdue = state.sync_status(&github, &pr, attempted + Duration::from_secs(400));
+        assert_eq!(overdue.label().as_deref(), Some("Next sync now"));
+        assert_eq!(
+            overdue.tooltip(),
+            "Last updated 6m ago · Next refresh in now"
+        );
+    }
+
+    #[test]
+    fn sync_status_without_automatic_refresh_has_no_countdown() {
+        let mut state = ActivePrs::default();
+        let github = one_account();
+        let pr = PrConfig {
+            auto_refresh: false,
+            ..Default::default()
+        };
+        let generation = state.begin(&github, &pr, false).unwrap();
+        state.complete(generation, Err("offline".into()));
+        let idle = state.sync_status(&github, &pr, Instant::now());
+        assert_eq!(idle.label().as_deref(), Some("Auto-refresh off"));
+        assert_eq!(idle.tooltip(), "Last updated never · Next refresh in —");
     }
 
     #[test]

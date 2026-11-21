@@ -10,7 +10,7 @@ use gpui_kit::{
     linear_gradient,
 };
 
-use crate::app::Section;
+use crate::app::ViewTarget;
 use crate::dashboard::DashboardView;
 use crate::dashboard::primitives::{Pill, StatCard, icon_box, section, section_heading, stat_grid};
 use crate::theme::{BuddyPalette, hex};
@@ -51,9 +51,9 @@ pub fn render(view: &DashboardView, cx: &mut Context<DashboardView>) -> AnyEleme
         "Configure Accounts"
     };
     let open_target = if has_accounts {
-        Section::Copilot
+        ViewTarget::CopilotUsage
     } else {
-        Section::Settings
+        ViewTarget::SettingsAccounts
     };
 
     let narrow = view.narrow();

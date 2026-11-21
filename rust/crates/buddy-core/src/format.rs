@@ -8,7 +8,7 @@
 use fixed_decimal::{Decimal, FloatPrecision, Sign, SignedRoundingMode, UnsignedRoundingMode};
 use icu_calendar::Date;
 use icu_datetime::DateTimeFormatter;
-use icu_datetime::fieldsets::{T, YM};
+use icu_datetime::fieldsets::{MDE, T, YM};
 use icu_datetime::options::Alignment;
 use icu_decimal::DecimalFormatter;
 use icu_decimal::options::DecimalFormatterOptions;
@@ -23,6 +23,7 @@ pub struct LocaleFormat {
     formatter: DecimalFormatter,
     usd: CurrencyFormatter<DecimalFormatter>,
     month_year: DateTimeFormatter<YM>,
+    weekday_date: DateTimeFormatter<MDE>,
     clock: DateTimeFormatter<T>,
 }
 
@@ -55,6 +56,8 @@ impl LocaleFormat {
         .map_err(|err| err.to_string())?;
         let month_year = DateTimeFormatter::try_new(locale.into(), YM::medium())
             .map_err(|err| err.to_string())?;
+        let weekday_date = DateTimeFormatter::try_new(locale.into(), MDE::medium())
+            .map_err(|err| err.to_string())?;
         let clock =
             DateTimeFormatter::try_new(locale.into(), T::hms().with_alignment(Alignment::Column))
                 .map_err(|err| err.to_string())?;
@@ -62,6 +65,7 @@ impl LocaleFormat {
             formatter,
             usd,
             month_year,
+            weekday_date,
             clock,
         })
     }
@@ -150,6 +154,21 @@ impl LocaleFormat {
         Some(self.month_year.format(&date).to_string())
     }
 
+    /// `toLocaleDateString(undefined, { weekday: "short", month: "short",
+    /// day: "numeric" })`: the status bar's date. ICU4X has no option for a
+    /// textual month here, so this is the locale's medium weekday date: the
+    /// same `Sat, Nov 21` in English, `Sa., 21.11.` where the locale's medium
+    /// form is numeric.
+    pub fn weekday_date(&self, date: jiff::civil::Date) -> Option<String> {
+        let date = Date::try_new_iso(
+            date.year().into(),
+            u8::try_from(date.month()).ok()?,
+            u8::try_from(date.day()).ok()?,
+        )
+        .ok()?;
+        Some(self.weekday_date.format(&date).to_string())
+    }
+
     /// `toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit",
     /// second: "2-digit" })`: the locale's hour cycle (`03:04:05 PM`,
     /// `15:04:05`).
@@ -199,6 +218,11 @@ pub fn price(value: f64) -> String {
 /// Short month and year of `date` in the system locale.
 pub fn month_year(date: jiff::civil::Date) -> Option<String> {
     SYSTEM.with(|f| f.month_year(date))
+}
+
+/// Short weekday, month and day of `date` in the system locale.
+pub fn weekday_date(date: jiff::civil::Date) -> Option<String> {
+    SYSTEM.with(|f| f.weekday_date(date))
 }
 
 /// Wall-clock time with seconds in the system locale's hour cycle.
@@ -289,6 +313,14 @@ mod tests {
         // A locale on another calendar places the day in its own month/year.
         let thai = LocaleFormat::for_locale(&locale!("th-TH-u-ca-buddhist"));
         assert_eq!(thai.month_year(day).as_deref(), Some("ต.ค. 2569"));
+    }
+
+    #[test]
+    fn formats_the_status_bar_date_like_to_locale_date_string() {
+        let day = jiff::civil::date(2026, 11, 21);
+        assert_eq!(en_us().weekday_date(day).as_deref(), Some("Sat, Nov 21"));
+        let de = LocaleFormat::for_locale(&locale!("de-DE"));
+        assert_eq!(de.weekday_date(day).as_deref(), Some("Sa., 21.11."));
     }
 
     #[test]
