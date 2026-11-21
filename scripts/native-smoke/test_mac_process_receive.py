@@ -468,6 +468,31 @@ class ParentIntegrationControls(FixtureCase):
             self.assertTrue(admitted[0].finished.is_set())
             self.assertIsNotNone(admitted[0].process.returncode)
 
+    def test_a_secondary_click_stays_unknown_without_costing_the_left_click_its_joins(self):
+        """Synthetic timestamps model the join rules, never native delivery evidence."""
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();rows=[];targets=[];logs=[];received=[]
+            for i,kinds in enumerate(((5,1,2),(5,3,4))):
+                trace=[dict(eventType=k,producerTimestamp=dict(status="observed",value=(i*10+k)*1000000000),postCall=dict(start=dict(wallMillis=100+i*100,monotonicNanos=i*10+j+1))) for j,k in enumerate(kinds)]
+                rows.append(dict(stage="after-click",kind="workspace",label=f"synthetic-{i}",clickTrace=trace))
+                targets.append(dict(kind="workspace",label=f"synthetic-{i}",windowPoint=[600,200]))
+            for k,name in receive.KINDS.items():
+                received.append(dict(kind=name,timestamp=k*1000000000))
+                logs.append("buddy-appkit-receive "+json.dumps(dict(phase="receive",kind=name,eventUptimeSeconds=k,x=600,yFromBottom=620,contentHeight=820)))
+                logs.append("buddy-sound-dispatch "+json.dumps(dict(kind="event",label="app-root",capture=True,event=name,eventPosition=[600,200],millis=110)))
+            (root/"input-state.jsonl").write_text("\n".join(map(json.dumps,rows)))
+            (root/"targets.jsonl").write_text("\n".join(map(json.dumps,targets)))
+            (root/"app.log").write_text("\n".join(logs))
+            result=receive.correlate(root,dict(reason=None,stopped=True,received=received))
+            self.assertEqual([(row["sequence"],row["kind"],row["status"]) for row in result["joins"]],
+                [(0,"move","observed"),(1,"down","observed"),(2,"up","observed"),
+                 (3,"move","unknown"),(4,"down","unknown"),(5,"up","unknown")])
+            self.assertTrue(result["timestampRelationshipObserved"])
+            # A trace that is neither a left nor a secondary click still voids the pass.
+            rows[1]["clickTrace"][1]["eventType"]=25
+            (root/"input-state.jsonl").write_text("\n".join(map(json.dumps,rows)))
+            self.assertTrue(all(row["status"]=="unknown" for row in receive.correlate(root,dict(reason=None,stopped=True,received=received))["joins"]))
+
     def test_duplicate_producer_timestamp_cannot_reuse_single_receiving_record(self):
         """Synthetic timestamps model ambiguity, never native delivery evidence."""
         with tempfile.TemporaryDirectory() as directory:

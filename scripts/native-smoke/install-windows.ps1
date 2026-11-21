@@ -63,6 +63,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed Bookmarks qualification failed' }
     & python (Join-Path $PSScriptRoot 'browser-desktop.py') --executable $exe --output (Join-Path $Output 'browser') --session windows --version $metadata.version
     if ($LASTEXITCODE -ne 0) { throw 'Installed browser qualification failed' }
+    & python (Join-Path $PSScriptRoot 'tab-menu-desktop.py') --executable $exe --output (Join-Path $Output 'tab-menu') --session windows --version $metadata.version
+    if ($LASTEXITCODE -ne 0) { throw 'Installed tab menu qualification failed' }
     $entry | Select-Object DisplayName,DisplayVersion,DisplayIcon,InstallLocation |
         ConvertTo-Json | Set-Content (Join-Path $Output 'registration.json')
 }

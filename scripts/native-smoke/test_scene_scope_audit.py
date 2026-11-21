@@ -9,9 +9,9 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('scope_ocr', HERE / 'settings-ocr.py')
 ocr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ocr)
-KINDS = {'workspace', 'click', 'content', 'nav', 'tab', 'between', 'input', 'field', 'box',
+KINDS = {'workspace', 'workspace_menu', 'click', 'content', 'nav', 'tab', 'between', 'input', 'field', 'box',
     'wait_text', 'wait_content', 'wait_scroll_text', 'wait_scroll_above', 'wait_scroll_up', 'reveal_text'}
-SCOPED = {'workspace', 'content', 'nav', 'tab', 'between', 'wait_content'}
+SCOPED = {'workspace', 'workspace_menu', 'content', 'nav', 'tab', 'between', 'wait_content'}
 
 
 def actions():
