@@ -309,8 +309,12 @@ mod tests {
             let file = std::fs::File::options().write(true).open(&path).unwrap();
             file.set_modified(time).unwrap();
             drop(file);
-            if std::fs::metadata(&path).unwrap().modified().unwrap() != time {
-                // This file system stores coarser times than the case needs.
+            let exact = std::time::Duration::new(seconds, nanoseconds);
+            if time.duration_since(std::time::UNIX_EPOCH).unwrap() != exact
+                || std::fs::metadata(&path).unwrap().modified().unwrap() != time
+            {
+                // The host clock (100 ns units on Windows) or this file
+                // system stores coarser times than the case needs.
                 continue;
             }
             assert_eq!(read(&path).unwrap().generated_at, text);
