@@ -50,7 +50,6 @@ use crate::assets::BuddyAssets;
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::window_geometry::{DisplayArea, resolve_window_bounds};
-use gpui_kit::component::WindowExt as _;
 
 /// Reuse the geometry saved in `window-state.json` (by this app or Electron)
 /// when it still lands on a connected display; otherwise center a
@@ -192,7 +191,8 @@ fn initial_window_bounds(cx: &App) -> InitialPlacement {
         .collect();
     let primary_display = cx.primary_display().or_else(|| connected.first().cloned());
     let primary = primary_display.as_ref().map(area);
-    let default_size = size(px(1280.0), px(820.0));
+    // Electron's `width: 1400, height: 900`.
+    let default_size = size(px(1400.0), px(900.0));
     // First launch (or an unusable saved state): the default size fitted to
     // and centred on the primary work area, so a 1366×768 screen gets a
     // window that fits rather than one hanging past the taskbar.
@@ -457,84 +457,77 @@ fn main() {
     #[cfg(target_os = "macos")]
     application.on_reopen(macos_menu::show_window);
     application.run(move |cx| {
-            // Flush before GPUI's 200 ms async quit budget and OS session exit.
-            cx.on_app_quit(move |_| {
-                if let Some(telemetry) = telemetry.take() { telemetry.shutdown(); }
-                std::future::ready(())
-            }).detach();
-            gpui_kit::init(cx);
-            theme::install(&config, cx);
-            cx.set_global(Settings::new(config.clone()));
-            cx.set_global(Runtime::start());
-            zoom::init(cx);
-            terminal_view::init(cx);
-            bookmarks_view::init(cx);
-            app::init_navigation(cx);
-            explorer_view::init(cx);
+        // Flush before GPUI's 200 ms async quit budget and OS session exit.
+        cx.on_app_quit(move |_| {
+            if let Some(telemetry) = telemetry.take() {
+                telemetry.shutdown();
+            }
+            std::future::ready(())
+        })
+        .detach();
+        gpui_kit::init(cx);
+        theme::install(&config, cx);
+        cx.set_global(Settings::new(config.clone()));
+        cx.set_global(Runtime::start());
+        zoom::init(cx);
+        terminal_view::init(cx);
+        bookmarks_view::init(cx);
+        app::init_navigation(cx);
+        explorer_view::init(cx);
 
+        #[cfg(target_os = "macos")]
+        macos_menu::bind_keys(cx);
+
+        cx.bind_keys([
+            crate::key_binding::binding("secondary-q", Quit, None, cx),
+            crate::key_binding::binding(
+                "secondary-r",
+                Reload,
+                Some("!BuddyTerminal && !BuddyTerminalPaste"),
+                cx,
+            ),
+            crate::key_binding::binding("secondary-shift-a", app::ToggleAssistant, None, cx),
+            KeyBinding::new("f11", ToggleFullScreen, None),
+        ]);
+        cx.on_action(|_: &Quit, cx| cx.quit());
+        #[cfg(not(target_os = "macos"))]
+        cx.on_action(|_: &ToggleFullScreen, cx| {
+            let window = cx.active_window();
+            if let Some(window) = window {
+                window
+                    .update(cx, |_, window, _| window.toggle_fullscreen())
+                    .ok();
+            }
+        });
+        cx.on_action(|_: &Reload, cx| match AppConfig::load() {
+            Ok(config) => {
+                theme::install(&config, cx);
+                Settings::replace(cx, config);
+                cx.refresh_windows();
+            }
+            Err(err) => log::warn!("reload failed: {err}"),
+        });
+        cx.on_action(|_: &About, cx| {
             #[cfg(target_os = "macos")]
-            macos_menu::bind_keys(cx);
+            macos_menu::show_window(cx);
+            shell::about::show(cx);
+        });
+        #[cfg(not(target_os = "macos"))]
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
 
-            cx.bind_keys([
-                crate::key_binding::binding("secondary-q", Quit, None, cx),
-                crate::key_binding::binding("secondary-r", Reload, Some("!BuddyTerminal && !BuddyTerminalPaste"), cx),
-                crate::key_binding::binding("secondary-shift-a", app::ToggleAssistant, None, cx),
-                KeyBinding::new("f11", ToggleFullScreen, None),
-
-            ]);
-            cx.on_action(|_: &Quit, cx| cx.quit());
-            #[cfg(not(target_os = "macos"))]
-            cx.on_action(|_: &ToggleFullScreen, cx| {
-                let window = cx.active_window();
-                if let Some(window) = window {
-                    window
-                        .update(cx, |_, window, _| window.toggle_fullscreen())
-                        .ok();
-                }
-            });
-            cx.on_action(|_: &Reload, cx| match AppConfig::load() {
-                Ok(config) => {
-                    theme::install(&config, cx);
-                    Settings::replace(cx, config);
-                    cx.refresh_windows();
-                }
-                Err(err) => log::warn!("reload failed: {err}"),
-            });
-            cx.on_action(|_: &About, cx| {
-                #[cfg(target_os = "macos")]
-                macos_menu::show_window(cx);
-                if let Some(window) = cx.active_window().or_else(|| cx.windows().first().copied()) {
-                    window
-                        .update(cx, |_, window, cx| {
-                            browser_view::Overlays::set(true, cx);
-                            window.open_alert_dialog(cx, |alert, _, _| {
-                                alert
-                                    .on_close(|_, _, cx| browser_view::Overlays::set(false, cx))
-                                    .title("About Buddy")
-                                    .description(format!(
-                                    "Buddy {} (native GPUI build)\nYour Universal Productivity Companion\nMade with love by HemSoft Developments",
-                                    env!("BUDDY_VERSION")
-                                ))
-                            })
-                        })
-                        .ok();
-                }
-            });
-            #[cfg(not(target_os = "macos"))]
-            cx.on_window_closed(|cx, _| {
-                if cx.windows().is_empty() {
-                    cx.quit();
-                }
-            })
+        #[cfg(target_os = "macos")]
+        macos_menu::install(cx);
+        #[cfg(target_os = "macos")]
+        cx.on_window_closed(|cx, _| macos_menu::refresh(cx))
             .detach();
 
-            #[cfg(target_os = "macos")]
-            macos_menu::install(cx);
-            #[cfg(target_os = "macos")]
-            cx.on_window_closed(|cx, _| macos_menu::refresh(cx)).detach();
-
-            open_when_displays_ready(cx);
-        });
+        open_when_displays_ready(cx);
+    });
 }
 
 #[cfg(test)]

@@ -36,6 +36,54 @@ fn app_icon(palette: &BuddyPalette, background: gpui_kit::Hsla) -> impl IntoElem
         .child(Icon::new(IconName::Users).size(zpx(13.0)))
 }
 
+/// `.title-bar-title`: the brand, icon, product name and version, centred on
+/// the whole bar as Electron's absolutely centred title is. It fills the
+/// window's width, not the title bar's inner area, which the platform's
+/// window controls and left inset make asymmetric.
+fn title(palette: &BuddyPalette, background: gpui_kit::Hsla) -> impl IntoElement {
+    h_flex()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .justify_center()
+        .items_center()
+        .gap(zpx(6.0))
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(zpx(13.0))
+                .text_color(palette.gold)
+                .child("HemSoft Developments"),
+        )
+        .child(app_icon(palette, background))
+        .child(
+            div()
+                .font_weight(FontWeight::BOLD)
+                .text_size(zpx(14.0))
+                .text_color(palette.text_heading)
+                .child("BUDDY"),
+        )
+        .child(
+            div()
+                .px(zpx(4.0))
+                .py(zpx(1.0))
+                .rounded(zpx(3.0))
+                .border_1()
+                .border_color(palette.gold.opacity(0.3))
+                .bg(palette.gold.opacity(0.1))
+                .text_size(zpx(10.0))
+                .text_color(palette.gold)
+                .child(version_label()),
+        )
+}
+
+/// `V{APP_VERSION}`.
+pub(crate) fn version_label() -> String {
+    format!("V{}", env!("BUDDY_VERSION"))
+}
+
 fn menu_button(id: &'static str, label: &'static str) -> Button {
     Button::new(id).ghost().xsmall().label(label).compact()
 }
@@ -60,15 +108,9 @@ pub fn render(
         .h_full()
         .items_center()
         .gap(zpx(10.0))
+        .pl(zpx(4.0))
         .text_size(zpx(12.0))
         .text_color(foreground)
-        .child(app_icon(&palette, background))
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(palette.text_heading)
-                .child("Buddy"),
-        )
         .child(
             h_flex()
                 .gap(zpx(2.0))
@@ -161,11 +203,20 @@ pub fn render(
     // size, so the bar itself stays at 100% (controls keep their fixed size,
     // as in VS Code) while its height and Buddy's content follow the zoom.
     let title_bar_height = scaled(cx, TITLE_BAR_HEIGHT);
+    // The title is painted first, under a transparent bar, so the menus and
+    // buttons stay on top of it and keep their clicks.
     zoom::unzoomed(
-        TitleBar::new()
+        div()
+            .relative()
             .h(title_bar_height)
             .bg(title_bar_bg)
-            .child(zoom::zoomed(cx, content)),
+            .child(zoom::zoomed(cx, title(&palette, background)))
+            .child(
+                TitleBar::new()
+                    .h(title_bar_height)
+                    .bg(gpui_kit::transparent_black())
+                    .child(zoom::zoomed(cx, content)),
+            ),
     )
 }
 

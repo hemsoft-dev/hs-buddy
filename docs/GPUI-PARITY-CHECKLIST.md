@@ -14,21 +14,21 @@ One row is newer: Escape in the Tempo worklog editor, ported by
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 298 are ported,
-203 are partly ported, 92 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 303 are ported,
+199 are partly ported, 91 are missing natively, 5 are a
 placeholder natively and 24 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
 | --- | --- | --- | --- | --- | --- | --- |
-| [Shell, dashboard and settings](parity/shell.md) | 99 | 9 | 1 | 27 | 55 | 7 |
+| [Shell, dashboard and settings](parity/shell.md) | 99 | 9 | 1 | 24 | 58 | 7 |
 | [GitHub repositories and pull requests](parity/github.md) | 82 | 20 | 0 | 42 | 19 | 1 |
 | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | 47 | 4 | 0 | 13 | 30 | 0 |
 | [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 19 | 0 | 26 | 26 | 3 |
 | [Todoist and Tempo](parity/planning.md) | 71 | 12 | 0 | 18 | 40 | 1 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 10 | 0 | 24 | 52 | 3 |
-| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 7 | 4 | 24 | 22 | 2 |
+| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 6 | 4 | 23 | 24 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 11 | 0 | 29 | 54 | 7 |
-| **All areas** | **622** | **92** | **5** | **203** | **298** | **24** |
+| **All areas** | **622** | **91** | **5** | **199** | **303** | **24** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains

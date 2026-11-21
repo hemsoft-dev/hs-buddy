@@ -993,9 +993,14 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     saved = json.loads(config.read_text(encoding="utf-8-sig"))
     if saved["ui"]["fontFamily"] != font or saved["ui"]["enterpriseSlug"] != "fixture-concurrent-complete" or saved["notifications"]["reviewCompleteSoundPath"]:
         raise RuntimeError("Theme changes committed an unrelated unsaved draft")
+    # Help > About Buddy (AboutModal.tsx) over the centred title-bar brand.
+    about = driver.drive("about", [("click", "Help"), ("click", "About Buddy"), ("sleep", 1),
+        ("capture", "about-dark"), ("key", "Escape")])
+    verify_text(about / "about-dark.png", "HemSoft Developments", "Your Universal Productivity Companion",
+        "View on GitHub", "Native (Rust)")
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session, largeWindow=driver.large_size,
         binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "all seven panels",
-        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "Settings category activity and restart non-replay", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
+        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "Settings category activity and restart non-replay", "About dialog and title-bar brand", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
 
 
 def main():
