@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{
     AccountId, Client, DateRange, Error, JiraClient, JiraError, TimesheetSummary, TransportError,
@@ -56,7 +56,7 @@ pub struct Snapshot {
     pub time_zone: Option<String>,
     pub range: DateRange,
     pub summary: TimesheetSummary,
-    pub read_at: DateTime<Utc>,
+    pub read_at: Timestamp,
     profile: String,
 }
 impl Snapshot {
@@ -79,7 +79,7 @@ impl Connection {
     async fn read(
         &self,
         selection: RangeSelection,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
         previous: Option<&Snapshot>,
     ) -> Result<Snapshot, PlannerError> {
         let selection = match selection {
@@ -138,7 +138,7 @@ impl Planner {
         tempo: Arc<Client>,
         jira: Arc<JiraClient>,
         range: DateRange,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
     ) -> Result<Self, PlannerError> {
         Self::connect_selected(
             config,
@@ -153,7 +153,7 @@ impl Planner {
         config: &Path,
         tempo: Arc<Client>,
         jira: Arc<JiraClient>,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
     ) -> Result<Self, PlannerError> {
         Self::connect_selected(config, tempo, jira, RangeSelection::CurrentMonth, read_at).await
     }
@@ -162,7 +162,7 @@ impl Planner {
         tempo: Arc<Client>,
         jira: Arc<JiraClient>,
         range: RangeSelection,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
     ) -> Result<Self, PlannerError> {
         if !config.is_absolute() || config.file_name().is_none() {
             return Err(PlannerError::InvalidProfile);
@@ -186,14 +186,14 @@ impl Planner {
     pub async fn refresh(
         &mut self,
         range: DateRange,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
     ) -> Result<(), PlannerError> {
         self.refresh_selected(RangeSelection::Explicit(range), read_at)
             .await
     }
     pub async fn refresh_current_month_at(
         &mut self,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
     ) -> Result<(), PlannerError> {
         self.refresh_selected(RangeSelection::CurrentMonth, read_at)
             .await
@@ -201,7 +201,7 @@ impl Planner {
     async fn refresh_selected(
         &mut self,
         range: RangeSelection,
-        read_at: DateTime<Utc>,
+        read_at: Timestamp,
     ) -> Result<(), PlannerError> {
         let loaded = self
             .connection

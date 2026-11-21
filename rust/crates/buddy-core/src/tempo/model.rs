@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc};
+use jiff::Timestamp;
+use jiff::civil::{Date, Time};
 use serde::Deserialize;
 
 use super::{Error, MAX_PAGE_ITEMS, MAX_RESPONSE_BYTES, bounded};
@@ -57,14 +58,14 @@ pub struct Worklog {
     pub author: AccountId,
     pub seconds: u64,
     pub billable_seconds: Option<i64>,
-    pub date: NaiveDate,
-    pub start_time: Option<NaiveTime>,
-    pub start_instant: Option<DateTime<Utc>>,
+    pub date: Date,
+    pub start_time: Option<Time>,
+    pub start_instant: Option<Timestamp>,
     pub description: Option<String>,
     /// None means unexpanded, not an empty list to send back during an edit.
     pub attributes: Option<Vec<Attribute>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 impl Worklog {
     pub fn billing_account(&self) -> Result<Option<&str>, Error> {
@@ -94,7 +95,7 @@ pub enum ScheduleKind {
 }
 #[derive(Clone)]
 pub struct DaySchedule {
-    pub date: NaiveDate,
+    pub date: Date,
     pub required_seconds: u64,
     pub kind: ScheduleKind,
     pub holiday_name: Option<String>,
@@ -155,24 +156,21 @@ struct RawPage {
     reference: String,
 }
 
-pub(super) fn date(text: &str) -> Result<NaiveDate, Error> {
+pub(super) fn date(text: &str) -> Result<Date, Error> {
     if text.len() != 10 {
         return Err(Error::InvalidResponse);
     }
-    NaiveDate::parse_from_str(text, "%Y-%m-%d")
-        .ok()
-        .filter(|value| {
-            (1..=9999).contains(&value.year()) && value.format("%Y-%m-%d").to_string() == text
-        })
+    crate::wire_time::date(text)
+        .filter(|value| (1..=9999).contains(&value.year()) && value.to_string() == text)
         .ok_or(Error::InvalidResponse)
 }
-fn instant(text: &str) -> Result<DateTime<Utc>, Error> {
+fn instant(text: &str) -> Result<Timestamp, Error> {
     if text.len() > 64 {
         return Err(Error::InvalidResponse);
     }
-    DateTime::parse_from_rfc3339(text)
-        .map(|value| value.with_timezone(&Utc))
-        .map_err(|_| Error::InvalidResponse)
+    crate::wire_time::rfc3339(text)
+        .map(|parsed| parsed.value.timestamp())
+        .ok_or(Error::InvalidResponse)
 }
 fn reference(value: &str) -> bool {
     !value.is_empty() && bounded(value, 8192, false)
@@ -224,7 +222,9 @@ fn worklog(raw: RawWorklog) -> Result<Worklog, Error> {
             if value.len() > 32 {
                 return Err(Error::InvalidResponse);
             }
-            NaiveTime::parse_from_str(value, "%H:%M:%S%.f").map_err(|_| Error::InvalidResponse)
+            crate::wire_time::time(value)
+                .map(|parsed| parsed.value)
+                .ok_or(Error::InvalidResponse)
         })
         .transpose()?;
     Ok(Worklog {
@@ -393,3 +393,7 @@ pub fn parse_schedule(bytes: &[u8]) -> Result<Vec<DaySchedule>, Error> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod tests;

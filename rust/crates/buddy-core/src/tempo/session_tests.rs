@@ -5,7 +5,7 @@ use crate::tempo::transport::tests::single_worklog;
 use crate::tempo::{AccountId, IssueId};
 use serde_json::json;
 
-fn now() -> DateTime<Utc> {
+fn now() -> Timestamp {
     "2026-10-16T12:00:00Z".parse().unwrap()
 }
 fn identity() -> String {
@@ -387,7 +387,7 @@ async fn a_copy_confirmation_cannot_cross_credentials_profiles_or_the_account_da
         } else {
             (
                 original
-                    .execute_copy(plan, now() + chrono::Duration::days(1))
+                    .execute_copy(plan, now() + jiff::SignedDuration::from_hours(24))
                     .await,
                 Error::ChangedWhileLoading,
             )

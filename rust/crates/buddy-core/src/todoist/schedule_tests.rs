@@ -1,8 +1,15 @@
-use chrono::{FixedOffset, TimeZone};
+use jiff::tz::{TimeZone, offset};
 use serde_json::{Value, json};
 
 use super::*;
 use crate::todoist::parse_tasks;
+
+/// A wall time at a fixed number of hours from UTC.
+fn at(hours: i8, year: i16, month: i8, day: i8, hour: i8, minute: i8) -> jiff::Zoned {
+    jiff::civil::datetime(year, month, day, hour, minute, 0, 0)
+        .to_zoned(TimeZone::fixed(offset(hours)))
+        .unwrap()
+}
 
 fn task(id: &str, due: Value, priority: u8, order: i64) -> Value {
     json!({"id":id,"content":"Synthetic task","description":"","project_id":"project","due":due,"priority":priority,"child_order":order,"checked":false,"labels":[]})
@@ -21,12 +28,11 @@ fn explicit_instants_cross_midnight_while_calendar_and_floating_values_keep_thei
         task("floating", json!({"date":"2026-10-17T01:00:00"}), 1, 0),
         task("overdue", json!({"date":"2026-10-15"}), 1, 0),
     ]);
-    let zone = FixedOffset::west_opt(4 * 3600).unwrap();
-    let now = zone.with_ymd_and_hms(2026, 10, 16, 22, 0, 0).unwrap();
+    let now = at(-4, 2026, 10, 16, 22, 0);
     let groups = schedule(&rows, &now, 2).unwrap();
     assert!(groups[0].kind == DayKind::Overdue);
     assert_eq!(groups[0].tasks[0].id.as_str(), "overdue");
-    assert!(groups[1].kind == DayKind::Date(now.date_naive()));
+    assert!(groups[1].kind == DayKind::Date(now.date()));
     assert_eq!(groups[1].tasks[0].id.as_str(), "instant");
     assert_eq!(
         groups[2]
@@ -52,10 +58,7 @@ fn priority_order_and_identity_sort_is_stable_and_completed_or_deleted_tasks_sta
         done,
         deleted,
     ]);
-    let now = FixedOffset::east_opt(0)
-        .unwrap()
-        .with_ymd_and_hms(2026, 10, 16, 12, 0, 0)
-        .unwrap();
+    let now = at(0, 2026, 10, 16, 12, 0);
     let groups = schedule(&rows, &now, 1).unwrap();
     assert_eq!(groups.len(), 1);
     assert_eq!(
@@ -85,10 +88,7 @@ fn project_includes_undated_tasks_and_future_dates_without_stealing_another_proj
             .collect::<Vec<_>>(),
         ["future", "undated"]
     );
-    let now = FixedOffset::east_opt(0)
-        .unwrap()
-        .with_ymd_and_hms(2026, 10, 16, 0, 0, 0)
-        .unwrap();
+    let now = at(0, 2026, 10, 16, 0, 0);
     assert!(
         schedule(&rows, &now, 7)
             .unwrap()
@@ -99,10 +99,7 @@ fn project_includes_undated_tasks_and_future_dates_without_stealing_another_proj
 
 #[test]
 fn empty_calendar_sections_cover_leap_day_and_end_is_exclusive() {
-    let now = FixedOffset::east_opt(14 * 3600)
-        .unwrap()
-        .with_ymd_and_hms(2028, 2, 28, 23, 59, 0)
-        .unwrap();
+    let now = at(14, 2028, 2, 28, 23, 59);
     let rows = tasks(vec![task("end", json!({"date":"2028-03-02"}), 1, 0)]);
     let groups = schedule(&rows, &now, 3).unwrap();
     let dates: Vec<_> = groups

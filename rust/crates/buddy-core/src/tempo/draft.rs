@@ -1,7 +1,8 @@
 //! Captured Tempo create/update/delete drafts. This module never sends a request.
 use std::collections::HashSet;
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Timelike, Utc};
+use jiff::Timestamp;
+use jiff::civil::{Date, Time};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -28,10 +29,10 @@ enum Operation {
 pub struct Draft {
     operation: Operation,
     author: AccountId,
-    date: NaiveDate,
+    date: Date,
     seconds: u64,
     billable_seconds: Option<i64>,
-    start_time: Option<NaiveTime>,
+    start_time: Option<Time>,
     description: Option<String>,
     attributes: Vec<Attribute>,
 }
@@ -90,9 +91,10 @@ impl Draft {
         draft.start_time = input
             .start_time
             .map(|value| {
-                let time = NaiveTime::parse_from_str(&value, "%H:%M:%S")
-                    .map_err(|_| Error::InvalidRecovery)?;
-                if time.format("%H:%M:%S").to_string() != value {
+                let time = crate::wire_time::hour_minute_second(&value)
+                    .ok_or(Error::InvalidRecovery)?
+                    .value;
+                if time.strftime("%H:%M:%S").to_string() != value {
                     return Err(Error::InvalidRecovery);
                 }
                 Ok(time)
@@ -115,7 +117,7 @@ impl Draft {
     pub fn create(
         author: AccountId,
         issue: IssueId,
-        date: NaiveDate,
+        date: Date,
         seconds: u64,
     ) -> Result<Self, Error> {
         let draft = Self {
@@ -147,7 +149,7 @@ impl Draft {
     }
     /// Copy a fully expanded record into a CREATE. No update baseline or
     /// original worklog ID can accidentally turn this into an edit.
-    pub fn copy_to_date(row: &Worklog, date: NaiveDate, start: NaiveTime) -> Result<Self, Error> {
+    pub fn copy_to_date(row: &Worklog, date: Date, start: Time) -> Result<Self, Error> {
         let mut draft = Self::edit(row)?;
         draft.operation = Operation::Create(row.issue.ok_or(Error::InvalidDraft)?);
         draft.date = date;
@@ -181,7 +183,7 @@ impl Draft {
             Operation::Delete(_) => DraftKind::Delete,
         }
     }
-    pub fn work_date(&self) -> NaiveDate {
+    pub fn work_date(&self) -> Date {
         self.date
     }
     pub fn worklog_id(&self) -> Option<WorklogId> {
@@ -198,7 +200,7 @@ impl Draft {
     }
     /// The complete baseline is retained; this timestamp alone cannot establish
     /// freshness when a service returns changed fields with the same timestamp.
-    pub fn observed_update(&self) -> Option<DateTime<Utc>> {
+    pub fn observed_update(&self) -> Option<Timestamp> {
         match &self.operation {
             Operation::Create(_) => None,
             Operation::Update(row) | Operation::Delete(row) => Some(row.updated_at),
@@ -222,13 +224,13 @@ impl Draft {
         self.seconds = seconds;
         Ok(())
     }
-    pub fn set_date(&mut self, date: NaiveDate) -> Result<(), Error> {
+    pub fn set_date(&mut self, date: Date) -> Result<(), Error> {
         calendar(date)?;
         self.date = date;
         Ok(())
     }
-    pub fn set_start_time(&mut self, time: Option<NaiveTime>) -> Result<(), Error> {
-        if time.is_some_and(|time| time.nanosecond() != 0) {
+    pub fn set_start_time(&mut self, time: Option<Time>) -> Result<(), Error> {
+        if time.is_some_and(|time| time.subsec_nanosecond() != 0) {
             return Err(Error::InvalidDraft);
         }
         self.start_time = time;
@@ -278,7 +280,9 @@ impl Draft {
     fn validate(&self) -> Result<(), Error> {
         calendar(self.date)?;
         duration(self.seconds)?;
-        if self.start_time.is_some_and(|time| time.nanosecond() != 0)
+        if self
+            .start_time
+            .is_some_and(|time| time.subsec_nanosecond() != 0)
             || self
                 .description
                 .as_ref()
@@ -320,7 +324,7 @@ impl Draft {
         if let Some(time) = self.start_time {
             fields.insert(
                 "startTime".into(),
-                json!(time.format("%H:%M:%S").to_string()),
+                json!(time.strftime("%H:%M:%S").to_string()),
             );
         }
         if let Some(text) = &self.description {
@@ -346,7 +350,7 @@ impl Draft {
         Ok(bytes)
     }
 }
-fn calendar(date: NaiveDate) -> Result<(), Error> {
+fn calendar(date: Date) -> Result<(), Error> {
     (1..=9999)
         .contains(&date.year())
         .then_some(())

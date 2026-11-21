@@ -138,7 +138,11 @@ impl ApiResponse {
                 self.headers
                     .get("x-ratelimit-reset")
                     .and_then(|value| value.parse::<i64>().ok())
-                    .map(|reset| reset.saturating_sub(chrono::Utc::now().timestamp()).max(1) as u64)
+                    .map(|reset| {
+                        reset
+                            .saturating_sub(jiff::Timestamp::now().as_second())
+                            .max(1) as u64
+                    })
             })
             .unwrap_or(60)
             .clamp(1, 86_400)

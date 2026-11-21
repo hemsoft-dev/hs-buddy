@@ -8,7 +8,6 @@ use buddy_core::codex_usage::{self, UsageSnapshot};
 use buddy_core::config::{GitHubAccount, GitHubConfig, UsageProvider};
 use buddy_core::copilot_usage::history::{History, Page};
 use buddy_core::copilot_usage::{self, BillingSnapshot, UsagePool};
-use chrono::{Datelike, Utc};
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -17,6 +16,7 @@ use gpui_kit::{
     AppContext as _, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div,
 };
+use jiff::Timestamp;
 
 type RefreshReply = (
     Option<Result<UsageSnapshot, codex_usage::FetchError>>,
@@ -43,15 +43,15 @@ pub(super) struct UsageView {
 }
 impl UsageView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let now = Utc::now();
+        let (now_year, now_month) = copilot_usage::utc_year_month(Timestamp::now());
         let year = cx.new(|cx| {
             InputState::new(window, cx)
-                .default_value(now.year().to_string())
+                .default_value(now_year.to_string())
                 .placeholder("Year")
         });
         let month = cx.new(|cx| {
             InputState::new(window, cx)
-                .default_value(now.month().to_string())
+                .default_value(now_month.to_string())
                 .placeholder("Month")
         });
         for input in [&year, &month] {
@@ -128,7 +128,7 @@ impl UsageView {
             if codex {
                 return (Some(codex_usage::fetch().await), None, None, None);
             }
-            let now = Utc::now();
+            let now = Timestamp::now();
             let (pool, billing) = futures::join!(
                 copilot_usage::fetch_account_pool(&account, now),
                 copilot_usage::fetch_billing(&account, now, Some(&enterprise))
@@ -340,9 +340,9 @@ impl Render for UsageView {
                 ))
                 .child(div().text_color(muted).child(format!(
                     "Resets {}",
-                    pool.reset_at.format("%Y-%m-%d %H:%M UTC")
+                    pool.reset_at.strftime("%Y-%m-%d %H:%M UTC")
                 )));
-            if let Some(projection) = copilot_usage::compute_projection(pool, Utc::now()) {
+            if let Some(projection) = copilot_usage::compute_projection(pool, Timestamp::now()) {
                 view = view.child(format!(
                     "Projected period total: {} credits · Projected overage: ${:.2}",
                     projection.projected_total, projection.projected_overage_cost
@@ -436,9 +436,9 @@ impl Render for UsageView {
                     view.child("No billing snapshots were recorded for this account and period.");
             }
             for row in &history.page {
-                let time = chrono::DateTime::from_timestamp_millis(row.snapshot_at as i64)
-                    .map(|date| date.format("%Y-%m-%d %H:%M UTC").to_string())
-                    .unwrap_or_else(|| "Unknown date".into());
+                let time = Timestamp::from_millisecond(row.snapshot_at as i64)
+                    .map(|date| date.strftime("%Y-%m-%d %H:%M UTC").to_string())
+                    .unwrap_or_else(|_| "Unknown date".into());
                 view=view.child(format!("{time} · {:.0} credits · Gross ${:.2} · Discount ${:.2} · Net ${:.2} · Spend ${:.2} · {:.0} seats · Budget {}",row.premium_requests,row.gross_cost,row.discount,row.net_cost,row.spent,row.business_seats + 0.0,row.budget_amount.map(|amount|format!("${amount:.2}")).unwrap_or_else(||"unavailable".into())));
             }
         }

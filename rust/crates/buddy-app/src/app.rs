@@ -477,6 +477,10 @@ impl BuddyApp {
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
+                // jiff keeps the host time zone for five minutes. Look it up
+                // again with each tick so a changed system zone shows within
+                // about a second, as it did before.
+                jiff::tz::reset_system_time_zone_cache();
                 if this.update(cx, |_, cx| cx.notify()).is_err() {
                     break;
                 }

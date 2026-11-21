@@ -148,7 +148,7 @@ impl std::fmt::Display for TurnError {
 }
 
 pub fn now() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    jiff::Timestamp::now().as_millisecond()
 }
 
 fn new_id(prefix: &str) -> String {

@@ -1,6 +1,5 @@
 use super::*;
 use crate::zoom::zpx;
-use chrono::{Datelike, NaiveDate, Weekday};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::scroll::{Scrollbar, ScrollbarAxis, ScrollbarMode};
@@ -15,6 +14,7 @@ use gpui_kit::{
     AnyElement, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
     Render, StatefulInteractiveElement, Styled, div, point, px,
 };
+use jiff::civil::{Date, Weekday};
 
 /// Recheck and Forget act on the saved connection, so they need one.
 fn connection_actions_enabled(saved: Option<bool>) -> bool {
@@ -27,23 +27,23 @@ enum DayMarker {
     Weekend,
     Plain,
 }
-fn day_marker(date: NaiveDate, today: Option<NaiveDate>) -> DayMarker {
+fn day_marker(date: Date, today: Option<Date>) -> DayMarker {
     if Some(date) == today {
         DayMarker::Today
-    } else if matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+    } else if matches!(date.weekday(), Weekday::Saturday | Weekday::Sunday) {
         DayMarker::Weekend
     } else {
         DayMarker::Plain
     }
 }
-fn today_offset(days: &[NaiveDate], today: Option<NaiveDate>) -> Option<usize> {
+fn today_offset(days: &[Date], today: Option<Date>) -> Option<usize> {
     days.iter().position(|day| Some(*day) == today)
 }
 /// Weekday and date, so weekends are not marked by color alone.
-fn day_heading(date: NaiveDate) -> (String, String) {
+fn day_heading(date: Date) -> (String, String) {
     (
-        date.format("%a").to_string(),
-        date.format("%d %b").to_string(),
+        date.strftime("%a").to_string(),
+        date.strftime("%d %b").to_string(),
     )
 }
 /// A pager only appears when there is another page to reach.
@@ -119,7 +119,7 @@ pub(super) fn duration(seconds: u64) -> String {
 impl TempoView {
     /// Today in the account timezone. The worker holds the connection
     /// while busy, so the last known value stays on screen meanwhile.
-    fn live_today(&self) -> Option<NaiveDate> {
+    fn live_today(&self) -> Option<Date> {
         let connection = self.connection.as_ref()?;
         let data = self.data.as_ref()?;
         buddy_core::tempo::AccountCalendar::from_zone(data.time_zone.as_deref())
@@ -164,7 +164,7 @@ impl TempoView {
                 .items_center()
                 .child(text)
         };
-        let cell = |date: NaiveDate, height: f32| {
+        let cell = |date: Date, height: f32| {
             let cell = div()
                 .w(zpx(GRID_DAY))
                 .h(zpx(height))
@@ -361,10 +361,10 @@ impl TempoView {
                         h_flex()
                             .flex_wrap()
                             .gap_3()
-                            .child(row.date.format("%a, %d %b %Y").to_string())
+                            .child(row.date.strftime("%a, %d %b %Y").to_string())
                             .child(
                                 row.start_time
-                                    .map(|t| t.format("%H:%M:%S").to_string())
+                                    .map(|t| t.strftime("%H:%M:%S").to_string())
                                     .unwrap_or_else(|| "Time unavailable".into()),
                             )
                             .child(duration(row.seconds))
@@ -645,7 +645,7 @@ impl Render for TempoView {
                             data.time_zone.as_deref().unwrap_or("Timezone unavailable"),
                             data.range.start,
                             data.range.end,
-                            data.read_at.format("%Y-%m-%d %H:%M")
+                            data.read_at.strftime("%Y-%m-%d %H:%M")
                         )),
                 )
                 .child({
@@ -1057,8 +1057,8 @@ mod recovery_policy_tests {
     }
     #[test]
     fn finish_review_today_and_weekends_are_marked_in_the_grid() {
-        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
-        let day = |d| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap();
+        let today = jiff::civil::date(2026, 10, 16);
+        let day = |d| jiff::civil::date(2026, 10, d);
         assert!(day_marker(day(16), Some(today)) == DayMarker::Today);
         assert!(day_marker(day(17), Some(today)) == DayMarker::Weekend);
         assert!(day_marker(day(18), Some(today)) == DayMarker::Weekend);
@@ -1072,7 +1072,7 @@ mod recovery_policy_tests {
     }
     #[test]
     fn documentation_review_headings_name_the_weekday_not_only_by_color() {
-        let saturday = chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap();
+        let saturday = jiff::civil::date(2026, 10, 17);
         assert_eq!(
             day_heading(saturday),
             ("Sat".to_owned(), "17 Oct".to_owned())
@@ -1087,7 +1087,7 @@ mod recovery_policy_tests {
     #[test]
     fn destructive_confirmations_use_the_danger_tone_of_their_button() {
         // #879: both prompts sat in a warning-orange frame beside a red button.
-        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        let date = jiff::civil::date(2026, 11, 5);
         let (tone, text) = delete_prompt(3661, date);
         assert!(tone == Tone::Danger);
         assert_eq!(

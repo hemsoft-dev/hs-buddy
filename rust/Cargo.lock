@@ -907,11 +907,11 @@ version = "0.1.0"
 dependencies = [
  "block2 0.6.2",
  "buddy-core",
- "chrono",
  "embed-resource",
  "env_logger",
  "futures",
  "gpui-kit",
+ "jiff",
  "log",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -940,7 +940,6 @@ dependencies = [
  "bytes",
  "cap-fs-ext",
  "cap-std",
- "chrono",
  "convex",
  "env_logger",
  "fixed_decimal",
@@ -5083,6 +5082,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
+ "windows-link 0.2.1",
 ]
 
 [[package]]

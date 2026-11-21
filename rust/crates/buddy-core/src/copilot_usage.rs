@@ -3,7 +3,9 @@
 //! aggregation (`useCopilotUsage.ts`), and fetching through `gh`
 //! (`githubHandlers.ts`).
 
-use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
+use jiff::Timestamp;
+use jiff::civil::{Date, DateTime};
+use jiff::tz::Offset;
 use serde::Deserialize;
 
 use crate::config::{GitHubAccount, GitHubConfig, UsageProvider};
@@ -147,15 +149,34 @@ pub fn credit_allotment(seats: f64, year: i32, month: u32) -> i64 {
     (seats * credits_per_seat(year, month) as f64).round() as i64
 }
 
-pub fn first_of_next_month_utc(year: i32, month: u32) -> DateTime<Utc> {
+/// The UTC calendar year and month of an instant, the period GitHub bills by.
+pub fn utc_year_month(at: Timestamp) -> (i32, u32) {
+    let at = Offset::UTC.to_datetime(at);
+    (i32::from(at.year()), at.month() as u32)
+}
+
+/// A UTC wall time as an instant, when the date and time exist.
+fn utc_instant(year: i32, month: u32, day: u32, hour: i8, minute: i8) -> Option<Timestamp> {
+    let time = DateTime::new(
+        i16::try_from(year).ok()?,
+        i8::try_from(month).ok()?,
+        i8::try_from(day).ok()?,
+        hour,
+        minute,
+        0,
+        0,
+    )
+    .ok()?;
+    Offset::UTC.to_timestamp(time).ok()
+}
+
+pub fn first_of_next_month_utc(year: i32, month: u32) -> Timestamp {
     let (y, m) = if month >= 12 {
         (year + 1, 1)
     } else {
         (year, month + 1)
     };
-    Utc.with_ymd_and_hms(y, m, 1, 0, 0, 0)
-        .single()
-        .expect("valid first-of-month date")
+    utc_instant(y, m, 1, 0, 0).expect("valid first-of-month date")
 }
 
 fn last_day_of_month(year: i32, month: u32) -> u32 {
@@ -164,9 +185,10 @@ fn last_day_of_month(year: i32, month: u32) -> u32 {
     } else {
         (year, month + 1)
     };
-    NaiveDate::from_ymd_opt(next.0, next.1, 1)
-        .and_then(|d| d.pred_opt())
-        .map(|d| d.day())
+    let first = || Date::new(i16::try_from(next.0).ok()?, i8::try_from(next.1).ok()?, 1).ok();
+    first()
+        .and_then(|d| d.yesterday().ok())
+        .map(|d| d.day() as u32)
         .unwrap_or(28)
 }
 
@@ -181,7 +203,7 @@ pub struct UsagePool {
     pub allotment: i64,
     /// GitHub's own `overage_count`; zero for synthesized org pools.
     pub overage_count: i64,
-    pub reset_at: DateTime<Utc>,
+    pub reset_at: Timestamp,
 }
 
 impl UsagePool {
@@ -203,20 +225,18 @@ pub struct Projection {
 
 /// `computeProjection`: linear month-end projection in UTC with the elapsed
 /// window floored at one day and capped at the full period.
-pub fn compute_projection(pool: &UsagePool, now: DateTime<Utc>) -> Option<Projection> {
-    let reset = pool.reset_at;
+pub fn compute_projection(pool: &UsagePool, now: Timestamp) -> Option<Projection> {
+    let reset = Offset::UTC.to_datetime(pool.reset_at);
     let (year, month) = if reset.month() == 1 {
-        (reset.year() - 1, 12)
+        (i32::from(reset.year()) - 1, 12)
     } else {
-        (reset.year(), reset.month() - 1)
+        (i32::from(reset.year()), reset.month() as u32 - 1)
     };
-    let day = reset.day().min(last_day_of_month(year, month));
-    let period_start = Utc
-        .with_ymd_and_hms(year, month, day, reset.hour(), reset.minute(), 0)
-        .single()?;
+    let day = (reset.day() as u32).min(last_day_of_month(year, month));
+    let period_start = utc_instant(year, month, day, reset.hour(), reset.minute())?;
 
-    let total_seconds = (reset - period_start).num_seconds() as f64;
-    let elapsed_seconds = (now - period_start).num_seconds() as f64;
+    let total_seconds = pool.reset_at.duration_since(period_start).as_secs() as f64;
+    let elapsed_seconds = now.duration_since(period_start).as_secs() as f64;
     if elapsed_seconds < 1.0 || total_seconds < 1.0 {
         return None;
     }
@@ -235,7 +255,7 @@ pub fn compute_projection(pool: &UsagePool, now: DateTime<Utc>) -> Option<Projec
 pub fn aggregate(
     pools: &[UsagePool],
     account_count: usize,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> CommandCenterSummary {
     let mut summary = CommandCenterSummary {
         account_count,
@@ -284,16 +304,19 @@ struct PremiumSnapshot {
 }
 
 /// `/copilot_internal/user` for a personal namespace (username == org).
-pub fn parse_personal_quota(json: &str, now: DateTime<Utc>) -> Result<UsagePool, String> {
+pub fn parse_personal_quota(json: &str, now: Timestamp) -> Result<UsagePool, String> {
     let response: QuotaResponse =
         serde_json::from_str(json).map_err(|_| "Unreadable Copilot quota response".to_string())?;
     let premium = response.quota_snapshots.premium_interactions;
     let reset_at = response
         .quota_reset_date_utc
         .as_deref()
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.with_timezone(&Utc))
-        .unwrap_or_else(|| first_of_next_month_utc(now.year(), now.month()));
+        .and_then(crate::wire_time::rfc3339)
+        .map(|parsed| parsed.value.timestamp())
+        .unwrap_or_else(|| {
+            let (year, month) = utc_year_month(now);
+            first_of_next_month_utc(year, month)
+        });
     Ok(UsagePool {
         used: (premium.entitlement - premium.remaining).round() as i64,
         allotment: premium.entitlement.round() as i64,
@@ -363,14 +386,14 @@ pub struct BillingSnapshot {
     pub budget_amount: Option<f64>,
     pub budget_unavailable: bool,
     pub prevent_further_usage: bool,
-    pub fetched_at: DateTime<Utc>,
+    pub fetched_at: Timestamp,
     pub year: i32,
     pub month: u32,
 }
 
 pub async fn fetch_billing(
     account: &GitHubAccount,
-    now: DateTime<Utc>,
+    now: Timestamp,
     enterprise: Option<&str>,
 ) -> Result<BillingSnapshot, String> {
     fetch_billing_inner(account, now, enterprise, false).await
@@ -379,7 +402,7 @@ pub async fn fetch_billing(
 /// Automated snapshots must not fall back to a different ambient login.
 pub async fn fetch_billing_selected(
     account: &GitHubAccount,
-    now: DateTime<Utc>,
+    now: Timestamp,
     enterprise: Option<&str>,
 ) -> Result<BillingSnapshot, String> {
     fetch_billing_inner(account, now, enterprise, true).await
@@ -387,7 +410,7 @@ pub async fn fetch_billing_selected(
 
 async fn fetch_billing_inner(
     account: &GitHubAccount,
-    now: DateTime<Utc>,
+    now: Timestamp,
     enterprise: Option<&str>,
     require_selected: bool,
 ) -> Result<BillingSnapshot, String> {
@@ -412,7 +435,8 @@ async fn fetch_billing_inner(
             return Err("The billing credential does not match the captured account.".into());
         }
     }
-    let body = fetch_billing_usage_body(&account.org, now.year(), now.month(), &reader)
+    let (year, month) = utc_year_month(now);
+    let body = fetch_billing_usage_body(&account.org, year, month, &reader)
         .await
         .map_err(|_| {
             "Billing usage is unavailable for this account and organization.".to_string()
@@ -421,20 +445,20 @@ async fn fetch_billing_inner(
         .map_err(|_| "The billing usage response is invalid.".to_string())?;
     let (budget, budget_unavailable) = budget::fetch(&account.org, enterprise, &reader).await;
     Ok(BillingSnapshot {
-        usage: parse_billing_usage(&response.usage_items, now.year(), now.month()),
+        usage: parse_billing_usage(&response.usage_items, year, month),
         budget_amount: budget.as_ref().map(|budget| budget.amount),
         budget_unavailable,
         prevent_further_usage: budget.as_ref().is_some_and(|budget| budget.blocked),
         fetched_at: now,
-        year: now.year(),
-        month: now.month(),
+        year,
+        month,
     })
 }
 
 /// One account's AI Credit pool (`doFetchQuota`).
 pub async fn fetch_account_pool(
     account: &GitHubAccount,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<UsagePool, String> {
     gh::assert_valid_slug(&account.username).map_err(|e| e.to_string())?;
     if account.org.is_empty() {
@@ -461,7 +485,7 @@ pub async fn fetch_account_pool(
     // Org billing: like `tryGetCliToken`, a missing per-account token falls
     // back to the active login, which may still have org access.
 
-    let (year, month) = (now.year(), now.month());
+    let (year, month) = utc_year_month(now);
     let body = fetch_billing_usage_body(&account.org, year, month, &reader).await?;
     let response: BillingUsageResponse =
         serde_json::from_str(&body).map_err(|_| "Unreadable billing usage response".to_string())?;
@@ -491,7 +515,7 @@ pub struct UsageReport {
 /// `useCopilotUsage`: skip accounts whose effective provider is Codex (the
 /// override map wins, as in Electron), fetch every remaining account, and
 /// count each org pool once using the first account that produced data.
-pub async fn fetch_report(github: &GitHubConfig, now: DateTime<Utc>) -> UsageReport {
+pub async fn fetch_report(github: &GitHubConfig, now: Timestamp) -> UsageReport {
     let accounts: Vec<&GitHubAccount> = github
         .accounts
         .iter()
@@ -523,6 +547,12 @@ pub async fn fetch_report(github: &GitHubConfig, now: DateTime<Utc>) -> UsageRep
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn utc(year: i16, month: i8, day: i8, hour: i8) -> Timestamp {
+        format!("{year:04}-{month:02}-{day:02}T{hour:02}:00:00Z")
+            .parse()
+            .unwrap()
+    }
 
     fn item(date: &str, sku: &str, quantity: f64, gross: f64, net: f64) -> BillingUsageItem {
         BillingUsageItem {
@@ -569,7 +599,7 @@ mod tests {
         assert_eq!(credits_per_seat(2026, 10), 3900);
         assert_eq!(credit_allotment(5.0, 2026, 10), 19_500);
         assert_eq!(
-            first_of_next_month_utc(2026, 12).to_rfc3339(),
+            crate::wire_time::rfc3339_utc(first_of_next_month_utc(2026, 12)),
             "2027-01-01T00:00:00+00:00"
         );
     }
@@ -583,13 +613,13 @@ mod tests {
             overage_count: 0,
             reset_at: first_of_next_month_utc(2026, 10),
         };
-        let now = Utc.with_ymd_and_hms(2026, 10, 11, 0, 0, 0).unwrap();
+        let now = utc(2026, 10, 11, 0);
         let projection = compute_projection(&pool, now).unwrap();
         assert_eq!(projection.projected_total, 3100);
         assert_eq!(projection.projected_overage_cost, 0.0);
 
         // Early in the cycle the elapsed window is floored at one day.
-        let early = Utc.with_ymd_and_hms(2026, 10, 1, 1, 0, 0).unwrap();
+        let early = utc(2026, 10, 1, 1);
         assert_eq!(
             compute_projection(&pool, early).unwrap().projected_total,
             31_000
@@ -605,7 +635,7 @@ mod tests {
         assert!((projection.projected_overage_cost - 85.0).abs() < 1e-9);
 
         // Before the period starts there is nothing to project.
-        let before = Utc.with_ymd_and_hms(2026, 9, 30, 0, 0, 0).unwrap();
+        let before = utc(2026, 9, 30, 0);
         assert!(compute_projection(&pool, before).is_none());
     }
 
@@ -616,9 +646,9 @@ mod tests {
             used: 0,
             allotment: 0,
             overage_count: 0,
-            reset_at: Utc.with_ymd_and_hms(2026, 3, 31, 0, 0, 0).unwrap(),
+            reset_at: utc(2026, 3, 31, 0),
         };
-        let now = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+        let now = utc(2026, 3, 1, 0);
         assert!(compute_projection(&pool, now).is_some());
         assert_eq!(last_day_of_month(2026, 2), 28);
         assert_eq!(last_day_of_month(2028, 2), 29);
@@ -629,7 +659,7 @@ mod tests {
         let json = r#"{"login":"hemsoft","quota_reset_date_utc":"2026-11-01T00:00:00Z",
           "quota_snapshots":{"chat":{},"completions":{},
             "premium_interactions":{"entitlement":3900,"remaining":2616,"overage_count":0,"credits_used":1284}}}"#;
-        let now = Utc.with_ymd_and_hms(2026, 10, 7, 0, 0, 0).unwrap();
+        let now = utc(2026, 10, 7, 0);
         let pool = parse_personal_quota(json, now).unwrap();
         assert_eq!(pool.used, 1284);
         assert_eq!(pool.allotment, 3900);
@@ -649,12 +679,110 @@ mod tests {
         let pool = parse_personal_quota(overage, now).unwrap();
         assert_eq!(pool.overage_requests(), 100);
         assert!((pool.overage_cost() - 1.0).abs() < 1e-9);
-        assert_eq!(pool.reset_at.to_rfc3339(), "2026-11-01T00:00:00+00:00");
+        assert_eq!(
+            crate::wire_time::rfc3339_utc(pool.reset_at),
+            "2026-11-01T00:00:00+00:00"
+        );
+    }
+
+    /// Whether a parsed instant is the one this RFC 3339 text names.
+    fn same<T: PartialEq + std::str::FromStr>(value: T, text: &str) -> bool {
+        text.parse().is_ok_and(|expected: T| value == expected)
+    }
+
+    #[test]
+    fn quota_reset_dates_are_rfc_3339_or_the_first_of_next_month() {
+        let now = "2026-10-07T12:34:56Z".parse().unwrap();
+        let reset = |text: &str| {
+            let json = serde_json::json!({"quota_reset_date_utc":text,
+                "quota_snapshots":{"premium_interactions":{"entitlement":1,"remaining":1}}});
+            parse_personal_quota(&json.to_string(), now)
+                .unwrap()
+                .reset_at
+        };
+        for (text, instant) in [
+            ("2026-11-01T00:00:00Z", "2026-11-01T00:00:00Z"),
+            ("2026-11-01T00:00:00.000Z", "2026-11-01T00:00:00Z"),
+            ("2026-10-31T20:00:00-04:00", "2026-11-01T00:00:00Z"),
+            ("2026-11-01 00:00:00.5+00:00", "2026-11-01T00:00:00.5Z"),
+            ("2026-11-15t08:30:45z", "2026-11-15T08:30:45Z"),
+        ] {
+            assert!(same(reset(text), instant), "{text:?}");
+        }
+        let fallback = first_of_next_month_utc(2026, 10);
+        assert!(same(fallback, "2026-11-01T00:00:00Z"));
+        for text in [
+            "",
+            "2026-11-15",
+            "2026-11-15T08:30:45",
+            "2026-11-15T08:30Z",
+            "2026-11-15T08:30:45+0000",
+            "2026-11-15T08:30:45Z[UTC]",
+            "20261115T083045Z",
+            "1794731445",
+        ] {
+            assert!(reset(text) == fallback, "{text:?}");
+        }
+        let absent =
+            r#"{"quota_snapshots":{"premium_interactions":{"entitlement":1,"remaining":1}}}"#;
+        assert!(parse_personal_quota(absent, now).unwrap().reset_at == fallback);
+        let december = "2026-12-31T23:59:59Z".parse().unwrap();
+        assert!(same(
+            parse_personal_quota(absent, december).unwrap().reset_at,
+            "2027-01-01T00:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn projection_period_starts_one_month_before_reset_at_the_same_minute() {
+        let pool = |reset: &str| UsagePool {
+            used: 1000,
+            allotment: 0,
+            overage_count: 0,
+            reset_at: reset.parse().unwrap(),
+        };
+        let total = |reset: &str, now: &str| {
+            compute_projection(&pool(reset), now.parse().unwrap())
+                .map(|projection| projection.projected_total)
+        };
+        // Mar 31 -> Feb 28: a 31 day period, 14 of them elapsed.
+        assert_eq!(
+            total("2026-03-31T00:00:00Z", "2026-03-14T00:00:00Z"),
+            Some(2214)
+        );
+        // Leap year: Mar 31 -> Feb 29, a 31 day period.
+        assert_eq!(
+            total("2028-03-31T00:00:00Z", "2028-03-15T12:00:00Z"),
+            Some(2000)
+        );
+        // January resets start in December of the year before.
+        assert_eq!(
+            total("2027-01-15T06:30:00Z", "2026-12-25T06:30:00Z"),
+            Some(3100)
+        );
+        // Seconds and fractions of the reset are dropped from the period start.
+        assert_eq!(
+            total("2026-11-01T00:00:59.999Z", "2026-10-11T00:00:00Z"),
+            Some(3100)
+        );
+        assert_eq!(
+            total("2026-11-01T10:20:30Z", "2026-10-01T10:20:00.999Z"),
+            None
+        );
+        assert_eq!(
+            total("2026-11-01T10:20:30Z", "2026-10-01T10:20:01Z"),
+            Some(31_000)
+        );
+        // After the reset the elapsed window is capped at the whole period.
+        assert_eq!(
+            total("2026-11-01T00:00:00Z", "2027-06-01T00:00:00Z"),
+            Some(1000)
+        );
     }
 
     #[test]
     fn aggregates_pools_and_projections() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 11, 0, 0, 0).unwrap();
+        let now = utc(2026, 10, 11, 0);
         let a = UsagePool {
             used: 1000,
             allotment: 3900,

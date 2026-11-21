@@ -203,7 +203,7 @@ pub async fn fetch_quote(client: &reqwest::Client, symbol: &str) -> Result<Quote
         .text()
         .await
         .map_err(|err| describe_error(&err, "Fetch failed"))?;
-    parse_chart_response(&body, &symbol, chrono::Utc::now().timestamp())
+    parse_chart_response(&body, &symbol, jiff::Timestamp::now().as_second())
 }
 
 /// The outcome of fetching a watchlist: the quotes that arrived and the

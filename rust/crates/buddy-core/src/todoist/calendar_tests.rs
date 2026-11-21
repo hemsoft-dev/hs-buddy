@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde_json::json;
 
 use super::*;
@@ -16,7 +16,7 @@ fn due(text: &str) -> DueDate {
     let raw: RawDue = serde_json::from_value(json!({"date": text})).unwrap();
     DueDate::parse(raw).unwrap()
 }
-fn day(text: &str) -> NaiveDate {
+fn day(text: &str) -> Date {
     text.parse().unwrap()
 }
 
@@ -150,11 +150,12 @@ fn future_instant_grouping_uses_its_own_dst_offset_instead_of_todays_offset() {
 }
 
 #[test]
-fn unsupported_instants_return_errors_without_panics_or_a_fabricated_offset() {
-    use chrono::TimeZone as _;
+fn the_last_instant_has_a_day_and_a_schedule_past_it_is_an_error_without_panics() {
+    // jiff holds no instant after 9999-12-30T22:00:00.999999999Z, so the
+    // year 20000 this test used cannot be built. Its last instant has a day.
     let calendar = calendar(Some("UTC"));
-    let future = Utc.with_ymd_and_hms(20000, 1, 1, 0, 0, 0).single().unwrap();
-    assert_eq!(calendar.today_at(future), Err(Error::InvalidDate));
+    let future = jiff::Timestamp::MAX;
+    assert_eq!(calendar.today_at(future), Ok(day("9999-12-30")));
     assert!(matches!(
         calendar.schedule(&[], future, 2),
         Err(Error::InvalidDate)

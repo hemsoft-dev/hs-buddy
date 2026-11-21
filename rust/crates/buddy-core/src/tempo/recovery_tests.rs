@@ -637,3 +637,121 @@ async fn terminal_checkpoint_rechecks_live_identity_without_writes_or_authentica
             .all(|request| request.starts_with("GET /rest/api/3/myself HTTP/1.1\r\n"))
     );
 }
+
+fn timed(field: &str, text: &str) -> Value {
+    let mut value = json!({"tempoWorklogId":123,"self":"https://api.tempo.io/4/worklogs/123",
+        "issue":{"id":456,"self":"https://api.tempo.io/4/issues/456"},
+        "author":{"accountId":"synthetic-user"},"timeSpentSeconds":600,"billableSeconds":null,
+        "startDate":"2026-10-16","startTime":"01:02:03","startDateTimeUtc":"2026-10-16T05:02:03Z",
+        "description":null,"createdAt":"2026-10-01T01:00:00Z","updatedAt":"2026-10-16T02:00:00Z",
+        "attributes":{"self":"https://api.tempo.io/4/worklogs/123/work-attribute-values","values":null}});
+    value[field] = json!(text);
+    wire(&parse_worklog(&serde_json::to_vec(&value).unwrap()).unwrap())
+}
+
+#[test]
+fn a_saved_baseline_spells_instants_in_utc_with_an_offset_and_grouped_fraction_digits() {
+    for (text, saved) in [
+        ("2026-10-16T02:00:00Z", "2026-10-16T02:00:00+00:00"),
+        ("2026-10-16t02:00:00z", "2026-10-16T02:00:00+00:00"),
+        ("2026-10-15T22:00:00-04:00", "2026-10-16T02:00:00+00:00"),
+        ("2026-10-16T07:30:00+05:30", "2026-10-16T02:00:00+00:00"),
+        ("2026-10-16T02:00:00.1Z", "2026-10-16T02:00:00.100+00:00"),
+        ("2026-10-16T02:00:00.120Z", "2026-10-16T02:00:00.120+00:00"),
+        ("2026-10-16T02:00:00.123Z", "2026-10-16T02:00:00.123+00:00"),
+        ("2026-10-16T02:00:00.000Z", "2026-10-16T02:00:00+00:00"),
+        (
+            "2026-10-16T02:00:00.1234Z",
+            "2026-10-16T02:00:00.123400+00:00",
+        ),
+        (
+            "2026-10-16T02:00:00.123456Z",
+            "2026-10-16T02:00:00.123456+00:00",
+        ),
+        (
+            "2026-10-16T02:00:00.000001Z",
+            "2026-10-16T02:00:00.000001+00:00",
+        ),
+        (
+            "2026-10-16T02:00:00.1234567Z",
+            "2026-10-16T02:00:00.123456700+00:00",
+        ),
+        (
+            "2026-10-16T02:00:00.123456789Z",
+            "2026-10-16T02:00:00.123456789+00:00",
+        ),
+        (
+            "2026-10-16T02:00:00.000000001Z",
+            "2026-10-16T02:00:00.000000001+00:00",
+        ),
+        (
+            "2026-10-16T02:00:00.1234567899Z",
+            "2026-10-16T02:00:00.123456789+00:00",
+        ),
+        ("0001-01-01T00:00:00Z", "0001-01-01T00:00:00+00:00"),
+        ("0000-01-01T00:00:00Z", "0000-01-01T00:00:00+00:00"),
+        ("0000-01-01T00:00:00+23:59", "-0001-12-31T00:01:00+00:00"),
+        ("9999-12-30T22:00:00Z", "9999-12-30T22:00:00+00:00"),
+    ] {
+        for field in ["createdAt", "updatedAt", "startDateTimeUtc"] {
+            assert_eq!(timed(field, text)[field], saved, "{field} {text:?}");
+        }
+    }
+    for (text, saved) in [
+        ("01:02:03", "01:02:03"),
+        ("1:2:3", "01:02:03"),
+        ("00:00:00", "00:00:00"),
+        ("23:59:59", "23:59:59"),
+        ("01:02:03.999", "01:02:03"),
+    ] {
+        assert_eq!(timed("startTime", text)["startTime"], saved, "{text:?}");
+    }
+    for text in ["2026-10-16", "0001-01-01", "9999-12-31"] {
+        assert_eq!(timed("startDate", text)["startDate"], text);
+    }
+}
+
+#[test]
+fn a_saved_update_holds_these_exact_date_and_time_strings() {
+    let client = Client::new("synthetic-token").unwrap();
+    let mut edit = Draft::edit(&row()).unwrap();
+    edit.set_date("2026-11-05".parse().unwrap()).unwrap();
+    edit.set_start_time(Some("09:08:07".parse().unwrap()))
+        .unwrap();
+    let attempt = client.capture(edit).unwrap();
+    let request = attempt.pending_request(client.write_scope()).unwrap();
+    let bytes = encode(request, &context()).unwrap();
+    let stored: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        stored["baseline"],
+        json!({"tempoWorklogId":123,"self":"https://api.tempo.io/4/worklogs/123",
+            "issue":{"id":456,"self":"https://api.tempo.io/4/issues"},
+            "author":{"accountId":"synthetic-user"},"timeSpentSeconds":600,"billableSeconds":-1,
+            "startDate":"2026-10-16","startTime":"01:02:03",
+            "startDateTimeUtc":"2026-10-16T05:02:03+00:00",
+            "description":"Original private description 界\nSecond line",
+            "createdAt":"2026-10-01T01:00:00+00:00","updatedAt":"2026-10-16T02:00:00.123+00:00",
+            "attributes":{"self":"https://api.tempo.io/4/worklogs/123/work-attribute-values",
+                "values":[{"key":"_Account_","value":"billable"},{"key":"other","value":"keep\nthis"},
+                    {"key":"absent","value":null}]}})
+    );
+    let body: Value = serde_json::from_str(stored["body"].as_str().unwrap()).unwrap();
+    assert_eq!(body["startDate"], "2026-11-05");
+    assert_eq!(body["startTime"], "09:08:07");
+    // A baseline spelled any other way is not the record that was saved.
+    for (field, text) in [
+        ("createdAt", "2026-10-01T01:00:00Z"),
+        ("updatedAt", "2026-10-16T02:00:00.123Z"),
+        ("updatedAt", "2026-10-16T02:00:00.123000+00:00"),
+        ("startDateTimeUtc", "2026-10-16T01:02:03-04:00"),
+        ("startTime", "1:02:03"),
+        ("startDate", "2026-10-016"),
+    ] {
+        let changed = mutate(&bytes, |stored| stored["baseline"][field] = json!(text));
+        assert!(
+            matches!(decode(&changed, &context()), Err(Error::InvalidRecovery)),
+            "{field} {text:?}"
+        );
+    }
+    assert!(decode(&bytes, &context()).is_ok());
+}

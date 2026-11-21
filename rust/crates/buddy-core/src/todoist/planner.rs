@@ -2,7 +2,7 @@
 //! All async operations and filesystem operations belong on an I/O worker.
 use std::{path::PathBuf, sync::Arc};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{
     AccountCalendar, Client, CreateDraft, EditDraft, Error, Id, Project, ReadScope, Task,
@@ -17,19 +17,19 @@ pub struct Dataset {
     pub calendar: Arc<AccountCalendar>,
     pub tasks: Vec<Task>,
     pub projects: Vec<Project>,
-    pub read_at: DateTime<Utc>,
+    pub read_at: Timestamp,
     pub coverage: Coverage,
     /// A supplied qualification clock stays fixed; normal views use UTC now
     /// interpreted by the account calendar, independently of the host zone.
-    pub fixed_now: Option<DateTime<Utc>>,
+    pub fixed_now: Option<Timestamp>,
 }
 
 impl Dataset {
-    pub fn now(&self) -> DateTime<Utc> {
-        self.fixed_now.unwrap_or_else(Utc::now)
+    pub fn now(&self) -> Timestamp {
+        self.fixed_now.unwrap_or_else(Timestamp::now)
     }
 
-    pub fn needs_day_refresh(&self, now: DateTime<Utc>) -> Result<bool, Error> {
+    pub fn needs_day_refresh(&self, now: Timestamp) -> Result<bool, Error> {
         Ok(self.calendar.today_at(now)? != self.calendar.today_at(self.read_at)?)
     }
 }
@@ -63,7 +63,7 @@ pub struct Planner {
     account: Id,
     calendar: Arc<AccountCalendar>,
     config: PathBuf,
-    fixed_now: Option<DateTime<Utc>>,
+    fixed_now: Option<Timestamp>,
     data: Option<Arc<Dataset>>,
     catalog: Option<Arc<ProjectCatalog>>,
     coverage: Coverage,
@@ -77,7 +77,7 @@ impl Planner {
     pub async fn connect(
         client: Client,
         config: PathBuf,
-        fixed_now: Option<DateTime<Utc>>,
+        fixed_now: Option<Timestamp>,
     ) -> Result<Self, ChangeError> {
         let profile = client.profile().await?;
         let calendar =
@@ -167,7 +167,7 @@ impl Planner {
         &mut self,
         coverage: Coverage,
     ) -> Result<Arc<Dataset>, TransportError> {
-        self.refresh_scope_at(coverage, self.fixed_now.unwrap_or_else(Utc::now))
+        self.refresh_scope_at(coverage, self.fixed_now.unwrap_or_else(Timestamp::now))
             .await
     }
 
@@ -225,7 +225,7 @@ impl Planner {
     /// the existing scope; it never sends or retries a service mutation.
     pub async fn refresh_day_at(
         &mut self,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<Option<Arc<Dataset>>, TransportError> {
         let Some(data) = &self.data else {
             return Ok(None);
@@ -241,7 +241,7 @@ impl Planner {
     async fn refresh_scope_at(
         &mut self,
         coverage: Coverage,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<Arc<Dataset>, TransportError> {
         self.write_fresh = false;
         let profile = self.client.profile().await?;

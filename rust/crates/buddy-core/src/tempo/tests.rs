@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, Timelike};
+use jiff::civil::Date;
 use serde_json::{Value, json};
 
 use super::*;
@@ -18,8 +18,8 @@ fn page(rows: Vec<Value>) -> Value {
 fn parse(value: Value) -> Result<Page, Error> {
     parse_worklogs(&serde_json::to_vec(&value).unwrap())
 }
-fn date(text: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+fn date(text: &str) -> Date {
+    text.parse().unwrap()
 }
 fn author() -> AccountId {
     AccountId::parse("123456:synthetic-user").unwrap()
@@ -126,7 +126,9 @@ fn utc_start_and_local_workday_are_preserved_independently_across_midnight() {
     let rows = parse(page(vec![value])).unwrap().rows;
     assert_eq!(rows[0].start_time.unwrap().hour(), 23);
     assert_eq!(
-        rows[0].start_instant.unwrap().date_naive(),
+        jiff::tz::Offset::UTC
+            .to_datetime(rows[0].start_instant.unwrap())
+            .date(),
         date("2026-10-17")
     );
     let days = day_totals(

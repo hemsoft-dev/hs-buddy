@@ -265,18 +265,75 @@ pub fn read(path: &Path) -> Result<Snapshot, &'static str> {
     if !metadata.is_file() || metadata.len() > MAX_BYTES as u64 {
         return Err(ERROR);
     }
-    let modified: chrono::DateTime<chrono::Utc> = metadata.modified().map_err(|_| ERROR)?.into();
+    let modified = modified_text(metadata.modified().map_err(|_| ERROR)?);
     let mut bytes = Vec::new();
     file.take(MAX_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| ERROR)?;
-    parse(&bytes, &modified.to_rfc3339())
+    parse(&bytes, &modified)
+}
+/// The fallback date for a file that states none. A modification time jiff
+/// cannot hold leaves it empty rather than failing the whole read.
+fn modified_text(modified: std::time::SystemTime) -> String {
+    jiff::Timestamp::try_from(modified)
+        .map(crate::wire_time::rfc3339_utc)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn a_file_without_its_own_timestamp_is_dated_by_its_modification_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("metrics.json");
+        for (seconds, nanoseconds, text) in [
+            (1_792_144_800, 0, "2026-10-16T10:00:00+00:00"),
+            (1_792_144_800, 123_000_000, "2026-10-16T10:00:00.123+00:00"),
+            (
+                1_792_144_800,
+                123_456_000,
+                "2026-10-16T10:00:00.123456+00:00",
+            ),
+            (
+                1_792_144_800,
+                123_456_789,
+                "2026-10-16T10:00:00.123456789+00:00",
+            ),
+            (1_792_144_800, 100, "2026-10-16T10:00:00.000000100+00:00"),
+            (0, 0, "1970-01-01T00:00:00+00:00"),
+        ] {
+            std::fs::write(&path, b"{}").unwrap();
+            let time = std::time::UNIX_EPOCH + std::time::Duration::new(seconds, nanoseconds);
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(time).unwrap();
+            drop(file);
+            let exact = std::time::Duration::new(seconds, nanoseconds);
+            if time.duration_since(std::time::UNIX_EPOCH).unwrap() != exact
+                || std::fs::metadata(&path).unwrap().modified().unwrap() != time
+            {
+                // The host clock (100 ns units on Windows) or this file
+                // system stores coarser times than the case needs.
+                continue;
+            }
+            assert_eq!(read(&path).unwrap().generated_at, text);
+        }
+    }
+    #[test]
+    fn a_modification_time_past_the_representable_range_leaves_the_fallback_date_empty() {
+        let epoch = std::time::UNIX_EPOCH;
+        let seconds = std::time::Duration::from_secs;
+        assert_eq!(
+            modified_text(epoch + seconds(1_792_144_800)),
+            "2026-10-16T10:00:00+00:00"
+        );
+        // 10000-01-01T00:00:00Z: NTFS, btrfs and tmpfs can all store it.
+        assert_eq!(modified_text(epoch + seconds(253_402_300_800)), "");
+        // The file's own date still wins, so such a file reads normally.
+        let snapshot = parse(br#"{"GeneratedAtUtc":"2026-10-16T10:00:00Z"}"#, "").unwrap();
+        assert_eq!(snapshot.generated_at, "2026-10-16T10:00:00Z");
+    }
     #[test]
     fn nested_daily_usage_and_direct_aggregates_keep_models_status_and_source() {
         let bytes=serde_json::to_vec(&json!({"Organization":"Synthetic team","Days":[1,2],"Users":[

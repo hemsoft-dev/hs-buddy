@@ -232,7 +232,7 @@ impl TodoistView {
                     for group in groups {
                         let label = match group.kind {
                             DayKind::Overdue => "Overdue".to_owned(),
-                            DayKind::Date(day) => day.format("%a, %b %-d, %Y").to_string(),
+                            DayKind::Date(day) => day.strftime("%a, %b %-d, %Y").to_string(),
                         };
                         rows.extend(group.tasks.into_iter().map(|task| (label.clone(), task)));
                     }

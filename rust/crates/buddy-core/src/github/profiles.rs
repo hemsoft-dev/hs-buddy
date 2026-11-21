@@ -1,4 +1,4 @@
-use chrono::Days;
+use jiff::ToSpan;
 use serde_json::json;
 
 use super::browsing::{number, valid_login};
@@ -105,8 +105,7 @@ impl GitHubClient {
                 .ok_or(GitHubError::InvalidData)?
             {
                 let date = text(day, "date")?;
-                chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
-                    .map_err(|_| GitHubError::InvalidData)?;
+                crate::wire_time::date(date).ok_or(GitHubError::InvalidData)?;
                 days.push(ContributionDay {
                     date: date.into(),
                     count: number(day, "contributionCount")?,
@@ -192,11 +191,11 @@ impl GitHubClient {
         } else {
             "org"
         };
-        let date = chrono::Utc::now()
-            .date_naive()
-            .checked_sub_days(Days::new(90))
-            .ok_or(GitHubError::InvalidData)?
-            .format("%Y-%m-%d");
+        let date = jiff::tz::Offset::UTC
+            .to_datetime(jiff::Timestamp::now())
+            .date()
+            .checked_sub(90.days())
+            .map_err(|_| GitHubError::InvalidData)?;
         let scope = format!("{namespace}:{}", self.account.organization());
         // Match the incumbent profile: all open authored PRs, plus recent
         // merges. Reviewed PRs exclude the user's own PRs without a date cut.

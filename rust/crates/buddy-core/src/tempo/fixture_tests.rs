@@ -80,7 +80,10 @@ fn explicit_owned_fixture_preserves_protected_logical_https_connection_and_clock
     let connection = connect_with_host(&credentials, &owned.config(), &owned.host()).unwrap();
     assert_eq!(credentials.jira_origin(), JIRA_ORIGIN);
     assert_eq!(connection.jira.origin(), "http://127.0.0.1:12345/");
-    assert_eq!(connection.now.to_rfc3339(), "2026-11-02T05:30:00+00:00");
+    assert_eq!(
+        crate::wire_time::rfc3339_utc(connection.now),
+        "2026-11-02T05:30:00+00:00"
+    );
 }
 
 #[test]
@@ -214,7 +217,10 @@ fn required_clock_normalizes_offset_and_missing_clock_is_rejected() {
     marker["now_utc"] = json!("2026-11-02T01:30:00-04:00");
     owned.write(&marker);
     let connection = connect_with_host(&credentials(), &owned.config(), &owned.host()).unwrap();
-    assert_eq!(connection.now.to_rfc3339(), "2026-11-02T05:30:00+00:00");
+    assert_eq!(
+        crate::wire_time::rfc3339_utc(connection.now),
+        "2026-11-02T05:30:00+00:00"
+    );
 }
 
 #[tokio::test]

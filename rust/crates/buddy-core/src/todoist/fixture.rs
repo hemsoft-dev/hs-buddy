@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Datelike, Timelike, Utc};
+use jiff::Timestamp;
 use reqwest::Url;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -26,7 +26,7 @@ struct Marker {
 #[derive(Debug, PartialEq)]
 pub(super) struct Connection {
     pub api: Url,
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
 }
 
 struct Host {
@@ -109,10 +109,12 @@ fn validate(token: &str, config: &Path, host: &Host) -> Result<Connection, Trans
     {
         return Err(unavailable);
     }
-    let now = DateTime::parse_from_rfc3339(&marker.now_utc)
-        .map_err(|_| unavailable)?
-        .with_timezone(&Utc);
-    if !(1..=9999).contains(&now.year()) || now.nanosecond() >= 1_000_000_000 {
+    // A leap second is not a usable fixed clock.
+    let now = crate::wire_time::rfc3339(&marker.now_utc)
+        .and_then(crate::wire_time::Parsed::exact)
+        .ok_or(unavailable)?
+        .timestamp();
+    if !(1..=9999).contains(&jiff::tz::Offset::UTC.to_datetime(now).year()) {
         return Err(unavailable);
     }
     Ok(Connection { api: url, now })

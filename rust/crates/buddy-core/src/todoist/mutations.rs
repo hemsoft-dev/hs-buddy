@@ -2,7 +2,7 @@
 //! A retry reuses the captured command, rather than rebuilding an editable draft.
 use std::sync::Arc;
 
-use chrono::{Datelike, NaiveDate};
+use jiff::civil::Date;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -29,7 +29,7 @@ pub struct CreateDraft {
     pub description: String,
     pub project: Option<Id>,
     pub priority: Priority,
-    pub due: Option<NaiveDate>,
+    pub due: Option<Date>,
 }
 
 /// Absent fields are preserved, including an existing timed or recurring due
@@ -39,7 +39,7 @@ pub struct EditDraft {
     pub content: Option<String>,
     pub description: Option<String>,
     pub priority: Option<Priority>,
-    pub due: Option<NaiveDate>,
+    pub due: Option<Date>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteKind {
@@ -78,11 +78,11 @@ fn description(value: &str) -> Result<String, Error> {
     }
     Ok(value.into())
 }
-fn due(date: NaiveDate) -> Result<Value, Error> {
+fn due(date: Date) -> Result<Value, Error> {
     if !(1..=9999).contains(&date.year()) {
         return Err(Error::InvalidDraft);
     }
-    Ok(json!({"date":date.format("%Y-%m-%d").to_string()}))
+    Ok(json!({"date":date.to_string()}))
 }
 
 impl WriteRequest {

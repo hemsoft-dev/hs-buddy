@@ -121,7 +121,7 @@ pub async fn fetch() -> Result<UsageSnapshot, FetchError> {
             .body;
         return super::parse(
             &serde_json::to_vec(&value).map_err(|_| FetchError::Unavailable)?,
-            chrono::Utc::now().timestamp_millis(),
+            jiff::Timestamp::now().as_millisecond(),
         )
         .map_err(FetchError::Parse);
     }
@@ -129,7 +129,12 @@ pub async fn fetch() -> Result<UsageSnapshot, FetchError> {
     let credentials = tokio::task::spawn_blocking(move || credentials(&path))
         .await
         .map_err(|_| FetchError::MissingLogin)??;
-    request(ENDPOINT, credentials, chrono::Utc::now().timestamp_millis()).await
+    request(
+        ENDPOINT,
+        credentials,
+        jiff::Timestamp::now().as_millisecond(),
+    )
+    .await
 }
 async fn request(
     endpoint: &str,

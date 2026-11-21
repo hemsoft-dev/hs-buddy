@@ -72,3 +72,58 @@ fn creating_an_undated_project_task_freezes_its_context_and_rejects_invalid_date
         .unwrap();
     });
 }
+
+#[gpui_kit::test]
+fn a_due_date_is_ten_characters_and_may_be_unpadded(cx: &mut gpui_kit::TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TodoistView::new(window, cx);
+                let editor = Editor::new(None, None, window, cx);
+                editor.content.update(cx, |field, cx| {
+                    field.set_value("Synthetic new task", window, cx)
+                });
+                for (text, sent) in [
+                    ("2026-11-05", Ok("2026-11-05")),
+                    ("2028-02-29", Ok("2028-02-29")),
+                    ("0001-01-01", Ok("0001-01-01")),
+                    ("9999-12-31", Ok("9999-12-31")),
+                    (" 2026-11-5", Ok("2026-11-05")),
+                    ("2026-11- 5", Ok("2026-11-05")),
+                    ("+2026-11-5", Ok("2026-11-05")),
+                    ("2026-11-5", Err("Enter a due date as YYYY-MM-DD.")),
+                    ("2026-11-005", Err("Enter a due date as YYYY-MM-DD.")),
+                    ("2026-02-30", Err("Enter a valid due date as YYYY-MM-DD.")),
+                    ("2026-11-5 ", Err("Enter a valid due date as YYYY-MM-DD.")),
+                    ("2026/11/05", Err("Enter a valid due date as YYYY-MM-DD.")),
+                    ("05-11-2026", Err("Enter a valid due date as YYYY-MM-DD.")),
+                    // chrono read this as the year 10000, which was refused when
+                    // the change was captured. jiff has no such year.
+                    ("+10000-1-1", Err("Enter a valid due date as YYYY-MM-DD.")),
+                ] {
+                    editor
+                        .due
+                        .update(cx, |field, cx| field.set_value(text, window, cx));
+                    let result = editor.change(cx).map(|change| {
+                        let TaskChange::Create(draft) = change else {
+                            panic!("Expected creation");
+                        };
+                        let request = WriteRequest::create(WriteScope::new(), &draft).unwrap();
+                        serde_json::from_str::<Value>(request.commands()).unwrap()
+                    });
+                    match (result, sent) {
+                        (Ok(commands), Ok(sent)) => {
+                            assert_eq!(commands[0]["args"]["due"], json!({"date":sent}), "{text:?}")
+                        }
+                        (Err(message), Err(expected)) => assert_eq!(message, expected, "{text:?}"),
+                        (result, _) => panic!("{text:?}: {:?}", result.map(|_| ())),
+                    }
+                }
+                view
+            })
+        })
+        .unwrap();
+    });
+}

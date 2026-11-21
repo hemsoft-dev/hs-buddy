@@ -18,7 +18,7 @@ fn create(scope: WriteScope) -> WriteRequest {
             description: "One\nTwo".into(),
             project: Some(Id::parse("project").unwrap()),
             priority: Priority::from_api(4).unwrap(),
-            due: Some(NaiveDate::from_ymd_opt(2026, 10, 17).unwrap()),
+            due: Some(jiff::civil::date(2026, 10, 17)),
         },
     )
     .unwrap()
@@ -44,7 +44,7 @@ fn every_supported_change_recovers_exact_original_bytes_and_ids_as_unconfirmed()
                 content: Some("Changed".into()),
                 description: Some("".into()),
                 priority: Some(Priority::from_api(2).unwrap()),
-                due: Some(NaiveDate::from_ymd_opt(2026, 10, 18).unwrap()),
+                due: Some(jiff::civil::date(2026, 10, 18)),
             },
         )
         .unwrap(),
@@ -190,4 +190,41 @@ fn unsupported_envelopes_and_duplicate_command_fields_are_rejected() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn a_saved_due_date_must_be_the_canonical_calendar_date() {
+    let bytes = WriteAttempt::new(create(WriteScope::new()))
+        .checkpoint(path(), &account())
+        .unwrap();
+    let saved: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        saved["commands"]
+            .as_str()
+            .unwrap()
+            .contains(r#""due":{"date":"2026-10-17"}"#)
+    );
+    let restores = |date: &str| {
+        let changed = mutate(&bytes, |v| v[0]["args"]["due"]["date"] = json!(date));
+        WriteAttempt::restore(&changed, path(), &account(), WriteScope::new()).is_ok()
+    };
+    for date in ["2026-10-17", "0001-01-01", "9999-12-31", "2028-02-29"] {
+        assert!(restores(date), "{date:?}");
+    }
+    for date in [
+        "2026-10-7",
+        "2026-1-17",
+        " 2026-10-17",
+        "2026- 10-17",
+        "+2026-10-17",
+        "+10000-01-01",
+        "0000-01-01",
+        "-0001-01-01",
+        "2026-02-30",
+        "20261017",
+        "2026-10-17T00:00:00Z",
+        "",
+    ] {
+        assert!(!restores(date), "{date:?}");
+    }
 }

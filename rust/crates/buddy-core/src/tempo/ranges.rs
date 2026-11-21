@@ -1,18 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{Datelike, Days, Months, NaiveDate};
+use jiff::{Span, ToSpan, civil::Date};
 
 use super::{AccountId, DaySchedule, Error, Worklog};
 
 #[derive(Clone, Copy)]
 pub struct DateRange {
-    pub start: NaiveDate,
-    pub end: NaiveDate,
+    pub start: Date,
+    pub end: Date,
 }
 impl DateRange {
-    pub fn new(start: NaiveDate, end: NaiveDate) -> Result<Self, Error> {
+    pub fn new(start: Date, end: Date) -> Result<Self, Error> {
         if start > end
-            || (end - start).num_days() >= 366
+            || (end - start).get_days() >= 366
             || !(1..=9999).contains(&start.year())
             || !(1..=9999).contains(&end.year())
         {
@@ -20,13 +20,8 @@ impl DateRange {
         }
         Ok(Self { start, end })
     }
-    pub fn month_containing(day: NaiveDate) -> Result<Self, Error> {
-        let start = day.with_day(1).ok_or(Error::InvalidRange)?;
-        let end = start
-            .checked_add_months(Months::new(1))
-            .and_then(|next| next.pred_opt())
-            .ok_or(Error::InvalidRange)?;
-        Self::new(start, end)
+    pub fn month_containing(day: Date) -> Result<Self, Error> {
+        Self::new(day.first_of_month(), day.last_of_month())
     }
     /// Whole months only. A custom range must not silently become another view.
     pub fn shift_month(&self, delta: i32) -> Result<Self, Error> {
@@ -34,32 +29,29 @@ impl DateRange {
         if self.start != original.start || self.end != original.end {
             return Err(Error::InvalidRange);
         }
-        let amount = Months::new(delta.unsigned_abs());
-        let day = if delta < 0 {
-            self.start.checked_sub_months(amount)
-        } else {
-            self.start.checked_add_months(amount)
-        }
-        .ok_or(Error::InvalidRange)?;
+        let day = Span::new()
+            .try_months(delta)
+            .and_then(|months| self.start.checked_add(months))
+            .map_err(|_| Error::InvalidRange)?;
         Self::month_containing(day)
     }
-    pub fn week_containing(day: NaiveDate) -> Result<Self, Error> {
+    pub fn week_containing(day: Date) -> Result<Self, Error> {
         let start = day
-            .checked_sub_days(Days::new(u64::from(day.weekday().num_days_from_monday())))
-            .ok_or(Error::InvalidRange)?;
+            .checked_sub(i64::from(day.weekday().to_monday_zero_offset()).days())
+            .map_err(|_| Error::InvalidRange)?;
         Self::new(
             start,
             start
-                .checked_add_days(Days::new(6))
-                .ok_or(Error::InvalidRange)?,
+                .checked_add(6.days())
+                .map_err(|_| Error::InvalidRange)?,
         )
     }
-    pub fn contains(&self, day: NaiveDate) -> bool {
+    pub fn contains(&self, day: Date) -> bool {
         self.start <= day && day <= self.end
     }
 }
 pub struct DayTotal {
-    pub date: NaiveDate,
+    pub date: Date,
     pub seconds: u64,
     pub worklogs: Vec<Worklog>,
 }
@@ -130,8 +122,8 @@ pub fn day_totals(
     let range = DateRange::new(range.start, range.end)?;
     let mut days: Vec<_> = range
         .start
-        .iter_days()
-        .take(((range.end - range.start).num_days() + 1) as usize)
+        .series(1.day())
+        .take(((range.end - range.start).get_days() + 1) as usize)
         .map(|date| DayTotal {
             date,
             seconds: 0,

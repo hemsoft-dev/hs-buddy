@@ -20,7 +20,6 @@ use buddy_core::pollen::{self, PollenData, PollenError};
 use buddy_core::stats::{BuddyStats, WorkspacePulse};
 use buddy_core::weather::{self, WeatherData};
 use buddy_core::{http, pollen_credentials, secrets};
-use chrono::Datelike as _;
 use futures::StreamExt as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -425,8 +424,7 @@ impl DashboardView {
             self.refresh_finance(cx);
         }
         // Billing periods are UTC months; crossing one invalidates the report.
-        let now = chrono::Utc::now();
-        let period = (now.year(), now.month());
+        let period = copilot_usage::utc_year_month(jiff::Timestamp::now());
         if matches!(self.copilot_period, Some(loaded) if loaded != period)
             && !self.command_center.loading
             && self.card_visible(CardId::CommandCenter, cx)
@@ -770,8 +768,8 @@ impl DashboardView {
         let generation = self.copilot_generation;
         // The report is for the month the request was made in, even if it
         // completes after a rollover; the ticker then refetches.
-        let requested_at = chrono::Utc::now();
-        let period = (requested_at.year(), requested_at.month());
+        let requested_at = jiff::Timestamp::now();
+        let period = copilot_usage::utc_year_month(requested_at);
         self.run(
             cx,
             async move { copilot_usage::fetch_report(&github, requested_at).await },
@@ -840,7 +838,7 @@ impl DashboardView {
         let stored = stats.map(|s| s.total_uptime_ms).unwrap_or(0);
         let session = match stats.and_then(|s| s.last_session_start) {
             Some(started_ms) => {
-                let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+                let now_ms = jiff::Timestamp::now().as_millisecond().max(0) as u64;
                 now_ms.saturating_sub(started_ms)
             }
             None => self.session_start.elapsed().as_millis() as u64,

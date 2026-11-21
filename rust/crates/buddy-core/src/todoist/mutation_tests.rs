@@ -1,5 +1,4 @@
 use super::*;
-use chrono::NaiveDate;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -10,7 +9,7 @@ fn draft() -> CreateDraft {
         description: "Line one\nLine two".into(),
         project: Some(Id::parse("synthetic-project").unwrap()),
         priority: Priority::from_api(4).unwrap(),
-        due: Some(NaiveDate::from_ymd_opt(2026, 10, 16).unwrap()),
+        due: Some(jiff::civil::date(2026, 10, 16)),
     }
 }
 fn commands(request: &WriteRequest) -> Value {
@@ -208,9 +207,29 @@ fn invalid_fields_and_json_expansion_are_rejected_before_a_request_can_exist() {
         Err(Error::InvalidDraft)
     ));
     let mut invalid = draft();
-    invalid.due = Some(NaiveDate::from_ymd_opt(0, 1, 1).unwrap());
+    invalid.due = Some(jiff::civil::date(0, 1, 1));
     assert!(matches!(
         WriteRequest::create(WriteScope::new(), &invalid),
+        Err(Error::InvalidDraft)
+    ));
+}
+
+#[test]
+fn due_dates_are_sent_as_zero_padded_calendar_dates_within_years_1_to_9999() {
+    let draft = |due: &str| CreateDraft {
+        content: "Synthetic task".into(),
+        description: String::new(),
+        project: None,
+        priority: Priority::from_api(1).unwrap(),
+        due: Some(due.parse().unwrap()),
+    };
+    for date in ["2026-10-16", "0001-02-03", "9999-12-31", "2028-02-29"] {
+        let request = WriteRequest::create(WriteScope::new(), &draft(date)).unwrap();
+        let body: serde_json::Value = serde_json::from_str(request.commands()).unwrap();
+        assert_eq!(body[0]["args"]["due"], json!({"date":date}));
+    }
+    assert!(matches!(
+        WriteRequest::create(WriteScope::new(), &draft("0000-12-31")),
         Err(Error::InvalidDraft)
     ));
 }

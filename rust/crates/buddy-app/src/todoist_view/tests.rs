@@ -54,7 +54,7 @@ fn automatic_day_refresh_waits_for_the_account_day_and_preserves_active_input(
             view.connection_form = false;
             assert!(view.rollover_key_at(same_day).unwrap().is_none());
             let key = view.rollover_key_at(after).unwrap().unwrap();
-            assert_eq!(key.1, chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap());
+            assert_eq!(key.1, jiff::civil::date(2026, 11, 3));
             view.busy = true;
             assert!(view.rollover_key_at(after).unwrap().is_none());
             view.busy = false;

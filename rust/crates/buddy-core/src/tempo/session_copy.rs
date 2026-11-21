@@ -2,7 +2,8 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use jiff::Timestamp;
+use jiff::civil::{Date, Time};
 
 use super::{Draft, Error, Planner, PlannerError, Session, SessionError, WritePhase};
 use crate::tempo::{
@@ -18,12 +19,12 @@ pub struct CopyPlan {
     account: AccountId,
     origin: String,
     zone: Option<String>,
-    date: NaiveDate,
+    date: Date,
     sources: Vec<Worklog>,
     seconds: u64,
 }
 impl CopyPlan {
-    pub fn date(&self) -> NaiveDate {
+    pub fn date(&self) -> Date {
         self.date
     }
     pub fn sources(&self) -> &[Worklog] {
@@ -72,9 +73,9 @@ impl CopyReport {
 }
 
 /// Match the incumbent's 08:00 plus exact logged seconds, wrapping at midnight.
-pub fn copy_start_time(seconds: u64) -> NaiveTime {
+pub fn copy_start_time(seconds: u64) -> Time {
     let value = (8 * 3600 + seconds % 86400) % 86400;
-    NaiveTime::from_num_seconds_from_midnight_opt(value as u32, 0).expect("bounded day seconds")
+    Time::MIN + jiff::SignedDuration::from_secs(value as i64)
 }
 
 pub(super) fn displayed_baseline(displayed: &Worklog, expanded: &Worklog) -> Result<(), Error> {
@@ -91,7 +92,7 @@ impl Session {
     pub async fn prepare_copy(
         &mut self,
         ids: Vec<WorklogId>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<CopyPlan, SessionError> {
         if !self.can_submit() {
             return Err(Error::WriteBlocked.into());
@@ -171,11 +172,7 @@ impl Session {
         loaded
     }
 
-    async fn verify_copy(
-        &mut self,
-        plan: &CopyPlan,
-        now: DateTime<Utc>,
-    ) -> Result<(), SessionError> {
+    async fn verify_copy(&mut self, plan: &CopyPlan, now: Timestamp) -> Result<(), SessionError> {
         if !self.can_submit() {
             return Err(Error::WriteBlocked.into());
         }
@@ -201,7 +198,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn execute_copy(&mut self, plan: CopyPlan, now: DateTime<Utc>) -> CopyReport {
+    pub async fn execute_copy(&mut self, plan: CopyPlan, now: Timestamp) -> CopyReport {
         let mut result = CopyReport::new(&plan);
         if let Err(error) = self.verify_copy(&plan, now).await {
             self.fresh = false;

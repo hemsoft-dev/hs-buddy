@@ -1,12 +1,12 @@
 //! Calendar grouping uses one captured clock and its timezone for the whole view.
-use chrono::{DateTime, Days, NaiveDate, TimeZone};
+use jiff::{ToSpan, Zoned, civil::Date};
 
 use super::{DueDate, Error, Id, Task};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DayKind {
     Overdue,
-    Date(NaiveDate),
+    Date(Date),
 }
 pub struct DayGroup {
     pub kind: DayKind,
@@ -30,33 +30,29 @@ fn sort(tasks: &mut [Task]) {
 /// tasks on the captured current day remain in Today even after their due time.
 /// Undated tasks remain accessible through their project rather than acquiring
 /// an invented due date. The range is exclusive of its end date.
-pub fn schedule<Zone: TimeZone>(
-    tasks: &[Task],
-    now: &DateTime<Zone>,
-    days: u8,
-) -> Result<Vec<DayGroup>, Error> {
-    let zone = now.timezone();
-    schedule_by_day(tasks, now.date_naive(), days, |due| Ok(due.day_in(&zone)))
+pub fn schedule(tasks: &[Task], now: &Zoned, days: u8) -> Result<Vec<DayGroup>, Error> {
+    let zone = now.time_zone();
+    schedule_by_day(tasks, now.date(), days, |due| Ok(due.day_in(zone)))
 }
 
 pub(super) fn schedule_by_day(
     tasks: &[Task],
-    start: NaiveDate,
+    start: Date,
     days: u8,
-    due_day: impl Fn(&DueDate) -> Result<NaiveDate, Error>,
+    due_day: impl Fn(&DueDate) -> Result<Date, Error>,
 ) -> Result<Vec<DayGroup>, Error> {
     if !(1..=31).contains(&days) {
         return Err(Error::InvalidDraft);
     }
     let end = start
-        .checked_add_days(Days::new(u64::from(days)))
-        .ok_or(Error::InvalidDate)?;
+        .checked_add(i64::from(days).days())
+        .map_err(|_| Error::InvalidDate)?;
     let mut overdue = Vec::new();
     let mut dated: Vec<_> = (0..days)
         .map(|offset| DayGroup {
             kind: DayKind::Date(
                 start
-                    .checked_add_days(Days::new(u64::from(offset)))
+                    .checked_add(i64::from(offset).days())
                     .expect("bounded date range"),
             ),
             tasks: Vec::new(),
@@ -68,7 +64,7 @@ pub(super) fn schedule_by_day(
         if day < start {
             overdue.push(task.clone());
         } else if day < end {
-            let offset = (day - start).num_days() as usize;
+            let offset = (day - start).get_days() as usize;
             dated[offset].tasks.push(task.clone());
         }
     }

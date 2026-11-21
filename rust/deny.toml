@@ -11,15 +11,9 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # Vulnerabilities fail the build. Unmaintained-crate notices are enforced for
 # this workspace's own dependencies; the GPUI and Convex trees carry a few
-# transitively (rustybuzz, ttf-parser, paste, instant, rustls-pemfile) that
-# only their upstreams can replace.
+# transitively (rustybuzz, ttf-parser, paste, instant, rustls-pemfile, chrono)
+# that only their upstreams can replace.
 unmaintained = "workspace"
-ignore = [
-    # chrono is unmaintained with no safe upgrade. buddy-core and buddy-app
-    # still use it directly; the jiff migration is tracked in #969, which
-    # removes this entry.
-    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; migration to jiff tracked in hemsoft-dev/hs-buddy#969" },
-]
 
 [licenses]
 version = 2

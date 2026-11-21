@@ -1,5 +1,6 @@
 use super::*;
-use chrono::{DateTime, FixedOffset, NaiveDate};
+use jiff::civil::Date;
+use jiff::tz::{TimeZone, offset};
 use serde_json::{Value, json};
 
 fn task(due: Value) -> Value {
@@ -21,8 +22,14 @@ fn due(value: Value) -> DueDate {
         .due
         .unwrap()
 }
-fn date(day: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 10, day).unwrap()
+fn date(day: i8) -> Date {
+    jiff::civil::date(2026, 10, day)
+}
+fn zone(hours: i8) -> TimeZone {
+    TimeZone::fixed(offset(hours))
+}
+fn at(text: &str) -> jiff::Zoned {
+    crate::wire_time::rfc3339(text).unwrap().value
 }
 
 #[test]
@@ -83,7 +90,10 @@ fn current_api_fields_keep_completion_order_content_and_priority() {
     assert_eq!(task.priority.label(), "P1");
     assert!(!task.completed && !task.deleted);
     assert_eq!(task.order, 2);
-    assert_eq!(task.created_at.unwrap().timestamp(), 1792144800);
+    assert_eq!(
+        task.created_at.as_ref().unwrap().timestamp().as_second(),
+        1792144800
+    );
     assert_eq!(task.labels, ["planning"]);
 }
 
@@ -135,16 +145,13 @@ fn missing_due_data_cannot_silently_reclassify_a_task_as_unscheduled() {
 fn calendar_and_floating_dates_keep_their_wall_date_on_both_sides_of_utc() {
     for value in ["2026-10-16", "2026-10-16T12:00:00.500"] {
         let due = due(json!({"date":value}));
-        for zone in [
-            FixedOffset::west_opt(12 * 3600).unwrap(),
-            FixedOffset::east_opt(14 * 3600).unwrap(),
-        ] {
+        for zone in [zone(-12), zone(14)] {
             assert_eq!(due.day_in(&zone), date(16));
         }
     }
     let calendar = due(json!({"date":"2026-10-16"}));
     let floating = due(json!({"date":"2026-10-16T12:00:00"}));
-    let now = DateTime::parse_from_rfc3339("2026-10-16T13:00:00-04:00").unwrap();
+    let now = at("2026-10-16T13:00:00-04:00");
     assert!(!calendar.overdue_at(&now));
     assert!(floating.overdue_at(&now));
 }
@@ -155,20 +162,14 @@ fn explicit_instants_convert_across_midnight_and_preserve_legacy_recurrence_data
         json!({"date":"2026-10-16","datetime":"2026-10-17T00:30:00Z",
         "timezone":"America/New_York","string":"every Friday at 8:30pm","is_recurring":true}),
     );
-    assert_eq!(
-        due.day_in(&FixedOffset::west_opt(4 * 3600).unwrap()),
-        date(16)
-    );
-    assert_eq!(
-        due.day_in(&FixedOffset::east_opt(14 * 3600).unwrap()),
-        date(17)
-    );
+    assert_eq!(due.day_in(&zone(-4)), date(16));
+    assert_eq!(due.day_in(&zone(14)), date(17));
     assert_eq!(due.source_date, "2026-10-16");
     assert_eq!(due.source_datetime.as_deref(), Some("2026-10-17T00:30:00Z"));
     assert_eq!(due.timezone.as_deref(), Some("America/New_York"));
     assert_eq!(due.description.as_deref(), Some("every Friday at 8:30pm"));
     assert!(due.recurring);
-    let now = DateTime::parse_from_rfc3339("2026-10-16T21:00:00-04:00").unwrap();
+    let now = at("2026-10-16T21:00:00-04:00");
     assert!(due.overdue_at(&now));
 }
 

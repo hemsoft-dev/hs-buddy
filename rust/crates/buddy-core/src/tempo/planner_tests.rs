@@ -12,7 +12,7 @@ fn profile() -> &'static Path {
 fn range(start: &str, end: &str) -> DateRange {
     DateRange::new(start.parse().unwrap(), end.parse().unwrap()).unwrap()
 }
-fn now() -> DateTime<Utc> {
+fn now() -> Timestamp {
     "2026-10-16T12:00:00Z".parse().unwrap()
 }
 fn identity(account: &str, zone: Option<&str>) -> String {
@@ -26,9 +26,9 @@ fn user() -> String {
 }
 fn worklog(id: u64, date: &str, seconds: u64) -> Value {
     let next_day = date
-        .parse::<chrono::NaiveDate>()
+        .parse::<jiff::civil::Date>()
         .unwrap()
-        .succ_opt()
+        .tomorrow()
         .unwrap();
     json!({"tempoWorklogId":id,"self":format!("https://api.tempo.io/4/worklogs/{id}"),"issue":{"id":123,"self":"https://api.tempo.io/4/issues/123"},
         "author":{"accountId":"synthetic-user"},"timeSpentSeconds":seconds,"startDate":date,"startTime":"23:45:00",
@@ -110,11 +110,11 @@ async fn initial_current_month_uses_the_captured_account_zone_for_both_service_r
     assert_eq!(planner.snapshot().time_zone.as_deref(), zone);
     assert_eq!(
         planner.snapshot().range.start,
-        "2027-01-01".parse::<chrono::NaiveDate>().unwrap()
+        "2027-01-01".parse::<jiff::civil::Date>().unwrap()
     );
     assert_eq!(
         planner.snapshot().range.end,
-        "2027-01-31".parse::<chrono::NaiveDate>().unwrap()
+        "2027-01-31".parse::<jiff::civil::Date>().unwrap()
     );
     assert_eq!(planner.snapshot().read_at, clock);
     let requests = fixture.requests.lock().unwrap();
@@ -165,7 +165,7 @@ async fn changed_timezone_during_today_refresh_cannot_publish_the_new_range_or_t
     assert_eq!(planner.snapshot().summary.logged_seconds, 600);
     assert_eq!(
         planner.snapshot().range.start,
-        "2026-10-16".parse::<chrono::NaiveDate>().unwrap()
+        "2026-10-16".parse::<jiff::civil::Date>().unwrap()
     );
     all_gets(&fixture, 8);
 }
@@ -194,11 +194,11 @@ async fn a_failed_today_read_keeps_the_old_month_until_a_successful_explicit_ret
     assert!(!Arc::ptr_eq(planner.snapshot(), &original));
     assert_eq!(
         planner.snapshot().range.start,
-        "2026-11-01".parse::<chrono::NaiveDate>().unwrap()
+        "2026-11-01".parse::<jiff::civil::Date>().unwrap()
     );
     assert_eq!(
         planner.snapshot().range.end,
-        "2026-11-30".parse::<chrono::NaiveDate>().unwrap()
+        "2026-11-30".parse::<jiff::civil::Date>().unwrap()
     );
     assert_eq!(planner.snapshot().summary.logged_seconds, 1200);
     assert_eq!(original.summary.logged_seconds, 600);
@@ -227,7 +227,7 @@ async fn successful_range_keeps_service_dates_integer_totals_and_captured_contex
     assert_eq!(data.summary.days[0].logged.seconds, 90122);
     assert_eq!(
         data.summary.days[0].logged.date,
-        "2026-10-16".parse::<chrono::NaiveDate>().unwrap()
+        "2026-10-16".parse::<jiff::civil::Date>().unwrap()
     );
     assert_eq!(data.summary.days[1].logged.seconds, 600);
     assert_eq!(
@@ -276,7 +276,7 @@ async fn failed_refresh_keeps_the_exact_snapshot_until_an_explicit_successful_re
         planner
             .refresh(
                 range("2026-10-18", "2026-10-19"),
-                now() + chrono::Duration::hours(1)
+                now() + jiff::SignedDuration::from_hours(1)
             )
             .await,
         Err(PlannerError::Tempo(TransportError::Service))
@@ -286,13 +286,13 @@ async fn failed_refresh_keeps_the_exact_snapshot_until_an_explicit_successful_re
     assert_eq!(planner.snapshot().read_at, now());
     assert_eq!(
         planner.snapshot().range.start,
-        "2026-10-16".parse::<chrono::NaiveDate>().unwrap()
+        "2026-10-16".parse::<jiff::civil::Date>().unwrap()
     );
     all_gets(&fixture, 6);
     planner
         .refresh(
             range("2026-10-18", "2026-10-19"),
-            now() + chrono::Duration::hours(2),
+            now() + jiff::SignedDuration::from_hours(2),
         )
         .await
         .unwrap();
@@ -301,7 +301,7 @@ async fn failed_refresh_keeps_the_exact_snapshot_until_an_explicit_successful_re
     assert_eq!(original.summary.logged_seconds, 600);
     assert_eq!(
         planner.snapshot().range.start,
-        "2026-10-18".parse::<chrono::NaiveDate>().unwrap()
+        "2026-10-18".parse::<jiff::civil::Date>().unwrap()
     );
     all_gets(&fixture, 10);
     let requests = fixture.requests.lock().unwrap();
@@ -408,7 +408,7 @@ async fn changed_account_or_timezone_before_or_after_loading_cannot_replace_the_
                 planner
                     .refresh(
                         range("2026-10-16", "2026-10-17"),
-                        now() + chrono::Duration::hours(1)
+                        now() + jiff::SignedDuration::from_hours(1)
                     )
                     .await,
                 Err(PlannerError::ChangedIdentity)

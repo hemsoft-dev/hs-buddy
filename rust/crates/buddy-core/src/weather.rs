@@ -1,7 +1,7 @@
 //! Weather data (Open-Meteo), geocoding (Nominatim), and the WMO weather-code
 //! tables from `useWeather.ts` and `WeatherCard.tsx`.
 
-use chrono::{Datelike, NaiveDate};
+use jiff::civil::Weekday;
 use serde::Deserialize;
 
 pub use crate::config::WeatherLocation;
@@ -139,15 +139,15 @@ fn day_name(date: &str, index: usize) -> String {
     if index == 0 {
         return "Today".to_string();
     }
-    NaiveDate::parse_from_str(date, "%Y-%m-%d")
+    crate::wire_time::date(date)
         .map(|d| match d.weekday() {
-            chrono::Weekday::Mon => "Mon",
-            chrono::Weekday::Tue => "Tue",
-            chrono::Weekday::Wed => "Wed",
-            chrono::Weekday::Thu => "Thu",
-            chrono::Weekday::Fri => "Fri",
-            chrono::Weekday::Sat => "Sat",
-            chrono::Weekday::Sun => "Sun",
+            Weekday::Monday => "Mon",
+            Weekday::Tuesday => "Tue",
+            Weekday::Wednesday => "Wed",
+            Weekday::Thursday => "Thu",
+            Weekday::Friday => "Fri",
+            Weekday::Saturday => "Sat",
+            Weekday::Sunday => "Sun",
         })
         .unwrap_or("")
         .to_string()
@@ -440,6 +440,44 @@ mod tests {
         assert_eq!(data.forecast[0].day_name, "Today");
         assert_eq!(data.forecast[1].day_name, "Thu");
         assert_eq!(data.forecast[2].description, "Slight rain");
+    }
+
+    #[test]
+    fn forecast_days_are_named_from_their_date() {
+        for (date, name) in [
+            ("2026-10-12", "Mon"),
+            ("2026-10-13", "Tue"),
+            ("2026-10-14", "Wed"),
+            ("2026-10-15", "Thu"),
+            ("2026-10-16", "Fri"),
+            ("2026-10-17", "Sat"),
+            ("2026-10-18", "Sun"),
+            ("2028-02-29", "Tue"),
+            ("0001-01-01", "Mon"),
+            ("9999-12-31", "Fri"),
+            // Padding and leading whitespace are optional.
+            ("2026-10-7", "Wed"),
+            (" 2026-10-17", "Sat"),
+            ("2026- 1- 5", "Mon"),
+            ("+2026-10-17", "Sat"),
+            ("0-1-1", "Sat"),
+            ("-0001-01-01", "Fri"),
+        ] {
+            assert_eq!(day_name(date, 1), name, "{date:?}");
+        }
+        for date in [
+            "",
+            "2026-02-30",
+            "2026-13-01",
+            "20261017",
+            "2026-10-17 ",
+            "2026-10-17T00:00:00Z",
+            "2026/10/17",
+            "17 Oct 2026",
+        ] {
+            assert_eq!(day_name(date, 1), "", "{date:?}");
+        }
+        assert_eq!(day_name("not a date", 0), "Today");
     }
 
     #[test]

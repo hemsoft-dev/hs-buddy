@@ -1,7 +1,7 @@
 //! Today and month selection use a caller-captured instant in the Jira account zone.
 use super::{DateRange, Error};
 use crate::account_zone::{AccountZone, CalendarError};
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::{Timestamp, civil::Date};
 
 pub struct AccountCalendar {
     zone: AccountZone,
@@ -15,10 +15,10 @@ impl AccountCalendar {
     pub fn zone_name(&self) -> &str {
         self.zone.name()
     }
-    pub fn today_at(&self, instant: DateTime<Utc>) -> Result<NaiveDate, Error> {
-        Ok(self.zone.at(instant)?.date_naive())
+    pub fn today_at(&self, instant: Timestamp) -> Result<Date, Error> {
+        Ok(self.zone.at(instant).date())
     }
-    pub fn current_month_at(&self, instant: DateTime<Utc>) -> Result<DateRange, Error> {
+    pub fn current_month_at(&self, instant: Timestamp) -> Result<DateRange, Error> {
         DateRange::month_containing(self.today_at(instant)?)
     }
 }
@@ -26,7 +26,6 @@ impl From<CalendarError> for Error {
     fn from(error: CalendarError) -> Self {
         match error {
             CalendarError::TimezoneUnavailable => Self::TimezoneUnavailable,
-            CalendarError::InvalidDate => Self::InvalidDate,
         }
     }
 }

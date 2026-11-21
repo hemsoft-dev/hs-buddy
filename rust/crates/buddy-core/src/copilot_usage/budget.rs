@@ -1,4 +1,4 @@
-use chrono::{DateTime, TimeZone, Utc};
+use jiff::Timestamp;
 use serde_json::Value;
 
 pub struct Budget {
@@ -103,7 +103,7 @@ pub(super) async fn fetch(
 }
 /// Match Electron's dollar projection, including its one-second minimum and
 /// refusal to extrapolate a different or expired billing period.
-pub fn projected_spend(spent: f64, year: i32, month: u32, as_of: DateTime<Utc>) -> Option<f64> {
+pub fn projected_spend(spent: f64, year: i32, month: u32, as_of: Timestamp) -> Option<f64> {
     if !spent.is_finite()
         || spent <= 0.0
         || !(1970..=9999).contains(&year)
@@ -111,20 +111,18 @@ pub fn projected_spend(spent: f64, year: i32, month: u32, as_of: DateTime<Utc>) 
     {
         return None;
     }
-    let start = Utc.with_ymd_and_hms(year, month, 1, 0, 0, 0).single()?;
+    let start = super::utc_instant(year, month, 1, 0, 0)?;
     let (next_year, next_month) = if month == 12 {
         (year + 1, 1)
     } else {
         (year, month + 1)
     };
-    let end = Utc
-        .with_ymd_and_hms(next_year, next_month, 1, 0, 0, 0)
-        .single()?;
-    let elapsed = (as_of - start).num_milliseconds();
+    let end = super::utc_instant(next_year, next_month, 1, 0, 0)?;
+    let elapsed = as_of.duration_since(start).as_millis();
     if elapsed < 1000 || as_of >= end {
         return None;
     }
-    let projection = spent * (end - start).num_milliseconds() as f64 / elapsed as f64;
+    let projection = spent * end.duration_since(start).as_millis() as f64 / elapsed as f64;
     projection.is_finite().then_some(projection)
 }
 
@@ -157,12 +155,12 @@ mod tests {
     }
     #[test]
     fn dollar_projection_obeys_billing_period_and_elapsed_second_boundaries() {
-        let start = Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap();
-        let middle = Utc.with_ymd_and_hms(2026, 10, 16, 12, 0, 0).unwrap();
+        let start: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+        let middle: Timestamp = "2026-10-16T12:00:00Z".parse().unwrap();
         assert_eq!(projected_spend(50.0, 2026, 10, middle), Some(100.0));
         assert_eq!(projected_spend(50.0, 2026, 10, start), None);
         assert_eq!(
-            projected_spend(50.0, 2026, 10, start - chrono::Duration::days(1)),
+            projected_spend(50.0, 2026, 10, start - jiff::SignedDuration::from_hours(24)),
             None
         );
         assert_eq!(

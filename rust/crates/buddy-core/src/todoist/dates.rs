@@ -1,13 +1,15 @@
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
+use jiff::Zoned;
+use jiff::civil::{Date, DateTime};
+use jiff::tz::TimeZone;
 use serde::Deserialize;
 
 use super::{Error, bounded_text};
 
 #[derive(Clone)]
 pub enum DueKind {
-    Calendar(NaiveDate),
-    Floating(NaiveDateTime),
-    Instant(DateTime<FixedOffset>),
+    Calendar(Date),
+    Floating(DateTime),
+    Instant(Zoned),
 }
 
 /// Keep the source representation for display and explicit edits. No Debug:
@@ -32,7 +34,7 @@ pub(super) struct RawDue {
     is_recurring: bool,
 }
 
-fn valid_year(year: i32) -> bool {
+fn valid_year(year: i16) -> bool {
     (1..=9999).contains(&year)
 }
 
@@ -49,19 +51,19 @@ fn parse_kind(text: &str) -> Result<DueKind, Error> {
             }
         })
     {
-        return NaiveDate::parse_from_str(text, "%Y-%m-%d")
-            .ok()
+        return crate::wire_time::date(text)
             .filter(|date| valid_year(date.year()))
             .map(DueKind::Calendar)
             .ok_or(Error::InvalidDate);
     }
-    if let Ok(instant) = DateTime::parse_from_rfc3339(text) {
+    if let Some(instant) = crate::wire_time::rfc3339(text) {
+        let instant = instant.value;
         return valid_year(instant.year())
             .then_some(DueKind::Instant(instant))
             .ok_or(Error::InvalidDate);
     }
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
-        .ok()
+    crate::wire_time::date_time(text)
+        .map(|time| time.value)
         .filter(|date| valid_year(date.year()))
         .map(DueKind::Floating)
         .ok_or(Error::InvalidDate)
@@ -73,7 +75,7 @@ impl DueDate {
         let kind = match raw.datetime.as_deref() {
             Some(text) => match parse_kind(text)? {
                 DueKind::Instant(instant) => {
-                    if matches!(&source_kind, DueKind::Instant(source) if source != &instant) {
+                    if matches!(&source_kind, DueKind::Instant(source) if source != instant) {
                         return Err(Error::InvalidDate);
                     }
                     DueKind::Instant(instant)
@@ -110,19 +112,23 @@ impl DueDate {
 
     /// Calendar and floating due dates stay on their wall date. Only an
     /// explicit instant is converted to the account's supplied timezone.
-    pub fn day_in<Zone: TimeZone>(&self, zone: &Zone) -> NaiveDate {
+    pub fn day_in(&self, zone: &TimeZone) -> Date {
         match &self.kind {
             DueKind::Calendar(date) => *date,
             DueKind::Floating(date) => date.date(),
-            DueKind::Instant(instant) => instant.with_timezone(zone).date_naive(),
+            DueKind::Instant(instant) => instant.with_time_zone(zone.clone()).date(),
         }
     }
 
-    pub fn overdue_at<Zone: TimeZone>(&self, now: &DateTime<Zone>) -> bool {
+    pub fn overdue_at(&self, now: &Zoned) -> bool {
         match &self.kind {
-            DueKind::Calendar(date) => *date < now.date_naive(),
-            DueKind::Floating(date) => *date < now.naive_local(),
-            DueKind::Instant(instant) => instant.naive_utc() < now.naive_utc(),
+            DueKind::Calendar(date) => *date < now.date(),
+            DueKind::Floating(date) => *date < now.datetime(),
+            DueKind::Instant(instant) => instant.timestamp() < now.timestamp(),
         }
     }
 }
+
+#[cfg(test)]
+#[path = "date_forms_tests.rs"]
+mod tests;

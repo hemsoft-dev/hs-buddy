@@ -22,7 +22,7 @@ buddy-core = { path = "../buddy-core" }
 serde_json.workspace = true
 uuid = { version = "1", features = ["v4"] }
 gpui-kit = { workspace = true, features = ["syntect"] }
-chrono.workspace = true
+jiff = { version = "=0.2.43", default-features = false, features = ["std", "tz-system"] }
 env_logger = "0.11"
 log.workspace = true
 tokio.workspace = true

@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Datelike, Timelike, Utc};
+use jiff::Timestamp;
 use reqwest::Url;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -32,7 +32,7 @@ impl std::error::Error for Unavailable {}
 pub struct Connection {
     pub tempo: Client,
     pub jira: JiraClient,
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
 }
 
 #[derive(Deserialize)]
@@ -54,7 +54,7 @@ struct Host {
 struct Routes {
     tempo: Url,
     jira: Url,
-    now: DateTime<Utc>,
+    now: Timestamp,
 }
 
 pub fn connect(credentials: &Credentials, config: &Path) -> Result<Connection, Unavailable> {
@@ -159,10 +159,12 @@ fn validate(credentials: &Credentials, config: &Path, host: &Host) -> Result<Rou
     {
         return Err(Unavailable);
     }
-    let now = DateTime::parse_from_rfc3339(&marker.now_utc)
-        .map_err(|_| Unavailable)?
-        .with_timezone(&Utc);
-    if !(1..=9999).contains(&now.year()) || now.nanosecond() >= 1_000_000_000 {
+    // A leap second is not a usable fixed clock.
+    let now = crate::wire_time::rfc3339(&marker.now_utc)
+        .and_then(crate::wire_time::Parsed::exact)
+        .ok_or(Unavailable)?
+        .timestamp();
+    if !(1..=9999).contains(&jiff::tz::Offset::UTC.to_datetime(now).year()) {
         return Err(Unavailable);
     }
     Ok(Routes {
