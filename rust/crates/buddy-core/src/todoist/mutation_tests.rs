@@ -1,5 +1,4 @@
 use super::*;
-use chrono::NaiveDate;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -10,7 +9,7 @@ fn draft() -> CreateDraft {
         description: "Line one\nLine two".into(),
         project: Some(Id::parse("synthetic-project").unwrap()),
         priority: Priority::from_api(4).unwrap(),
-        due: Some(NaiveDate::from_ymd_opt(2026, 10, 16).unwrap()),
+        due: Some(jiff::civil::date(2026, 10, 16)),
     }
 }
 fn commands(request: &WriteRequest) -> Value {
@@ -208,7 +207,7 @@ fn invalid_fields_and_json_expansion_are_rejected_before_a_request_can_exist() {
         Err(Error::InvalidDraft)
     ));
     let mut invalid = draft();
-    invalid.due = Some(NaiveDate::from_ymd_opt(0, 1, 1).unwrap());
+    invalid.due = Some(jiff::civil::date(0, 1, 1));
     assert!(matches!(
         WriteRequest::create(WriteScope::new(), &invalid),
         Err(Error::InvalidDraft)

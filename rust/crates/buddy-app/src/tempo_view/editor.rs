@@ -2,7 +2,7 @@ use super::*;
 use buddy_core::tempo::{
     AccountId, BillingSelection, Draft, EditorIssue, JiraError, JiraIssue, Worklog,
 };
-use chrono::{NaiveDate, NaiveTime};
+use jiff::civil::{Date, Time};
 #[cfg(test)]
 #[path = "editor_tests.rs"]
 mod behavior_tests;
@@ -29,8 +29,8 @@ pub(super) struct Editor {
 impl Editor {
     pub fn new(
         original: Option<Worklog>,
-        date: NaiveDate,
-        start: NaiveTime,
+        date: Date,
+        start: Time,
         window: &mut Window,
         cx: &mut Context<TempoView>,
     ) -> Self {
@@ -46,12 +46,12 @@ impl Editor {
         let start = original
             .as_ref()
             .and_then(|row| row.start_time)
-            .map(|t| t.format("%H:%M:%S").to_string())
+            .map(|t| t.strftime("%H:%M:%S").to_string())
             .unwrap_or_else(|| {
                 if original.is_some() {
                     String::new()
                 } else {
-                    start.format("%H:%M:%S").to_string()
+                    start.strftime("%H:%M:%S").to_string()
                 }
             });
         let duration = original
@@ -115,8 +115,8 @@ impl Editor {
     }
     pub fn from_template(
         source: &Worklog,
-        date: NaiveDate,
-        start: NaiveTime,
+        date: Date,
+        start: Time,
         window: &mut Window,
         cx: &mut Context<TempoView>,
     ) -> Result<Self, String> {
@@ -211,20 +211,20 @@ impl Editor {
             .ok_or("Look up the issue before saving.")?;
         let seconds = parse_duration(self.hours.read(cx).value().as_ref())?;
         let text = self.date.read(cx).value().to_string();
-        let date = NaiveDate::parse_from_str(&text, "%Y-%m-%d")
-            .map_err(|_| "Enter a valid work date as YYYY-MM-DD.".to_owned())?;
-        if date.format("%Y-%m-%d").to_string() != text {
+        let date = buddy_core::wire_time::date(&text)
+            .ok_or_else(|| "Enter a valid work date as YYYY-MM-DD.".to_owned())?;
+        if date.to_string() != text {
             return Err("Enter the work date as YYYY-MM-DD.".into());
         }
         let text = self.start.read(cx).value().to_string();
-        let start = if text.is_empty() {
-            None
+        let (start, leap_second) = if text.is_empty() {
+            (None, false)
+        } else if let Some(time) = buddy_core::wire_time::hour_minute_second(&text) {
+            (Some(time.value), time.leap_second)
         } else {
-            Some(
-                NaiveTime::parse_from_str(&text, "%H:%M:%S")
-                    .or_else(|_| NaiveTime::parse_from_str(&text, "%H:%M"))
-                    .map_err(|_| "Enter a start time as HH:MM or HH:MM:SS.".to_owned())?,
-            )
+            let time = buddy_core::wire_time::hour_minute(&text)
+                .ok_or_else(|| "Enter a start time as HH:MM or HH:MM:SS.".to_owned())?;
+            (Some(time), false)
         };
         let mut draft = match &self.original {
             Some(row) => Draft::edit(row),
@@ -233,6 +233,11 @@ impl Editor {
         .map_err(|e| e.to_string())?;
         draft.set_duration(seconds).map_err(|e| e.to_string())?;
         draft.set_date(date).map_err(|e| e.to_string())?;
+        // A 60th second is read, then refused here like any other time that
+        // cannot be sent.
+        if leap_second {
+            return Err(buddy_core::tempo::Error::InvalidDraft.to_string());
+        }
         draft.set_start_time(start).map_err(|e| e.to_string())?;
         let description = self.description.read(cx).value().to_string();
         draft
@@ -306,9 +311,9 @@ pub(super) fn parse_duration(value: &str) -> Result<u64, String> {
     }
 }
 
-pub(super) fn next_start_time(seconds: u64) -> NaiveTime {
+pub(super) fn next_start_time(seconds: u64) -> Time {
     let seconds = (seconds % 86400 + 8 * 3600) % 86400;
-    NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, 0).expect("bounded service time")
+    Time::MIN + jiff::SignedDuration::from_secs(seconds as i64)
 }
 
 impl TempoView {

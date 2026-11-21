@@ -22,7 +22,6 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 convex = { version = "0.10", default-features = false, features = ["rustls-tls-native-roots"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 futures = "0.3"
-chrono = "0.4"
 
 [profile.dev]
 debug = "line-tables-only"

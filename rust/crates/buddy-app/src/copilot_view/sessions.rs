@@ -174,7 +174,7 @@ impl SessionsView {
             tokio::task::spawn_blocking(move || {
                 root.detail(&key, Limits::default()).map(|detail| {
                     let digest =
-                        detail.digest(&workspace, &agent, chrono::Utc::now().timestamp_millis());
+                        detail.digest(&workspace, &agent, jiff::Timestamp::now().as_millisecond());
                     (detail, digest)
                 })
             })

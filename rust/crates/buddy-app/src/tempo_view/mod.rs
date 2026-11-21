@@ -34,7 +34,7 @@ enum Pane {
 enum Operation {
     Refresh,
     Templates,
-    Template(buddy_core::tempo::WorklogId, chrono::NaiveDate),
+    Template(buddy_core::tempo::WorklogId, jiff::civil::Date),
     PrepareCopy(Vec<buddy_core::tempo::WorklogId>),
     ExecuteCopy(Box<buddy_core::tempo::CopyPlan>),
     Month(i32),
@@ -55,14 +55,14 @@ pub struct TempoView {
     pending_template: Option<(
         buddy_core::tempo::Worklog,
         buddy_core::tempo::EditorIssue,
-        chrono::NaiveDate,
+        jiff::civil::Date,
     )>,
     editor: Option<editor::Editor>,
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
     copy_plan: Option<Box<buddy_core::tempo::CopyPlan>>,
-    cell_filter: Option<(chrono::NaiveDate, Option<buddy_core::tempo::IssueId>)>,
+    cell_filter: Option<(jiff::civil::Date, Option<buddy_core::tempo::IssueId>)>,
     credentials: [Entity<InputState>; 4],
     tempo_origin: ApiOrigin,
     from: Entity<InputState>,
@@ -82,7 +82,7 @@ pub struct TempoView {
     /// Whether this profile has a saved connection; `None` until checked.
     saved: Option<bool>,
     grid_scroll: gpui_kit::ScrollHandle,
-    today: Option<chrono::NaiveDate>,
+    today: Option<jiff::civil::Date>,
     scroll_to_today: bool,
 }
 impl TempoView {

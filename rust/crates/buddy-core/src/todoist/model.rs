@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use chrono::{DateTime, FixedOffset};
+use jiff::Zoned;
 use serde::{Deserialize, de::DeserializeOwned};
 
 use super::dates::RawDue;
@@ -62,7 +62,7 @@ pub struct Task {
     pub labels: Vec<String>,
     pub completed: bool,
     pub deleted: bool,
-    pub created_at: Option<DateTime<FixedOffset>>,
+    pub created_at: Option<Zoned>,
     pub order: i64,
 }
 #[derive(Clone)]
@@ -268,7 +268,9 @@ pub fn parse_tasks(bytes: &[u8]) -> Result<Page<Task>, Error> {
             created_at: row
                 .added_at
                 .map(|value| {
-                    DateTime::parse_from_rfc3339(&value).map_err(|_| Error::InvalidResponse)
+                    crate::wire_time::rfc3339(&value)
+                        .map(|parsed| parsed.value)
+                        .ok_or(Error::InvalidResponse)
                 })
                 .transpose()?,
             order: row.child_order,

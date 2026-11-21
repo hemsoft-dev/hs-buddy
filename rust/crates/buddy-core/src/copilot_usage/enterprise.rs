@@ -265,12 +265,13 @@ pub fn read(path: &Path) -> Result<Snapshot, &'static str> {
     if !metadata.is_file() || metadata.len() > MAX_BYTES as u64 {
         return Err(ERROR);
     }
-    let modified: chrono::DateTime<chrono::Utc> = metadata.modified().map_err(|_| ERROR)?.into();
+    let modified =
+        jiff::Timestamp::try_from(metadata.modified().map_err(|_| ERROR)?).map_err(|_| ERROR)?;
     let mut bytes = Vec::new();
     file.take(MAX_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| ERROR)?;
-    parse(&bytes, &modified.to_rfc3339())
+    parse(&bytes, &crate::wire_time::rfc3339_utc(modified))
 }
 
 #[cfg(test)]

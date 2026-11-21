@@ -272,3 +272,95 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
         .unwrap();
     });
 }
+
+#[gpui_kit::test]
+fn the_work_date_must_be_canonical_and_the_start_time_may_be_unpadded(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TempoView::new(window, cx);
+                let row = worklog();
+                let mut editor =
+                    Editor::new(Some(row.clone()), row.date, next_start_time(0), window, cx);
+                editor.accept_lookup("19".into(), details(), cx).unwrap();
+                editor
+                    .hours
+                    .update(cx, |field, cx| field.set_value("1:00:00", window, cx));
+                let invalid_draft = buddy_core::tempo::Error::InvalidDraft.to_string();
+                for (text, sent) in [
+                    ("", Ok(None)),
+                    ("09:10:11", Ok(Some("09:10:11"))),
+                    ("9:5:7", Ok(Some("09:05:07"))),
+                    ("09:10", Ok(Some("09:10:00"))),
+                    ("9:5", Ok(Some("09:05:00"))),
+                    (" 9: 5", Ok(Some("09:05:00"))),
+                    ("23:59:59", Ok(Some("23:59:59"))),
+                    // A 60th second is read, then refused as an unsendable time.
+                    ("09:10:60", Err(invalid_draft.as_str())),
+                    ("24:00", Err("Enter a start time as HH:MM or HH:MM:SS.")),
+                    ("09:60", Err("Enter a start time as HH:MM or HH:MM:SS.")),
+                    (
+                        "09:10:11.5",
+                        Err("Enter a start time as HH:MM or HH:MM:SS."),
+                    ),
+                    ("09:10:11 ", Err("Enter a start time as HH:MM or HH:MM:SS.")),
+                    ("0910", Err("Enter a start time as HH:MM or HH:MM:SS.")),
+                    ("9 AM", Err("Enter a start time as HH:MM or HH:MM:SS.")),
+                ] {
+                    editor
+                        .start
+                        .update(cx, |field, cx| field.set_value(text, window, cx));
+                    let result = editor.draft(&row.author, cx).map(|draft| {
+                        serde_json::from_slice::<Value>(&draft.encode().unwrap()).unwrap()
+                    });
+                    match (result, sent) {
+                        (Ok(body), Ok(sent)) => {
+                            assert_eq!(
+                                body.get("startTime").and_then(Value::as_str),
+                                sent,
+                                "{text:?}"
+                            )
+                        }
+                        (Err(message), Err(expected)) => assert_eq!(message, expected, "{text:?}"),
+                        (result, _) => panic!("{text:?}: {:?}", result.map(|_| ())),
+                    }
+                }
+                editor
+                    .start
+                    .update(cx, |field, cx| field.set_value("", window, cx));
+                for (text, sent) in [
+                    ("2026-10-22", Ok("2026-10-22")),
+                    ("2028-02-29", Ok("2028-02-29")),
+                    ("0001-01-01", Ok("0001-01-01")),
+                    ("9999-12-31", Ok("9999-12-31")),
+                    ("2026-10-2", Err("Enter the work date as YYYY-MM-DD.")),
+                    (" 2026-10-22", Err("Enter the work date as YYYY-MM-DD.")),
+                    ("+2026-10-22", Err("Enter the work date as YYYY-MM-DD.")),
+                    ("2026-02-30", Err("Enter a valid work date as YYYY-MM-DD.")),
+                    ("2026-10-22 ", Err("Enter a valid work date as YYYY-MM-DD.")),
+                    ("22/10/2026", Err("Enter a valid work date as YYYY-MM-DD.")),
+                    ("", Err("Enter a valid work date as YYYY-MM-DD.")),
+                    ("0000-01-01", Err(invalid_draft.as_str())),
+                ] {
+                    editor
+                        .date
+                        .update(cx, |field, cx| field.set_value(text, window, cx));
+                    let result = editor.draft(&row.author, cx).map(|draft| {
+                        serde_json::from_slice::<Value>(&draft.encode().unwrap()).unwrap()
+                    });
+                    match (result, sent) {
+                        (Ok(body), Ok(sent)) => assert_eq!(body["startDate"], sent, "{text:?}"),
+                        (Err(message), Err(expected)) => assert_eq!(message, expected, "{text:?}"),
+                        (result, _) => panic!("{text:?}: {:?}", result.map(|_| ())),
+                    }
+                }
+                view
+            })
+        })
+        .unwrap();
+    });
+}

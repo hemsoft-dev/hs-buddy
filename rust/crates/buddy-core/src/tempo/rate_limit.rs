@@ -47,13 +47,12 @@ pub(super) fn retry_delay(headers: &reqwest::header::HeaderMap, retry: usize) ->
         return fallback;
     };
     let seconds = value.parse::<u64>().ok().or_else(|| {
-        chrono::DateTime::parse_from_rfc2822(value)
-            .ok()
-            .map(|date| {
-                (date.with_timezone(&chrono::Utc) - chrono::Utc::now())
-                    .num_seconds()
-                    .max(1) as u64
-            })
+        jiff::fmt::rfc2822::parse(value).ok().map(|date| {
+            date.timestamp()
+                .duration_since(jiff::Timestamp::now())
+                .as_secs()
+                .max(1) as u64
+        })
     });
     seconds
         .map(|value| Duration::from_secs(value.max(1)))
@@ -111,12 +110,14 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_after_date_with_an_unknown_zone_name_is_not_a_date() {
+    fn a_retry_after_date_with_an_unknown_zone_name_is_read_as_utc() {
+        // chrono refused a zone name it did not know and backed off instead.
+        // jiff follows RFC 5322 section 4.3 and reads such a name as UTC.
         for value in [
             "Wed, 21 Oct 2015 07:28:00 UTC",
             "Wed, 21 Oct 2015 07:28:00 XYZ",
         ] {
-            assert_eq!(delay(value, 2), Duration::from_secs(4), "{value:?}");
+            assert_eq!(delay(value, 2), Duration::from_secs(1), "{value:?}");
         }
     }
 }

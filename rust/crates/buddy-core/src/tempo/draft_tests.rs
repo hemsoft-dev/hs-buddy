@@ -274,11 +274,12 @@ fn invalid_edits_leave_the_original_draft_intact_and_create_is_bounded() {
         Err(Error::InvalidDraft)
     );
     assert_eq!(
-        draft.set_date(NaiveDate::from_ymd_opt(10000, 1, 1).unwrap()),
+        // jiff has no year 10000, so the year before the supported range is used.
+        draft.set_date(jiff::civil::date(0, 12, 31)),
         Err(Error::InvalidDraft)
     );
     assert_eq!(
-        draft.set_start_time(Some(NaiveTime::from_hms_nano_opt(12, 0, 0, 1).unwrap())),
+        draft.set_start_time(Some(jiff::civil::time(12, 0, 0, 1))),
         Err(Error::InvalidDraft)
     );
     assert_eq!(

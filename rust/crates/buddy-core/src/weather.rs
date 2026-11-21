@@ -1,7 +1,7 @@
 //! Weather data (Open-Meteo), geocoding (Nominatim), and the WMO weather-code
 //! tables from `useWeather.ts` and `WeatherCard.tsx`.
 
-use chrono::{Datelike, NaiveDate};
+use jiff::civil::Weekday;
 use serde::Deserialize;
 
 pub use crate::config::WeatherLocation;
@@ -139,15 +139,15 @@ fn day_name(date: &str, index: usize) -> String {
     if index == 0 {
         return "Today".to_string();
     }
-    NaiveDate::parse_from_str(date, "%Y-%m-%d")
+    crate::wire_time::date(date)
         .map(|d| match d.weekday() {
-            chrono::Weekday::Mon => "Mon",
-            chrono::Weekday::Tue => "Tue",
-            chrono::Weekday::Wed => "Wed",
-            chrono::Weekday::Thu => "Thu",
-            chrono::Weekday::Fri => "Fri",
-            chrono::Weekday::Sat => "Sat",
-            chrono::Weekday::Sun => "Sun",
+            Weekday::Monday => "Mon",
+            Weekday::Tuesday => "Tue",
+            Weekday::Wednesday => "Wed",
+            Weekday::Thursday => "Thu",
+            Weekday::Friday => "Fri",
+            Weekday::Saturday => "Sat",
+            Weekday::Sunday => "Sun",
         })
         .unwrap_or("")
         .to_string()

@@ -74,7 +74,7 @@ impl Client {
     pub fn for_desktop_fixture(
         token: &str,
         config: &std::path::Path,
-    ) -> Result<(Self, chrono::DateTime<chrono::Utc>), TransportError> {
+    ) -> Result<(Self, jiff::Timestamp), TransportError> {
         let connection = super::fixture::load(token, config)?;
         let client = Self::build(token, connection.api, false)?;
         Ok((client, connection.now))

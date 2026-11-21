@@ -44,9 +44,9 @@ pub fn render(app: &BuddyApp, cx: &mut Context<BuddyApp>) -> impl IntoElement + 
         .clone()
         .unwrap_or_else(|| "No gh account".to_string());
     // `formatTime(now, { seconds: true })`: the locale's clock convention.
-    let now = chrono::Local::now();
+    let now = jiff::Zoned::now();
     let clock = buddy_core::format::clock(now.time())
-        .unwrap_or_else(|| now.format("%-I:%M:%S %p").to_string());
+        .unwrap_or_else(|| now.strftime("%-I:%M:%S %p").to_string());
     let save_error = Settings::global(cx).save_error.clone();
     let (prs, pr_stale) = app.dashboard.read(cx).status_prs();
     let (jobs, schedules, automation_stale) = app.automation_view.read(cx).status_totals();

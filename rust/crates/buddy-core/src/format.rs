@@ -5,7 +5,6 @@
 //! locale through ICU4X, as `Intl.NumberFormat(undefined, ...)` and
 //! `toLocaleDateString(undefined, ...)` do in the renderer.
 
-use chrono::{Datelike as _, Timelike as _};
 use fixed_decimal::{Decimal, FloatPrecision, Sign, SignedRoundingMode, UnsignedRoundingMode};
 use icu_calendar::Date;
 use icu_datetime::DateTimeFormatter;
@@ -141,9 +140,9 @@ impl LocaleFormat {
     /// the locale's medium year-month (`Oct 2026`, `oct. 2026`, `10/2026`
     /// for German, `2026/10` for Japanese). The full date is passed so a
     /// locale on a non-Gregorian calendar lands in the right month and year.
-    pub fn month_year(&self, date: chrono::NaiveDate) -> Option<String> {
+    pub fn month_year(&self, date: jiff::civil::Date) -> Option<String> {
         let date = Date::try_new_iso(
-            date.year(),
+            date.year().into(),
             u8::try_from(date.month()).ok()?,
             u8::try_from(date.day()).ok()?,
         )
@@ -154,11 +153,11 @@ impl LocaleFormat {
     /// `toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit",
     /// second: "2-digit" })`: the locale's hour cycle (`03:04:05 PM`,
     /// `15:04:05`).
-    pub fn clock(&self, time: chrono::NaiveTime) -> Option<String> {
+    pub fn clock(&self, time: jiff::civil::Time) -> Option<String> {
         let time = Time::try_new(
             u8::try_from(time.hour()).ok()?,
             u8::try_from(time.minute()).ok()?,
-            u8::try_from(time.second().min(59)).ok()?,
+            u8::try_from(time.second()).ok()?,
             0,
         )
         .ok()?;
@@ -198,12 +197,12 @@ pub fn price(value: f64) -> String {
 }
 
 /// Short month and year of `date` in the system locale.
-pub fn month_year(date: chrono::NaiveDate) -> Option<String> {
+pub fn month_year(date: jiff::civil::Date) -> Option<String> {
     SYSTEM.with(|f| f.month_year(date))
 }
 
 /// Wall-clock time with seconds in the system locale's hour cycle.
-pub fn clock(time: chrono::NaiveTime) -> Option<String> {
+pub fn clock(time: jiff::civil::Time) -> Option<String> {
     SYSTEM.with(|f| f.clock(time))
 }
 
@@ -271,7 +270,7 @@ mod tests {
 
     #[test]
     fn formats_the_clock_in_the_locale_hour_cycle() {
-        let time = chrono::NaiveTime::from_hms_opt(15, 4, 5).unwrap();
+        let time = jiff::civil::time(15, 4, 5, 0);
         assert_eq!(en_us().clock(time).as_deref(), Some("03:04:05\u{202f}PM"));
         let de = LocaleFormat::for_locale(&locale!("de-DE"));
         assert_eq!(de.clock(time).as_deref(), Some("15:04:05"));
@@ -281,7 +280,7 @@ mod tests {
 
     #[test]
     fn formats_month_and_year_like_to_locale_date_string() {
-        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 7).unwrap();
+        let day = jiff::civil::date(2026, 10, 7);
         assert_eq!(en_us().month_year(day).as_deref(), Some("Oct 2026"));
         let fr = LocaleFormat::for_locale(&locale!("fr-FR"));
         assert_eq!(fr.month_year(day).as_deref(), Some("oct. 2026"));

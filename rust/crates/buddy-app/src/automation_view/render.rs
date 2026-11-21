@@ -60,13 +60,13 @@ fn shell_label(shell: Shell) -> &'static str {
 
 /// Convex stores milliseconds since the epoch; show local wall time.
 pub(super) fn local_time(milliseconds: f64) -> String {
-    chrono::DateTime::from_timestamp_millis(milliseconds as i64)
+    jiff::Timestamp::from_millisecond(milliseconds as i64)
         .map(|time| {
-            time.with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S")
+            time.to_zoned(jiff::tz::TimeZone::system())
+                .strftime("%Y-%m-%d %H:%M:%S")
                 .to_string()
         })
-        .unwrap_or_else(|| "Unknown time".into())
+        .unwrap_or_else(|_| "Unknown time".into())
 }
 
 /// The last `OUTPUT_LIMIT` bytes, cut on a character boundary.

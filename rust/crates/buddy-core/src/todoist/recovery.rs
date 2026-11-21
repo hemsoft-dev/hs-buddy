@@ -215,7 +215,7 @@ fn restore_request(scope: WriteScope, commands: String) -> Result<WriteRequest, 
             .and_then(Priority::from_api)
     };
     let date = optional(args, "due", |v| {
-        NaiveDate::parse_from_str(text(v, "date")?, "%Y-%m-%d").map_err(|_| Error::InvalidRecovery)
+        crate::wire_time::date(text(v, "date")?).ok_or(Error::InvalidRecovery)
     })?;
     let target = || Id::parse(text(args, "id")?);
     // Reuse draft validation, then compare the entire reconstructed shape.

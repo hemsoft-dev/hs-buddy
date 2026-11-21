@@ -3,7 +3,7 @@ use buddy_core::tempo::{AccountCalendar, Draft, EditorIssue, Worklog, WorklogId}
 
 pub(super) enum Update {
     Message(Tone, String),
-    TemplateEditor(Box<(Worklog, EditorIssue, chrono::NaiveDate)>),
+    TemplateEditor(Box<(Worklog, EditorIssue, jiff::civil::Date)>),
     CopyReady(Box<buddy_core::tempo::CopyPlan>),
     Editor(Box<(Worklog, EditorIssue)>),
     Lookup(Box<(uuid::Uuid, String, EditorIssue)>),

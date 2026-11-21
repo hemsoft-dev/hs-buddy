@@ -50,7 +50,10 @@ fn explicit_owned_loopback_fixture_is_accepted_without_process_environment_chang
     owned.marker("http://127.0.0.1:12345/api/v1/");
     let connection = validate(TOKEN, &owned.config(), &owned.host()).unwrap();
     assert_eq!(connection.api.as_str(), "http://127.0.0.1:12345/api/v1/");
-    assert_eq!(connection.now.to_rfc3339(), "2026-11-02T05:30:00+00:00");
+    assert_eq!(
+        crate::wire_time::rfc3339_utc(connection.now),
+        "2026-11-02T05:30:00+00:00"
+    );
 }
 
 #[test]
@@ -172,10 +175,7 @@ fn fixture_clock_is_required_bounded_and_normalized_without_host_clock_fallback(
     marker["now_utc"] = json!("2026-11-02T01:30:00-04:00");
     std::fs::write(owned.0.join(MARKER), serde_json::to_vec(&marker).unwrap()).unwrap();
     assert_eq!(
-        validate(TOKEN, &owned.config(), &owned.host())
-            .unwrap()
-            .now
-            .to_rfc3339(),
+        crate::wire_time::rfc3339_utc(validate(TOKEN, &owned.config(), &owned.host()).unwrap().now),
         "2026-11-02T05:30:00+00:00"
     );
 }

@@ -1,7 +1,7 @@
 //! Read-only templates retain their source connection and never replace the view.
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{DateRange, Error, Planner, PlannerError, Session, SessionError};
 use crate::tempo::{AccountId, IssueId, Worklog, WorklogId, WriteScope};
@@ -27,7 +27,7 @@ impl Templates {
 impl Session {
     pub async fn previous_month_templates(
         &self,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<Templates, SessionError> {
         let current = self.snapshot();
         let range = DateRange::month_containing(current.range.start)?.shift_month(-1)?;

@@ -73,8 +73,8 @@ impl Editor {
                 return Err("Enter a due date as YYYY-MM-DD.".into());
             }
             Some(
-                chrono::NaiveDate::parse_from_str(&due_text, "%Y-%m-%d")
-                    .map_err(|_| "Enter a valid due date as YYYY-MM-DD.".to_owned())?,
+                buddy_core::wire_time::date(&due_text)
+                    .ok_or_else(|| "Enter a valid due date as YYYY-MM-DD.".to_owned())?,
             )
         } else {
             None

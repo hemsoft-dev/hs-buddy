@@ -1,6 +1,6 @@
 //! Pure Codex allowance parsing, matching the existing Electron provider.
 //! Credential access and HTTP transport belong to a separate boundary.
-use chrono::{DateTime, SecondsFormat, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -62,10 +62,10 @@ fn time(milliseconds: f64) -> Option<(String, i64)> {
     if !milliseconds.is_finite() {
         return None;
     }
-    let date = DateTime::<Utc>::from_timestamp_millis(milliseconds as i64)?;
+    let date = Timestamp::from_millisecond(milliseconds as i64).ok()?;
     Some((
-        date.to_rfc3339_opts(SecondsFormat::Millis, true),
-        date.timestamp_millis(),
+        crate::wire_time::rfc3339_millis(date),
+        date.as_millisecond(),
     ))
 }
 
@@ -294,7 +294,7 @@ mod tests {
         }
         assert_eq!(
             serde_json::to_value(
-                &parse(
+                parse(
                     &response(raw(json!(25), json!(18000), json!(18000)), Value::Null),
                     7_200_000,
                 )
@@ -310,29 +310,28 @@ mod tests {
     }
 
     #[test]
-    fn window_times_after_year_9999_keep_a_signed_year() {
-        for (reset, reset_at) in [
-            (json!(253_402_300_799_i64), "9999-12-31T23:59:59.000Z"),
-            (json!(253_402_300_800_i64), "+10000-01-01T00:00:00.000Z"),
-            (json!(8_210_266_876_799_i64), "+262142-12-31T23:59:59.000Z"),
+    fn a_window_resetting_outside_the_supported_instants_is_left_out() {
+        // chrono wrote resets up to the year 262142 with a signed year, such as
+        // `+10000-01-01T00:00:00.000Z`. jiff ends at 9999-12-30T22:00:00Z for
+        // whole milliseconds and starts at -9999-01-02T01:59:59Z, so such a
+        // window is now left out, as it already was past chrono's own limit.
+        for reset in [
+            253_402_207_201_i64,
+            253_402_300_799,
+            253_402_300_800,
+            8_210_266_876_799,
+            8_210_266_876_800,
+            -377_705_023_202,
         ] {
-            let usage = parse(
-                &response(raw(json!(10), json!(18000), reset), Value::Null),
-                0,
-            )
-            .unwrap();
-            assert_eq!(usage.windows[0].reset_at, reset_at);
-        }
-        assert_eq!(
-            parse(
-                &response(
-                    raw(json!(10), json!(18000), json!(8_210_266_876_800_i64)),
-                    Value::Null
+            assert_eq!(
+                parse(
+                    &response(raw(json!(10), json!(18000), json!(reset)), Value::Null),
+                    0
                 ),
-                0
-            ),
-            Err(ParseError::NoWindows)
-        );
+                Err(ParseError::NoWindows),
+                "{reset}"
+            );
+        }
     }
 
     #[test]

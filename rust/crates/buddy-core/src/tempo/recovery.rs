@@ -365,9 +365,9 @@ fn wire(row: &Worklog) -> Value {
     json!({"tempoWorklogId":id, "self":format!("https://api.tempo.io/4/worklogs/{id}"),
         "issue":{"id":row.issue.map(|id| id.get()), "self":"https://api.tempo.io/4/issues"},
         "author":{"accountId":row.author.as_str()}, "timeSpentSeconds":row.seconds, "billableSeconds":row.billable_seconds,
-        "startDate":row.date.to_string(), "startTime":row.start_time.map(|time| time.format("%H:%M:%S").to_string()),
-        "startDateTimeUtc":row.start_instant.map(|time| time.to_rfc3339()), "description":row.description,
-        "createdAt":row.created_at.to_rfc3339(), "updatedAt":row.updated_at.to_rfc3339(),
+        "startDate":row.date.to_string(), "startTime":row.start_time.map(|time| time.strftime("%H:%M:%S").to_string()),
+        "startDateTimeUtc":row.start_instant.map(crate::wire_time::rfc3339_utc), "description":row.description,
+        "createdAt":crate::wire_time::rfc3339_utc(row.created_at), "updatedAt":crate::wire_time::rfc3339_utc(row.updated_at),
         "attributes":{"self":format!("https://api.tempo.io/4/worklogs/{id}/work-attribute-values"),
             "values":row.attributes.as_ref().map(|values| values.iter().map(|value| json!({"key":value.key,"value":value.value})).collect::<Vec<_>>())}})
 }

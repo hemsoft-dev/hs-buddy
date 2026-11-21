@@ -4,7 +4,7 @@ use buddy_core::tempo::{
     credentials::{self, Credentials},
     fixture,
 };
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -57,15 +57,15 @@ pub(super) struct Connection {
     pub session: Session,
     pub metadata: Arc<super::metadata::Metadata>,
     pub templates: Option<Arc<buddy_core::tempo::Templates>>,
-    fixed_now: Option<DateTime<Utc>>,
+    fixed_now: Option<Timestamp>,
 }
 impl Connection {
     pub fn binding(&self) -> Binding {
         Binding::for_session(&self.session)
     }
 
-    pub fn now(&self) -> DateTime<Utc> {
-        self.fixed_now.unwrap_or_else(Utc::now)
+    pub fn now(&self) -> Timestamp {
+        self.fixed_now.unwrap_or_else(Timestamp::now)
     }
 }
 pub(super) async fn connect(
@@ -98,7 +98,7 @@ pub(super) async fn connect(
         &config,
         Arc::new(client),
         Arc::new(jira),
-        fixed_now.unwrap_or_else(Utc::now),
+        fixed_now.unwrap_or_else(Timestamp::now),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -112,7 +112,7 @@ pub(super) async fn connect(
         || range.end != session.snapshot().range.end)
     {
         session
-            .refresh(range, fixed_now.unwrap_or_else(Utc::now))
+            .refresh(range, fixed_now.unwrap_or_else(Timestamp::now))
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -230,7 +230,7 @@ async fn finish_write(
     connection: &mut Connection,
     report: buddy_core::tempo::DispatchReport,
     kind: buddy_core::tempo::DraftKind,
-    date: chrono::NaiveDate,
+    date: jiff::civil::Date,
 ) -> Result<Update, String> {
     let confirmed = report.phase == buddy_core::tempo::WritePhase::Confirmed;
     let tone = write_tone(report.phase);
@@ -349,7 +349,7 @@ pub(super) fn write_tone(phase: buddy_core::tempo::WritePhase) -> Tone {
 fn range_after_copy(
     before: buddy_core::tempo::DateRange,
     current: buddy_core::tempo::DateRange,
-    today: Option<chrono::NaiveDate>,
+    today: Option<jiff::civil::Date>,
 ) -> Option<buddy_core::tempo::DateRange> {
     let unchanged = before.start == current.start && before.end == current.end;
     (!unchanged && today.is_some_and(|date| before.contains(date))).then_some(before)
@@ -359,7 +359,7 @@ fn range_after_write(
     current: buddy_core::tempo::DateRange,
     confirmed: bool,
     kind: buddy_core::tempo::DraftKind,
-    date: chrono::NaiveDate,
+    date: jiff::civil::Date,
 ) -> Result<buddy_core::tempo::DateRange, buddy_core::tempo::Error> {
     if confirmed && kind != buddy_core::tempo::DraftKind::Delete && !current.contains(date) {
         buddy_core::tempo::DateRange::month_containing(date)

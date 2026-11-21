@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use chrono::{Days, NaiveDate};
+use jiff::{ToSpan, civil::Date};
 use serde_json::{Value, json};
 
 use super::{ApiRequest, GitHubClient, GitHubError, PrMode, PullRef, RepositoryRef};
@@ -164,21 +164,27 @@ impl GitHubClient {
         merged_days: u32,
         force: bool,
     ) -> Result<PullSearchResult, GitHubError> {
-        self.pull_requests_at(mode, merged_days, chrono::Utc::now().date_naive(), force)
-            .await
+        self.pull_requests_at(
+            mode,
+            merged_days,
+            jiff::tz::Offset::UTC
+                .to_datetime(jiff::Timestamp::now())
+                .date(),
+            force,
+        )
+        .await
     }
 
     pub async fn pull_requests_at(
         &self,
         mode: PrMode,
         merged_days: u32,
-        today: NaiveDate,
+        today: Date,
         force: bool,
     ) -> Result<PullSearchResult, GitHubError> {
         let merged_after = today
-            .checked_sub_days(Days::new(u64::from(merged_days.clamp(1, 3650))))
-            .ok_or(GitHubError::InvalidData)?
-            .format("%Y-%m-%d")
+            .checked_sub(i64::from(merged_days.clamp(1, 3650)).days())
+            .map_err(|_| GitHubError::InvalidData)?
             .to_string();
         let mut result = PullSearchResult {
             items: Vec::new(),

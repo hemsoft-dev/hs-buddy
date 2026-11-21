@@ -28,7 +28,7 @@ fn seed(view: &mut UsageView) {
         budget_amount: Some(100.0),
         budget_unavailable: false,
         prevent_further_usage: false,
-        fetched_at: Utc::now(),
+        fetched_at: Timestamp::now(),
         year: 2026,
         month: 10,
     });

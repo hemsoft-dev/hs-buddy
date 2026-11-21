@@ -32,7 +32,7 @@ enum Pane {
 
 enum Operation {
     Refresh,
-    DayRefresh(chrono::DateTime<chrono::Utc>),
+    DayRefresh(jiff::Timestamp),
     Load(Coverage, Pane, Option<Id>),
     Submit(TaskChange),
     Retry,
@@ -64,7 +64,7 @@ pub struct TodoistView {
     discard_confirm: bool,
     notice: Option<String>,
     error: Option<String>,
-    day_refresh_attempted: Option<(Id, chrono::NaiveDate)>,
+    day_refresh_attempted: Option<(Id, jiff::civil::Date)>,
 }
 
 impl TodoistView {
@@ -127,8 +127,8 @@ impl TodoistView {
 
     fn rollover_key_at(
         &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Option<(Id, chrono::NaiveDate)>, buddy_core::todoist::Error> {
+        now: jiff::Timestamp,
+    ) -> Result<Option<(Id, jiff::civil::Date)>, buddy_core::todoist::Error> {
         if self.busy || self.editor.is_some() || self.connection_form {
             return Ok(None);
         }
@@ -546,7 +546,7 @@ impl Render for TodoistView {
                         "Account {} · {} · refreshed {} UTC",
                         data.account.as_str(),
                         data.calendar.zone_name(),
-                        data.read_at.format("%Y-%m-%d %H:%M")
+                        data.read_at.strftime("%Y-%m-%d %H:%M")
                     )),
             );
         }

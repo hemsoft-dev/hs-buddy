@@ -175,21 +175,34 @@ fn instants_follow_rfc_3339_and_compare_by_moment() {
 }
 
 #[test]
-fn a_leap_second_is_kept_apart_from_the_second_before_it() {
+fn a_leap_second_reads_as_the_second_before_it() {
+    // chrono kept a 60th second as a value of its own, which then could not be
+    // written back. jiff has no such value and reads it as second 59.
     let leap = with("startTime", "23:59:60").unwrap();
     let before = with("startTime", "23:59:59").unwrap();
-    assert!(leap.start_time != before.start_time);
-    assert!(matches!(
-        Draft::delete(&leap).map(|_| ()),
-        Err(Error::InvalidDraft)
-    ));
+    assert!(leap.start_time == before.start_time);
+    assert!(Draft::delete(&leap).is_ok());
     let leap = with("updatedAt", "2016-12-31T23:59:60Z").unwrap();
     let before = with("updatedAt", "2016-12-31T23:59:59Z").unwrap();
-    assert!(leap.updated_at != before.updated_at);
+    assert!(leap.updated_at == before.updated_at);
+    let leap = with("updatedAt", "2016-12-31T23:59:60.5Z").unwrap();
+    let before = with("updatedAt", "2016-12-31T23:59:59.5Z").unwrap();
+    assert!(leap.updated_at == before.updated_at);
 }
 
 #[test]
-fn instants_reach_past_the_last_second_of_year_9999() {
-    assert!(with("updatedAt", "9999-12-31T23:59:59Z").is_ok());
-    assert!(with("updatedAt", "9999-12-31T23:59:59.999999999-23:59").is_ok());
+fn instants_end_at_the_last_one_jiff_holds() {
+    assert!(with("updatedAt", "9999-12-30T22:00:00.999999999Z").is_ok());
+    assert!(with("updatedAt", "9999-12-31T21:59:00.999999999+23:59").is_ok());
+    // chrono read these. They are past jiff's last instant.
+    for text in [
+        "9999-12-30T22:00:01Z",
+        "9999-12-31T23:59:59Z",
+        "9999-12-31T23:59:59.999999999-23:59",
+    ] {
+        assert!(
+            matches!(with("updatedAt", text), Err(Error::InvalidResponse)),
+            "{text:?}"
+        );
+    }
 }

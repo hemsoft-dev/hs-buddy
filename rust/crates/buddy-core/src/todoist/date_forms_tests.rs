@@ -286,26 +286,46 @@ fn creation_times_are_rfc_3339_without_a_year_limit() {
 }
 
 #[test]
-fn a_leap_second_due_time_is_read_but_cannot_be_placed_on_a_calendar() {
-    for text in ["2016-12-31T23:59:60Z", "2026-10-16T12:30:60.5+01:00"] {
+fn a_leap_second_due_time_reads_as_the_second_before_it() {
+    // chrono kept a 60th second, and such an instant then failed every
+    // calendar view with an invalid date. jiff has no such value and reads it
+    // as second 59, so the task is placed.
+    for (text, at, just_after, day) in [
+        (
+            "2016-12-31T23:59:60Z",
+            "2016-12-31T23:59:59Z",
+            "2016-12-31T23:59:59.000000001Z",
+            "2016-12-31",
+        ),
+        (
+            "2026-10-16T12:30:60.5+01:00",
+            "2026-10-16T11:30:59.5Z",
+            "2026-10-16T11:30:59.500000001Z",
+            "2026-10-16",
+        ),
+    ] {
         assert_eq!(form(text), "instant", "{text:?}");
+        assert_due_at(text, at, just_after);
         let parsed = due(text).unwrap();
-        assert!(matches!(utc().due_day(&parsed), Err(Error::InvalidDate)));
+        assert_eq!(utc().due_day(&parsed).unwrap().to_string(), day);
     }
     assert_eq!(form("2026-10-16T12:00:60"), "floating");
     assert_due_at(
         "2026-10-16T12:00:60",
-        "2026-10-16T12:00:59.999999999Z",
-        "2026-10-16T12:01:00Z",
+        "2026-10-16T12:00:59Z",
+        "2026-10-16T12:00:59.000000001Z",
     );
 }
 
 #[test]
-fn instants_reach_the_last_second_of_year_9999() {
+fn instants_end_at_the_last_one_jiff_holds() {
+    assert_eq!(form("9999-12-30T22:00:00.999999999Z"), "instant");
+    // chrono read these. They are past jiff's last instant.
     for text in [
+        "9999-12-30T22:00:01Z",
         "9999-12-31T23:59:59Z",
         "9999-12-31T23:59:59.999999999-23:59",
     ] {
-        assert_eq!(form(text), "instant", "{text:?}");
+        assert_eq!(form(text), "invalid", "{text:?}");
     }
 }

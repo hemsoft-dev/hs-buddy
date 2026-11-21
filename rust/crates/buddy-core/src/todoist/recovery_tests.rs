@@ -18,7 +18,7 @@ fn create(scope: WriteScope) -> WriteRequest {
             description: "One\nTwo".into(),
             project: Some(Id::parse("project").unwrap()),
             priority: Priority::from_api(4).unwrap(),
-            due: Some(NaiveDate::from_ymd_opt(2026, 10, 17).unwrap()),
+            due: Some(jiff::civil::date(2026, 10, 17)),
         },
     )
     .unwrap()
@@ -44,7 +44,7 @@ fn every_supported_change_recovers_exact_original_bytes_and_ids_as_unconfirmed()
                 content: Some("Changed".into()),
                 description: Some("".into()),
                 priority: Some(Priority::from_api(2).unwrap()),
-                due: Some(NaiveDate::from_ymd_opt(2026, 10, 18).unwrap()),
+                due: Some(jiff::civil::date(2026, 10, 18)),
             },
         )
         .unwrap(),

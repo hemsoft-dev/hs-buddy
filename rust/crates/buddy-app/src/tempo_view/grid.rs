@@ -1,11 +1,11 @@
 use super::*;
 use buddy_core::tempo::{IssueId, WorklogId};
-use chrono::NaiveDate;
+use jiff::civil::Date;
 
 impl TempoView {
     pub(super) fn open_dated_editor(
         &mut self,
-        date: NaiveDate,
+        date: Date,
         issue: Option<IssueId>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -43,7 +43,7 @@ impl TempoView {
         cx.notify();
     }
 
-    pub(super) fn cell_ids(&self, date: NaiveDate, issue: Option<IssueId>) -> Vec<WorklogId> {
+    pub(super) fn cell_ids(&self, date: Date, issue: Option<IssueId>) -> Vec<WorklogId> {
         self.data
             .iter()
             .flat_map(|data| &data.summary.days)
@@ -56,7 +56,7 @@ impl TempoView {
 
     pub(super) fn open_cell(
         &mut self,
-        date: NaiveDate,
+        date: Date,
         issue: Option<IssueId>,
         copy: bool,
         window: &mut Window,

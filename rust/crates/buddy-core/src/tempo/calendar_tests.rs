@@ -1,13 +1,11 @@
 use super::*;
-fn instant(value: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(value)
-        .unwrap()
-        .with_timezone(&Utc)
+fn instant(value: &str) -> Timestamp {
+    crate::wire_time::rfc3339(value).unwrap().value.timestamp()
 }
-fn day(value: &str) -> NaiveDate {
+fn day(value: &str) -> Date {
     value.parse().unwrap()
 }
-fn dates(range: DateRange) -> (NaiveDate, NaiveDate) {
+fn dates(range: DateRange) -> (Date, Date) {
     (range.start, range.end)
 }
 
@@ -72,16 +70,18 @@ fn absent_or_unknown_account_zone_never_falls_back_to_the_machine() {
     );
 }
 #[test]
-fn unsupported_instants_return_a_calendar_error_without_panicking() {
+fn the_earliest_and_latest_instants_have_a_day_without_panicking() {
+    // jiff holds no instant outside 9999 BC to AD 9999, so the unsupported
+    // instants this test used cannot be built. Its own limits have a day.
     let calendar = AccountCalendar::from_zone(Some("UTC")).unwrap();
-    assert!(matches!(
-        calendar.today_at(DateTime::<Utc>::MAX_UTC),
-        Err(Error::InvalidDate)
-    ));
-    assert!(matches!(
-        calendar.today_at(DateTime::<Utc>::MIN_UTC),
-        Err(Error::InvalidDate)
-    ));
+    assert_eq!(
+        calendar.today_at(Timestamp::MAX).unwrap(),
+        jiff::civil::date(9999, 12, 30)
+    );
+    assert_eq!(
+        calendar.today_at(Timestamp::MIN).unwrap(),
+        jiff::civil::date(-9999, 1, 2)
+    );
 }
 #[test]
 fn whole_month_navigation_preserves_leap_days_and_year_boundaries() {

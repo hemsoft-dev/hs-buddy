@@ -9,7 +9,7 @@ pub use templates::Templates;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{
     ChangeError, Client, DateRange, DispatchReport, Draft, Error, JiraClient, Planner,
@@ -133,7 +133,7 @@ impl Session {
         config: &Path,
         client: Arc<Client>,
         jira: Arc<JiraClient>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<Self, SessionError> {
         let recovered = SavedRecovery::open_in_region(config, &jira, client.api_origin()).await;
         let planner =
@@ -195,20 +195,13 @@ impl Session {
             .as_ref()
             .and_then(SavedRecovery::stored_checkpoint))
     }
-    pub async fn refresh(
-        &mut self,
-        range: DateRange,
-        now: DateTime<Utc>,
-    ) -> Result<(), SessionError> {
+    pub async fn refresh(&mut self, range: DateRange, now: Timestamp) -> Result<(), SessionError> {
         self.fresh = false;
         self.planner.refresh(range, now).await?;
         self.fresh = true;
         Ok(())
     }
-    pub async fn refresh_current_month_at(
-        &mut self,
-        now: DateTime<Utc>,
-    ) -> Result<(), SessionError> {
+    pub async fn refresh_current_month_at(&mut self, now: Timestamp) -> Result<(), SessionError> {
         self.fresh = false;
         self.planner.refresh_current_month_at(now).await?;
         self.fresh = true;

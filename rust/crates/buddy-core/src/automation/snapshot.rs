@@ -97,7 +97,7 @@ pub(super) fn run(spec: Spec) -> i32 {
             Ok(history) => history,
             Err(_) => return 125,
         };
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let mut succeeded = 0;
         let mut failed = 0;
         for account in spec.accounts {

@@ -16,8 +16,9 @@ fn member_since(first_launch_ms: u64) -> String {
         return "Today".to_string();
     }
     // `toLocaleDateString` formats in the host time zone, so convert first.
-    chrono::DateTime::from_timestamp_millis(first_launch_ms as i64)
-        .and_then(|date| month_year(date.with_timezone(&chrono::Local).date_naive()))
+    jiff::Timestamp::from_millisecond(first_launch_ms as i64)
+        .ok()
+        .and_then(|date| month_year(date.to_zoned(jiff::tz::TimeZone::system()).date()))
         .unwrap_or_else(|| "Today".to_string())
 }
 
