@@ -57,3 +57,59 @@ fn a_rejected_split_preserves_the_selected_pane_and_its_layout(cx: &mut gpui_kit
         })
     });
 }
+
+/// A shell that finishes starting after its workspace was switched away still
+/// saves the directory it started in.
+#[gpui_kit::test]
+fn a_start_directory_reaches_a_pane_in_a_hidden_workspace(cx: &mut gpui_kit::TestAppContext) {
+    let view = view(cx);
+    let value = json!({"nodes":[
+        {"id":"a","name":"A","sortOrder":0,"layout":{"type":"pane","id":"pane-a","cwd":"/gone"}},
+        {"id":"b","name":"B","sortOrder":1,"layout":{"type":"pane","id":"pane-b","cwd":""}}
+    ],"activeNodeId":"b"});
+    let document =
+        WorkspaceDocument::restore(Arc::from(serde_json::to_vec(&value).unwrap())).unwrap();
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.editor = Some(
+                WorkspaceEditor::new(
+                    "https://example.convex.cloud",
+                    WorkspaceSnapshot {
+                        document,
+                        revision: 1,
+                    },
+                )
+                .unwrap(),
+            );
+            view.record_start_directory("pane-a", "/home/fixture".into(), cx);
+            view.record_start_directory("pane-b", "/home/fixture".into(), cx);
+            let saved = view.editor.as_ref().unwrap().document().document();
+            assert_eq!(saved["nodes"][0]["layout"]["cwd"], "/home/fixture");
+            assert_eq!(saved["nodes"][1]["layout"]["cwd"], "/home/fixture");
+            assert_eq!(saved["activeNodeId"], "b");
+            // A start directory waits for its shell: without a running grid
+            // nothing is saved and the request stays pending.
+            view.pending_start_directories
+                .insert("pane-a".into(), "/elsewhere".into());
+            view.confirm_start_directory("pane-a", cx);
+            let saved = view.editor.as_ref().unwrap().document().document();
+            assert_eq!(saved["nodes"][0]["layout"]["cwd"], "/home/fixture");
+            assert!(view.pending_start_directories.contains_key("pane-a"));
+            // A directory the shell reports itself is newer than its start
+            // folder, so the pending start folder is dropped.
+            view.grid_event(
+                "pane-a",
+                &super::grid::GridEvent::WorkingDirectory("/reported".into()),
+                cx,
+            );
+            assert!(!view.pending_start_directories.contains_key("pane-a"));
+            // A deleted pane's notice goes with it.
+            view.start_notices
+                .insert("deleted-pane".into(), "Started in /home".into());
+            view.start_notices
+                .insert("pane-a".into(), "Started in /home".into());
+            view.synchronize_sessions(cx);
+            assert_eq!(view.start_notices.keys().collect::<Vec<_>>(), ["pane-a"]);
+        })
+    });
+}

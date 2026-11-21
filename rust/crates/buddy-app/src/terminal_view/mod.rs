@@ -69,6 +69,12 @@ pub struct TerminalView {
     show_properties: bool,
     show_organization: bool,
     failure_details: BTreeSet<String>,
+    /// Per pane: why its shell started somewhere other than its saved folder.
+    /// Kept apart from `status`, which every workspace save rewrites.
+    start_notices: BTreeMap<String, String>,
+    /// Per pane: the directory its shell was asked to start in, saved to the
+    /// layout only once the host reports that the shell is running.
+    pending_start_directories: BTreeMap<String, String>,
     copied_failure: Option<String>,
     status: Option<String>,
     error: Option<String>,
@@ -159,6 +165,8 @@ impl TerminalView {
             show_properties: false,
             show_organization: false,
             failure_details: BTreeSet::new(),
+            start_notices: BTreeMap::new(),
+            pending_start_directories: BTreeMap::new(),
             copied_failure: None,
             status: None,
             error: None,
@@ -202,8 +210,10 @@ impl TerminalView {
 
     fn grid_event(&mut self, pane: &str, event: &GridEvent, cx: &mut Context<Self>) {
         match event {
-            GridEvent::StatusChanged => {}
+            GridEvent::StatusChanged => self.confirm_start_directory(pane, cx),
             GridEvent::WorkingDirectory(cwd) => {
+                // The shell's own report is newer than its start folder.
+                self.pending_start_directories.remove(pane);
                 if let Some((_, previous)) =
                     self.visible_panes().into_iter().find(|(id, _)| id == pane)
                     && previous != *cwd

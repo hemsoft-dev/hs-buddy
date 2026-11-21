@@ -150,3 +150,22 @@ fn drag_reordering_preserves_selection_and_rejects_stale_ids(cx: &mut TestAppCon
         })
     });
 }
+
+/// A start folder waits for its shell: before the host reports a launch,
+/// the tab's saved folder stays as it was.
+#[gpui_kit::test]
+fn a_pending_start_folder_is_not_saved_before_the_shell_runs(cx: &mut TestAppContext) {
+    let panel = panel(cx);
+    cx.update(|cx| {
+        panel.update(cx, |panel, cx| {
+            let mut saved = tab("Saved");
+            saved.cwd = "/gone".into();
+            assert!(panel.reconcile(vec![saved], false));
+            let id = panel.tabs[0].id.clone();
+            panel.tabs[0].pending_cwd = Some("/home/fixture".into());
+            panel.confirm_start_directory(&id, cx);
+            assert_eq!(panel.tabs[0].metadata.cwd, "/gone");
+            assert_eq!(panel.tabs[0].pending_cwd.as_deref(), Some("/home/fixture"));
+        })
+    });
+}
