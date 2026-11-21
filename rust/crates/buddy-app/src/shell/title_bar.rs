@@ -36,6 +36,52 @@ fn app_icon(palette: &BuddyPalette, background: gpui_kit::Hsla) -> impl IntoElem
         .child(Icon::new(IconName::Users).size(zpx(13.0)))
 }
 
+/// `.title-bar-title`: the brand, icon, product name and version, centred on
+/// the bar whatever the menus' width, as Electron's absolutely centred title.
+fn title(palette: &BuddyPalette, background: gpui_kit::Hsla) -> impl IntoElement {
+    h_flex()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .justify_center()
+        .items_center()
+        .gap(zpx(6.0))
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(zpx(13.0))
+                .text_color(palette.gold)
+                .child("HemSoft Developments"),
+        )
+        .child(app_icon(palette, background))
+        .child(
+            div()
+                .font_weight(FontWeight::BOLD)
+                .text_size(zpx(14.0))
+                .text_color(palette.text_heading)
+                .child("BUDDY"),
+        )
+        .child(
+            div()
+                .px(zpx(4.0))
+                .py(zpx(1.0))
+                .rounded(zpx(3.0))
+                .border_1()
+                .border_color(palette.gold.opacity(0.3))
+                .bg(palette.gold.opacity(0.1))
+                .text_size(zpx(10.0))
+                .text_color(palette.gold)
+                .child(version_label()),
+        )
+}
+
+/// `V{APP_VERSION}`.
+pub(crate) fn version_label() -> String {
+    format!("V{}", env!("BUDDY_VERSION"))
+}
+
 fn menu_button(id: &'static str, label: &'static str) -> Button {
     Button::new(id).ghost().xsmall().label(label).compact()
 }
@@ -56,19 +102,16 @@ pub fn render(
     let background = theme.background;
 
     let content = h_flex()
+        .relative()
         .flex_1()
         .h_full()
         .items_center()
         .gap(zpx(10.0))
+        .pl(zpx(4.0))
         .text_size(zpx(12.0))
         .text_color(foreground)
-        .child(app_icon(&palette, background))
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(palette.text_heading)
-                .child("Buddy"),
-        )
+        // Painted first so the menus and buttons stay on top of it.
+        .child(title(&palette, background))
         .child(
             h_flex()
                 .gap(zpx(2.0))
