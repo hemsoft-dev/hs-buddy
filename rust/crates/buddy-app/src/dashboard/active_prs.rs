@@ -101,8 +101,10 @@ impl ActivePrs {
             .as_ref()
             .is_none_or(|old| old != &(github.clone(), pr.clone()));
         if changed {
+            // The last successful refresh belonged to the previous accounts.
             self.total = None;
             self.error = None;
+            self.refreshed = None;
         }
         let due = pr.auto_refresh
             && self
@@ -359,6 +361,7 @@ mod tests {
         let pr = PrConfig::default();
         let old = state.begin(&github, &pr, false).unwrap();
         state.complete(old, Ok(8));
+        assert!(state.refreshed.is_some());
         github.accounts.push(GitHubAccount {
             username: "second".into(),
             org: "team".into(),
@@ -368,6 +371,10 @@ mod tests {
         });
         let new = state.begin(&github, &pr, false).unwrap();
         assert_eq!(state.total, None);
+        assert_eq!(
+            state.refreshed, None,
+            "a new scope has not been refreshed yet"
+        );
         state.complete(old, Ok(99));
         assert_eq!(state.total, None);
         assert!(state.loading);
