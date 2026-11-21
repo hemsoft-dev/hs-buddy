@@ -23,6 +23,9 @@ struct Tab {
     error: Option<String>,
     /// Why the shell started somewhere other than the saved folder.
     notice: Option<String>,
+    /// The folder the shell was asked to start in, saved only once the host
+    /// reports that it ran, and dropped if the shell reports its own first.
+    pending_cwd: Option<String>,
 }
 
 #[derive(Clone)]
@@ -119,6 +122,7 @@ impl TerminalPanel {
             starting: false,
             error: None,
             notice: None,
+            pending_cwd: None,
         }
     }
 
@@ -401,27 +405,32 @@ impl TerminalPanel {
                     match result {
                         Ok((session, directory, notice)) => {
                             this.tabs[index].notice = notice;
-                            if this.tabs[index].metadata.cwd != directory {
-                                this.tabs[index].metadata.cwd = directory;
-                                this.changed(cx);
-                            }
+                            this.tabs[index].pending_cwd =
+                                (this.tabs[index].metadata.cwd != directory).then_some(directory);
                             let grid = cx.new(|cx| TerminalGrid::new(session, cx));
-                            let id = id.clone();
+                            let tab_id = id.clone();
                             cx.subscribe(&grid, move |this, _, event, cx| {
                                 if matches!(event, GridEvent::FocusControls) {
                                     this.focus_controls = true;
                                 }
                                 if let GridEvent::WorkingDirectory(cwd) = event
-                                    && let Some(tab) = this.tabs.iter_mut().find(|tab| tab.id == id)
+                                    && let Some(tab) =
+                                        this.tabs.iter_mut().find(|tab| tab.id == tab_id)
                                 {
+                                    // The shell's own report is newer than its start folder.
+                                    tab.pending_cwd = None;
                                     tab.metadata.cwd = cwd.clone();
                                     this.changed(cx);
+                                }
+                                if matches!(event, GridEvent::StatusChanged) {
+                                    this.confirm_start_directory(&tab_id, cx);
                                 }
                                 cx.notify();
                             })
                             .detach();
                             this.tabs[index].grid = Some(grid);
                             this.focus_grid = true;
+                            this.confirm_start_directory(&id, cx);
                         }
                         Err(error) => this.tabs[index].error = Some(error),
                     }
@@ -432,6 +441,24 @@ impl TerminalPanel {
             }
         })
         .detach();
+    }
+
+    /// Saves a tab's pending start folder once its shell is known to have run;
+    /// a launch that failed keeps the saved folder for a later retry.
+    fn confirm_start_directory(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
+            return;
+        };
+        let Some(started) = tab.grid.as_ref().and_then(|grid| grid.read(cx).started()) else {
+            return;
+        };
+        let Some(directory) = tab.pending_cwd.take() else {
+            return;
+        };
+        if started {
+            tab.metadata.cwd = directory;
+            self.changed(cx);
+        }
     }
 
     fn move_tab(&mut self, from: &str, to: &str) -> bool {
@@ -694,6 +721,8 @@ impl Render for TerminalPanel {
                                             }
                                             tab.grid = None;
                                             tab.error = None;
+                                            tab.notice = None;
+                                            tab.pending_cwd = None;
                                         }
                                         this.focus_grid = true;
                                         this.start_selected(cx);
@@ -831,6 +860,7 @@ impl Render for TerminalPanel {
                                     tab.grid = None;
                                     tab.error = None;
                                     tab.notice = None;
+                                    tab.pending_cwd = None;
                                 }
                                 this.start_selected(cx);
                                 cx.notify();

@@ -212,6 +212,8 @@ impl TerminalView {
         match event {
             GridEvent::StatusChanged => self.confirm_start_directory(pane, cx),
             GridEvent::WorkingDirectory(cwd) => {
+                // The shell's own report is newer than its start folder.
+                self.pending_start_directories.remove(pane);
                 if let Some((_, previous)) =
                     self.visible_panes().into_iter().find(|(id, _)| id == pane)
                     && previous != *cwd

@@ -95,6 +95,14 @@ fn a_start_directory_reaches_a_pane_in_a_hidden_workspace(cx: &mut gpui_kit::Tes
             let saved = view.editor.as_ref().unwrap().document().document();
             assert_eq!(saved["nodes"][0]["layout"]["cwd"], "/home/fixture");
             assert!(view.pending_start_directories.contains_key("pane-a"));
+            // A directory the shell reports itself is newer than its start
+            // folder, so the pending start folder is dropped.
+            view.grid_event(
+                "pane-a",
+                &super::grid::GridEvent::WorkingDirectory("/reported".into()),
+                cx,
+            );
+            assert!(!view.pending_start_directories.contains_key("pane-a"));
             // A deleted pane's notice goes with it.
             view.start_notices
                 .insert("deleted-pane".into(), "Started in /home".into());
