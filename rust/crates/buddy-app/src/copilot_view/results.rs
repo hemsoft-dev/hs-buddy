@@ -3,6 +3,7 @@ use std::future::Future;
 use buddy_core::copilot_backend::{CopilotBackend, Error, HistoryFilter};
 use buddy_core::copilot_results::summaries::ResultSummary;
 use buddy_core::copilot_results::{ContentState, SavedResult, Status};
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -376,9 +377,18 @@ impl ResultsView {
         {
             detail=detail.child(div().text_color(muted).child(format!("Captured review: {owner}/{repo} #{number} · head {head} · account {}. Freshness has not been checked against GitHub.",metadata["ghAccount"].as_str().unwrap_or("Unknown"))));
         }
-        let mut actions = h_flex()
-            .flex_wrap()
-            .gap_2()
+        let mut actions = h_flex().flex_wrap().gap_2();
+        if let Some(url) = result.pull_request_url() {
+            // Electron's result header leads with this action for a pr-review result.
+            actions = actions.child(
+                Button::new("copilot-saved-open-pr")
+                    .label("Open PR on GitHub")
+                    .icon(IconName::ExternalLink)
+                    .tooltip("Open PR on GitHub")
+                    .on_click(move |_, _, cx| cx.open_url(&url)),
+            );
+        }
+        actions = actions
             .child(
                 Button::new("copilot-copy-saved-prompt")
                     .label("Copy prompt")
@@ -562,18 +572,34 @@ impl Render for ResultsView {
         }
         for (index, row) in self.rows.iter().enumerate() {
             let id = row.id.clone();
-            list = list.child(
-                Button::new(("copilot-saved-row", index))
-                    .label(format!(
-                        "{}: {}",
-                        status_label(row.status),
-                        row.prompt_preview
-                    ))
-                    .w_full()
-                    .selected(self.selected_id.as_deref() == Some(&row.id))
-                    .disabled(self.busy())
-                    .on_click(cx.listener(move |this, _, _, cx| this.open(id.clone(), cx))),
+            let mut line = h_flex().w_full().gap_1().child(
+                div().flex_1().min_w_0().child(
+                    Button::new(("copilot-saved-row", index))
+                        .label(format!(
+                            "{}: {}",
+                            status_label(row.status),
+                            row.prompt_preview
+                        ))
+                        .w_full()
+                        .selected(self.selected_id.as_deref() == Some(&row.id))
+                        .disabled(self.busy())
+                        .on_click(cx.listener(move |this, _, _, cx| this.open(id.clone(), cx))),
+                ),
             );
+            if let Some(url) = row.pull_request_url() {
+                // Electron's row action: an external-link icon titled "Open PR".
+                // Opening the PR leaves the selected result unchanged.
+                let url = url.to_string();
+                line = line.child(
+                    Button::new(("copilot-saved-row-open-pr", index))
+                        .icon(IconName::ExternalLink)
+                        .ghost()
+                        .tooltip("Open PR")
+                        .accessibility_label("Open PR")
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                );
+            }
+            list = list.child(line);
         }
         if self.initialized
             && self.rows.is_empty()

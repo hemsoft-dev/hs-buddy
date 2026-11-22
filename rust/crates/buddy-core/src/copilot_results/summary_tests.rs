@@ -168,3 +168,39 @@ fn invalid_review_snapshots_are_counted_instead_of_becoming_current() {
     assert_eq!(page.rows.len(), 1);
     assert_eq!(page.skipped, 3);
 }
+
+#[test]
+fn a_pr_review_row_keeps_its_link_and_an_unusable_link_hides_only_the_action() {
+    let link = "https://github.com/owner/repo/pull/7";
+    let rows = [
+        (json!("pr-review"), json!(link)),
+        (json!("pr-review"), json!("javascript:alert(1)")),
+        (json!("pr-review"), json!(42)),
+        (json!("general"), json!(link)),
+        (json!("pr-review"), Value::Null),
+    ];
+    let page = parse_results(&bytes(&wire(
+        rows.iter()
+            .enumerate()
+            .map(|(index, (category, url))| {
+                let mut value = row();
+                value["_id"] = json!(format!("result-{index}"));
+                value["categoryLabel"] = category.clone();
+                value["prUrl"] = url.clone();
+                value
+            })
+            .collect(),
+    )))
+    .unwrap();
+    assert_eq!(page.skipped, 0);
+    assert_eq!(
+        page.rows
+            .iter()
+            .map(ResultSummary::pull_request_url)
+            .collect::<Vec<_>>(),
+        [Some(link), None, None, None, None]
+    );
+    // Deployments from before the link was summarized omit the field.
+    let older = parse_results(&bytes(&wire(vec![row()]))).unwrap();
+    assert!(older.rows[0].pull_request_url().is_none());
+}

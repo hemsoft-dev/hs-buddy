@@ -271,7 +271,7 @@ def review_pull_request(driver):
         ('capture', 'review-context-dark'),
         ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
-        ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
+        ('wait_text', 'Captured review'), ('wait_text', 'Open PR on GitHub'), ('capture', 'review-result-dark'),
         ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
         ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-dark'),
         ('content', 'Cancel publication'), ('wait_scroll_up', 'Publish to PR'), ('content', 'Publish to PR'),
@@ -282,6 +282,9 @@ def review_pull_request(driver):
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
     github.check_column(review / 'review-result-dark.png', 'Captured review',
         'Captured review', 'Freshness has not been checked')
+    # Electron's result header action for a pr-review result. The scene does not
+    # click it: opening a browser on the CI host is outside the owned output.
+    github.check(review / 'review-result-dark.png', 'Open PR on GitHub')
     github.check(review / 'publish-confirmation-dark.png', 'synthetic-account', 'Confirm publication')
     github.check(review / 'publish-retained-dark.png', 'Review comment published')
 

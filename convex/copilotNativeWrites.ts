@@ -69,6 +69,11 @@ function reviewContext(review: Review) {
   }
 }
 
+// Electron stores the PR link in result metadata; its results list and header open it.
+function pullRequestUrl(review: Review) {
+  return `https://github.com/${review.owner}/${review.repo}/pull/${review.prNumber}`
+}
+
 async function digest(value: unknown) {
   const encoded = new TextEncoder().encode(JSON.stringify(value))
   const hash = await crypto.subtle.digest('SHA-256', encoded)
@@ -168,6 +173,7 @@ export const begin = mutation({
             owner: review.owner,
             repo: review.repo,
             prNumber: review.prNumber,
+            prUrl: pullRequestUrl(review),
             ghAccount: args.account,
             reviewedHeadSha: review.head,
           }
@@ -183,7 +189,7 @@ export const begin = mutation({
         owner: review.owner,
         repo: review.repo,
         prNumber: review.prNumber,
-        prUrl: `https://github.com/${review.owner}/${review.repo}/pull/${review.prNumber}`,
+        prUrl: pullRequestUrl(review),
         prTitle: review.title,
         prompt: args.prompt,
         resultId: id,
