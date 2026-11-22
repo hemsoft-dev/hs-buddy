@@ -104,12 +104,19 @@ impl SettingsView {
         );
     }
 
+    /// Another account was chosen: clear the list and drop any request still
+    /// running for the previous account.
+    pub(super) fn forget_models(&mut self) {
+        self.models.clear();
+        self.models_generation += 1;
+    }
+
     /// Choosing an account saves it at once, as Electron's picker does.
     fn select_copilot_account(&mut self, value: String, cx: &mut Context<Self>) {
         if value == self.saved_copilot(cx).gh_account {
             return;
         }
-        self.models.clear();
+        self.forget_models();
         if value.is_empty() {
             self.detect_active_account(cx);
         }
@@ -153,9 +160,9 @@ impl SettingsView {
                     })),
             )
             .child(div().text_color(muted).child(
-                "When set to a specific account, Buddy will switch the active gh CLI account \
-                 before executing Copilot prompts. Leave empty to use whichever account is \
-                 currently active.",
+                "When set to a specific account, Buddy runs Copilot prompts with that \
+                 account's GitHub CLI sign-in, without switching the active gh account. Leave \
+                 empty to use whichever account is currently active.",
             ))
             .when(usernames.is_empty(), |section| {
                 section.child(

@@ -265,3 +265,28 @@ fn an_acknowledged_save_without_a_reread_shows_the_saved_account(
         assert_eq!(view.saved_copilot(cx).model, "fixture-model");
     });
 }
+
+/// A model list requested for the previous account must not be installed
+/// after another account is chosen, even while the save is still pending.
+#[gpui_kit::test]
+fn models_requested_for_the_previous_account_are_dropped(cx: &mut gpui_kit::TestAppContext) {
+    let mut config = AppConfig::default();
+    config.github.accounts = vec![account("one", "team", None), account("two", "team", None)];
+    config.copilot.gh_account = "one".into();
+    let (mut visual, view) = open(cx, config, Panel::Copilot);
+    let model = |id: &str| buddy_core::copilot_models::Model {
+        id: id.into(),
+        name: id.into(),
+    };
+    view.update(&mut visual, |view, cx| {
+        let requested = view.models_generation;
+        view.models_loading = true;
+        view.forget_models();
+        view.finish_models(requested, "one", Ok(vec![model("only-for-one")]), cx);
+        assert!(view.models.is_empty());
+        assert!(!view.models_loading);
+        let current = view.models_generation;
+        view.finish_models(current, "one", Ok(vec![model("current")]), cx);
+        assert_eq!(view.models.len(), 1);
+    });
+}

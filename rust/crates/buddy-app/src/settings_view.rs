@@ -76,6 +76,9 @@ pub struct SettingsView {
     key_generation: u64,
     models: Vec<buddy_core::copilot_models::Model>,
     models_loading: bool,
+    /// Advanced by each account choice, so a model list requested for the
+    /// previous account is never installed under the new one.
+    models_generation: u64,
     /// The `gh` login the Copilot picker's first choice names, once read.
     active_cli_account: Option<String>,
 }
@@ -115,6 +118,7 @@ impl SettingsView {
             key_generation: 0,
             models: Vec::new(),
             models_loading: false,
+            models_generation: 0,
             active_cli_account: None,
         };
         for (id, value) in [
@@ -855,29 +859,40 @@ impl SettingsView {
         self.models_loading = true;
         let account = self.saved_copilot(cx).gh_account;
         let selected = account.clone();
+        let generation = self.models_generation;
         self.run(
             cx,
             async move { buddy_core::copilot_models::list(&account).await },
-            move |this, result, cx| {
-                this.models_loading = false;
-                if this.saved_copilot(cx).gh_account != selected {
-                    return;
-                }
-                match result {
-                    Ok(models) => {
-                        this.status = Some(format!(
-                            "{} models available for this account",
-                            models.len()
-                        ));
-                        this.models = models;
-                    }
-                    Err(error) => {
-                        this.models.clear();
-                        this.status = Some(error.into());
-                    }
-                }
-            },
+            move |this, result, cx| this.finish_models(generation, &selected, result, cx),
         );
+    }
+
+    /// A model list arrived. It belongs to the account it was requested for:
+    /// a later account choice, or a save that changed the account, drops it.
+    fn finish_models(
+        &mut self,
+        generation: u64,
+        selected: &str,
+        result: Result<Vec<buddy_core::copilot_models::Model>, &'static str>,
+        cx: &mut Context<Self>,
+    ) {
+        self.models_loading = false;
+        if self.models_generation != generation || self.saved_copilot(cx).gh_account != selected {
+            return;
+        }
+        match result {
+            Ok(models) => {
+                self.status = Some(format!(
+                    "{} models available for this account",
+                    models.len()
+                ));
+                self.models = models;
+            }
+            Err(error) => {
+                self.models.clear();
+                self.status = Some(error.into());
+            }
+        }
     }
 
     fn model_choices(&self, cx: &mut Context<Self>) -> Vec<gpui_kit::AnyElement> {
