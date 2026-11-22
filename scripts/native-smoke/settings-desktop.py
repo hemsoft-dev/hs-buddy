@@ -975,8 +975,13 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
         ("nav", "Advanced"), ("capture", "advanced-light")])
     verify_text(preferences / "invalid-audio-light.png", "absolute")
-    verify_text(preferences / "copilot-summary-light.png", "Current Configuration",
-        "Account: fixture-native-one", "Model: fixture-model")
+    # Tesseract split "Account: fixture-native-one" into "account" and
+    # "ixture-native-one" on Ubuntu (run 45021593449). The picker above also
+    # names the account, so require it after the summary heading instead.
+    summary = preferences / "copilot-summary-light.png"
+    verify_text(summary, "Current Configuration", "Account", "Model: fixture-model")
+    if "native-one" not in summary.with_suffix(".ocr.txt").read_text(encoding="utf-8").split("current configuration", 1)[-1]:
+        raise MissingVisibleText("Settings screenshot is missing the summary's account")
     for name in ("weather-status-light", "advanced-light"):
         verify_feedback_scope(preferences / (name + ".png"))
     snapshot = backend.query("settings:get")
