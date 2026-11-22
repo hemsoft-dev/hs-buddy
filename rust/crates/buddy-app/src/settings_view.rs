@@ -75,6 +75,9 @@ pub struct SettingsView {
     confirm_reset: bool,
     key_generation: u64,
     models: Vec<buddy_core::copilot_models::Model>,
+    /// The account `models` was loaded for. The list is offered only while
+    /// that is still the saved account, however the account changed.
+    models_account: String,
     models_loading: bool,
     /// Advanced by each account choice, so a model list requested for the
     /// previous account is never installed under the new one.
@@ -117,6 +120,7 @@ impl SettingsView {
             confirm_reset: false,
             key_generation: 0,
             models: Vec::new(),
+            models_account: String::new(),
             models_loading: false,
             models_generation: 0,
             active_cli_account: None,
@@ -887,6 +891,7 @@ impl SettingsView {
                     models.len()
                 ));
                 self.models = models;
+                self.models_account = selected.to_string();
             }
             Err(error) => {
                 self.models.clear();
@@ -895,9 +900,19 @@ impl SettingsView {
         }
     }
 
+    /// The loaded models, unless the saved account has changed since, for
+    /// example through Reload synced settings: those belong to another account.
+    fn current_models(&self, cx: &App) -> &[buddy_core::copilot_models::Model] {
+        if self.models_account == self.saved_copilot(cx).gh_account {
+            &self.models
+        } else {
+            &[]
+        }
+    }
+
     fn model_choices(&self, cx: &mut Context<Self>) -> Vec<gpui_kit::AnyElement> {
         let filter = self.value("model-filter", cx).to_lowercase();
-        self.models
+        self.current_models(cx)
             .iter()
             .filter(|model| {
                 model.name.to_lowercase().contains(&filter)

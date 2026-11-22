@@ -290,3 +290,30 @@ fn models_requested_for_the_previous_account_are_dropped(cx: &mut gpui_kit::Test
         assert_eq!(view.models.len(), 1);
     });
 }
+
+/// A synced reload that changes the account hides the previous account's
+/// models, so none of them can be saved as the new account's default.
+#[gpui_kit::test]
+fn a_synced_account_change_hides_the_previous_accounts_models(cx: &mut gpui_kit::TestAppContext) {
+    let mut config = AppConfig::default();
+    config.github.accounts = vec![account("one", "team", None), account("two", "team", None)];
+    config.copilot.gh_account = "one".into();
+    let (mut visual, view) = open(cx, config.clone(), Panel::Copilot);
+    let model = buddy_core::copilot_models::Model {
+        id: "only-for-one".into(),
+        name: "Only for one".into(),
+    };
+    view.update(&mut visual, |view, cx| {
+        let generation = view.models_generation;
+        view.finish_models(generation, "one", Ok(vec![model]), cx);
+        assert_eq!(view.current_models(cx).len(), 1);
+        let mut synced = config.copilot.clone();
+        synced.gh_account = "two".into();
+        view.snapshot = Some(SettingsSnapshot {
+            accounts: Vec::new(),
+            pr: config.pr.clone(),
+            copilot: synced,
+        });
+        assert!(view.current_models(cx).is_empty());
+    });
+}
