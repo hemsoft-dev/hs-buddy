@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 
 fn setup(cx: &mut gpui_kit::TestAppContext) -> Entity<ResultsView> {
     cx.update(|cx| {
@@ -86,5 +87,101 @@ fn an_old_dropped_worker_cannot_unlock_a_new_request(cx: &mut gpui_kit::TestAppC
             let view = view.read(cx);
             assert!(view.busy() && view.list_error.is_none() && view.detail_error.is_none());
         });
+    }
+}
+
+const PR: &str = "https://github.com/owner/repo/pull/7";
+
+fn summaries(rows: serde_json::Value) -> Vec<ResultSummary> {
+    let page = serde_json::json!({"page": rows, "isDone": true, "continueCursor": ""});
+    buddy_core::copilot_results::summaries::parse_results(&serde_json::to_vec(&page).unwrap())
+        .ok()
+        .unwrap()
+        .rows
+}
+
+fn saved(category: &str) -> SavedResult {
+    let record = serde_json::json!({"_id": "review-result", "prompt": "Review prompt",
+        "status": "completed", "result": "Answer", "category": category,
+        "metadata": {"prUrl": PR, "owner": "owner"}, "createdAt": 1});
+    buddy_core::copilot_results::parse_detail(&serde_json::to_vec(&record).unwrap())
+        .ok()
+        .flatten()
+        .unwrap()
+}
+
+fn window(cx: &mut gpui_kit::TestAppContext) -> (Entity<ResultsView>, gpui_kit::VisualTestContext) {
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        cx.set_global(crate::settings::Settings::new(
+            buddy_core::config::AppConfig::default(),
+        ));
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| ResultsView::new(window, cx))
+        })
+        .unwrap()
+    });
+    let visual = gpui_kit::VisualTestContext::from_window(handle, cx);
+    (view, visual)
+}
+
+#[gpui_kit::test]
+fn a_pr_review_row_opens_its_pull_request_without_opening_the_result(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (view, mut visual) = window(cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.initialized = true;
+            view.rows = summaries(serde_json::json!([
+                {"_id": "general", "promptPreview": "General", "status": "completed",
+                    "categoryLabel": "general", "prUrl": PR, "createdAt": 2, "hasOutput": true},
+                {"_id": "review", "promptPreview": "Review", "status": "completed",
+                    "categoryLabel": "pr-review", "prUrl": PR, "createdAt": 1, "hasOutput": true},
+            ]));
+            cx.notify();
+        })
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find(("copilot-saved-row-open-pr", 0usize))
+                .is_none()
+        );
+        window.click(("copilot-saved-row-open-pr", 1usize), cx);
+    });
+    assert_eq!(visual.opened_url().as_deref(), Some(PR));
+    visual.update(|_, cx| {
+        let view = view.read(cx);
+        assert!(view.selected_id.is_none() && !view.detail_loading);
+    });
+}
+
+#[gpui_kit::test]
+fn the_detail_header_opens_the_reviewed_pull_request_only_for_a_pr_review(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // The test platform keeps the last opened URL, so the absent case runs first.
+    for (category, offered) in [("general", false), ("pr-review", true)] {
+        let (view, mut visual) = window(cx);
+        visual.update(|_, cx| {
+            view.update(cx, |view, cx| {
+                view.selected_id = Some("review-result".into());
+                view.selected = Some(saved(category));
+                cx.notify();
+            })
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.try_find("copilot-saved-open-pr").is_some(), offered);
+            if offered {
+                window.click("copilot-saved-open-pr", cx);
+            }
+        });
+        assert_eq!(visual.opened_url().as_deref(), offered.then_some(PR));
     }
 }

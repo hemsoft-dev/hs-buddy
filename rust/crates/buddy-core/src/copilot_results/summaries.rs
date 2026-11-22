@@ -21,6 +21,27 @@ pub struct ResultSummary {
     pub completed_at: Option<f64>,
     pub duration: Option<f64>,
     pub has_output: bool,
+    /// Older deployments omit it; an unusable link hides the action, not the row.
+    #[serde(default, deserialize_with = "lenient_link")]
+    pr_url: Option<String>,
+}
+
+impl ResultSummary {
+    /// Electron's list row shows "Open PR" for a pr-review result with a link.
+    pub fn pull_request_url(&self) -> Option<&str> {
+        (self.category_label.as_deref() == Some(super::REVIEW_CATEGORY))
+            .then_some(self.pr_url.as_deref())
+            .flatten()
+    }
+}
+
+fn lenient_link<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::String(text) => super::web_link(&text),
+        _ => None,
+    })
 }
 
 #[derive(Clone, Deserialize)]

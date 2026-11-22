@@ -195,6 +195,38 @@ test('status and category filters use only their matching records', async () => 
   expect(category.page.map(row => row.promptPreview)).toEqual(['failed'])
 })
 
+test('only pr-review summaries carry their reviewed PR link', async () => {
+  const t = convexTest(schema, modules)
+  const prUrl = 'https://github.com/owner/repo/pull/7'
+  await t.run(async ctx => {
+    for (const [index, row] of [
+      { category: 'pr-review', metadata: { prUrl, privateToken: 'must-not-appear' } },
+      { category: 'general', metadata: { prUrl } },
+      { category: 'pr-review', metadata: { prUrl: 42 } },
+      { category: 'pr-review', metadata: { prUrl: `https://github.com/${'a'.repeat(2048)}` } },
+      { category: 'pr-review', metadata: null },
+      { category: 'pr-review' },
+    ].entries()) {
+      await ctx.db.insert('copilotResults', {
+        prompt: `row ${index}`,
+        status: 'completed',
+        createdAt: 10 - index,
+        ...row,
+      })
+    }
+  })
+  const result = await t.query(list, { paginationOpts: { numItems: 25, cursor: null } })
+  expect(result.page.map(row => row.prUrl)).toEqual([
+    prUrl,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ])
+  expect(JSON.stringify(result)).not.toContain('must-not-appear')
+})
+
 test('review summaries stay scoped to the PR and omit prompts and diagnostics', async () => {
   const t = convexTest(schema, modules)
   const resultId = await t.run(async ctx => {

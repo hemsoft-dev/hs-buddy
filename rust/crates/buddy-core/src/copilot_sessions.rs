@@ -1,5 +1,7 @@
 //! Bounded, pure parsing and the existing VS Code session efficiency metrics.
 //! Filesystem discovery and SDK conversations are separate from this format.
+#[path = "copilot_sessions/date_buckets.rs"]
+pub mod date_buckets;
 #[path = "copilot_sessions/parsing.rs"]
 mod parsing;
 #[path = "copilot_sessions/sources.rs"]

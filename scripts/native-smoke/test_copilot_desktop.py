@@ -240,7 +240,9 @@ class SessionSourceIntegrity(unittest.TestCase):
 
 
 class CopilotQualificationTests(unittest.TestCase):
-    def verify_usage_capture(self, history_text):
+    # The recorded OCR fixture predates the footer links, so the harness adds them.
+    def verify_usage_capture(self, history_text, copilot_link=' Open Copilot settings on GitHub',
+                             codex_link=' Usage settings'):
         class CapturedUsageDriver:
             def __init__(self, output):
                 self.output = output
@@ -257,8 +259,8 @@ class CopilotQualificationTests(unittest.TestCase):
                 if arguments[0] == 'ffmpeg':
                     return ''
                 if Path(arguments[1]).name.startswith('usage-history-light'):
-                    return history_text
-                return 'Enterprise users fixture-member Weekly allowance 5-hour allowance remaining'
+                    return history_text + copilot_link
+                return 'Enterprise users fixture-member Weekly allowance 5-hour allowance remaining' + codex_link
 
             with patch.object(copilot.github.settings, 'run', side_effect=recognize):
                 copilot.usage_pages(CapturedUsageDriver(output))
@@ -279,6 +281,10 @@ class CopilotQualificationTests(unittest.TestCase):
                 self.assertIn(original, text)
                 with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
                     self.verify_usage_capture(text.replace(original, replacement))
+        for missing in ('copilot_link', 'codex_link'):
+            with self.subTest(missing=missing):
+                with self.assertRaisesRegex(RuntimeError, 'one OCR layout'):
+                    self.verify_usage_capture(text, **{missing: ''})
 
     def test_loaded_enterprise_user_must_be_revealed_below_the_captured_viewport(self):
         class ClippedUsageDriver:

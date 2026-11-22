@@ -7,6 +7,21 @@ pub mod publish;
 pub mod summaries;
 
 const MAX_RESPONSE: usize = 8 * 1024 * 1024;
+const MAX_LINK: usize = 2048;
+pub const REVIEW_CATEGORY: &str = "pr-review";
+
+/// A stored link opens only as an http(s) URL with a host and no credentials.
+pub fn web_link(value: &str) -> Option<String> {
+    if value.len() > MAX_LINK || value.chars().any(char::is_control) {
+        return None;
+    }
+    let parsed = url::Url::parse(value).ok()?;
+    (matches!(parsed.scheme(), "http" | "https")
+        && parsed.host_str().is_some_and(|host| !host.is_empty())
+        && parsed.username().is_empty()
+        && parsed.password().is_none())
+    .then(|| parsed.to_string())
+}
 const MAX_ROWS: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -57,6 +72,14 @@ impl SavedResult {
             && number.fract() == 0.0
             && (1.0..=9_007_199_254_740_991.0).contains(&number))
         .then_some(number as u64)
+    }
+    /// Electron offers "Open PR on GitHub" only for a pr-review result with
+    /// a metadata.prUrl. Native opens it only as a credential-free web link.
+    pub fn pull_request_url(&self) -> Option<String> {
+        if self.category.as_deref() != Some(REVIEW_CATEGORY) {
+            return None;
+        }
+        web_link(self.metadata.as_ref()?.get("prUrl")?.as_str()?)
     }
     pub fn content_state(&self) -> ContentState {
         match self.status {

@@ -185,3 +185,48 @@ fn missing_result_is_not_a_malformed_result_and_preview_counts_unicode_character
         prompt.chars().take(200).collect::<String>()
     );
 }
+
+#[test]
+fn only_a_pr_review_result_offers_its_stored_web_link() {
+    let detail = |category: Value, url: Value| {
+        let mut source = saved();
+        source["category"] = category;
+        source["metadata"] = json!({"prUrl": url, "owner": "owner"});
+        parse_detail(&serde_json::to_vec(&source).unwrap())
+            .unwrap()
+            .unwrap()
+    };
+    let link = "https://github.com/owner/repo/pull/7";
+    assert_eq!(
+        detail(json!("pr-review"), json!(link))
+            .pull_request_url()
+            .as_deref(),
+        Some(link)
+    );
+    for (category, url) in [
+        (json!("general"), json!(link)),
+        (json!(null), json!(link)),
+        (json!("pr-review"), json!(7)),
+        (json!("pr-review"), json!("javascript:alert(1)")),
+        (json!("pr-review"), json!("file:///private")),
+        (
+            json!("pr-review"),
+            json!("https://user:secret@github.com/o/r/pull/1"),
+        ),
+        (json!("pr-review"), json!("https://github.com/o/r/pull/1\n")),
+        (
+            json!("pr-review"),
+            json!(format!("https://github.com/{}", "a".repeat(2048))),
+        ),
+        (json!("pr-review"), json!("github.com/owner/repo/pull/7")),
+    ] {
+        assert!(detail(category, url).pull_request_url().is_none());
+    }
+    let mut source = saved();
+    source["category"] = json!("pr-review");
+    source["metadata"] = Value::Null;
+    let result = parse_detail(&serde_json::to_vec(&source).unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(result.pull_request_url().is_none());
+}

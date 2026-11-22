@@ -271,7 +271,7 @@ def review_pull_request(driver):
         ('capture', 'review-context-dark'),
         ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
-        ('wait_text', 'Captured review'), ('capture', 'review-result-dark'),
+        ('wait_text', 'Captured review'), ('wait_text', 'Open PR on GitHub'), ('capture', 'review-result-dark'),
         ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
         ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-dark'),
         ('content', 'Cancel publication'), ('wait_scroll_up', 'Publish to PR'), ('content', 'Publish to PR'),
@@ -282,6 +282,9 @@ def review_pull_request(driver):
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
     github.check_column(review / 'review-result-dark.png', 'Captured review',
         'Captured review', 'Freshness has not been checked')
+    # Electron's result header action for a pr-review result. The scene does not
+    # click it: opening a browser on the CI host is outside the owned output.
+    github.check(review / 'review-result-dark.png', 'Open PR on GitHub')
     github.check(review / 'publish-confirmation-dark.png', 'synthetic-account', 'Confirm publication')
     github.check(review / 'publish-retained-dark.png', 'Review comment published')
 
@@ -326,16 +329,20 @@ def require_review_publications(requests, results):
 def usage_pages(driver):
     usage = driver.drive('usage-light', [
         ('content', 'Usage'), ('content', 'Refresh usage'), ('wait_text', 'Billing snapshot saved'),
-        ('content', 'Load period'), ('wait_text', 'Showing'), ('capture', 'usage-history-light'),
+        ('content', 'Load period'), ('wait_text', 'Showing'), ('wait_text', 'Open Copilot settings on GitHub'),
+        ('capture', 'usage-history-light'),
         ('wheel', -600), ('content', 'Load metrics file'), ('wait_scroll_text', 'fixture-member'), ('capture', 'enterprise-users-light'),
         ('wheel', 1200), ('content', 'codex-fixture'), ('content', 'Refresh usage'),
-        ('wait_text', 'Weekly allowance'), ('capture', 'codex-allowances-light'),
+        ('wait_text', 'Weekly allowance'), ('wait_text', 'Usage settings'), ('capture', 'codex-allowances-light'),
     ])
     # Both OCR engines read this font's "AI" prefix as "Al" on the actual
     # Mac capture. Require the complete fixture allowance and used count.
-    github.check(usage / 'usage-history-light.png', 'Credits: 1200 used / 3900 included', 'Projected period spend', 'Copilot billing history')
+    # The footer links are Electron's usage-card links. The scene does not open
+    # them, because a browser would leave the owned host.
+    github.check(usage / 'usage-history-light.png', 'Credits: 1200 used / 3900 included', 'Projected period spend',
+        'Open Copilot settings on GitHub', 'Copilot billing history')
     github.check(usage / 'enterprise-users-light.png', 'Enterprise users', 'fixture-member')
-    github.check(usage / 'codex-allowances-light.png', 'Weekly allowance', '5-hour allowance', 'remaining')
+    github.check(usage / 'codex-allowances-light.png', 'Weekly allowance', '5-hour allowance', 'remaining', 'Usage settings')
 
 
 def qualify(executable, output, session, version, backend, api):
