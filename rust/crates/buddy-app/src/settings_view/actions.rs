@@ -55,7 +55,6 @@ impl SettingsView {
     pub fn activate(&mut self, cx: &mut Context<Self>) {
         let config = &Settings::global(cx).config;
         for (id, value) in local_field_values(config).into_iter().chain([
-            ("copilot-account", &config.copilot.gh_account),
             ("model", &config.copilot.model),
             ("premium-model", &config.copilot.premium_model),
         ]) {
