@@ -60,7 +60,19 @@ test('repeated creation retains one result, PR snapshot and active count', async
   }))
   expect(rows.results).toHaveLength(1)
   expect(rows.reviews).toHaveLength(1)
+  expect(rows.results[0]).toMatchObject({
+    category: 'pr-review',
+    metadata: {
+      owner: review.owner,
+      repo: review.repo,
+      prNumber: review.prNumber,
+      prUrl: 'https://github.com/owner/repo.name/pull/7',
+      ghAccount: input.account,
+      reviewedHeadSha: review.head,
+    },
+  })
   expect(rows.reviews[0]).toMatchObject({
+    prUrl: 'https://github.com/owner/repo.name/pull/7',
     resultId: first.id,
     reviewedHeadSha: review.head,
     reviewedThreadStats: review.threadStats,

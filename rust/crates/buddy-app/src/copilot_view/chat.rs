@@ -200,6 +200,35 @@ impl ChatView {
     }
 
     fn send(&mut self, saved: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.send_with(
+            saved,
+            window,
+            cx,
+            copilot_assistant::start,
+            Self::record_review_run,
+        );
+    }
+    /// Electron's "Run now" counts a PR review as the run starts, before its
+    /// outcome is known. A rejected or uncertain write is not replayed.
+    fn record_review_run(cx: &gpui_kit::App) {
+        let url = buddy_core::convex_data::convex_url();
+        Runtime::global(cx).spawn_detached(async move {
+            if buddy_core::stats::copilot_review_activity::record(&url)
+                .await
+                .is_err()
+            {
+                log::debug!("PR review activity was not confirmed; it will not be replayed");
+            }
+        });
+    }
+    fn send_with<F: std::future::Future<Output = ()> + Send + 'static>(
+        &mut self,
+        saved: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        start: impl FnOnce(RunOptions) -> Result<(RunHandle, F), buddy_core::copilot_runs::Failure>,
+        record_review_run: impl FnOnce(&gpui_kit::App),
+    ) {
         if self.models_loading
             || self.review_loading
             || (!saved && self.review.is_some())
@@ -247,7 +276,8 @@ impl ChatView {
             cx.notify();
             return;
         };
-        let result = copilot_assistant::start(RunOptions {
+        let review_run = self.review.is_some();
+        let result = start(RunOptions {
             context,
             prompt: full,
             saved,
@@ -264,6 +294,9 @@ impl ChatView {
                 return;
             }
         };
+        if review_run {
+            record_review_run(cx);
+        }
         let mut updates = run.subscribe();
         self.run = Some(run);
         self.messages.push(Message {
@@ -855,93 +888,121 @@ mod tests {
 }
 
 #[cfg(test)]
-mod account_tests {
+mod review_stats_tests {
     use super::*;
+    use buddy_core::copilot_backend::ReviewSnapshot;
+    use buddy_core::copilot_results::summaries::ThreadStats;
+    use buddy_core::copilot_runs::{Failure, ReviewContext};
+    use std::cell::Cell;
+    use std::rc::Rc;
 
-    fn chat(cx: &mut gpui_kit::TestAppContext, saved_account: &str) -> Entity<ChatView> {
-        let (window, view) = cx.update(|cx| {
+    fn captured() -> buddy_core::copilot_review::CapturedReview {
+        buddy_core::copilot_review::CapturedReview {
+            snapshot: ReviewSnapshot {
+                account: "synthetic-account".into(),
+                context: ReviewContext {
+                    repository: "owner/repo".into(),
+                    pull_request: 7,
+                    head: "a".repeat(40),
+                },
+                title: "Synthetic pull request".into(),
+                threads: ThreadStats {
+                    total: 0,
+                    unresolved: 0,
+                    outdated: 0,
+                },
+            },
+            prompt: "Synthetic captured review".into(),
+        }
+    }
+
+    /// A real handle whose driver never runs, so the run stays busy like a
+    /// review in progress. Nothing is started or written.
+    fn idle_run(temp: &tempfile::TempDir) -> Result<(RunHandle, std::future::Ready<()>), Failure> {
+        copilot_assistant::start(RunOptions {
+            context: RunContext {
+                account: "synthetic-account".into(),
+                model: "gpt-4.1".into(),
+                review: None,
+            },
+            prompt: "Synthetic test".into(),
+            saved: false,
+            review: None,
+            backend: None,
+            executable: temp.path().join("never-start.exe"),
+            owned_directory: temp.path().join("must-remain-absent"),
+        })
+        .map(|(run, _driver)| (run, std::future::ready(())))
+    }
+
+    #[gpui_kit::test]
+    fn a_pr_review_counts_once_when_its_run_starts_and_nothing_else_counts(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (handle, view) = cx.update(|cx| {
             gpui_kit::init(cx);
-            let mut config = buddy_core::config::AppConfig::default();
-            config.copilot.gh_account = saved_account.into();
+            let config = buddy_core::config::AppConfig::default();
             crate::theme::install(&config, cx);
             cx.set_global(Settings::new(config));
+            cx.set_global(Runtime::for_test(cx.background_executor().clone()));
             gpui_kit::open_window(Default::default(), cx, |window, cx| {
                 cx.new(|cx| ChatView::new(window, cx))
             })
             .unwrap()
         });
-        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
-        view.update(&mut visual, |view, cx| {
-            view.set_default_account(Some("cli-login".into()), cx)
-        });
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        visual.run_until_parked();
-        view
-    }
-
-    /// Electron's `CopilotPromptBox` starts from Settings' `copilot.ghAccount`.
-    #[gpui_kit::test]
-    fn a_new_chat_starts_from_the_settings_account(cx: &mut gpui_kit::TestAppContext) {
-        let view = chat(cx, "chosen-account");
+        let temp = tempfile::tempdir().unwrap();
+        let counted = Rc::new(Cell::new(0));
+        let send = |cx: &mut gpui_kit::TestAppContext, saved: bool, fail: bool| {
+            let counted = counted.clone();
+            let temp = &temp;
+            cx.update_window(handle, |_, window, cx| {
+                view.update(cx, |view, cx| {
+                    view.send_with(
+                        saved,
+                        window,
+                        cx,
+                        |options| {
+                            assert!(options.saved);
+                            if fail {
+                                Err(Failure::InvalidContext)
+                            } else {
+                                idle_run(temp)
+                            }
+                        },
+                        move |_| counted.set(counted.get() + 1),
+                    )
+                })
+            })
+            .unwrap();
+            cx.run_until_parked();
+        };
+        cx.update(|cx| view.update(cx, |view, _| view.review = Some(captured())));
+        // A run that cannot start never reaches the point Electron counts.
+        send(cx, true, true);
+        assert_eq!(counted.get(), 0);
+        send(cx, true, false);
+        assert_eq!(counted.get(), 1);
+        // The review is still running, so another attempt is refused uncounted.
+        send(cx, true, false);
+        assert_eq!(counted.get(), 1);
+        cx.update(|cx| view.update(cx, |view, _| assert!(view.run.is_some())));
+        // A saved prompt without a captured PR is not a review run.
         cx.update(|cx| {
-            assert_eq!(view.read(cx).account.read(cx).value(), "chosen-account");
+            view.update(cx, |view, _| {
+                view.run = None;
+                view.review = None;
+            })
         });
-    }
-
-    /// Saving another account in Settings applies to the next conversation,
-    /// not to the one already under way.
-    #[gpui_kit::test]
-    fn a_new_conversation_picks_up_a_newly_saved_account(cx: &mut gpui_kit::TestAppContext) {
-        let view = chat(cx, "first-account");
-        cx.update(|cx| {
-            let mut config = Settings::global(cx).config.clone();
-            config.copilot.gh_account = "second-account".into();
-            cx.set_global(Settings::new(config));
-            view.update(cx, |view, cx| {
-                view.set_default_account(Some("cli-login".into()), cx)
-            });
-        });
-        let window = cx.update(|cx| cx.windows()[0]);
-        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "first-account"));
-        view.update(&mut visual, |view, cx| view.new_conversation(cx));
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "second-account"));
-    }
-
-    /// A new conversation without a saved account or a known login starts
-    /// empty, and the login fills it once the lookup resolves.
-    #[gpui_kit::test]
-    fn a_new_conversation_without_a_known_login_does_not_keep_the_previous_account(
-        cx: &mut gpui_kit::TestAppContext,
-    ) {
-        let view = chat(cx, "first-account");
-        cx.update(|cx| {
-            let mut config = Settings::global(cx).config.clone();
-            config.copilot.gh_account = String::new();
-            cx.set_global(Settings::new(config));
-            view.update(cx, |view, cx| view.set_default_account(None, cx));
-        });
-        let window = cx.update(|cx| cx.windows()[0]);
-        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
-        view.update(&mut visual, |view, cx| view.new_conversation(cx));
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), ""));
-        view.update(&mut visual, |view, cx| {
-            view.set_default_account(Some("later-login".into()), cx)
-        });
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "later-login"));
-    }
-
-    /// With no saved account, the active `gh` login fills the field.
-    #[gpui_kit::test]
-    fn a_new_chat_falls_back_to_the_active_cli_login(cx: &mut gpui_kit::TestAppContext) {
-        let view = chat(cx, "");
-        cx.update(|cx| {
-            assert_eq!(view.read(cx).account.read(cx).value(), "cli-login");
-        });
+        let prompt = cx.update(|cx| view.read(cx).prompt.clone());
+        cx.update_window(handle, |_, window, cx| {
+            prompt.update(cx, |prompt, cx| {
+                prompt.set_value("Synthetic prompt", window, cx)
+            })
+        })
+        .unwrap();
+        send(cx, true, false);
+        assert_eq!(counted.get(), 1);
+        cx.update(|cx| view.update(cx, |view, _| assert!(view.run.is_some())));
     }
 }
 
@@ -1042,6 +1103,97 @@ mod sidebar_tests {
                     .summary
                     .contains("#823")
             );
+        });
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    fn chat(cx: &mut gpui_kit::TestAppContext, saved_account: &str) -> Entity<ChatView> {
+        let (window, view) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.copilot.gh_account = saved_account.into();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| ChatView::new(window, cx))
+            })
+            .unwrap()
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        view.update(&mut visual, |view, cx| {
+            view.set_default_account(Some("cli-login".into()), cx)
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.run_until_parked();
+        view
+    }
+
+    /// Electron's `CopilotPromptBox` starts from Settings' `copilot.ghAccount`.
+    #[gpui_kit::test]
+    fn a_new_chat_starts_from_the_settings_account(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "chosen-account");
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).account.read(cx).value(), "chosen-account");
+        });
+    }
+
+    /// Saving another account in Settings applies to the next conversation,
+    /// not to the one already under way.
+    #[gpui_kit::test]
+    fn a_new_conversation_picks_up_a_newly_saved_account(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "first-account");
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.copilot.gh_account = "second-account".into();
+            cx.set_global(Settings::new(config));
+            view.update(cx, |view, cx| {
+                view.set_default_account(Some("cli-login".into()), cx)
+            });
+        });
+        let window = cx.update(|cx| cx.windows()[0]);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "first-account"));
+        view.update(&mut visual, |view, cx| view.new_conversation(cx));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "second-account"));
+    }
+
+    /// A new conversation without a saved account or a known login starts
+    /// empty, and the login fills it once the lookup resolves.
+    #[gpui_kit::test]
+    fn a_new_conversation_without_a_known_login_does_not_keep_the_previous_account(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let view = chat(cx, "first-account");
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.copilot.gh_account = String::new();
+            cx.set_global(Settings::new(config));
+            view.update(cx, |view, cx| view.set_default_account(None, cx));
+        });
+        let window = cx.update(|cx| cx.windows()[0]);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        view.update(&mut visual, |view, cx| view.new_conversation(cx));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), ""));
+        view.update(&mut visual, |view, cx| {
+            view.set_default_account(Some("later-login".into()), cx)
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "later-login"));
+    }
+
+    /// With no saved account, the active `gh` login fills the field.
+    #[gpui_kit::test]
+    fn a_new_chat_falls_back_to_the_active_cli_login(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "");
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).account.read(cx).value(), "cli-login");
         });
     }
 }

@@ -1,9 +1,13 @@
 """Synthetic read-only session grouping qualification, called by the owned CI scene."""
 from contextlib import contextmanager
 import hashlib
+import importlib.util
 import json
 import os
+from pathlib import Path
+import subprocess
 
+DAY = 24 * 60 * 60
 
 def prepare(user, original):
     """Add only fresh synthetic workspaces beneath the existing owned fixture."""
@@ -11,9 +15,13 @@ def prepare(user, original):
     files = {}
     for key, name, records in (
             ('alpha', 'Alpha', [('alpha-new', 'Alpha recent session', 'ALPHAID956', 10),
-                                ('alpha-old', 'Alpha earlier session', 'ALPHAOLD956', 30)]),
+                                # Ages in seconds. Electron's date headings are
+                                # This Week from 1 to 7 days before local
+                                # midnight and Older beyond, so these two
+                                # headings hold at any time of day.
+                                ('alpha-old', 'Alpha earlier session', 'ALPHAOLD956', 3 * DAY)]),
             ('beta', 'Beta', [('beta', 'Beta selected session', 'BETAID956', 20)]),
-            ('gamma', 'Gamma', [('gamma', 'Gamma hidden session', 'GAMMAID956', 40)])):
+            ('gamma', 'Gamma', [('gamma', 'Gamma hidden session', 'GAMMAID956', 30 * DAY)])):
         workspace = user / 'workspaceStorage' / ('groups-' + key)
         sessions = workspace / 'chatSessions'
         sessions.mkdir(parents=True, exist_ok=False)
@@ -58,6 +66,41 @@ def source_guard(files, output):
             primary.add_note('Session workspace source verification failed: ' + type(failure).__name__)
 
 
+def _ocr():
+    spec = importlib.util.spec_from_file_location('settings_ocr', Path(__file__).resolve().parent / 'settings-ocr.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def detail_pane(capture):
+    """The selected session's detail, cropped beside the workspace list.
+
+    Tesseract merges a detail line with the list row level with it. Once a
+    date heading moved "Beta selected session" level with BETAID956, Ubuntu
+    read no BETAID956 in any layout (run 44997294960), so the session id is
+    read on its own. The list's right edge is the end of each Collapse or
+    Expand label; the detail heading on the same line starts well after it.
+    """
+    words = sorted(_ocr().recognize(capture), key=lambda word: word['left'])
+    edges = []
+    for start in (word for word in words if word['text'] in ('Collapse', 'Expand')):
+        right = start['left'] + start['width']
+        for word in words:
+            if word['line'] == start['line'] and word['left'] > start['left'] and word['left'] - right < 40:
+                right = max(right, word['left'] + word['width'])
+        edges.append(right)
+    if not edges:
+        raise RuntimeError('The session workspace list was not found')
+    left = max(edges) + 8
+    image = capture.with_suffix('.detail.png')
+    subprocess.run(['ffmpeg', '-nostdin', '-y', '-loglevel', 'error', '-i', str(capture),
+        '-vf', f'crop=iw-{left}:ih:{left}:0:exact=1', '-frames:v', '1', str(image)],
+        capture_output=True, check=True, timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    return image
+
+
 def qualify_dark(driver, user, check):
     capture = driver.drive('session-workspaces-dark', [
         ('content', 'Sessions'), ('input', 'VS Code User directory', str(user), 'Scan folder'),
@@ -69,11 +112,14 @@ def qualify_dark(driver, user, check):
         ('content', 'Gamma hidden session'), ('wait_content', 'GAMMAID956'),
         ('capture', 'expanded-gamma-dark'),
     ], record=True)
-    check(capture / 'workspaces-expanded-dark.png', 'Alpha recent session', 'Alpha earlier session', 'Collapse Beta')
-    check(capture / 'workspaces-collapsed-dark.png', 'Expand Alpha', 'BETAID956',
+    check(capture / 'workspaces-expanded-dark.png', 'Alpha recent session', 'This Week', 'Alpha earlier session', 'Collapse Beta')
+    check(capture / 'workspaces-collapsed-dark.png', 'Expand Alpha',
         absent=('Alpha recent session', 'Alpha earlier session'))
-    check(capture / 'selected-workspace-hidden-dark.png', 'Expand Beta', 'BETAID956')
-    check(capture / 'expanded-gamma-dark.png', 'GAMMAID956', 'Collapse Gamma')
+    check(detail_pane(capture / 'workspaces-collapsed-dark.png'), 'BETAID956')
+    check(capture / 'selected-workspace-hidden-dark.png', 'Expand Beta')
+    check(detail_pane(capture / 'selected-workspace-hidden-dark.png'), 'BETAID956')
+    check(capture / 'expanded-gamma-dark.png', 'Collapse Gamma', 'Older')
+    check(detail_pane(capture / 'expanded-gamma-dark.png'), 'GAMMAID956')
 
 
 def compact_actions():

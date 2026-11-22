@@ -129,8 +129,11 @@ impl SessionsView {
                 this.busy = false;
                 match result {
                     Ok(Ok(Ok((root, scan, path)))) => {
-                        this.groups
-                            .reconcile(&scan.sessions, this.loaded_source.as_ref() == Some(&path));
+                        this.groups.reconcile(
+                            &scan.sessions,
+                            this.loaded_source.as_ref() == Some(&path),
+                            &jiff::Zoned::now(),
+                        );
                         this.loaded_source = Some(path);
                         this.root = Some(root);
                         this.scan = Arc::new(scan);
@@ -220,6 +223,7 @@ impl Render for SessionsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
+        let border = theme.border;
         let danger = theme.danger;
         let mut sources = h_flex().flex_wrap().gap_2();
         for (index, source) in self.sources.iter().enumerate() {
@@ -254,6 +258,23 @@ impl Render for SessionsView {
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.toggle_workspace(&key, cx)),
                         ),
+                    );
+                    continue;
+                }
+                groups::Row::Bucket(bucket) => {
+                    // Electron's .session-date-group-label: small, muted,
+                    // semibold, uppercase, with a rule beneath it.
+                    list = list.child(
+                        div()
+                            .ml(zpx(10.0))
+                            .pt(zpx(4.0))
+                            .pb(zpx(6.0))
+                            .border_b_1()
+                            .border_color(border)
+                            .text_size(zpx(11.0))
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(muted)
+                            .child(bucket.label().to_uppercase()),
                     );
                     continue;
                 }

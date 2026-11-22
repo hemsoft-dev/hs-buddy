@@ -113,3 +113,50 @@ fn a_dropped_usage_worker_removes_live_values_and_unlocks_refresh(
         })
     });
 }
+
+#[gpui_kit::test]
+fn each_usage_card_opens_electrons_settings_link_only_with_its_data(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use gpui_kit::test::TestWindowExt as _;
+    for (copilot, link, url) in [
+        (true, "copilot-usage-github-settings", COPILOT_SETTINGS_URL),
+        (false, "codex-usage-settings", CODEX_USAGE_SETTINGS_URL),
+    ] {
+        let (handle, view) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let config = buddy_core::config::AppConfig::default();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| UsageView::new(window, cx))
+            })
+            .unwrap()
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(handle, cx);
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find("copilot-usage-github-settings").is_none());
+            assert!(window.try_find("codex-usage-settings").is_none());
+            view.update(cx, |view, cx| {
+                seed(view);
+                view.busy = false;
+                if copilot {
+                    view.codex = None;
+                } else {
+                    view.pool = None;
+                }
+                cx.notify();
+            });
+            window.render_frame(cx);
+            let other = if copilot {
+                "codex-usage-settings"
+            } else {
+                "copilot-usage-github-settings"
+            };
+            assert!(window.try_find(other).is_none());
+            window.click(link, cx);
+        });
+        assert_eq!(visual.opened_url().as_deref(), Some(url));
+    }
+}

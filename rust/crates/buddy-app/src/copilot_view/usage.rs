@@ -8,6 +8,7 @@ use buddy_core::codex_usage::{self, UsageSnapshot};
 use buddy_core::config::{GitHubAccount, GitHubConfig, UsageProvider};
 use buddy_core::copilot_usage::history::{History, Page};
 use buddy_core::copilot_usage::{self, BillingSnapshot, UsagePool};
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -17,6 +18,10 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window, div,
 };
 use jiff::Timestamp;
+
+// The destinations of Electron's AccountQuotaCard and CodexUsageCard footer links.
+const COPILOT_SETTINGS_URL: &str = "https://github.com/settings/copilot";
+const CODEX_USAGE_SETTINGS_URL: &str = "https://chatgpt.com/codex/settings/usage";
 
 type RefreshReply = (
     Option<Result<UsageSnapshot, codex_usage::FetchError>>,
@@ -341,7 +346,16 @@ impl Render for UsageView {
                 .child(div().text_color(muted).child(format!(
                     "Resets {}",
                     pool.reset_at.strftime("%Y-%m-%d %H:%M UTC")
-                )));
+                )))
+                .child(
+                    h_flex().child(
+                        Button::new("copilot-usage-github-settings")
+                            .label("Open Copilot settings on GitHub")
+                            .icon(IconName::ExternalLink)
+                            .tooltip("Open Copilot settings on GitHub")
+                            .on_click(|_, _, cx| cx.open_url(COPILOT_SETTINGS_URL)),
+                    ),
+                );
             if let Some(projection) = copilot_usage::compute_projection(pool, Timestamp::now()) {
                 view = view.child(format!(
                     "Projected period total: {} credits · Projected overage: ${:.2}",
@@ -385,6 +399,14 @@ impl Render for UsageView {
                     window.reset_at
                 ));
             }
+            view = view.child(
+                h_flex().child(
+                    Button::new("codex-usage-settings")
+                        .label("Usage settings")
+                        .icon(IconName::ExternalLink)
+                        .on_click(|_, _, cx| cx.open_url(CODEX_USAGE_SETTINGS_URL)),
+                ),
+            );
         }
         if let Some(error) = &self.error {
             view = view.child(div().text_color(danger).child(error.clone()));

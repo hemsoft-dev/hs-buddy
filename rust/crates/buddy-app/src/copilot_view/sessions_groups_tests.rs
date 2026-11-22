@@ -5,6 +5,14 @@ use gpui_kit::test::TestWindowExt;
 use gpui_kit::{AppContext as _, VisualTestContext};
 use std::sync::Arc;
 
+/// A fixed viewing time: 15:00 on 2026-06-17 in New York.
+fn now() -> jiff::Zoned {
+    jiff::civil::date(2026, 6, 17)
+        .at(15, 0, 0, 0)
+        .in_tz("America/New_York")
+        .unwrap()
+}
+
 fn fixture(
     rows: &[(&str, &str, u64)],
 ) -> (
@@ -51,7 +59,7 @@ fn workspace_identity_groups_interleaved_sessions_without_retargeting_their_file
         ["a-new", "b-new", "a-old"]
     );
     let mut groups = Groups::default();
-    groups.reconcile(&scan.sessions, false);
+    groups.reconcile(&scan.sessions, false, &now());
     let ids: Vec<_> = groups
         .page(0, 20)
         .into_iter()
@@ -70,7 +78,12 @@ fn workspace_identity_groups_interleaved_sessions_without_retargeting_their_file
     groups.toggle("a");
     assert_eq!(
         groups.page(0, 20),
-        [Row::Group(0), Row::Group(1), Row::Session(1)]
+        [
+            Row::Group(0),
+            Row::Group(1),
+            Row::Bucket(DateBucket::Older),
+            Row::Session(1)
+        ]
     );
     assert_eq!(
         root.detail(&scan.sessions[2].file, Limits::default())
@@ -91,12 +104,14 @@ fn continuation_pages_keep_the_group_control_and_every_original_row_exactly_once
         .collect();
     let (_temp, _root, scan) = fixture(&borrowed);
     let mut groups = Groups::default();
-    groups.reconcile(&scan.sessions, false);
+    groups.reconcile(&scan.sessions, false, &now());
     let mut seen = Vec::new();
     for page in 0..3 {
         let rows = groups.page(page, 20);
         assert_eq!(rows[0], Row::Group(0));
-        assert!(rows.len() <= 21);
+        // A continuation page repeats its group control and date heading.
+        assert_eq!(rows[1], Row::Bucket(DateBucket::Older));
+        assert!(rows.len() <= 22);
         seen.extend(rows.into_iter().filter_map(|row| {
             if let Row::Session(i) = row {
                 Some(i)
@@ -120,16 +135,16 @@ fn rescans_reconcile_only_current_source_identities_and_the_three_newest_default
         ("d", "four", 10),
     ]);
     let mut groups = Groups::default();
-    groups.reconcile(&scan.sessions, false);
+    groups.reconcile(&scan.sessions, false, &now());
     assert!(!groups.is_expanded(3));
     groups.toggle("d");
-    groups.reconcile(&scan.sessions, true);
+    groups.reconcile(&scan.sessions, true, &now());
     assert!(groups.is_expanded(3));
-    groups.reconcile(&scan.sessions, false);
+    groups.reconcile(&scan.sessions, false, &now());
     assert!(!groups.is_expanded(3));
     groups.toggle("d");
     scan.sessions.retain(|session| session.workspace != "d");
-    groups.reconcile(&scan.sessions, true);
+    groups.reconcile(&scan.sessions, true, &now());
     assert!(!groups.expanded.contains("d"));
 }
 
@@ -147,7 +162,7 @@ fn grouping_controls_are_reachable_by_pointer_and_keyboard_without_changing_sele
         gpui_kit::open_window(Default::default(), cx, |window, cx| {
             cx.new(|cx| {
                 let mut view = super::super::SessionsView::new(window, cx);
-                view.groups.reconcile(&scan.sessions, false);
+                view.groups.reconcile(&scan.sessions, false, &now());
                 view.scan = Arc::new(scan);
                 view.root = Some(root.clone());
                 view.loaded_source = Some(temp.path().to_path_buf());
@@ -213,4 +228,91 @@ fn grouping_controls_are_reachable_by_pointer_and_keyboard_without_changing_sele
             "three"
         );
     });
+}
+
+#[test]
+fn each_workspace_lists_its_sessions_under_electrons_date_headings() {
+    let midnight = now().start_of_day().unwrap().timestamp().as_millisecond() as u64;
+    let hour = 60 * 60 * 1000;
+    let (_temp, _root, scan) = fixture(&[
+        ("a", "a-today", midnight + hour),
+        ("b", "b-today", midnight + 2 * hour),
+        ("a", "a-yesterday", midnight - hour),
+        ("a", "a-week", midnight - 3 * 24 * hour),
+        ("a", "a-older-1", midnight - 30 * 24 * hour),
+        ("a", "a-older-2", midnight - 31 * 24 * hour),
+        ("b", "b-older", 0),
+    ]);
+    let mut groups = Groups::default();
+    groups.reconcile(&scan.sessions, false, &now());
+    let id = |row: &Row| match row {
+        Row::Group(index) => format!("group {}", groups.groups[*index].key),
+        Row::Bucket(bucket) => bucket.label().to_string(),
+        Row::Session(index) => scan.sessions[*index].session_id.clone(),
+    };
+    let rows: Vec<_> = groups.page(0, 20).iter().map(id).collect();
+    assert_eq!(
+        rows,
+        [
+            "group b",
+            "Today",
+            "b-today",
+            "Older",
+            "b-older",
+            "group a",
+            "Today",
+            "a-today",
+            "Yesterday",
+            "a-yesterday",
+            "This Week",
+            "a-week",
+            "Older",
+            "a-older-1",
+            "a-older-2",
+        ]
+    );
+    // Headings do not consume paged rows, so paging still covers each
+    // session once and a continuation page restates its first heading.
+    let first: Vec<_> = groups.page(0, 6).iter().map(id).collect();
+    assert_eq!(
+        first,
+        [
+            "group b",
+            "Today",
+            "b-today",
+            "Older",
+            "b-older",
+            "group a",
+            "Today",
+            "a-today",
+            "Yesterday",
+            "a-yesterday",
+        ]
+    );
+    let second: Vec<_> = groups.page(1, 6).iter().map(id).collect();
+    assert_eq!(
+        second,
+        [
+            "group a",
+            "This Week",
+            "a-week",
+            "Older",
+            "a-older-1",
+            "a-older-2",
+        ]
+    );
+    assert_eq!(groups.row_count(), 9);
+}
+
+#[test]
+fn buckets_are_fixed_at_scan_time_like_electrons_memoized_groups() {
+    let midnight = now().start_of_day().unwrap().timestamp().as_millisecond() as u64;
+    let (_temp, _root, scan) = fixture(&[("a", "one", midnight + 1)]);
+    let mut groups = Groups::default();
+    groups.reconcile(&scan.sessions, false, &now());
+    assert_eq!(groups.page(0, 20)[1], Row::Bucket(DateBucket::Today));
+    let tomorrow = now().checked_add(jiff::Span::new().days(1)).unwrap();
+    assert_eq!(groups.page(0, 20)[1], Row::Bucket(DateBucket::Today));
+    groups.reconcile(&scan.sessions, true, &tomorrow);
+    assert_eq!(groups.page(0, 20)[1], Row::Bucket(DateBucket::Yesterday));
 }
