@@ -329,16 +329,26 @@ impl Cron {
                         let civil =
                             DateTime::from_parts(date, jiff::civil::time(hour, minute, 0, 0));
                         let ambiguous = zone.to_ambiguous_timestamp(civil);
-                        let both = match ambiguous.offset() {
-                            AmbiguousOffset::Fold { before, after } => {
+                        let (rolled_back, both) = match ambiguous.offset() {
+                            AmbiguousOffset::Fold {
+                                before,
+                                after: later_offset,
+                            } => (
+                                zone.to_offset(after) == later_offset,
                                 self.hours == ALL_HOURS
-                                    && before.seconds() - after.seconds() == 3600
-                            }
-                            _ => false,
+                                    && before.seconds() - later_offset.seconds() == 3600,
+                            ),
+                            _ => (false, false),
                         };
+                        let first = ambiguous.earlier().ok();
                         // `compatible` resolves a gap forward and a fold to its first instant.
+                        // cron-parser suppresses a restricted fold's second instant only
+                        // when enumeration crosses the rollback. Starting after it, in
+                        // the repeated hour's second pass, it still lists that instant.
                         let instants = if both {
-                            [ambiguous.earlier().ok(), ambiguous.later().ok()]
+                            [first, ambiguous.later().ok()]
+                        } else if rolled_back && first.is_some_and(|first| first <= after) {
+                            [ambiguous.later().ok(), None]
                         } else {
                             [ambiguous.compatible().ok(), None]
                         };

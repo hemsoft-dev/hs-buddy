@@ -341,3 +341,19 @@ fn a_step_beyond_the_range_keeps_only_its_first_value() {
     let wide = Cron::parse("0 0-23/9223372036854775807 * * *").unwrap();
     assert_eq!(wide, Cron::parse("0 0 * * *").unwrap());
 }
+
+/// cron-parser 5.10.2 starting in the second pass of New York's repeated 01:00
+/// hour still lists the second 01:30; starting before the rollback, it lists only
+/// the first.
+#[test]
+fn a_forecast_opened_inside_a_repeated_hour_keeps_its_second_instant() {
+    let to = 1_793_602_800_000; // 2026-11-02T07:00:00Z
+    assert_eq!(
+        times("30 1 * * *", "America/New_York", 1_793_513_700_000, to, 500).unwrap(),
+        ["2026-11-01T06:30:00Z", "2026-11-02T06:30:00Z"]
+    );
+    assert_eq!(
+        times("30 1 * * *", "America/New_York", 1_793_510_100_000, to, 500).unwrap(),
+        ["2026-11-01T05:30:00Z", "2026-11-02T06:30:00Z"]
+    );
+}
