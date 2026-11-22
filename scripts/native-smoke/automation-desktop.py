@@ -286,7 +286,9 @@ def qualify_editing(driver, backend, config, echo, long):
     changed = driver.drive("change-light", [
         ("input", "Filter", "Native created"), ("content", "Schedules"), ("sleep", 1),
         ("content", "Delete"), ("capture", "schedule-delete-light"), ("content", "Delete schedule"), ("sleep", 3),
-        ("content", "Jobs"), ("sleep", 1), ("content", "Edit"), ("sleep", 1), ("capture", "edit-job-light"),
+        # The Schedules pane's "Upcoming Scheduled Jobs" heading is a second
+        # visible "Jobs", so pick the sidebar row explicitly.
+        ("sidebar", "Jobs"), ("sleep", 1), ("content", "Edit"), ("sleep", 1), ("capture", "edit-job-light"),
         ("input", "Command", "echo native_updated"), ("content", "Save"), ("sleep", 3),
         ("resize", 900, 650), ("sleep", 1), ("capture", "compact-light"),
     ])
