@@ -25,10 +25,10 @@ function preview(text: string): string {
 }
 
 // Electron opens metadata.prUrl only for pr-review results; the list needs it to offer that link.
-function reviewedPullRequestUrl(row: Doc<'copilotResults'>) {
-  if (row.category !== 'pr-review') return undefined
+function reviewedPullRequestUrl(row: Doc<'copilotResults'>): string | undefined {
+  if (row.category !== 'pr-review') return
   const metadata: unknown = row.metadata
-  if (typeof metadata !== 'object' || metadata === null || !('prUrl' in metadata)) return undefined
+  if (typeof metadata !== 'object' || metadata === null || !('prUrl' in metadata)) return
   const url = metadata.prUrl
   return typeof url === 'string' && url.length <= 2048 ? url : undefined
 }
