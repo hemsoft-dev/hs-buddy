@@ -9,8 +9,10 @@ It reflects `main` at commit
 [`55e4ee06`](https://github.com/hemsoft-dev/hs-buddy/commit/55e4ee0653124c0aa52d3d354d2eba246356bb41)
 (2026-11-21). Every source link is a permalink to that commit, so the links keep
 working as the code moves, and a row is out of date as soon as its code changes.
-One row is newer: Escape in the Tempo worklog editor, ported by
-[#984](https://github.com/hemsoft-dev/hs-buddy/pull/984) (commit `0f9af531`), links to that commit.
+A row ported later links the commit that ported it instead, starting with
+Escape in the Tempo worklog editor
+([#984](https://github.com/hemsoft-dev/hs-buddy/pull/984), commit `0f9af531`).
+The remaining work is tracked per area in #988 to #995.
 
 ## Result
 
