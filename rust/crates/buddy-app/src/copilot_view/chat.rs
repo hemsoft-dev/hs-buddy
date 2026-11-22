@@ -49,6 +49,8 @@ pub(crate) struct ChatView {
     prompt: Entity<TextareaState>,
     default_account: Option<String>,
     populate: bool,
+    /// New conversation: re-apply the configured account on the next render.
+    reset_account: bool,
     messages: Vec<Message>,
     run: Option<RunHandle>,
     generation: uuid::Uuid,
@@ -115,6 +117,7 @@ impl ChatView {
             prompt,
             default_account: None,
             populate: true,
+            reset_account: false,
             messages: Vec::new(),
             run: None,
             generation: uuid::Uuid::new_v4(),
@@ -324,6 +327,10 @@ impl ChatView {
         self.error = None;
         self.notice = None;
         self.generation = uuid::Uuid::new_v4();
+        // A new conversation starts from Settings' account again; an ongoing
+        // one keeps the account it started with.
+        self.reset_account = true;
+        self.populate = true;
         cx.notify();
     }
     fn load_models(&mut self, cx: &mut Context<Self>) {
@@ -430,12 +437,12 @@ impl Render for ChatView {
             self.apply_review = false;
         }
         if self.populate {
-            if self.account.read(cx).value().is_empty() {
+            if self.reset_account || self.account.read(cx).value().is_empty() {
                 // Electron's prompt box starts from Settings > Copilot SDK's
                 // account, and falls back to the active gh login when unset.
                 let configured = Settings::global(cx).config.copilot.gh_account.trim();
                 let account = if configured.is_empty() {
-                    self.default_account.take()
+                    self.default_account.clone()
                 } else {
                     Some(configured.to_string())
                 };
@@ -450,6 +457,7 @@ impl Render for ChatView {
                     .update(cx, |state, cx| state.set_value(model, window, cx));
             }
             self.populate = false;
+            self.reset_account = false;
         }
         let theme = cx.theme();
         let muted = theme.muted_foreground;
@@ -875,6 +883,28 @@ mod account_tests {
         cx.update(|cx| {
             assert_eq!(view.read(cx).account.read(cx).value(), "chosen-account");
         });
+    }
+
+    /// Saving another account in Settings applies to the next conversation,
+    /// not to the one already under way.
+    #[gpui_kit::test]
+    fn a_new_conversation_picks_up_a_newly_saved_account(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "first-account");
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.copilot.gh_account = "second-account".into();
+            cx.set_global(Settings::new(config));
+            view.update(cx, |view, cx| {
+                view.set_default_account(Some("cli-login".into()), cx)
+            });
+        });
+        let window = cx.update(|cx| cx.windows()[0]);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "first-account"));
+        view.update(&mut visual, |view, cx| view.new_conversation(cx));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "second-account"));
     }
 
     /// With no saved account, the active `gh` login fills the field.
