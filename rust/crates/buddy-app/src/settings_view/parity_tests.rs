@@ -241,3 +241,27 @@ fn the_copilot_panel_warns_when_no_accounts_are_configured(cx: &mut gpui_kit::Te
     assert!(visual.debug_bounds("copilot-no-accounts-warning").is_some());
     assert!(visual.debug_bounds("copilot-config-summary").is_some());
 }
+
+/// A save Convex acknowledged without a fresh snapshot must not leave the
+/// picker on the old account, or choosing that account again would be ignored.
+#[gpui_kit::test]
+fn an_acknowledged_save_without_a_reread_shows_the_saved_account(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let mut config = AppConfig::default();
+    config.github.accounts = vec![account("one", "team", None), account("two", "team", None)];
+    config.copilot.gh_account = "one".into();
+    let (mut visual, view) = open(cx, config.clone(), Panel::Copilot);
+    view.update(&mut visual, |view, cx| {
+        view.snapshot = Some(SettingsSnapshot {
+            accounts: Vec::new(),
+            pr: config.pr.clone(),
+            copilot: config.copilot.clone(),
+        });
+        assert_eq!(view.saved_copilot(cx).gh_account, "one");
+        view.show_acknowledged(&SyncedEdit::CopilotAccount("two".into()));
+        assert_eq!(view.saved_copilot(cx).gh_account, "two");
+        view.show_acknowledged(&SyncedEdit::CopilotModel(" fixture-model ".into()));
+        assert_eq!(view.saved_copilot(cx).model, "fixture-model");
+    });
+}

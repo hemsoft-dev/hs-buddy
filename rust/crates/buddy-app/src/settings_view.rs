@@ -293,6 +293,14 @@ impl SettingsView {
         );
     }
 
+    /// Convex acknowledged a write but rereading it failed: show the saved
+    /// value instead of the cached one, so the controls match what is stored.
+    fn show_acknowledged(&mut self, edit: &SyncedEdit) {
+        if let Some(snapshot) = self.snapshot.as_mut() {
+            edit.apply_to(&mut snapshot.pr, &mut snapshot.copilot);
+        }
+    }
+
     fn backend(&mut self, command: BackendCommand, cx: &mut Context<Self>) {
         if self.busy || self.must_reload {
             return;
@@ -346,6 +354,8 @@ impl SettingsView {
                         });
                         if let Some(snapshot) = receipt.snapshot {
                             this.pending_snapshot = Some((snapshot, false));
+                        } else if let BackendCommand::Preference(edit) = &mirror {
+                            this.show_acknowledged(edit);
                         }
                         this.confirm_remove = None;
                     }

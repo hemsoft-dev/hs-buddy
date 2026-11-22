@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::config::{AppConfig, ThemeName, UsageProvider};
+use crate::config::{AppConfig, CopilotConfig, PrConfig, ThemeName, UsageProvider};
 use crate::gh::is_valid_slug;
 
 pub const REFRESH_MINUTES: [u32; 6] = [1, 5, 10, 15, 30, 60];
@@ -266,15 +266,21 @@ impl SyncedEdit {
     /// a read fallback, never a substitute for a disconnected backend write.
     pub fn apply_mirror(&self, config: &mut AppConfig) -> Result<(), SettingsError> {
         self.mutation()?;
-        match self {
-            Self::RefreshMinutes(value) => config.pr.refresh_interval = f64::from(*value),
-            Self::AutoRefresh(value) => config.pr.auto_refresh = *value,
-            Self::RecentlyMergedDays(value) => config.pr.recently_merged_days = f64::from(*value),
-            Self::CopilotAccount(value) => config.copilot.gh_account = value.trim().into(),
-            Self::CopilotModel(value) => config.copilot.model = value.trim().into(),
-            Self::PremiumModel(value) => config.copilot.premium_model = value.trim().into(),
-        }
+        self.apply_to(&mut config.pr, &mut config.copilot);
         Ok(())
+    }
+
+    /// Writes the saved value into synced settings: the local mirror, or a
+    /// cached Convex snapshot when the save was acknowledged without one.
+    pub fn apply_to(&self, pr: &mut PrConfig, copilot: &mut CopilotConfig) {
+        match self {
+            Self::RefreshMinutes(value) => pr.refresh_interval = f64::from(*value),
+            Self::AutoRefresh(value) => pr.auto_refresh = *value,
+            Self::RecentlyMergedDays(value) => pr.recently_merged_days = f64::from(*value),
+            Self::CopilotAccount(value) => copilot.gh_account = value.trim().into(),
+            Self::CopilotModel(value) => copilot.model = value.trim().into(),
+            Self::PremiumModel(value) => copilot.premium_model = value.trim().into(),
+        }
     }
 }
 

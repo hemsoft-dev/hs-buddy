@@ -430,11 +430,19 @@ impl Render for ChatView {
             self.apply_review = false;
         }
         if self.populate {
-            if self.account.read(cx).value().is_empty()
-                && let Some(account) = self.default_account.take()
-            {
-                self.account
-                    .update(cx, |state, cx| state.set_value(account, window, cx));
+            if self.account.read(cx).value().is_empty() {
+                // Electron's prompt box starts from Settings > Copilot SDK's
+                // account, and falls back to the active gh login when unset.
+                let configured = Settings::global(cx).config.copilot.gh_account.trim();
+                let account = if configured.is_empty() {
+                    self.default_account.take()
+                } else {
+                    Some(configured.to_string())
+                };
+                if let Some(account) = account {
+                    self.account
+                        .update(cx, |state, cx| state.set_value(account, window, cx));
+                }
             }
             if self.model.read(cx).value().is_empty() {
                 let model = Settings::global(cx).config.copilot.model.clone();
@@ -832,6 +840,50 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         cx.update(|cx| assert_eq!(prompt.read(cx).value(), "synthetic message\n"));
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    fn chat(cx: &mut gpui_kit::TestAppContext, saved_account: &str) -> Entity<ChatView> {
+        let (window, view) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.copilot.gh_account = saved_account.into();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| ChatView::new(window, cx))
+            })
+            .unwrap()
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        view.update(&mut visual, |view, cx| {
+            view.set_default_account(Some("cli-login".into()), cx)
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.run_until_parked();
+        view
+    }
+
+    /// Electron's `CopilotPromptBox` starts from Settings' `copilot.ghAccount`.
+    #[gpui_kit::test]
+    fn a_new_chat_starts_from_the_settings_account(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "chosen-account");
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).account.read(cx).value(), "chosen-account");
+        });
+    }
+
+    /// With no saved account, the active `gh` login fills the field.
+    #[gpui_kit::test]
+    fn a_new_chat_falls_back_to_the_active_cli_login(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "");
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).account.read(cx).value(), "cli-login");
+        });
     }
 }
 
