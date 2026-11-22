@@ -25,16 +25,21 @@ class BrowserDesktopTests(unittest.TestCase):
     def test_bookmark_activity_requires_exact_explicit_delta_and_unchanged_other_counters(self):
         before = dict(tabsOpened=40, prsViewed=7, appLaunches=5, totalUptimeMs=999)
         backend = Mock()
-        expected = dict(before, tabsOpened=43)
+        # Three bookmark opens and two launches, each with its Dashboard and one closed session.
+        expected = dict(before, tabsOpened=45, appLaunches=7, totalUptimeMs=4000)
         backend.query.return_value = expected
-        self.assertEqual(desktop.require_bookmark_activity(backend, before, 3), expected)
+        self.assertEqual(desktop.require_bookmark_activity(backend, before, 3, 2), expected)
         backend.query.assert_called_once_with('buddyStats:get')
-        for wrong in (dict(expected, tabsOpened=42), dict(expected, tabsOpened=44),
-                dict(expected, prsViewed=8), dict(expected, appLaunches=6),
-                dict(expected, totalUptimeMs=1000), {}):
+        for wrong in (dict(expected, tabsOpened=44), dict(expected, tabsOpened=46),
+                dict(expected, prsViewed=8), {}):
             backend.query.return_value = wrong
             with self.subTest(wrong=wrong), self.assertRaisesRegex(RuntimeError, 'differs from explicit opens'):
-                desktop.require_bookmark_activity(backend, before, 3)
+                desktop.require_bookmark_activity(backend, before, 3, 2)
+        for wrong in (dict(expected, appLaunches=6), dict(expected, appLaunches=8),
+                dict(expected, totalUptimeMs=999), dict(expected, lastSessionStart=1)):
+            backend.query.return_value = wrong
+            with self.subTest(wrong=wrong), self.assertRaisesRegex(RuntimeError, 'Native sessions differ'):
+                desktop.require_bookmark_activity(backend, before, 3, 2)
 
     def test_linux_capture_recovers_missing_chrome_and_titles_from_measured_bands(self):
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-linux-workspace-band.json').read_text())

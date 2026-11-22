@@ -686,6 +686,39 @@ fn repeated_embedded_opens_count_but_missing_external_and_restores_do_not(
 }
 
 #[gpui_kit::test]
+fn tree_clicks_count_like_electron_view_opens_but_restores_do_not(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let fake = Fake::with(library());
+    let (mut visual, view) = open(cx, &fake);
+    // A repeated click counts again, as Electron's openTab does.
+    for target in [
+        "bookmark-category-label-Dev",
+        "bookmark-category-label-Dev",
+        "bookmark-category-label-News",
+        "bookmarks-all",
+    ] {
+        let row = visual.debug_bounds(target).unwrap();
+        visual.simulate_click(row.center(), gpui_kit::Modifiers::default());
+        visual.run_until_parked();
+    }
+    assert_eq!(fake.tab_opens.load(Ordering::SeqCst), 4);
+    assert!(view.read_with(&visual, |view, _| view.filter.category.is_empty()));
+    view.update(&mut visual, |view, cx| {
+        view.select_category(Some("News".into()), cx)
+    });
+    let destination = view.read_with(&visual, |state, _| state.destination(view.clone()));
+    view.update(&mut visual, |view, cx| view.select_category(None, cx));
+    visual.update(|window, cx| (destination.restore)(window, cx));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |view, _| view.filter.category.clone()),
+        "News"
+    );
+    assert_eq!(fake.tab_opens.load(Ordering::SeqCst), 4);
+}
+
+#[gpui_kit::test]
 fn a_pasted_url_gets_its_title_and_suggestions_without_overwriting_edits(
     cx: &mut gpui_kit::TestAppContext,
 ) {

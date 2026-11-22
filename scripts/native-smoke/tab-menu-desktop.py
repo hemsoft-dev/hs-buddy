@@ -15,7 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from desktop import fixture
+from desktop import fixture, require_closed_sessions
 
 HERE = Path(__file__).resolve().parent
 CHECKOUT = HERE.parent.parent
@@ -46,6 +46,7 @@ terminal = load("terminal-desktop")
 github = terminal.github
 settings = terminal.settings
 COUNTERS = load("settings-activity").COUNTERS
+SESSION_COUNTERS = load("settings-activity").SESSION_COUNTERS
 
 
 def require_runner():
@@ -182,15 +183,23 @@ def require_tab_row(capture, present, absent=()):
         raise RuntimeError(f"The {title!r} workspace tab is still open in {capture.name}")
 
 
-def require_unchanged(before, after, name, browsed=0):
-    """Tabs and their menus recorded nothing beyond the repository-list opens.
+def require_unchanged(before, after, name, browsed=0, launches=0):
+    """Tabs and their menus recorded nothing beyond the repository-list opens
+    and what every launch records: the Dashboard Electron's tab list opens
+    when its window starts, and one closed session.
 
-    `browsed` is how many times the repository list was opened since `before`.
+    `browsed` is how many times the repository list was opened since `before`,
+    and `launches` how many times the app was started.
     """
     changes = {key: after.get(key, 0) - before.get(key, 0) for key in COUNTERS}
-    expected = {key: browsed if key == "reposBrowsed" else 0 for key in COUNTERS}
-    if changes != expected or before.get("lastSessionStart") != after.get("lastSessionStart"):
+    expected = {key: browsed if key == "reposBrowsed" else launches if key == "tabsOpened" else 0
+        for key in COUNTERS if key not in SESSION_COUNTERS}
+    if {key: changes[key] for key in expected} != expected:
         raise RuntimeError(f"Tab menus changed the backend in {name}: {changes}")
+    try:
+        require_closed_sessions(before, after, launches)
+    except RuntimeError as failure:
+        raise RuntimeError(f"Tab menus changed the backend in {name}: {failure}") from None
     return changes
 
 
@@ -212,10 +221,13 @@ def measured(driver, backend, baseline, name, actions, journal):
     """Drive one recorded pass, then compare the backend with the scene's start."""
     flow = driver.drive(name, actions, record=True)
     after = backend.query("buddyStats:get")
-    # The baseline is the scene's start, so earlier passes' list opens remain.
+    # The baseline is the scene's start, so earlier passes' list opens and
+    # launches remain.
     opened = actions.count(open_tabs()[0])
     total = sum(entry["browsed"] for entry in journal.values()) + opened
-    journal[name] = dict(after=after, browsed=opened, changes=require_unchanged(baseline, after, name, total))
+    launches = len(journal) + 1
+    journal[name] = dict(after=after, browsed=opened, launches=launches,
+        changes=require_unchanged(baseline, after, name, total, launches))
     return flow
 
 
@@ -282,7 +294,8 @@ def qualify(executable, output, session, version, backend, api):
         checks=["three workspace tabs", "right-click menu on an inactive tab", "active tab unchanged by the menu",
             "Escape dismissal leaves every tab", "Close to the Right closes later tabs and is inert on the last tab",
             "Close Others closes the other tabs and is inert on the only tab", "interaction recordings",
-            "only repository-list activity in any pass", "no GitHub write",
+            "only repository-list activity in any pass", "one Dashboard open and one closed session per launch",
+            "no GitHub write",
             f"dark {driver.large_size[0]}x{driver.large_size[1]}", "light 900x650"]),
         indent=2), encoding="utf-8")
 

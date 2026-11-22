@@ -52,7 +52,24 @@ pub(super) const STALLED: &str =
 pub(super) const ZOOM_DELTA: f64 = 0.1;
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
-actions!(browser, [NextTab, PreviousTab, CloseTab]);
+actions!(
+    browser,
+    [NextTab, PreviousTab, CloseTab, ZoomPageIn, ZoomPageOut]
+);
+
+/// Electron's `handleZoomKeydown` (`BrowserTabView.tsx`): Alt+= or Alt++ zooms
+/// the shown page in and Alt+- zooms it out; there is no reset key. Electron
+/// listens on the whole window while a page tab is shown, so the bindings sit
+/// at the app root, outside the terminal, whose shell keeps Alt keys.
+pub fn init(cx: &mut App) {
+    let context = Some("BuddyApp && !BuddyTerminal && !BuddyTerminalPaste");
+    cx.bind_keys([
+        gpui_kit::KeyBinding::new("alt-=", ZoomPageIn, context),
+        gpui_kit::KeyBinding::new("alt-+", ZoomPageIn, context),
+        gpui_kit::KeyBinding::new("alt-shift-=", ZoomPageIn, context),
+        gpui_kit::KeyBinding::new("alt--", ZoomPageOut, context),
+    ]);
+}
 
 /// Open GPUI overlays (menus, dialogs) that a native page would cover.
 /// Whoever opens one counts it here while it is open.
@@ -731,6 +748,14 @@ impl BrowserView {
     pub(super) fn close_active(&mut self, cx: &mut Context<Self>) {
         if let Some(index) = self.active {
             self.close(index, cx);
+        }
+    }
+
+    /// Alt+= / Alt+-: zoom only while a page tab is shown, as Electron's
+    /// listener lives only in a mounted page tab. The bookmark list ignores it.
+    pub(crate) fn zoom_shortcut(&mut self, zoom_in: bool, cx: &mut Context<Self>) {
+        if self.shown && self.active.is_some() {
+            self.zoom_by(if zoom_in { ZOOM_DELTA } else { -ZOOM_DELTA }, cx);
         }
     }
 

@@ -98,6 +98,7 @@ impl BookmarksView {
                 tree = tree.child(
                     h_flex()
                         .id("bookmarks-all")
+                        .debug_selector(|| "bookmarks-all".into())
                         .gap_1()
                         .px_1()
                         .rounded_md()
@@ -105,7 +106,7 @@ impl BookmarksView {
                         .border_color(gpui_kit::transparent_black())
                         .when(all, |row| row.bg(selected_fill))
                         .cursor_pointer()
-                        .on_click(cx.listener(|this, _, _, cx| this.select_category(None, cx)))
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_category(None, cx)))
                         .child(Icon::new(IconName::Globe).size(zpx(14.)))
                         .child("All bookmarks"),
                 );
@@ -184,12 +185,16 @@ impl BookmarksView {
             .child(
                 h_flex()
                     .id(id("bookmark-category-label", &path))
+                    .debug_selector({
+                        let path = path.clone();
+                        move || format!("bookmark-category-label-{path}")
+                    })
                     .flex_1()
                     .min_w_0()
                     .gap_1()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select_category(Some(select.clone()), cx)
+                        this.choose_category(Some(select.clone()), cx)
                     }))
                     .child(Icon::new(IconName::FolderOpen).size(zpx(14.)))
                     .child(div().flex_1().min_w_0().truncate().child(label))

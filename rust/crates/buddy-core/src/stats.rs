@@ -7,6 +7,7 @@ use serde_json::Value;
 pub mod copilot_review_activity;
 pub mod github_activity;
 pub mod pr_list_activity;
+pub mod session_activity;
 pub mod tab_activity;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

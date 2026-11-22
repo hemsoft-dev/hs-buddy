@@ -204,6 +204,18 @@ class InstalledEvidence(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "differs from explicit opens"):
                 desktop.require_activity(backend, before, dict(tabsOpened=5, prsViewed=2, prsReviewed=1))
 
+    def test_activity_with_launches_requires_one_closed_session_each(self):
+        before = dict(tabsOpened=12, appLaunches=7, totalUptimeMs=5000)
+        backend = Mock()
+        backend.query.return_value = dict(tabsOpened=14, appLaunches=9, totalUptimeMs=9000)
+        desktop.require_activity(backend, before, dict(tabsOpened=2), launches=2)
+        for incorrect in (dict(tabsOpened=14, appLaunches=8, totalUptimeMs=9000),
+                dict(tabsOpened=14, appLaunches=9, totalUptimeMs=5000),
+                dict(tabsOpened=14, appLaunches=9, totalUptimeMs=9000, lastSessionStart=1)):
+            backend.query.return_value = incorrect
+            with self.subTest(after=incorrect), self.assertRaisesRegex(RuntimeError, "Native sessions differ"):
+                desktop.require_activity(backend, before, dict(tabsOpened=2), launches=2)
+
     def test_recorded_browser_needs_one_complete_mixed_contrast_layout(self):
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('browser-mixed-contrast.json').read_text(encoding='utf-8'))
         calls = []

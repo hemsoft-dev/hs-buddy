@@ -9,7 +9,7 @@ from pathlib import Path
 import urllib.request
 import wave
 
-from desktop import fixture, require_version
+from desktop import fixture, require_closed_sessions, require_version
 import importlib.util
 
 HERE = Path(__file__).resolve().parent
@@ -57,11 +57,14 @@ def reset_section(config):
     config.write_text(json.dumps(value), encoding="utf-8")
 
 
-def require_activity(backend, before, expected):
+def require_activity(backend, before, expected, launches=None):
+    """Exact counter deltas; with `launches`, also that many closed sessions."""
     after = backend.query("buddyStats:get")
     observed = {field: after.get(field, 0) - before.get(field, 0) for field in expected}
     if observed != expected:
         raise RuntimeError(f"Native PR-list activity differs from explicit opens: {observed}, expected {expected}")
+    if launches is not None:
+        require_closed_sessions(before, after, launches)
     return after
 
 
@@ -287,12 +290,13 @@ def qualify(executable, output, session, version, backend, api):
     if backend.query("settings:get")["viewModes"]["pr-list-my-prs"] != "list":
         raise RuntimeError("The native list preference did not reach Convex")
 
-    # Five PR-list opens, then Electron's openTab for the PR and seven section
-    # choices: Reviews, Commits, Checks, Files, History, Review threads and
-    # Conversation. Electron shows a review thread inside its PR page, and
-    # Back restores a view, so neither counts.
+    # The Dashboard Electron opens at launch, five PR-list opens, then
+    # Electron's openTab for the PR and seven section choices: Reviews,
+    # Commits, Checks, Files, History, Review threads and Conversation.
+    # Electron shows a review thread inside its PR page, and Back restores a
+    # view, so neither counts.
     require_activity(backend, activity_before,
-        dict(tabsOpened=13, prsViewed=2, prsReviewed=1, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+        dict(tabsOpened=14, prsViewed=2, prsReviewed=1, prsMergedWatched=1), launches=1)
     # A fresh installed process must retain the backend counters without
     # treating initial restoration, refresh or selecting a retained tab as opens.
     activity = driver.drive("activity-restored-dark", [
@@ -303,8 +307,9 @@ def qualify(executable, output, session, version, backend, api):
         ("capture", "restored-pr-list-dark"), ("workspace", "Dashboard"),
         ("wait_content", "PRs Viewed"), ("capture", "workspace-activity-dark"),
     ], record=True)
+    # Two Needs Review opens and the second launch's Dashboard.
     activity_after = require_activity(backend, activity_before,
-        dict(tabsOpened=15, prsViewed=2, prsReviewed=3, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+        dict(tabsOpened=17, prsViewed=2, prsReviewed=3, prsMergedWatched=1), launches=2)
     # The fixture's reviewed-by source marks #7 approved. Needs Review keeps
     # the unapproved #8 from its paginated assignee source instead.
     check(activity / "restored-sidebar-list-dark.png", "Needs Review", "#8 Paginated fixture follow-up")
@@ -313,7 +318,7 @@ def qualify(executable, output, session, version, backend, api):
     (output / "activity.json").write_text(json.dumps(dict(before=activity_before, after=activity_after,
         checks=["four explicit modes", "repeated current mode", "repeated loaded mode retained across tabs",
             "no refresh write", "no retained-tab write",
-            "restart persistence", "session and uptime untouched"]), indent=2))
+            "restart persistence", "one closed session per launch"]), indent=2))
 
     qualify_review_sound(driver, config, output, api)
     reset_section(config)
@@ -338,12 +343,12 @@ def qualify(executable, output, session, version, backend, api):
         absent=("fixture-org/limited", "fixture-org/denied"))
     if json.loads(config.read_text(encoding="utf-8-sig"))["ui"].get("showBookmarkedOnly") is not True:
         raise RuntimeError("The bookmarked-only repository filter was not persisted")
-    # Electron's openTab for the repository, its six tab choices, a commit,
-    # an issue, a user and the organization. People, a user's own tabs and a
+    # The launch's Dashboard, then Electron's openTab for the repository, its
+    # six tab choices, a commit, an issue, a user and the organization. People, a user's own tabs and a
     # team are Electron sidebar groups or page sections. Both repository-list
     # opens are organization expansions, which count reposBrowsed only.
-    require_activity(backend, navigation_before, dict(tabsOpened=11, reposBrowsed=2,
-        prsViewed=0, prsReviewed=0, prsMergedWatched=0, appLaunches=0, totalUptimeMs=0))
+    require_activity(backend, navigation_before, dict(tabsOpened=12, reposBrowsed=2,
+        prsViewed=0, prsReviewed=0, prsMergedWatched=0), launches=1)
     if not backend.query("repoBookmarks:list"):
         raise RuntimeError("The installed bookmark action did not reach Convex")
     if "fixture-author" not in json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["favoriteUsers"]:

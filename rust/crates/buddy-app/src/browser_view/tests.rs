@@ -1010,3 +1010,97 @@ fn global_destination_restores_its_page_and_close_disposes_it(cx: &mut gpui_kit:
     assert_eq!(h.saved().tabs.len(), 1);
     assert!(host.log.has("visible false"));
 }
+
+/// The app root's forwarding of Electron's Alt zoom keys (see `app.rs`).
+struct ZoomRoot {
+    focus: gpui_kit::FocusHandle,
+    browser: Entity<BrowserView>,
+}
+
+impl gpui_kit::Render for ZoomRoot {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+        use gpui_kit::{InteractiveElement as _, ParentElement as _, Styled as _};
+        gpui_kit::div()
+            .key_context("BuddyApp")
+            .on_action(cx.listener(|this, _: &ZoomPageIn, _, cx| {
+                this.browser
+                    .update(cx, |view, cx| view.zoom_shortcut(true, cx))
+            }))
+            .on_action(cx.listener(|this, _: &ZoomPageOut, _, cx| {
+                this.browser
+                    .update(cx, |view, cx| view.zoom_shortcut(false, cx))
+            }))
+            .track_focus(&self.focus)
+            .size_full()
+            .child(self.browser.clone())
+    }
+}
+
+#[gpui_kit::test]
+fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::{Bounds, Point, WindowBounds, WindowOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("config.json");
+    let config = buddy_core::config::AppConfig::default();
+    std::fs::write(&file, serde_json::to_string(&config).unwrap()).unwrap();
+    let host = Rc::new(FakeHost::default());
+    let engine: Rc<dyn Host> = host.clone();
+    let (window, root) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&config, cx);
+        cx.set_global(Settings::new(config));
+        init(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Point::default(),
+                    size: size(px(1200.), px(820.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                let browser = cx.new(|cx| {
+                    BrowserView::with_host(engine, checker(), Some(file.clone()), window, cx)
+                });
+                cx.new(|cx| {
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    ZoomRoot { focus, browser }
+                })
+            },
+        )
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    let browser = root.read_with(&visual, |root, _| root.browser.clone());
+    let zoom = |visual: &mut VisualTestContext| browser.read_with(visual, |view, _| view.zoom);
+
+    // The bookmark list is not a page tab: Electron has no listener there.
+    browser.update(&mut visual, |view, cx| view.set_active(true, cx));
+    visual.run_until_parked();
+    visual.simulate_keystrokes("alt-=");
+    assert_eq!(zoom(&mut visual), 1.0);
+
+    browser.update(&mut visual, |view, cx| view.open(PAGE, "", cx));
+    visual.run_until_parked();
+    host.log.take();
+    visual.simulate_keystrokes("alt-=");
+    assert_eq!(zoom(&mut visual), 1.1);
+    visual.simulate_keystrokes("alt-+");
+    assert_eq!(zoom(&mut visual), 1.2);
+    visual.simulate_keystrokes("alt-shift-=");
+    assert_eq!(zoom(&mut visual), 1.3);
+    visual.simulate_keystrokes("alt--");
+    assert_eq!(zoom(&mut visual), 1.2);
+    assert!(host.log.has("zoom 1.2"), "{:?}", host.log.take());
+    // No reset key, as in Electron; Alt+0 changes nothing.
+    visual.simulate_keystrokes("alt-0");
+    assert_eq!(zoom(&mut visual), 1.2);
+
+    // A hidden browser (another section is shown) ignores the keys.
+    browser.update(&mut visual, |view, cx| view.set_active(false, cx));
+    visual.run_until_parked();
+    visual.simulate_keystrokes("alt--");
+    assert_eq!(zoom(&mut visual), 1.2);
+}
