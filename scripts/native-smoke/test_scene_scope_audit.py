@@ -43,10 +43,13 @@ class SceneChromeScopes(unittest.TestCase):
                 ocr.find_label(words, label)
 
     def test_footer_labels_cannot_be_used_as_unscoped_scene_targets(self):
-        footer_states = ['0 PRs 0 schedules 0 jobs No gh account',
-            'PRs loading schedules loading jobs loading No gh account',
-            'PRs unavailable schedules unavailable jobs unavailable No gh account',
-            '5 PRs (stale) 2 schedules (stale) 2 jobs (stale) No gh account']
+        # StatusBar.tsx: totals, @account, the PR sync item, the assistant
+        # indicator and brand in the centre, then the date and clock.
+        footer_states = ['0 PRs 0 schedules 0 jobs Buddy Sat, Nov 21 03:04:05 PM',
+            'PRs loading schedules loading jobs loading Syncing PR lists… Buddy Sat, Nov 21 03:04:05 PM',
+            'PRs unavailable schedules unavailable jobs unavailable Auto-refresh off Copilot Buddy Sat, Nov 21 15:04:05',
+            '5 PRs (stale) 2 schedules (stale) 2 jobs (stale) @fixture-one Next sync 4m 12s Copilot Buddy Sa., 21.11. 15:04:05',
+            '5 PRs 2 schedules 2 jobs @fixture-one Auto-refresh active Buddy Sat, Nov 21 03:04:05 PM']
         for scene, line, kind, label in actions():
             for text in footer_states:
                 words = [dict(text=token, left=i * 70, top=800, width=60, height=12, line='footer') for i, token in enumerate(text.split())]

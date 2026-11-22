@@ -9,26 +9,28 @@ It reflects `main` at commit
 [`55e4ee06`](https://github.com/hemsoft-dev/hs-buddy/commit/55e4ee0653124c0aa52d3d354d2eba246356bb41)
 (2026-11-21). Every source link is a permalink to that commit, so the links keep
 working as the code moves, and a row is out of date as soon as its code changes.
-One row is newer: Escape in the Tempo worklog editor, ported by
-[#984](https://github.com/hemsoft-dev/hs-buddy/pull/984) (commit `0f9af531`), links to that commit.
+A row ported later links the commit that ported it instead, starting with
+Escape in the Tempo worklog editor
+([#984](https://github.com/hemsoft-dev/hs-buddy/pull/984), commit `0f9af531`).
+The remaining work is tracked per area in #988 to #995.
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 304 are ported,
-199 are partly ported, 88 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 317 are ported,
+190 are partly ported, 84 are missing natively, 5 are a
 placeholder natively and 26 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
 | --- | --- | --- | --- | --- | --- | --- |
-| [Shell, dashboard and settings](parity/shell.md) | 99 | 9 | 1 | 27 | 55 | 7 |
-| [GitHub repositories and pull requests](parity/github.md) | 82 | 20 | 0 | 42 | 19 | 1 |
+| [Shell, dashboard and settings](parity/shell.md) | 99 | 7 | 1 | 21 | 63 | 7 |
+| [GitHub repositories and pull requests](parity/github.md) | 82 | 19 | 0 | 41 | 21 | 1 |
 | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | 47 | 0 | 0 | 9 | 36 | 2 |
-| [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 19 | 0 | 26 | 26 | 3 |
+| [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 18 | 0 | 26 | 27 | 3 |
 | [Todoist and Tempo](parity/planning.md) | 71 | 12 | 0 | 18 | 40 | 1 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 10 | 0 | 24 | 52 | 3 |
-| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 7 | 4 | 24 | 22 | 2 |
+| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 7 | 4 | 22 | 24 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 11 | 0 | 29 | 54 | 7 |
-| **All areas** | **622** | **88** | **5** | **199** | **304** | **26** |
+| **All areas** | **622** | **84** | **5** | **190** | **317** | **26** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
@@ -64,7 +66,7 @@ for gaps.
 | View menu: Full Screen item | [Shell, dashboard and settings](parity/shell.md) | Label only | [TitleBar.tsx:142](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/TitleBar.tsx#L142) | Ported |
 | Insights section (Productivity, Activity) | [Shell, dashboard and settings](parity/shell.md) | Placeholder | [SidebarPanel.tsx:36](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/SidebarPanel.tsx#L36)<br>[appContentViewLabels.ts:14](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/appContentViewLabels.ts#L14)<br>[AppContentRouter.tsx:437](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/AppContentRouter.tsx#L437) | Placeholder natively |
 | ui.sidebarWidth store key | [Shell, dashboard and settings](parity/shell.md) | Label only | [configHandlers.ts:66](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/configHandlers.ts#L66)<br>[config.ts:47](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/types/config.ts#L47) | Not applicable to the native app |
-| Dashboard quick action: Jobs | [Shell, dashboard and settings](parity/shell.md) | Placeholder | [WelcomePanel.tsx:288](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/WelcomePanel.tsx#L288)<br>[AppContentRouter.tsx:437](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/AppContentRouter.tsx#L437) | Partly ported |
+| Dashboard quick action: Jobs | [Shell, dashboard and settings](parity/shell.md) | Placeholder | [WelcomePanel.tsx:288](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/WelcomePanel.tsx#L288)<br>[AppContentRouter.tsx:437](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/AppContentRouter.tsx#L437) | Ported |
 | Switch the global gh CLI account (github:switch-account IPC) | [GitHub repositories and pull requests](parity/github.md) | Label only | [githubHandlers.ts:680](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/githubHandlers.ts#L680)<br>[preload.ts:89](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/preload.ts#L89) | Not applicable to the native app |
 | Edit menu Copy / Paste / Select All applied to the terminal (Electron: title-bar items have no action; only the macOS application menu's editMenu role acts) | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | Label only | [TitleBar.tsx:116](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/TitleBar.tsx#L116)<br>[menu.ts:105](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/menu.ts#L105) | Ported |
 | Resize split panes and move a pane to another workspace node (Electron: hook functions updateLayoutSizes / movePaneToNode with no UI caller; panes render at fixed flex sizes) | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | Label only | [useTerminalWorkspace.tsx:363](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/hooks/useTerminalWorkspace.tsx#L363)<br>[useTerminalWorkspace.tsx:370](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/hooks/useTerminalWorkspace.tsx#L370)<br>[TerminalWorkspaceView.tsx:102](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/terminal-workspace/TerminalWorkspaceView.tsx#L102) | Ported |

@@ -15,6 +15,42 @@ desktop = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(desktop)
 
 
+def word(text, left, top, width=40, height=12):
+    return dict(text=text, left=left, top=top, width=width, height=height)
+
+
+FOOTER_TOP = 800
+
+
+def footer(*extra):
+    return [word("5", 10, FOOTER_TOP), word("PRs", 20, FOOTER_TOP), word("0", 80, FOOTER_TOP),
+        word("schedules", 90, FOOTER_TOP), word("0", 180, FOOTER_TOP), word("jobs", 190, FOOTER_TOP), *extra]
+
+
+class StatusBar(unittest.TestCase):
+    def test_footer_row_needs_the_assistant_brand_and_sync_items(self):
+        complete = footer(word("Next", 260, FOOTER_TOP), word("sync", 300, FOOTER_TOP), word("4m", 340, FOOTER_TOP),
+            word("Copilot", 560, FOOTER_TOP), word("Buddy", 640, FOOTER_TOP))
+        desktop.verify_status_bar(complete)
+        syncing = footer(word("Syncing", 260, FOOTER_TOP), word("PR", 320, FOOTER_TOP), word("lists...", 350, FOOTER_TOP),
+            word("Copilot", 560, FOOTER_TOP), word("Buddy", 640, FOOTER_TOP))
+        desktop.verify_status_bar(syncing)
+        off = footer(word("Auto-refresh", 260, FOOTER_TOP), word("off", 360, FOOTER_TOP),
+            word("Copilot", 560, FOOTER_TOP), word("Buddy", 640, FOOTER_TOP))
+        desktop.verify_status_bar(off)
+
+    def test_items_elsewhere_in_the_window_do_not_count(self):
+        # The assistant panel's own heading must not stand in for the footer item.
+        content = footer(word("Next", 260, FOOTER_TOP), word("sync", 300, FOOTER_TOP), word("Buddy", 640, FOOTER_TOP),
+            word("Copilot", 900, 80))
+        with self.assertRaisesRegex(RuntimeError, "missing Copilot"):
+            desktop.verify_status_bar(content)
+        with self.assertRaisesRegex(RuntimeError, "missing PR sync"):
+            desktop.verify_status_bar(footer(word("Copilot", 560, FOOTER_TOP), word("Buddy", 640, FOOTER_TOP)))
+        with self.assertRaisesRegex(RuntimeError, "No native status footer"):
+            desktop.verify_status_bar([word("Copilot", 560, FOOTER_TOP), word("Buddy", 640, FOOTER_TOP)])
+
+
 class InstalledEvidence(unittest.TestCase):
     def test_review_fixture_uses_visible_retained_routes_when_tooltip_covers_sidebar(self):
         evidence = json.loads(Path(__file__).with_name('fixtures').joinpath(
