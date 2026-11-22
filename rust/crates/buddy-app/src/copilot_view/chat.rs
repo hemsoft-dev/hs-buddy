@@ -446,7 +446,10 @@ impl Render for ChatView {
                 } else {
                     Some(configured.to_string())
                 };
-                if let Some(account) = account {
+                // A new conversation with nothing to fall back to (the active
+                // login is still unknown) starts empty rather than keeping the
+                // previous account; a later login lookup then fills it.
+                if let Some(account) = account.or_else(|| self.reset_account.then(String::new)) {
                     self.account
                         .update(cx, |state, cx| state.set_value(account, window, cx));
                 }
@@ -905,6 +908,31 @@ mod account_tests {
         view.update(&mut visual, |view, cx| view.new_conversation(cx));
         visual.update(|window, cx| window.draw(cx).clear(cx));
         cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "second-account"));
+    }
+
+    /// A new conversation without a saved account or a known login starts
+    /// empty, and the login fills it once the lookup resolves.
+    #[gpui_kit::test]
+    fn a_new_conversation_without_a_known_login_does_not_keep_the_previous_account(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let view = chat(cx, "first-account");
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.copilot.gh_account = String::new();
+            cx.set_global(Settings::new(config));
+            view.update(cx, |view, cx| view.set_default_account(None, cx));
+        });
+        let window = cx.update(|cx| cx.windows()[0]);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        view.update(&mut visual, |view, cx| view.new_conversation(cx));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), ""));
+        view.update(&mut visual, |view, cx| {
+            view.set_default_account(Some("later-login".into()), cx)
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "later-login"));
     }
 
     /// With no saved account, the active `gh` login fills the field.
