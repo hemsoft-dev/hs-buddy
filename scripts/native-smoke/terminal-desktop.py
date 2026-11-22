@@ -244,6 +244,7 @@ def qualify(executable, output, session, version, backend):
         qualify_multiline_cancel(driver, backend, prompt, config)
         github.mutate(backend, "terminalPrompts:remove", dict(id=prompt))
         qualify_prompt_crud(driver, backend)
+        qualify_vanished_folder(driver, backend, output)
         verify_sentinel(sentinel, "the full terminal exercise")
     except BaseException as failure:
         primary = failure
@@ -257,7 +258,24 @@ def qualify(executable, output, session, version, backend):
             "split resize and persisted layout", "compact window", "invalid shell", "closed shell", "explicit restart",
             "workspace and shell rename", "prompt create/update/delete", "app child cleanup", "unrelated process preserved",
             "workspace create/switch/close", "multiline confirmation/cancel without input or metadata replay",
-            "light/dark", "native Return key and interrupt"]), indent=2), encoding="utf-8")
+            "light/dark", "native Return key and interrupt", "vanished saved folder starts in home with a notice"]), indent=2), encoding="utf-8")
+
+
+def qualify_vanished_folder(driver, backend, output):
+    """A pane whose saved folder no longer exists starts in home, says so, and
+    saves the folder it actually started in (Electron's parseValidCwd and
+    TerminalPane's spawn write-back)."""
+    vanished = str(output / "removed folder 消えた")
+    github.mutate(backend, "terminalWorkspaces:saveWorkspace", dict(nodes=[dict(id="vanished-work", name="Vanished folder",
+        sortOrder=0, layout=dict(type="pane", id="vanished-pane", cwd=vanished))], activeNodeId="vanished-work"))
+    result = driver.drive("vanished-folder-light", [
+        ("wait_text", "is unavailable"), ("capture", "vanished-folder-light"),
+    ])
+    github.check(result / "vanished-folder-light.png", "Started in", "because the saved folder", "is unavailable")
+    layout = backend.query("terminalWorkspaces:getWorkspace")["nodes"][0]["layout"]
+    started = layout.get("cwd", "")
+    if started == vanished or not Path(started).is_dir():
+        raise RuntimeError(f"The pane did not save the folder its shell started in: {started!r}")
 
 
 def qualify_multiline_cancel(driver, backend, prompt, config):

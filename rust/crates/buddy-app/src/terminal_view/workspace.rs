@@ -429,6 +429,11 @@ impl TerminalView {
                 cx.theme().border
             })
             .child(actions)
+            .children(
+                self.start_notices
+                    .get(&id)
+                    .map(|notice| div().px_3().py_1().child(notice.clone())),
+            )
             .child(div().flex_1().min_h_0().min_w_0().child(content))
             .into_any_element()
     }
