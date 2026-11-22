@@ -65,6 +65,8 @@ pub enum LocalEdit {
     },
     NotificationEnabled(bool),
     NotificationSound(String),
+    /// Electron's `ui.showBookmarkedOnly`, a local GitHub sidebar filter.
+    ShowBookmarkedOnly(bool),
     Provider {
         account_key: String,
         provider: UsageProvider,
@@ -144,6 +146,7 @@ impl LocalEdit {
             Self::NotificationEnabled(enabled) => {
                 config.notifications.play_sound_on_review_complete = *enabled;
             }
+            Self::ShowBookmarkedOnly(enabled) => config.ui.show_bookmarked_only = *enabled,
             Self::NotificationSound(path) => {
                 let path = path.trim();
                 if !path.is_empty() && !supported_sound_path(path) {
@@ -430,6 +433,29 @@ mod tests {
             .apply(&mut config)
             .unwrap();
         assert_eq!(config.ui.bg_primary, "#1e1e1e");
+    }
+
+    #[test]
+    fn bookmarked_only_filter_round_trips_electron_key_and_keeps_other_fields() {
+        let mut config = AppConfig::from_json(
+            r#"{"ui":{"showBookmarkedOnly":false,"favoriteUsers":["octocat"],"future":7}}"#,
+        )
+        .unwrap();
+        LocalEdit::ShowBookmarkedOnly(true)
+            .apply(&mut config)
+            .unwrap();
+        let saved = serde_json::to_value(&config).unwrap();
+        assert_eq!(saved["ui"]["showBookmarkedOnly"], json!(true));
+        assert_eq!(saved["ui"]["favoriteUsers"], json!(["octocat"]));
+        assert_eq!(saved["ui"]["future"], json!(7));
+        let mut reloaded = AppConfig::from_json(&saved.to_string()).unwrap();
+        assert!(reloaded.ui.show_bookmarked_only);
+        LocalEdit::ShowBookmarkedOnly(false)
+            .apply(&mut reloaded)
+            .unwrap();
+        assert!(!reloaded.ui.show_bookmarked_only);
+        // Electron's default, and the value for a file written before the key.
+        assert!(!AppConfig::from_json("{}").unwrap().ui.show_bookmarked_only);
     }
 
     #[test]

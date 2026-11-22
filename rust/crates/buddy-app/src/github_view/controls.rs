@@ -51,7 +51,7 @@ impl GitHubView {
                             .label(label)
                             .selected(self.route == route)
                             .on_click(
-                                cx.listener(move |this, _, _, cx| this.navigate(route.clone(), cx)),
+                                cx.listener(move |this, _, _, cx| this.open(route.clone(), cx)),
                             )
                     }),
             )
@@ -113,17 +113,14 @@ impl GitHubView {
                         Button::new("github-pull-repo")
                             .label("Repository")
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.navigate(
-                                    Route::Repository(repo.clone(), RepoTab::Overview),
-                                    cx,
-                                )
+                                this.open(Route::Repository(repo.clone(), RepoTab::Overview), cx)
                             })),
                     )
                     .child(
                         Button::new("github-pull-author")
                             .label(format!("@{author}"))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.navigate(Route::User(author.clone(), UserTab::Overview), cx)
+                                this.open(Route::User(author.clone(), UserTab::Overview), cx)
                             })),
                     ),
             );
@@ -282,6 +279,20 @@ impl GitHubView {
                         ),
                 );
             }
+            Route::Repositories => {
+                let filtered = Settings::global(cx).config.ui.show_bookmarked_only;
+                actions = actions.child(
+                    Button::new("github-bookmarked-only")
+                        .label("Bookmarked only")
+                        .selected(filtered)
+                        .tooltip(if filtered {
+                            "Showing bookmarked only"
+                        } else {
+                            "Showing all repos"
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_bookmarked_only(cx))),
+                );
+            }
             Route::User(login, _) => {
                 let login = login.clone();
                 let url = format!("https://github.com/{login}");
@@ -401,10 +412,7 @@ impl GitHubView {
                                 Button::new(format!("github-favorite-{index}"))
                                     .label(format!("Favorite: @{login}"))
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.navigate(
-                                            Route::User(login.clone(), UserTab::Overview),
-                                            cx,
-                                        )
+                                        this.open(Route::User(login.clone(), UserTab::Overview), cx)
                                     }))
                             }),
                     ),
@@ -440,7 +448,7 @@ impl GitHubView {
             item = item.child(
                 Button::new(format!("github-item-{index}"))
                     .label(row.title.clone())
-                    .on_click(cx.listener(move |this, _, _, cx| this.navigate(route.clone(), cx))),
+                    .on_click(cx.listener(move |this, _, _, cx| this.open(route.clone(), cx))),
             );
         } else {
             item = item.child(
@@ -476,7 +484,7 @@ impl GitHubView {
                 Button::new(format!("github-item-author-{index}"))
                     .label(format!("@{login}"))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.navigate(Route::User(login.clone(), UserTab::Overview), cx)
+                        this.open(Route::User(login.clone(), UserTab::Overview), cx)
                     })),
             );
         }
