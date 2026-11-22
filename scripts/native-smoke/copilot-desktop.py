@@ -226,7 +226,10 @@ def chat_turns(driver):
         ('content', 'Copy answer'), ('capture', 'completed-dark'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Synthetic assistant'), ('capture', 'saved-result-dark'),
-        ('content', 'Chat'), ('content', 'New conversation'), ('input', 'Message', 'BUDDYCANCEL73429'),
+        # A new conversation starts from the saved account or the active gh
+        # login; the runner has neither, so name the synthetic account again.
+        ('content', 'Chat'), ('content', 'New conversation'), ('input', 'GitHub account', 'synthetic-account'),
+        ('input', 'Message', 'BUDDYCANCEL73429'),
         ('content', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('content', 'Cancel response'),
         ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
         ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),

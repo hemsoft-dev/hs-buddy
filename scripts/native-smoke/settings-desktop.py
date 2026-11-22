@@ -903,13 +903,20 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     driver = Driver(executable, output, session, backend, checkout)
     driver.placement = placement
     load("settings-activity").qualify(driver, backend, config, output, verify_text)
-    account_actions = [("nav", "Accounts"), ("capture", "first-run-dark")]
+    # SettingsCopilot.tsx warns in the account section until an account exists.
+    account_actions = [("nav", "Copilot"), ("wait_text", "No GitHub accounts configured"),
+        ("capture", "copilot-no-accounts-dark"), ("nav", "Accounts"), ("capture", "first-run-dark")]
     for index, name in enumerate(("fixture-native-one", "fixture-native-two")):
         account_actions += [("leftfield", "Organization|GitHub username", name),
             ("rightfield", "Organization|GitHub username", "fixture-native-team"), ("content", "Add account"), ("sleep", 1)]
         if index == 0:
-            account_actions += [("content", "Codex"), ("sleep", 1)]
-    account_actions += [("capture", "two-accounts-dark")]
+            account_actions += [("content", "ChatGPT / Codex"), ("sleep", 1)]
+    # SettingsAccounts.tsx: the first Codex account owns the local login, so the
+    # second account's Codex choice is disabled and names the owner. The
+    # authentication steps follow the enterprise slug at the panel's end.
+    account_actions += [("capture", "two-accounts-dark"),
+        ("wait_scroll_text", "already assigned to fixture-native-one"), ("capture", "codex-owned-dark"),
+        ("wheel", -2400), ("wait_text", "gh auth status"), ("capture", "accounts-auth-help-dark")]
     accounts = driver.drive("accounts", account_actions, record=True)
     actual = backend.query("githubAccounts:list")
     if sorted(account["username"] for account in actual) != ["fixture-native-one", "fixture-native-two"]:
@@ -917,6 +924,13 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     if next(account for account in actual if account["username"] == "fixture-native-one").get("usageProvider") != "codex":
         raise RuntimeError("Provider selection did not reach the isolated backend")
     verify_text(accounts / "two-accounts-dark.png", "fixture-native-one", "fixture-native-two")
+    verify_text(accounts / "copilot-no-accounts-dark.png",
+        "No GitHub accounts configured. Add accounts in the Accounts settings page.")
+    verify_text(accounts / "codex-owned-dark.png", "The local Codex login is already assigned to fixture-native-one")
+    # Tesseract reads the monospace "gh" in "gh auth login" as "fh" on Ubuntu;
+    # "auth login" occurs only on that step.
+    verify_text(accounts / "accounts-auth-help-dark.png", "To authenticate:", "winget install GitHub.cli",
+        "auth login", "gh auth status")
     appearance = driver.drive("appearance", [("nav", "Appearance"), ("content", "Light"),
         ("field", "Accent color", "#8246af"), ("save", "Accent color"), ("capture", "appearance-light"),
         ("field", "Accent color", "not-a-color"), ("save", "Accent color"), ("capture", "invalid-color-light"),
@@ -949,18 +963,29 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     verify_text(appearance / "keyboard-compact-light.png", "six-digit hex color")
     preferences = driver.drive("preferences", [("nav", "Pull requests"), ("content", "10"), ("wait_text", "Saved"),
         ("content", "Automatic refresh: on"), ("wait_text", "Saved"), ("capture", "pr-light"), ("nav", "Copilot"),
-        ("field", "GitHub CLI account", "fixture-native-one"), ("save", "GitHub CLI account"), ("wait_text", "Saved"),
+        ("content", "fixture-native-one"), ("wait_text", "Saved"),
         ("field", "Model ID|Model 1D|Model lD", "fixture-model"),
         ("save", "Model ID|Model 1D|Model lD"), ("wait_text", "Saved"), ("capture", "copilot-light"),
+        # The summary is the panel's last block: scroll to the end so a small
+        # window (Windows) shows the whole box, not just its heading.
+        ("wait_scroll_text", "Current Configuration"), ("wheel", -2400), ("wait_text", "Current Configuration"),
+        ("capture", "copilot-summary-light"), ("wheel", 2400),
         ("nav", "Notifications"), ("content", "Review completion sound: off"), ("wait_text", "Review completion sound: on"),
         ("field", "Notification audio file", "relative.wav"), ("save", "Notification audio file"),
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
         ("nav", "Advanced"), ("capture", "advanced-light")])
     verify_text(preferences / "invalid-audio-light.png", "absolute")
+    # Tesseract split "Account: fixture-native-one" into "account" and
+    # "ixture-native-one" on Ubuntu (run 45021593449). The picker above also
+    # names the account, so require it after the summary heading instead.
+    summary = preferences / "copilot-summary-light.png"
+    verify_text(summary, "Current Configuration", "Account", "Model: fixture-model")
+    if "native-one" not in summary.with_suffix(".ocr.txt").read_text(encoding="utf-8").split("current configuration", 1)[-1]:
+        raise MissingVisibleText("Settings screenshot is missing the summary's account")
     for name in ("weather-status-light", "advanced-light"):
         verify_feedback_scope(preferences / (name + ".png"))
     snapshot = backend.query("settings:get")
-    if snapshot["pr"]["refreshInterval"] != 10 or snapshot["pr"]["autoRefresh"] is not False or snapshot["copilot"]["model"] != "fixture-model":
+    if snapshot["pr"]["refreshInterval"] != 10 or snapshot["pr"]["autoRefresh"] is not False or snapshot["copilot"]["model"] != "fixture-model" or snapshot["copilot"].get("ghAccount") != "fixture-native-one":
         raise RuntimeError("Synced settings did not reach Convex")
     restarted = driver.drive("restart", [("nav", "Appearance"), ("capture", "persisted-light"),
         ("resize", 900, 650), ("capture", "persisted-compact-light"), ("content", "Dark"),
@@ -993,14 +1018,15 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     saved = json.loads(config.read_text(encoding="utf-8-sig"))
     if saved["ui"]["fontFamily"] != font or saved["ui"]["enterpriseSlug"] != "fixture-concurrent-complete" or saved["notifications"]["reviewCompleteSoundPath"]:
         raise RuntimeError("Theme changes committed an unrelated unsaved draft")
-    # Help > About Buddy (AboutModal.tsx) over the centred title-bar brand.
+    # Help > About Buddy (AboutModal.tsx).
     about = driver.drive("about", [("click", "Help"), ("click", "About Buddy"), ("sleep", 1),
         ("capture", "about-dark"), ("key", "Escape")])
     verify_text(about / "about-dark.png", "HemSoft Developments", "Your Universal Productivity Companion",
         "View on GitHub", "Native (Rust)")
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", session=session, largeWindow=driver.large_size,
-        binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "all seven panels",
-        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "Settings category activity and restart non-replay", "About dialog and title-bar brand", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
+        binarySha256=hashlib.sha256(executable.read_bytes()).hexdigest(), checks=["two native accounts", "provider selection", "Codex owner disables other accounts", "authentication help",
+        "Copilot account picker", "Copilot no-accounts warning", "Copilot current configuration", "all seven panels",
+        "real Electron/native concurrent writes", "unknown fields", "invalid color/audio", "Convex preferences", "restart", "retained unrelated drafts", "Settings category activity and restart non-replay", "About dialog", "light/dark", "keyboard Tab", f"{driver.large_size[0]}x{driver.large_size[1]}/900x650"]), indent=2))
 
 
 def main():

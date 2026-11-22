@@ -1,8 +1,12 @@
 //! Native forms share the shell's settings model and the incumbent backend.
+mod account_help;
 mod actions;
 mod activity;
 #[cfg(test)]
 mod activity_tests;
+mod copilot;
+#[cfg(test)]
+mod parity_tests;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -71,7 +75,15 @@ pub struct SettingsView {
     confirm_reset: bool,
     key_generation: u64,
     models: Vec<buddy_core::copilot_models::Model>,
+    /// The account `models` was loaded for. The list is offered only while
+    /// that is still the saved account, however the account changed.
+    models_account: String,
     models_loading: bool,
+    /// Advanced by each account choice, so a model list requested for the
+    /// previous account is never installed under the new one.
+    models_generation: u64,
+    /// The `gh` login the Copilot picker's first choice names, once read.
+    active_cli_account: Option<String>,
 }
 
 pub enum SettingsEvent {
@@ -108,7 +120,10 @@ impl SettingsView {
             confirm_reset: false,
             key_generation: 0,
             models: Vec::new(),
+            models_account: String::new(),
             models_loading: false,
+            models_generation: 0,
+            active_cli_account: None,
         };
         for (id, value) in [
             ("username", String::new()),
@@ -122,7 +137,6 @@ impl SettingsView {
             ("font", config.ui.font_family),
             ("mono-font", config.ui.mono_font_family),
             ("enterprise", config.ui.enterprise_slug),
-            ("copilot-account", config.copilot.gh_account),
             ("model", config.copilot.model),
             ("model-filter", String::new()),
             ("premium-model", config.copilot.premium_model),
@@ -149,13 +163,9 @@ impl SettingsView {
             state.set_value(value, window, cx);
             state
         });
-        let clear_models = id == "copilot-account";
         let stop_audio = id == "sound";
         cx.subscribe_in(&input, window, move |this, _, event, _, cx| {
             if matches!(event, InputEvent::Change) {
-                if clear_models {
-                    this.models.clear();
-                }
                 if stop_audio {
                     this.stop_preview();
                 }
@@ -291,6 +301,14 @@ impl SettingsView {
         );
     }
 
+    /// Convex acknowledged a write but rereading it failed: show the saved
+    /// value instead of the cached one, so the controls match what is stored.
+    fn show_acknowledged(&mut self, edit: &SyncedEdit) {
+        if let Some(snapshot) = self.snapshot.as_mut() {
+            edit.apply_to(&mut snapshot.pr, &mut snapshot.copilot);
+        }
+    }
+
     fn backend(&mut self, command: BackendCommand, cx: &mut Context<Self>) {
         if self.busy || self.must_reload {
             return;
@@ -316,9 +334,6 @@ impl SettingsView {
                         {
                             let config = &Settings::global(cx).config;
                             let field = match edit {
-                                SyncedEdit::CopilotAccount(_) => {
-                                    Some(("copilot-account", config.copilot.gh_account.clone()))
-                                }
                                 SyncedEdit::CopilotModel(_) => {
                                     Some(("model", config.copilot.model.clone()))
                                 }
@@ -347,6 +362,8 @@ impl SettingsView {
                         });
                         if let Some(snapshot) = receipt.snapshot {
                             this.pending_snapshot = Some((snapshot, false));
+                        } else if let BackendCommand::Preference(edit) = &mirror {
+                            this.show_acknowledged(edit);
                         }
                         this.confirm_remove = None;
                     }
@@ -425,7 +442,6 @@ impl SettingsView {
             .retain(|key, _| self.fields.contains_key(key));
         if replace_drafts {
             for (id, value) in [
-                ("copilot-account", snapshot.copilot.gh_account.clone()),
                 ("model", snapshot.copilot.model.clone()),
                 ("premium-model", snapshot.copilot.premium_model.clone()),
             ] {
@@ -445,7 +461,7 @@ impl SettingsView {
     ) -> impl IntoElement + use<F> {
         let input = self.fields[id].clone();
         let disabled = self.busy
-            || (["copilot-account", "model", "premium-model"].contains(&id)
+            || (["model", "premium-model"].contains(&id)
                 && (self.must_reload || self.snapshot.is_none()));
         v_flex().gap_2().child(div().child(label)).child(
             h_flex()
@@ -512,39 +528,30 @@ impl SettingsView {
                         );
                     })),
             );
-        let accounts = self
-            .snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.accounts.clone())
-            .unwrap_or_else(|| {
-                Settings::global(cx)
-                    .config
-                    .github
-                    .accounts
-                    .iter()
-                    .map(settings_backend::AccountRecord::cached)
-                    .collect()
-            });
-        for record in accounts {
-            let account = record.account();
-            let key = GitHubConfig::override_key(&account);
-            let provider = Settings::global(cx)
-                .config
-                .github
-                .effective_usage_provider(&account)
-                .unwrap_or(UsageProvider::Copilot);
-            let mut choices = h_flex().gap_2();
-            for (value, label) in [
-                (UsageProvider::Copilot, "Copilot"),
-                (UsageProvider::Codex, "Codex"),
+        for account_help::ProviderRow {
+            record,
+            key,
+            provider,
+            codex,
+        } in self.provider_rows(cx)
+        {
+            let mut choices = h_flex()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
+                .child("Usage provider");
+            for (value, label, slug) in [
+                (UsageProvider::Copilot, "GitHub Copilot", "Copilot"),
+                (UsageProvider::Codex, "ChatGPT / Codex", "Codex"),
             ] {
                 let id = record.id.clone();
                 let account_key = key.clone();
+                let unavailable = value == UsageProvider::Codex && codex.disabled;
                 choices = choices.child(
-                    Button::new(format!("provider-{}-{label}", record.id))
+                    Button::new(format!("provider-{}-{slug}", record.id))
                         .label(label)
                         .selected(provider == value)
-                        .disabled(self.busy || self.must_reload)
+                        .disabled(self.busy || self.must_reload || unavailable)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             // The durable local choice controls the incumbent fallback.
                             // Convex still owns the inline account provider.
@@ -570,6 +577,15 @@ impl SettingsView {
                         })),
                 );
             }
+            let choices = choices.child(
+                div()
+                    .debug_selector({
+                        let id = record.id.clone();
+                        move || format!("provider-hint-{id}")
+                    })
+                    .text_color(cx.theme().muted_foreground)
+                    .child(codex.hint),
+            );
             let repo_id = format!("repo-{}", record.id);
             let repo_field = self.fields[&repo_id].clone();
             let id = record.id.clone();
@@ -638,12 +654,14 @@ impl SettingsView {
                     ),
             );
         }
-        content.child(self.field(
-            "enterprise",
-            "GitHub enterprise slug",
-            |this, value, cx| this.local(LocalEdit::EnterpriseSlug(value), cx),
-            cx,
-        ))
+        content
+            .child(self.field(
+                "enterprise",
+                "GitHub enterprise slug",
+                |this, value, cx| this.local(LocalEdit::EnterpriseSlug(value), cx),
+                cx,
+            ))
+            .child(account_help::authentication(cx))
     }
 
     fn appearance(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -838,93 +856,63 @@ impl SettingsView {
             )
     }
 
-    fn copilot(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        v_flex()
-            .gap_4()
-            .child("Leave the account blank to use the active GitHub CLI account.")
-            .child(self.field(
-                "copilot-account",
-                "GitHub CLI account",
-                |this, value, cx| {
-                    this.backend(
-                        BackendCommand::Preference(SyncedEdit::CopilotAccount(value)),
-                        cx,
-                    )
-                },
-                cx,
-            ))
-            .child(self.field(
-                "model",
-                "Model ID",
-                |this, value, cx| {
-                    this.backend(
-                        BackendCommand::Preference(SyncedEdit::CopilotModel(value)),
-                        cx,
-                    )
-                },
-                cx,
-            ))
-            .child(self.field(
-                "premium-model",
-                "Premium model ID",
-                |this, value, cx| {
-                    this.backend(
-                        BackendCommand::Preference(SyncedEdit::PremiumModel(value)),
-                        cx,
-                    )
-                },
-                cx,
-            ))
-            .child(
-                Button::new("load-copilot-models")
-                    .label(if self.models_loading {
-                        "Loading models…"
-                    } else {
-                        "Reload available models"
-                    })
-                    .disabled(self.models_loading)
-                    .on_click(cx.listener(|this, _, _, cx| this.load_models(cx))),
-            )
-            .child(div().child("Filter available models, or enter a custom model ID above."))
-            .child(Input::new(&self.fields["model-filter"]))
-            .children(self.model_choices(cx))
-    }
-
     fn load_models(&mut self, cx: &mut Context<Self>) {
         if self.models_loading {
             return;
         }
         self.models_loading = true;
-        let account = self.value("copilot-account", cx);
+        let account = self.saved_copilot(cx).gh_account;
         let selected = account.clone();
+        let generation = self.models_generation;
         self.run(
             cx,
             async move { buddy_core::copilot_models::list(&account).await },
-            move |this, result, cx| {
-                this.models_loading = false;
-                if this.value("copilot-account", cx) != selected {
-                    return;
-                }
-                match result {
-                    Ok(models) => {
-                        this.status = Some(format!(
-                            "{} models available for this account",
-                            models.len()
-                        ));
-                        this.models = models;
-                    }
-                    Err(error) => {
-                        this.models.clear();
-                        this.status = Some(error.into());
-                    }
-                }
-            },
+            move |this, result, cx| this.finish_models(generation, &selected, result, cx),
         );
+    }
+
+    /// A model list arrived. It belongs to the account it was requested for:
+    /// a later account choice, or a save that changed the account, drops it.
+    fn finish_models(
+        &mut self,
+        generation: u64,
+        selected: &str,
+        result: Result<Vec<buddy_core::copilot_models::Model>, &'static str>,
+        cx: &mut Context<Self>,
+    ) {
+        self.models_loading = false;
+        if self.models_generation != generation || self.saved_copilot(cx).gh_account != selected {
+            return;
+        }
+        match result {
+            Ok(models) => {
+                self.status = Some(format!(
+                    "{} models available for this account",
+                    models.len()
+                ));
+                self.models = models;
+                self.models_account = selected.to_string();
+            }
+            Err(error) => {
+                self.models.clear();
+                self.status = Some(error.into());
+            }
+        }
+    }
+
+    /// The loaded models, unless the saved account has changed since, for
+    /// example through Reload synced settings: those belong to another account.
+    fn current_models(&self, cx: &App) -> &[buddy_core::copilot_models::Model] {
+        if self.models_account == self.saved_copilot(cx).gh_account {
+            &self.models
+        } else {
+            &[]
+        }
     }
 
     fn model_choices(&self, cx: &mut Context<Self>) -> Vec<gpui_kit::AnyElement> {
         let filter = self.value("model-filter", cx).to_lowercase();
-        self.models
+        self.current_models(cx)
             .iter()
             .filter(|model| {
                 model.name.to_lowercase().contains(&filter)
@@ -1217,6 +1205,7 @@ impl Render for SettingsView {
             self.started = true;
             self.load_backend(cx);
             self.load_key_status(cx);
+            self.detect_active_account(cx);
         }
         let panel = match self.panel {
             Panel::Accounts => self.accounts(cx).into_any_element(),

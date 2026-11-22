@@ -49,6 +49,8 @@ pub(crate) struct ChatView {
     prompt: Entity<TextareaState>,
     default_account: Option<String>,
     populate: bool,
+    /// New conversation: re-apply the configured account on the next render.
+    reset_account: bool,
     messages: Vec<Message>,
     run: Option<RunHandle>,
     generation: uuid::Uuid,
@@ -115,6 +117,7 @@ impl ChatView {
             prompt,
             default_account: None,
             populate: true,
+            reset_account: false,
             messages: Vec::new(),
             run: None,
             generation: uuid::Uuid::new_v4(),
@@ -357,6 +360,10 @@ impl ChatView {
         self.error = None;
         self.notice = None;
         self.generation = uuid::Uuid::new_v4();
+        // A new conversation starts from Settings' account again; an ongoing
+        // one keeps the account it started with.
+        self.reset_account = true;
+        self.populate = true;
         cx.notify();
     }
     fn load_models(&mut self, cx: &mut Context<Self>) {
@@ -463,11 +470,22 @@ impl Render for ChatView {
             self.apply_review = false;
         }
         if self.populate {
-            if self.account.read(cx).value().is_empty()
-                && let Some(account) = self.default_account.take()
-            {
-                self.account
-                    .update(cx, |state, cx| state.set_value(account, window, cx));
+            if self.reset_account || self.account.read(cx).value().is_empty() {
+                // Electron's prompt box starts from Settings > Copilot SDK's
+                // account, and falls back to the active gh login when unset.
+                let configured = Settings::global(cx).config.copilot.gh_account.trim();
+                let account = if configured.is_empty() {
+                    self.default_account.clone()
+                } else {
+                    Some(configured.to_string())
+                };
+                // A new conversation with nothing to fall back to (the active
+                // login is still unknown) starts empty rather than keeping the
+                // previous account; a later login lookup then fills it.
+                if let Some(account) = account.or_else(|| self.reset_account.then(String::new)) {
+                    self.account
+                        .update(cx, |state, cx| state.set_value(account, window, cx));
+                }
             }
             if self.model.read(cx).value().is_empty() {
                 let model = Settings::global(cx).config.copilot.model.clone();
@@ -475,6 +493,7 @@ impl Render for ChatView {
                     .update(cx, |state, cx| state.set_value(model, window, cx));
             }
             self.populate = false;
+            self.reset_account = false;
         }
         let theme = cx.theme();
         let muted = theme.muted_foreground;
@@ -1084,6 +1103,97 @@ mod sidebar_tests {
                     .summary
                     .contains("#823")
             );
+        });
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    fn chat(cx: &mut gpui_kit::TestAppContext, saved_account: &str) -> Entity<ChatView> {
+        let (window, view) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            let mut config = buddy_core::config::AppConfig::default();
+            config.copilot.gh_account = saved_account.into();
+            crate::theme::install(&config, cx);
+            cx.set_global(Settings::new(config));
+            gpui_kit::open_window(Default::default(), cx, |window, cx| {
+                cx.new(|cx| ChatView::new(window, cx))
+            })
+            .unwrap()
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        view.update(&mut visual, |view, cx| {
+            view.set_default_account(Some("cli-login".into()), cx)
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.run_until_parked();
+        view
+    }
+
+    /// Electron's `CopilotPromptBox` starts from Settings' `copilot.ghAccount`.
+    #[gpui_kit::test]
+    fn a_new_chat_starts_from_the_settings_account(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "chosen-account");
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).account.read(cx).value(), "chosen-account");
+        });
+    }
+
+    /// Saving another account in Settings applies to the next conversation,
+    /// not to the one already under way.
+    #[gpui_kit::test]
+    fn a_new_conversation_picks_up_a_newly_saved_account(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "first-account");
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.copilot.gh_account = "second-account".into();
+            cx.set_global(Settings::new(config));
+            view.update(cx, |view, cx| {
+                view.set_default_account(Some("cli-login".into()), cx)
+            });
+        });
+        let window = cx.update(|cx| cx.windows()[0]);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "first-account"));
+        view.update(&mut visual, |view, cx| view.new_conversation(cx));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "second-account"));
+    }
+
+    /// A new conversation without a saved account or a known login starts
+    /// empty, and the login fills it once the lookup resolves.
+    #[gpui_kit::test]
+    fn a_new_conversation_without_a_known_login_does_not_keep_the_previous_account(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let view = chat(cx, "first-account");
+        cx.update(|cx| {
+            let mut config = Settings::global(cx).config.clone();
+            config.copilot.gh_account = String::new();
+            cx.set_global(Settings::new(config));
+            view.update(cx, |view, cx| view.set_default_account(None, cx));
+        });
+        let window = cx.update(|cx| cx.windows()[0]);
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        view.update(&mut visual, |view, cx| view.new_conversation(cx));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), ""));
+        view.update(&mut visual, |view, cx| {
+            view.set_default_account(Some("later-login".into()), cx)
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|cx| assert_eq!(view.read(cx).account.read(cx).value(), "later-login"));
+    }
+
+    /// With no saved account, the active `gh` login fills the field.
+    #[gpui_kit::test]
+    fn a_new_chat_falls_back_to_the_active_cli_login(cx: &mut gpui_kit::TestAppContext) {
+        let view = chat(cx, "");
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).account.read(cx).value(), "cli-login");
         });
     }
 }
