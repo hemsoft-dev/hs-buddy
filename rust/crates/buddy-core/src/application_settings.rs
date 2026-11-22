@@ -67,6 +67,9 @@ pub enum LocalEdit {
     NotificationSound(String),
     /// Electron's `ui.showBookmarkedOnly`, a local GitHub sidebar filter.
     ShowBookmarkedOnly(bool),
+    /// Electron's `automation.scheduleForecastDays`, clamped to 1 to 30 days
+    /// as `setScheduleForecastDays` does.
+    ScheduleForecastDays(u32),
     Provider {
         account_key: String,
         provider: UsageProvider,
@@ -147,6 +150,9 @@ impl LocalEdit {
                 config.notifications.play_sound_on_review_complete = *enabled;
             }
             Self::ShowBookmarkedOnly(enabled) => config.ui.show_bookmarked_only = *enabled,
+            Self::ScheduleForecastDays(days) => {
+                config.automation.schedule_forecast_days = f64::from((*days).clamp(1, 30));
+            }
             Self::NotificationSound(path) => {
                 let path = path.trim();
                 if !path.is_empty() && !supported_sound_path(path) {
@@ -462,6 +468,21 @@ mod tests {
         assert!(!reloaded.ui.show_bookmarked_only);
         // Electron's default, and the value for a file written before the key.
         assert!(!AppConfig::from_json("{}").unwrap().ui.show_bookmarked_only);
+    }
+
+    #[test]
+    fn schedule_forecast_days_clamp_like_electron_and_keep_other_fields() {
+        let mut config =
+            AppConfig::from_json(r#"{"automation":{"scheduleForecastDays":3,"future":7}}"#)
+                .unwrap();
+        for (requested, saved) in [(7, 7.0), (30, 30.0), (0, 1.0), (45, 30.0), (1, 1.0)] {
+            LocalEdit::ScheduleForecastDays(requested)
+                .apply(&mut config)
+                .unwrap();
+            let value = serde_json::to_value(&config).unwrap();
+            assert_eq!(value["automation"]["scheduleForecastDays"], json!(saved));
+            assert_eq!(value["automation"]["future"], json!(7));
+        }
     }
 
     #[test]

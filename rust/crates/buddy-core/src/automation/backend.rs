@@ -66,6 +66,13 @@ impl ChangeKind {
     }
 }
 
+/// `{ deleted }` from `runs:cleanup`, a whole, nonnegative count.
+pub(crate) fn cleanup_count(value: &Value) -> Option<u64> {
+    let deleted = value.as_object()?.get("deleted")?.as_f64()?;
+    (deleted.is_finite() && deleted >= 0.0 && deleted.fract() == 0.0 && deleted <= 1e15)
+        .then_some(deleted as u64)
+}
+
 fn parse<T: DeserializeOwned>(value: Value) -> Result<T, Error> {
     serde_json::from_value(value).map_err(|_| Error::InvalidResponse)
 }
@@ -95,6 +102,34 @@ impl AutomationBackend {
                 .call("runs:listRecent", json!({"limit":100}), false)
                 .await?,
         )
+    }
+
+    /// `runs:listBySchedule`: the schedule's newest runs first.
+    pub async fn schedule_runs(&self, schedule_id: &str, limit: u32) -> Result<Vec<Run>, Error> {
+        parse(
+            self.client
+                .call(
+                    "runs:listBySchedule",
+                    json!({"scheduleId":schedule_id,"limit":limit}),
+                    false,
+                )
+                .await?,
+        )
+    }
+
+    /// `runs:cleanup`: deletes finished runs started more than `older_than_days`
+    /// ago and returns how many. Sent once; a lost or unreadable reply is an
+    /// unknown outcome, never a reason to send it again.
+    pub async fn cleanup_runs(&self, older_than_days: u32) -> Result<u64, Error> {
+        let value = self
+            .client
+            .call(
+                "runs:cleanup",
+                json!({"olderThanDays":older_than_days}),
+                true,
+            )
+            .await?;
+        cleanup_count(&value).ok_or(Error::UnknownWrite)
     }
 
     pub async fn pending(&self) -> Result<Vec<Run>, Error> {
@@ -240,5 +275,26 @@ impl AutomationBackend {
             return Err(Error::UnknownWrite);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cleanup_reply_must_be_a_whole_deleted_count() {
+        assert_eq!(cleanup_count(&json!({"deleted": 12})), Some(12));
+        assert_eq!(cleanup_count(&json!({"deleted": 0.0})), Some(0));
+        for unreadable in [
+            json!(null),
+            json!(12),
+            json!({}),
+            json!({"deleted": "12"}),
+            json!({"deleted": -1}),
+            json!({"deleted": 1.5}),
+        ] {
+            assert_eq!(cleanup_count(&unreadable), None, "{unreadable}");
+        }
     }
 }

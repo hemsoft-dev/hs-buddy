@@ -269,6 +269,33 @@ impl Default for CopilotConfig {
     }
 }
 
+/// Electron's `automation` section (`src/types/config.ts`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AutomationConfig {
+    /// Days the "Upcoming Scheduled Jobs" forecast covers; Electron's schema
+    /// allows 1 to 30. Read it through [`AutomationConfig::forecast_days`].
+    pub schedule_forecast_days: f64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl Default for AutomationConfig {
+    fn default() -> Self {
+        Self {
+            schedule_forecast_days: crate::automation::forecast::DEFAULT_DAYS,
+            extra: BTreeMap::new(),
+        }
+    }
+}
+
+impl AutomationConfig {
+    /// The stored window, or Electron's 3 days when it is outside 1 to 30.
+    pub fn forecast_days(&self) -> f64 {
+        crate::automation::forecast::normalize_days(self.schedule_forecast_days)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationConfig {
@@ -279,7 +306,7 @@ pub struct NotificationConfig {
 }
 
 /// The whole configuration file. Sections the native app does not model yet
-/// (such as `automation`) survive in `extra`.
+/// survive in `extra`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
@@ -289,6 +316,7 @@ pub struct AppConfig {
     pub copilot: CopilotConfig,
     pub notifications: NotificationConfig,
     pub finance: FinanceConfig,
+    pub automation: AutomationConfig,
     #[serde(skip_serializing_if = "NativeConfig::is_default")]
     pub native: NativeConfig,
     #[serde(flatten)]
@@ -891,6 +919,39 @@ mod tests {
             round_trip["github"]["usageProviderOverrides"]["hemsoft/hemsoft"],
             "codex"
         );
+    }
+
+    #[test]
+    fn automation_forecast_days_round_trip_with_unknown_keys() {
+        // A file without the section reads Electron's default of 3 days.
+        assert_eq!(AppConfig::default().automation.forecast_days(), 3.0);
+        let mut config = AppConfig::from_json(
+            r#"{"automation":{"scheduleForecastDays":14,"futureFlag":{"keep":[1]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(config.automation.forecast_days(), 14.0);
+        config.automation.schedule_forecast_days = 7.0;
+        let saved = serde_json::to_value(&config).unwrap();
+        assert_eq!(
+            saved["automation"],
+            serde_json::json!({"scheduleForecastDays":7.0,"futureFlag":{"keep":[1]}})
+        );
+        assert!(!config.extra.contains_key("automation"));
+        // Out of range, Electron's panel uses 3 days and the file keeps its value.
+        for stored in ["0", "31", "-2"] {
+            let config = AppConfig::from_json(&format!(
+                r#"{{"automation":{{"scheduleForecastDays":{stored}}}}}"#
+            ))
+            .unwrap();
+            assert_eq!(config.automation.forecast_days(), 3.0);
+            assert_eq!(
+                serde_json::to_value(&config).unwrap()["automation"]["scheduleForecastDays"],
+                serde_json::from_str::<Value>(stored)
+                    .unwrap()
+                    .as_f64()
+                    .unwrap()
+            );
+        }
     }
 
     /// Serializes the tests that set `BUDDY_CONFIG_PATH`.
