@@ -927,8 +927,10 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
     verify_text(accounts / "copilot-no-accounts-dark.png",
         "No GitHub accounts configured. Add accounts in the Accounts settings page.")
     verify_text(accounts / "codex-owned-dark.png", "The local Codex login is already assigned to fixture-native-one")
+    # Tesseract reads the monospace "gh" in "gh auth login" as "fh" on Ubuntu;
+    # "auth login" occurs only on that step.
     verify_text(accounts / "accounts-auth-help-dark.png", "To authenticate:", "winget install GitHub.cli",
-        "gh auth login", "gh auth status")
+        "auth login", "gh auth status")
     appearance = driver.drive("appearance", [("nav", "Appearance"), ("content", "Light"),
         ("field", "Accent color", "#8246af"), ("save", "Accent color"), ("capture", "appearance-light"),
         ("field", "Accent color", "not-a-color"), ("save", "Accent color"), ("capture", "invalid-color-light"),
@@ -964,7 +966,10 @@ def qualify(executable, output, session, checkout, backend, *, placement=None):
         ("content", "fixture-native-one"), ("wait_text", "Saved"),
         ("field", "Model ID|Model 1D|Model lD", "fixture-model"),
         ("save", "Model ID|Model 1D|Model lD"), ("wait_text", "Saved"), ("capture", "copilot-light"),
-        ("wait_scroll_text", "Current Configuration"), ("capture", "copilot-summary-light"), ("wheel", 2400),
+        # The summary is the panel's last block: scroll to the end so a small
+        # window (Windows) shows the whole box, not just its heading.
+        ("wait_scroll_text", "Current Configuration"), ("wheel", -2400), ("wait_text", "Current Configuration"),
+        ("capture", "copilot-summary-light"), ("wheel", 2400),
         ("nav", "Notifications"), ("content", "Review completion sound: off"), ("wait_text", "Review completion sound: on"),
         ("field", "Notification audio file", "relative.wav"), ("save", "Notification audio file"),
         ("capture", "invalid-audio-light"), ("nav", "Weather"), ("capture", "weather-status-light"),
