@@ -56,9 +56,9 @@ def require_runner():
 def open_tabs():
     """Add the third tab, and wait for the list that gives it its title.
 
-    The repository list is a read: unlike a sidebar PR mode it records no
-    activity, so a pass that only opens tabs and menus must leave the backend
-    exactly as it found it.
+    The repository list is a read. Opening it is Electron's organization
+    expansion, which counts reposBrowsed and nothing else, so a pass that only
+    opens tabs and menus must leave every other counter as it found it.
     """
     return [("content", REPOSITORIES), ("wait_content", "fixture-org/native-demo")]
 
@@ -182,10 +182,14 @@ def require_tab_row(capture, present, absent=()):
         raise RuntimeError(f"The {title!r} workspace tab is still open in {capture.name}")
 
 
-def require_unchanged(before, after, name):
-    """Opening tabs and using their menus recorded no activity at all."""
+def require_unchanged(before, after, name, browsed=0):
+    """Tabs and their menus recorded nothing beyond the repository-list opens.
+
+    `browsed` is how many times the repository list was opened since `before`.
+    """
     changes = {key: after.get(key, 0) - before.get(key, 0) for key in COUNTERS}
-    if any(changes.values()) or before.get("lastSessionStart") != after.get("lastSessionStart"):
+    expected = {key: browsed if key == "reposBrowsed" else 0 for key in COUNTERS}
+    if changes != expected or before.get("lastSessionStart") != after.get("lastSessionStart"):
         raise RuntimeError(f"Tab menus changed the backend in {name}: {changes}")
     return changes
 
@@ -208,7 +212,10 @@ def measured(driver, backend, baseline, name, actions, journal):
     """Drive one recorded pass, then compare the backend with the scene's start."""
     flow = driver.drive(name, actions, record=True)
     after = backend.query("buddyStats:get")
-    journal[name] = dict(after=after, changes=require_unchanged(baseline, after, name))
+    # The baseline is the scene's start, so earlier passes' list opens remain.
+    opened = actions.count(open_tabs()[0])
+    total = sum(entry["browsed"] for entry in journal.values()) + opened
+    journal[name] = dict(after=after, browsed=opened, changes=require_unchanged(baseline, after, name, total))
     return flow
 
 
@@ -275,7 +282,7 @@ def qualify(executable, output, session, version, backend, api):
         checks=["three workspace tabs", "right-click menu on an inactive tab", "active tab unchanged by the menu",
             "Escape dismissal leaves every tab", "Close to the Right closes later tabs and is inert on the last tab",
             "Close Others closes the other tabs and is inert on the only tab", "interaction recordings",
-            "no backend activity in any pass", "no GitHub write",
+            "only repository-list activity in any pass", "no GitHub write",
             f"dark {driver.large_size[0]}x{driver.large_size[1]}", "light 900x650"]),
         indent=2), encoding="utf-8")
 
