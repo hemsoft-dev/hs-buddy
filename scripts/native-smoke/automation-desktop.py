@@ -230,7 +230,9 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
 
 def qualify_editing(driver, backend, config, echo, long):
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
-    terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
+    # A seven-day forecast window, as Electron's dropdown saves it.
+    terminal.write_config(config, lambda value: (value["ui"].update(light["ui"]),
+        value.setdefault("automation", {}).update(scheduleForecastDays=7)))
     restarted = driver.drive("restart-light", [
         ("content", "History"), ("sleep", 2), ("capture", "history-after-restart-light"),
         ("content", "Jobs"), ("content", "New job"), ("sleep", 1), ("capture", "new-job-light"),
@@ -241,13 +243,27 @@ def qualify_editing(driver, backend, config, echo, long):
         ("content", "Run the latest missed"), ("capture", "schedule-editor-light"), ("content", "Save"), ("sleep", 3),
         ("content", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
         ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
+        ("content", "Details"), ("sleep", 2), ("capture", "schedule-detail-light"),
+        ("content", "History"), ("sleep", 1), ("content", "Cleanup old runs"), ("capture", "cleanup-confirm-light"),
+        ("content", "Delete"), ("sleep", 3), ("capture", "cleanup-done-light"),
     ])
     github.check(restarted / "history-after-restart-light.png", "Completed", "Cancelled", "Echo job", "Long job")
     github.check(restarted / "new-job-light.png", "New job", "Shell command", "Command", "Save")
     github.check(restarted / "job-created-light.png", "Native created job", "Run now")
     github.check(restarted / "schedule-editor-light.png", "New schedule", "Native created job", "Run the latest missed")
-    github.check(restarted / "schedule-created-light.png", "Native weekdays", "Enabled", "Run the latest missed")
-    github.check(restarted / "schedule-paused-light.png", "Native weekdays", "Paused", "Enable", "Not scheduled")
+    # Forecast days and times depend on the clock, so only stable words are checked.
+    github.check(restarted / "schedule-created-light.png", "Native weekdays", "Enabled", "Run the latest missed",
+        "Upcoming Scheduled Jobs", "Forecast:", "active schedule", "in next 7 days")
+    github.check(restarted / "schedule-paused-light.png", "Native weekdays", "Paused", "Enable", "Not scheduled",
+        "No scheduled runs in the next 7 days.", "All schedules are currently paused.")
+    github.check(restarted / "schedule-detail-light.png", "All schedules", "Native weekdays", "Recent Runs",
+        "No runs yet for this schedule.")
+    github.check(restarted / "cleanup-confirm-light.png", "Delete all completed and failed runs older than 7 days?",
+        "Delete", "Cancel")
+    # Both runs are minutes old, so the confirmed cleanup deletes none of them.
+    github.check(restarted / "cleanup-done-light.png", "Cleaned up 0 old runs.", "Echo job", "Long job")
+    if json.loads(config.read_text(encoding="utf-8-sig")).get("automation", {}).get("scheduleForecastDays") != 7:
+        raise RuntimeError("The native app did not keep automation.scheduleForecastDays")
     check_status_totals(restarted / "schedule-paused-light.png", backend)
     # The restarted dispatcher reconciles; it never runs either job again.
     single_run(backend, echo, "completed")
@@ -317,7 +333,8 @@ def qualify(executable, output, session, version, backend):
         checks=["offline start and reconnect", "manual run queued once", "Unicode working directory and explicit environment", "exact stored output",
             "live output while running", "cancellation stops the job's process family", "unrelated process preserved",
             "restart reconciles without rerunning", "job create/edit/delete", "schedule create/pause/delete",
-            "missed policy and timezone", "compact window", "light/dark"]), indent=2), encoding="utf-8")
+            "missed policy and timezone", "schedule forecast from automation.scheduleForecastDays",
+            "schedule detail recent runs", "confirmed run cleanup", "compact window", "light/dark"]), indent=2), encoding="utf-8")
 
 
 def main():
