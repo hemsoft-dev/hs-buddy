@@ -1,6 +1,6 @@
 # Parity checklist: Bookmarks, embedded browser, insights and remaining routes
 
-Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Every source link points at commit `55e4ee06`.
+Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Source links point at commit `55e4ee06` unless they name another commit, as native links added by later pull requests do.
 
 59 Electron capabilities: 6 missing natively, 4 placeholder natively, 21 partly ported, 26 ported, 2 not applicable to the native app.
 

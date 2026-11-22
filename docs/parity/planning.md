@@ -1,6 +1,6 @@
 # Parity checklist: Todoist and Tempo
 
-Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Every source link points at commit `55e4ee06`.
+Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Source links point at commit `55e4ee06` unless they name another commit, as native links added by later pull requests do.
 
 71 Electron capabilities: 8 missing natively, 18 partly ported, 44 ported, 1 not applicable to the native app.
 
