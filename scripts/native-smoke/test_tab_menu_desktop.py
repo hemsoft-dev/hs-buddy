@@ -408,6 +408,11 @@ def stats(**changes):
     return {**{key: 3 for key in scene.COUNTERS}, "lastSessionStart": 1792152000000, **changes}
 
 
+def passes():
+    """The baseline, then each pass's snapshot: one repository-list open per pass."""
+    return [stats(reposBrowsed=3 + count) for count in range(4)]
+
+
 READS = [dict(method="POST", path="/graphql", account="fixture-one", query="query NativeViewerPulls", body=None),
     dict(method="GET", path="/orgs/fixture-org/repos?per_page=100", account="fixture-one", query="", body=None)]
 
@@ -455,7 +460,7 @@ class NoBackendChange(unittest.TestCase):
             return {path.name: json.loads(path.read_text(encoding="utf-8")) for path in output.glob("*.json")}
 
     def test_three_recorded_passes_run_dark_dark_light_against_one_backend_baseline(self):
-        receipts = self.qualify([stats()] * 4)
+        receipts = self.qualify(passes())
         self.assertEqual([(drive["name"], drive["theme"], drive["record"]) for drive in self.drives],
             [("menu-dark", "dark", True), ("commands-dark", "dark", True), ("menu-light", "light", True)])
         self.assertEqual([drive["actions"] for drive in self.drives], [scene.dismissed_actions("dark", False),
@@ -473,18 +478,21 @@ class NoBackendChange(unittest.TestCase):
         self.assertEqual((receipt["result"], receipt["session"], receipt["version"]), ("passed", "x11", "1.2.3"))
         self.assertEqual(receipt["binarySha256"], "a" * 64)
         self.assertLessEqual({"dark 1200x820", "light 900x650", "interaction recordings",
-            "no backend activity in any pass", "no GitHub write"}, set(receipt["checks"]))
+            "only repository-list activity in any pass", "no GitHub write"}, set(receipt["checks"]))
         activity = receipts["backend-activity.json"]
         self.assertEqual(list(activity["passes"]), ["menu-dark", "commands-dark", "menu-light"])
-        for value in activity["passes"].values():
-            self.assertEqual(value["changes"], {key: 0 for key in scene.COUNTERS})
+        for count, value in enumerate(activity["passes"].values(), 1):
+            self.assertEqual(value["browsed"], 1)
+            self.assertEqual(value["changes"], {key: count if key == "reposBrowsed" else 0 for key in scene.COUNTERS})
         self.assertEqual(receipts["requests.json"], READS)
 
     def test_any_activity_counter_change_in_any_pass_fails_the_scene(self):
         for failing, name in enumerate(("menu-dark", "commands-dark", "menu-light")):
-            for change in (dict(tabsOpened=4), dict(prsViewed=4), dict(totalUptimeMs=4), dict(lastSessionStart=1)):
+            for change in (dict(tabsOpened=4), dict(prsViewed=4), dict(totalUptimeMs=4), dict(lastSessionStart=1),
+                    dict(reposBrowsed=3 + failing), dict(reposBrowsed=5 + failing)):
                 with self.subTest(name=name, change=change):
-                    snapshots = [stats()] * (failing + 1) + [stats(**change)] * (3 - failing)
+                    good = passes()
+                    snapshots = good[:failing + 1] + [dict(snapshot, **change) for snapshot in good[failing + 1:]]
                     with self.assertRaisesRegex(RuntimeError, f"changed the backend in {name}"):
                         self.qualify(snapshots)
                     # The scene stops at the pass that wrote; it leaves no passing receipt.
@@ -492,12 +500,18 @@ class NoBackendChange(unittest.TestCase):
 
     def test_a_write_left_by_an_earlier_pass_is_still_found_against_the_baseline(self):
         # Each pass alone looks unchanged from the one before it.
-        changed = stats(tabsOpened=4)
+        good = passes()
+        changed = [dict(snapshot, tabsOpened=4) for snapshot in good[2:]]
         with self.assertRaisesRegex(RuntimeError, "changed the backend in commands-dark"):
-            self.qualify([stats(), stats(), changed, changed])
+            self.qualify(good[:2] + changed)
 
     def test_unchanged_means_every_counter_and_the_session_start(self):
         self.assertEqual(scene.require_unchanged(stats(), stats(), "pass"), {key: 0 for key in scene.COUNTERS})
+        # Only the counted repository-list opens may move reposBrowsed.
+        self.assertEqual(scene.require_unchanged(stats(), stats(reposBrowsed=5), "pass", 2)["reposBrowsed"], 2)
+        for browsed in (1, 3):
+            with self.assertRaisesRegex(RuntimeError, "changed the backend in pass"):
+                scene.require_unchanged(stats(), stats(reposBrowsed=5), "pass", browsed)
         self.assertIn("tabsOpened", scene.COUNTERS)
         for key in scene.COUNTERS:
             with self.assertRaisesRegex(RuntimeError, "changed the backend in pass"):
@@ -518,7 +532,7 @@ class NoBackendChange(unittest.TestCase):
             with self.subTest(write=write["path"]), self.assertRaisesRegex(RuntimeError, "wrote to the synthetic GitHub API"):
                 scene.require_reads_only(READS + [write])
         with self.assertRaisesRegex(RuntimeError, "wrote to the synthetic GitHub API"):
-            self.qualify([stats()] * 4, requests=READS + [writes[0]])
+            self.qualify(passes(), requests=READS + [writes[0]])
         self.assertEqual(len(self.drives), 3)
 
 

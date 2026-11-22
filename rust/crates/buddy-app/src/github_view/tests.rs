@@ -791,3 +791,250 @@ impl GitHubView {
         );
     }
 }
+
+fn repository(name: &str) -> RepositoryRef {
+    RepositoryRef::new("team", name).unwrap()
+}
+
+#[test]
+fn open_activity_matches_electron_open_tab_and_org_expansion() {
+    let pull = pull();
+    let repo = repository("alpha");
+    let user = |login: &str, tab| Route::User(login.into(), tab);
+    let none = None::<GitHubOpen>;
+    let view = Some(GitHubOpen::View);
+    for (from, to, expected) in [
+        // Electron's openTab: PR detail and its sections, repository views,
+        // commits, issues, the organization and a user, each time.
+        (
+            Route::Pulls(PrMode::MyPrs),
+            Route::Pull(pull.clone(), PullTab::Conversation),
+            view,
+        ),
+        (
+            Route::Pull(pull.clone(), PullTab::Conversation),
+            Route::Pull(pull.clone(), PullTab::Files),
+            view,
+        ),
+        (
+            Route::Repositories,
+            Route::Repository(repo.clone(), RepoTab::Overview),
+            view,
+        ),
+        (
+            Route::Repository(repo.clone(), RepoTab::Overview),
+            Route::Repository(repo.clone(), RepoTab::Commits),
+            view,
+        ),
+        (
+            Route::Repository(repo.clone(), RepoTab::Commits),
+            Route::Commit(repo.clone(), "abc123".into()),
+            view,
+        ),
+        (
+            Route::Repository(repo.clone(), RepoTab::Issues),
+            Route::Issue(repo.clone(), 11),
+            view,
+        ),
+        (Route::Members, Route::Organization, view),
+        (Route::Organization, Route::Organization, view),
+        (Route::Members, user("octocat", UserTab::Overview), view),
+        (
+            user("octocat", UserTab::Overview),
+            user("hubot", UserTab::Overview),
+            view,
+        ),
+        // Electron's user page is one page; its native tabs are sections.
+        (
+            user("octocat", UserTab::Overview),
+            user("OctoCat", UserTab::Activity),
+            none,
+        ),
+        // Expanding the organization's repositories is reposBrowsed only,
+        // and choosing the shown list again is not another expansion.
+        (
+            Route::Pulls(PrMode::MyPrs),
+            Route::Repositories,
+            Some(GitHubOpen::RepositoryList),
+        ),
+        (
+            Route::Repository(repo.clone(), RepoTab::Overview),
+            Route::Repositories,
+            Some(GitHubOpen::RepositoryList),
+        ),
+        (Route::Repositories, Route::Repositories, none),
+        // Sidebar groups and inline PR threads in Electron.
+        (Route::Organization, Route::Members, none),
+        (Route::Organization, Route::Teams, none),
+        (Route::Teams, Route::Team("native-team".into()), none),
+        // PR lists record their own combined increment.
+        (Route::Repositories, Route::Pulls(PrMode::NeedsReview), none),
+    ] {
+        assert_eq!(open_activity(&from, &to), expected, "{from:?} -> {to:?}");
+    }
+}
+
+#[gpui_kit::test]
+fn explicit_view_opens_record_each_request_but_restored_tabs_do_not(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let entity = cx.new(|cx| GitHubView::new(window, cx));
+            let repo = repository("alpha");
+            let mut recorded = Vec::new();
+            entity.update(cx, |view, cx| {
+                view.change_account(Some(account("First")), cx);
+                for route in [
+                    Route::Repositories,
+                    Route::Repositories,
+                    Route::Repository(repo.clone(), RepoTab::Overview),
+                    Route::Repository(repo.clone(), RepoTab::Overview),
+                    Route::Repository(repo.clone(), RepoTab::Commits),
+                    Route::Members,
+                    Route::User("octocat".into(), UserTab::Overview),
+                    Route::User("octocat".into(), UserTab::Activity),
+                    Route::Organization,
+                ] {
+                    view.open_with(route.clone(), cx, |open, _| recorded.push(open));
+                    assert_eq!(view.route, route);
+                }
+            });
+            assert_eq!(
+                recorded,
+                [
+                    GitHubOpen::RepositoryList,
+                    GitHubOpen::View,
+                    GitHubOpen::View,
+                    GitHubOpen::View,
+                    GitHubOpen::View,
+                    GitHubOpen::View,
+                ],
+                "each Electron-equivalent open counts once, a repeated tab open included"
+            );
+            let destination = entity.read(cx).destination(entity.clone(), cx);
+            entity.update(cx, |view, cx| view.navigate(Route::Repositories, cx));
+            // No Runtime global exists in this fixture, so a restore that
+            // recorded an open would panic instead of navigating.
+            (destination.restore)(window, cx);
+            assert_eq!(entity.read(cx).route, Route::Organization);
+            entity
+        })
+        .unwrap();
+    });
+}
+
+fn repository_row(name: &str) -> data::Row {
+    let mut row = data::Row::text(format!("team/{name}"), "Rust · 1 stars");
+    row.route = Some(Route::Repository(repository(name), RepoTab::Overview));
+    row
+}
+
+fn bookmark(owner: &str, repo: &str) -> github::backend::Bookmark {
+    github::backend::Bookmark {
+        id: format!("{owner}/{repo}"),
+        owner: owner.into(),
+        repo: repo.into(),
+        folder: String::new(),
+    }
+}
+
+#[test]
+fn bookmarked_only_lists_bookmarked_repositories_like_electron() {
+    let rows = [
+        repository_row("alpha"),
+        repository_row("beta"),
+        repository_row("gamma"),
+        data::Row::text("Not a repository", "kept"),
+    ];
+    let bookmarks = [bookmark("Team", "Alpha"), bookmark("other", "beta")];
+    assert_eq!(visible_rows(&rows, "", RepositoryFilter::All), [0, 1, 2, 3]);
+    // Only this organization's bookmarks match; GitHub names ignore case.
+    assert_eq!(
+        visible_rows(&rows, "", RepositoryFilter::Bookmarked(Some(&bookmarks))),
+        [0, 3]
+    );
+    assert_eq!(
+        visible_rows(
+            &rows,
+            "gamma",
+            RepositoryFilter::Bookmarked(Some(&bookmarks))
+        ),
+        Vec::<usize>::new()
+    );
+    assert_eq!(
+        visible_rows(
+            &rows,
+            "alpha",
+            RepositoryFilter::Bookmarked(Some(&bookmarks))
+        ),
+        [0]
+    );
+    // Unloaded or failed bookmarks hide every repository, as Electron's empty set does.
+    assert_eq!(
+        visible_rows(&rows, "", RepositoryFilter::Bookmarked(None)),
+        [3]
+    );
+    assert_eq!(
+        visible_rows(&rows, "", RepositoryFilter::Bookmarked(Some(&[]))),
+        [3]
+    );
+}
+
+#[gpui_kit::test]
+fn bookmarked_only_toggle_persists_and_applies_only_to_the_repository_list(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    std::fs::write(&path, r#"{"ui":{"showBookmarkedOnly":false,"future":7}}"#).unwrap();
+    cx.update(|cx| {
+        setup(cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = GitHubView::new(window, cx);
+                view.change_account(Some(account("First")), cx);
+                view.bookmarks = Some(vec![bookmark("team", "alpha")]);
+                view.navigate(Route::Repositories, cx);
+                assert!(matches!(view.repository_filter(cx), RepositoryFilter::All));
+
+                view.toggle_bookmarked_only_at(Some(&path), cx);
+                assert!(Settings::global(cx).config.ui.show_bookmarked_only);
+                let saved: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                assert_eq!(saved["ui"]["showBookmarkedOnly"], true);
+                assert_eq!(saved["ui"]["future"], 7);
+                assert!(matches!(
+                    view.repository_filter(cx),
+                    RepositoryFilter::Bookmarked(Some([only])) if only.repo == "alpha"
+                ));
+                // The organization overview and other views are never filtered.
+                view.navigate(Route::Organization, cx);
+                assert!(matches!(view.repository_filter(cx), RepositoryFilter::All));
+
+                view.toggle_bookmarked_only_at(Some(&path), cx);
+                assert!(!Settings::global(cx).config.ui.show_bookmarked_only);
+                assert!(
+                    !buddy_core::config::AppConfig::load_from(&path)
+                        .unwrap()
+                        .ui
+                        .show_bookmarked_only
+                );
+
+                // An unreadable file is not overwritten, and the filter stays off.
+                std::fs::write(&path, "{").unwrap();
+                view.toggle_bookmarked_only_at(Some(&path), cx);
+                assert!(!Settings::global(cx).config.ui.show_bookmarked_only);
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), "{");
+                assert!(
+                    view.status
+                        .as_deref()
+                        .is_some_and(|s| s.contains("could not be read"))
+                );
+                view
+            })
+        })
+        .unwrap();
+    });
+}

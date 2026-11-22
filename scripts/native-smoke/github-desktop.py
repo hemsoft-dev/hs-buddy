@@ -287,8 +287,12 @@ def qualify(executable, output, session, version, backend, api):
     if backend.query("settings:get")["viewModes"]["pr-list-my-prs"] != "list":
         raise RuntimeError("The native list preference did not reach Convex")
 
+    # Five PR-list opens, then Electron's openTab for the PR and seven section
+    # choices: Reviews, Commits, Checks, Files, History, Review threads and
+    # Conversation. Electron shows a review thread inside its PR page, and
+    # Back restores a view, so neither counts.
     require_activity(backend, activity_before,
-        dict(tabsOpened=5, prsViewed=2, prsReviewed=1, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+        dict(tabsOpened=13, prsViewed=2, prsReviewed=1, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
     # A fresh installed process must retain the backend counters without
     # treating initial restoration, refresh or selecting a retained tab as opens.
     activity = driver.drive("activity-restored-dark", [
@@ -300,7 +304,7 @@ def qualify(executable, output, session, version, backend, api):
         ("wait_content", "PRs Viewed"), ("capture", "workspace-activity-dark"),
     ], record=True)
     activity_after = require_activity(backend, activity_before,
-        dict(tabsOpened=7, prsViewed=2, prsReviewed=3, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
+        dict(tabsOpened=15, prsViewed=2, prsReviewed=3, prsMergedWatched=1, appLaunches=0, totalUptimeMs=0))
     # The fixture's reviewed-by source marks #7 approved. Needs Review keeps
     # the unapproved #8 from its paginated assignee source instead.
     check(activity / "restored-sidebar-list-dark.png", "Needs Review", "#8 Paginated fixture follow-up")
@@ -313,12 +317,16 @@ def qualify(executable, output, session, version, backend, api):
 
     qualify_review_sound(driver, config, output, api)
     reset_section(config)
+    navigation_before = backend.query("buddyStats:get")
     navigation = driver.drive("navigation-dark", [
         ("content", "Repositories"), ("content", "fixture-org/native-demo"), ("tab", "Commits"),
         ("content", "Improve native navigation"), ("content", "Back"), ("tab", "Open issues"),
         ("content", "#11 Fixture keyboard follow-up"), ("content", "Back"), ("tab", "Closed issues"),
         ("tab", "Open PRs"), ("tab", "Closed PRs"), ("tab", "Overview"), ("capture", "repository-dark"),
         ("content", "Bookmark repository"), ("sleep", 1),
+        # Electron's sidebar filter: only the repository just bookmarked stays listed.
+        ("content", "Repositories"), ("content", "Bookmarked only"),
+        ("wait_content", "1 of 3 loaded repositories"), ("capture", "bookmarked-only-dark"),
         ("content", "People"), ("content", "fixture-author"), ("capture", "profile-dark"),
         ("content", "Favorite user"), ("tab", "Authored PRs"), ("tab", "Reviewed PRs"),
         ("tab", "Activity"), ("tab", "Team memberships"), ("content", "Native Team"),
@@ -326,6 +334,16 @@ def qualify(executable, output, session, version, backend, api):
     ])
     check(navigation / "repository-dark.png", "native-demo", "Languages", "Rust")
     check(navigation / "profile-dark.png", "Demo Contributor", "Contribution calendar")
+    check(navigation / "bookmarked-only-dark.png", "1 of 3 loaded repositories", "native-demo",
+        absent=("fixture-org/limited", "fixture-org/denied"))
+    if json.loads(config.read_text(encoding="utf-8-sig"))["ui"].get("showBookmarkedOnly") is not True:
+        raise RuntimeError("The bookmarked-only repository filter was not persisted")
+    # Electron's openTab for the repository, its six tab choices, a commit,
+    # an issue, a user and the organization. People, a user's own tabs and a
+    # team are Electron sidebar groups or page sections. Both repository-list
+    # opens are organization expansions, which count reposBrowsed only.
+    require_activity(backend, navigation_before, dict(tabsOpened=11, reposBrowsed=2,
+        prsViewed=0, prsReviewed=0, prsMergedWatched=0, appLaunches=0, totalUptimeMs=0))
     if not backend.query("repoBookmarks:list"):
         raise RuntimeError("The installed bookmark action did not reach Convex")
     if "fixture-author" not in json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["favoriteUsers"]:
@@ -347,6 +365,8 @@ def qualify(executable, output, session, version, backend, api):
     light_config = fixture(light_template, "light")
     value = json.loads(config.read_text(encoding="utf-8-sig"))
     value["ui"].update(json.loads(light_config.read_text())["ui"])
+    # Later scenes open repositories that are not bookmarked.
+    value["ui"]["showBookmarkedOnly"] = False
     value["native"]["activeSection"] = "github"
     config.write_text(json.dumps(value))
     light = driver.drive("accounts-light", [
@@ -377,6 +397,7 @@ def qualify(executable, output, session, version, backend, api):
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
             "repository/commit/issue navigation", "profile/calendar/teams", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
+            "GitHub view and repository-list activity", "bookmarked-only repository filter",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 
 

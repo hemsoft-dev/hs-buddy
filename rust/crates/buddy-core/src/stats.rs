@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod github_activity;
 pub mod pr_list_activity;
 pub mod tab_activity;
 

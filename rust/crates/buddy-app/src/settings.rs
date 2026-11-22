@@ -95,7 +95,7 @@ impl Settings {
         result.is_ok()
     }
 
-    fn try_update_at(
+    pub(crate) fn try_update_at(
         cx: &mut App,
         path: &std::path::Path,
         edit: impl Fn(&mut AppConfig) -> Result<(), SettingsError>,

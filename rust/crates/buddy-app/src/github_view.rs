@@ -26,7 +26,72 @@ use std::time::{Duration, Instant};
 use crate::runtime::Runtime;
 use crate::settings::Settings;
 use crate::zoom::zpx;
+use buddy_core::stats::github_activity::GitHubOpen;
 use data::{PageData, PullTab, RepoTab, Route, UserTab};
+
+/// The counter an explicit open records, as the Electron equivalent does.
+/// Electron counts every `openTab` call, including a repeated one. PR lists
+/// record their own combined increment through `open_pr_list`.
+fn open_activity(from: &Route, to: &Route) -> Option<GitHubOpen> {
+    match to {
+        Route::Pulls(_) => None,
+        // Electron expands the organization's repositories in its sidebar.
+        // Choosing the list again while it is shown is not a new expansion.
+        Route::Repositories => (from != to).then_some(GitHubOpen::RepositoryList),
+        // Electron's People, Teams and team rows are sidebar groups it only
+        // expands, and its PR review threads are shown inside the PR page.
+        Route::Members | Route::Teams | Route::Team(_) | Route::Thread(_) => None,
+        // Electron shows a user on one page; these tabs are its sections.
+        Route::User(login, _) if matches!(from, Route::User(current, _) if current.eq_ignore_ascii_case(login)) => {
+            None
+        }
+        Route::Organization
+        | Route::Repository(..)
+        | Route::Pull(..)
+        | Route::Issue(..)
+        | Route::Commit(..)
+        | Route::User(..) => Some(GitHubOpen::View),
+    }
+}
+
+/// Electron's `ui.showBookmarkedOnly` applies to the organization's
+/// repository list. `None` bookmarks have not loaded or failed to load.
+#[derive(Clone, Copy)]
+enum RepositoryFilter<'a> {
+    All,
+    Bookmarked(Option<&'a [github::backend::Bookmark]>),
+}
+
+/// The rows a page lists: the text filter, then, with the bookmarked-only
+/// filter on, the repositories that have a repository bookmark, as Electron's
+/// `filterTreeRepos` does. Rows that are not repositories are not filtered.
+fn visible_rows(rows: &[data::Row], query: &str, filter: RepositoryFilter) -> Vec<usize> {
+    rows.iter()
+        .enumerate()
+        .filter(|(_, row)| {
+            query.is_empty()
+                || format!(
+                    "{} {} {}",
+                    row.title,
+                    row.detail,
+                    row.body.as_deref().unwrap_or("")
+                )
+                .to_lowercase()
+                .contains(query)
+        })
+        .filter(|(_, row)| match (filter, &row.route) {
+            (RepositoryFilter::Bookmarked(bookmarks), Some(Route::Repository(repo, _))) => {
+                bookmarks.is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|item| item.target().ok().as_ref() == Some(repo))
+                })
+            }
+            _ => true,
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
 
 pub enum GitHubEvent {
     PrepareAssistantReview(github::GitHubClient, github::PullRef),
@@ -400,6 +465,74 @@ impl GitHubView {
         self.navigate(Route::Pulls(mode), cx);
     }
 
+    /// A user request for another GitHub view. It records what the Electron
+    /// equivalent records, then navigates; restoration and Back use navigate.
+    fn open(&mut self, route: Route, cx: &mut Context<Self>) {
+        self.open_with(route, cx, Self::record_open);
+    }
+
+    fn record_open(open: GitHubOpen, cx: &App) {
+        let url = buddy_core::convex_data::convex_url();
+        Runtime::global(cx).spawn_detached(async move {
+            if buddy_core::stats::github_activity::record(&url, open)
+                .await
+                .is_err()
+            {
+                log::debug!("GitHub open activity was not confirmed; it will not be replayed");
+            }
+        });
+    }
+
+    fn open_with(
+        &mut self,
+        route: Route,
+        cx: &mut Context<Self>,
+        record: impl FnOnce(GitHubOpen, &App),
+    ) {
+        if let Route::Pulls(mode) = route {
+            self.open_pr_list(mode, cx);
+            return;
+        }
+        if let Some(open) = open_activity(&self.route, &route) {
+            record(open, cx);
+        }
+        self.navigate(route, cx);
+    }
+
+    fn repository_filter(&self, cx: &App) -> RepositoryFilter<'_> {
+        if self.route == Route::Repositories && Settings::global(cx).config.ui.show_bookmarked_only
+        {
+            RepositoryFilter::Bookmarked(self.bookmarks.as_deref())
+        } else {
+            RepositoryFilter::All
+        }
+    }
+
+    /// Electron saves the flipped value to its local configuration; a failed
+    /// save leaves the filter as the file has it and says why.
+    fn toggle_bookmarked_only(&mut self, cx: &mut Context<Self>) {
+        self.toggle_bookmarked_only_at(None, cx);
+    }
+
+    /// `path` replaces the configured file in tests.
+    fn toggle_bookmarked_only_at(
+        &mut self,
+        path: Option<&std::path::Path>,
+        cx: &mut Context<Self>,
+    ) {
+        use buddy_core::application_settings::LocalEdit;
+        let edit =
+            LocalEdit::ShowBookmarkedOnly(!Settings::global(cx).config.ui.show_bookmarked_only);
+        let saved = match path {
+            Some(path) => Settings::try_update_at(cx, path, |config| edit.apply(config)),
+            None => Settings::try_update(cx, |config| edit.apply(config)),
+        };
+        if let Err(error) = saved {
+            self.status = Some(error.to_string());
+        }
+        cx.notify();
+    }
+
     fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route == route {
             return;
@@ -737,9 +870,9 @@ impl GitHubView {
                             Button::new(format!("github-route-{index}"))
                                 .label(label)
                                 .selected(self.route == route)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.navigate(route.clone(), cx)
-                                }))
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.open(route.clone(), cx)),
+                                )
                         }),
                 ),
         );
@@ -934,28 +1067,26 @@ impl Render for GitHubView {
                 body = body.child(self.contributions(&data.contribution_days, cx));
             }
             let query = self.filter.read(cx).value().to_lowercase();
-            let mut count = 0;
-            for (index, row) in data.rows.iter().enumerate() {
-                if !query.is_empty()
-                    && !format!(
-                        "{} {} {}",
-                        row.title,
-                        row.detail,
-                        row.body.as_deref().unwrap_or("")
-                    )
-                    .to_lowercase()
-                    .contains(&query)
-                {
-                    continue;
-                }
-                count += 1;
-                body = body.child(self.row(index, row, cx));
+            let repository_filter = self.repository_filter(cx);
+            let visible = visible_rows(&data.rows, &query, repository_filter);
+            if let RepositoryFilter::Bookmarked(_) = repository_filter {
+                body = body.child(format!(
+                    "Bookmarked only: {} of {} loaded repositories",
+                    visible.len(),
+                    data.rows.len()
+                ));
             }
-            if !self.loading && count == 0 {
-                body = body.child(if query.is_empty() {
-                    "No items for this account and view."
-                } else {
-                    "No loaded items match this filter."
+            for &index in &visible {
+                body = body.child(self.row(index, &data.rows[index], cx));
+            }
+            if !self.loading && visible.is_empty() {
+                body = body.child(match repository_filter {
+                    _ if !query.is_empty() => "No loaded items match this filter.",
+                    RepositoryFilter::Bookmarked(None) => {
+                        "Bookmarks are not loaded. Reopen GitHub to retry, or turn off Bookmarked only."
+                    }
+                    RepositoryFilter::Bookmarked(Some(_)) => "No bookmarked repos",
+                    RepositoryFilter::All => "No items for this account and view.",
                 });
             }
             if data.next.is_some() {
