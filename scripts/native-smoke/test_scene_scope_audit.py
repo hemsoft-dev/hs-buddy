@@ -69,7 +69,9 @@ class SceneChromeScopes(unittest.TestCase):
             self.assertEqual(kind, expected, f'{scene}:{line} {label!r} has the wrong region')
 
     def test_plain_clicks_are_only_intentional_chrome_or_tempo_boundary_scoped(self):
-        chrome = {('automation-desktop.py', 'File')}
+        # Title-bar menus are chrome, outside every view's content region.
+        chrome = {('automation-desktop.py', 'File'), ('settings-desktop.py', 'Help'),
+            ('settings-desktop.py', 'About Buddy')}
         for scene, line, kind, label in actions():
             if kind == 'click' and scene != 'tempo-desktop.py':
                 self.assertIn((scene, label), chrome, f'{scene}:{line} view button {label!r} needs content scope')
