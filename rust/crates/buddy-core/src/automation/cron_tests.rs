@@ -332,3 +332,12 @@ fn expressions_electron_rejects_are_invalid() {
     }
     assert!(Cron::parse("  @Weekdays ").is_ok());
 }
+
+#[test]
+fn a_step_beyond_the_range_keeps_only_its_first_value() {
+    let huge = Cron::parse("1/9223372036854775807 * * * *").unwrap();
+    let minute = Cron::parse("1 * * * *").unwrap();
+    assert_eq!(huge, minute);
+    let wide = Cron::parse("0 0-23/9223372036854775807 * * *").unwrap();
+    assert_eq!(wide, Cron::parse("0 0 * * *").unwrap());
+}

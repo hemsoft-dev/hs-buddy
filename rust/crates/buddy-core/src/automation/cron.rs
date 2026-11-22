@@ -232,10 +232,15 @@ fn parse_field(raw: &str, field: Field) -> Result<u64, InvalidCron> {
         if reaches_seven && low != 0 {
             store(0)?;
         }
+        // cron-parser accepts any positive step; a huge one, as in
+        // `1/9223372036854775807`, simply stops after its first value.
         let mut number = low;
-        while number <= high {
+        loop {
             store(number)?;
-            number += step;
+            match number.checked_add(step) {
+                Some(next) if next <= high => number = next,
+                _ => break,
+            }
         }
     }
     let mut bits = stored;
