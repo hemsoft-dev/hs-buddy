@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 
+DAY = 24 * 60 * 60
 
 def prepare(user, original):
     """Add only fresh synthetic workspaces beneath the existing owned fixture."""
@@ -11,9 +12,13 @@ def prepare(user, original):
     files = {}
     for key, name, records in (
             ('alpha', 'Alpha', [('alpha-new', 'Alpha recent session', 'ALPHAID956', 10),
-                                ('alpha-old', 'Alpha earlier session', 'ALPHAOLD956', 30)]),
+                                # Ages in seconds. Electron's date headings are
+                                # This Week from 1 to 7 days before local
+                                # midnight and Older beyond, so these two
+                                # headings hold at any time of day.
+                                ('alpha-old', 'Alpha earlier session', 'ALPHAOLD956', 3 * DAY)]),
             ('beta', 'Beta', [('beta', 'Beta selected session', 'BETAID956', 20)]),
-            ('gamma', 'Gamma', [('gamma', 'Gamma hidden session', 'GAMMAID956', 40)])):
+            ('gamma', 'Gamma', [('gamma', 'Gamma hidden session', 'GAMMAID956', 30 * DAY)])):
         workspace = user / 'workspaceStorage' / ('groups-' + key)
         sessions = workspace / 'chatSessions'
         sessions.mkdir(parents=True, exist_ok=False)
@@ -69,11 +74,11 @@ def qualify_dark(driver, user, check):
         ('content', 'Gamma hidden session'), ('wait_content', 'GAMMAID956'),
         ('capture', 'expanded-gamma-dark'),
     ], record=True)
-    check(capture / 'workspaces-expanded-dark.png', 'Alpha recent session', 'Alpha earlier session', 'Collapse Beta')
+    check(capture / 'workspaces-expanded-dark.png', 'Alpha recent session', 'This Week', 'Alpha earlier session', 'Collapse Beta')
     check(capture / 'workspaces-collapsed-dark.png', 'Expand Alpha', 'BETAID956',
         absent=('Alpha recent session', 'Alpha earlier session'))
     check(capture / 'selected-workspace-hidden-dark.png', 'Expand Beta', 'BETAID956')
-    check(capture / 'expanded-gamma-dark.png', 'GAMMAID956', 'Collapse Gamma')
+    check(capture / 'expanded-gamma-dark.png', 'GAMMAID956', 'Collapse Gamma', 'Older')
 
 
 def compact_actions():

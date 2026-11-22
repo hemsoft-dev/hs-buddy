@@ -1,4 +1,5 @@
 //! A projection of already-scanned sessions. Indices always address the original scan.
+use buddy_core::copilot_sessions::date_buckets::{DateBucket, date_bucket};
 use buddy_core::copilot_sessions::storage::SessionSummary;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -6,6 +7,9 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Row {
     Group(usize),
+    /// Electron's date heading inside a workspace group. Headings are derived
+    /// from the session rows on a page and never consume a paged row.
+    Bucket(DateBucket),
     Session(usize),
 }
 
@@ -13,6 +17,8 @@ pub(super) enum Row {
 pub(super) struct Groups {
     pub groups: Arc<Vec<Group>>,
     expanded: BTreeSet<String>,
+    /// Indexed like the scan. Electron buckets once per scan, not per frame.
+    buckets: Arc<Vec<DateBucket>>,
 }
 #[derive(PartialEq, Eq)]
 pub(super) struct Group {
@@ -22,7 +28,13 @@ pub(super) struct Group {
     latest: u64,
 }
 impl Groups {
-    pub fn reconcile(&mut self, sessions: &[SessionSummary], same_source: bool) {
+    pub fn reconcile(&mut self, sessions: &[SessionSummary], same_source: bool, now: &jiff::Zoned) {
+        self.buckets = Arc::new(
+            sessions
+                .iter()
+                .map(|session| date_bucket(session.modified_at, now))
+                .collect(),
+        );
         let mut groups = BTreeMap::<String, Group>::new();
         for (index, session) in sessions.iter().enumerate() {
             let group = groups
@@ -105,7 +117,32 @@ impl Groups {
             visible.push(Row::Group(group));
         }
         visible.extend_from_slice(&rows[start..end]);
-        visible
+        self.with_headings(visible)
+    }
+    /// Sessions in a group are newest first, so each bucket is contiguous. A
+    /// continuation page repeats the heading of its first session.
+    fn with_headings(&self, rows: Vec<Row>) -> Vec<Row> {
+        let mut headed = Vec::with_capacity(rows.len() + 4);
+        let mut current = None;
+        for row in rows {
+            match row {
+                Row::Group(_) => current = None,
+                Row::Session(index) => {
+                    let bucket = self
+                        .buckets
+                        .get(index)
+                        .copied()
+                        .unwrap_or(DateBucket::Older);
+                    if current != Some(bucket) {
+                        headed.push(Row::Bucket(bucket));
+                        current = Some(bucket);
+                    }
+                }
+                Row::Bucket(_) => {}
+            }
+            headed.push(row);
+        }
+        headed
     }
     pub fn label(&self, index: usize) -> String {
         let group = &self.groups[index];
