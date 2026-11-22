@@ -242,8 +242,10 @@ def qualify_editing(driver, backend, config, echo, long):
         ("content", "Schedule"), ("sleep", 1), ("input", "Name", "Native weekdays"),
         ("content", "Run the latest missed"), ("capture", "schedule-editor-light"), ("content", "Save"), ("sleep", 3),
         ("content", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
-        ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
-        ("content", "Details"), ("sleep", 2), ("capture", "schedule-detail-light"),
+        # The forecast above pushes the schedule row's buttons below a
+        # 1044x788 Windows window, so scroll to each before clicking it.
+        ("wait_scroll_text", "Pause"), ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
+        ("wait_scroll_text", "Details"), ("content", "Details"), ("sleep", 2), ("capture", "schedule-detail-light"),
         ("content", "History"), ("sleep", 1), ("content", "Cleanup old runs"), ("capture", "cleanup-confirm-light"),
         ("content", "Delete"), ("sleep", 3), ("capture", "cleanup-done-light"),
     ])
@@ -261,7 +263,9 @@ def qualify_editing(driver, backend, config, echo, long):
     github.check(restarted / "cleanup-confirm-light.png", "Delete all completed and failed runs older than 7 days?",
         "Delete", "Cancel")
     # Both runs are minutes old, so the confirmed cleanup deletes none of them.
-    github.check(restarted / "cleanup-done-light.png", "Cleaned up 0 old runs.", "Echo job", "Long job")
+    # History keeps the Jobs filter ("Native created"), so the runs are proven
+    # by the backend checks below rather than by their rows in this capture.
+    github.check(restarted / "cleanup-done-light.png", "Cleaned up 0 old runs.")
     if json.loads(config.read_text(encoding="utf-8-sig")).get("automation", {}).get("scheduleForecastDays") != 7:
         raise RuntimeError("The native app did not keep automation.scheduleForecastDays")
     check_status_totals(restarted / "schedule-paused-light.png", backend)
