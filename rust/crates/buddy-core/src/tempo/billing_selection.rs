@@ -49,6 +49,20 @@ impl BillingSelection {
     pub fn selected_key(&self) -> Option<&str> {
         self.selected.as_deref()
     }
+    /// Nothing selected the account: no person, initial value or project
+    /// default. An explicit "No billing account" choice is a selection.
+    pub fn is_unchosen(&self) -> bool {
+        !self.manual && self.selected.is_none()
+    }
+    /// The account a new worklog sends. As in the Electron app, a create with
+    /// no chosen account takes the account inferred from its issue key.
+    pub fn create_account<'a>(&'a self, issue_key: &str) -> Option<&'a str> {
+        if self.is_unchosen() {
+            Some(inferred_account(issue_key))
+        } else {
+            self.selected_key()
+        }
+    }
     pub fn choices(&self) -> &[ProjectBillingAccount] {
         &self.choices
     }
@@ -132,6 +146,16 @@ impl BillingSelection {
         }
         self.choices = result.choices;
         Ok(true)
+    }
+}
+
+/// Electron's `inferTempoAccount`: the INT project bills INT, any other
+/// issue key bills GEN-DEV.
+pub fn inferred_account(issue_key: &str) -> &'static str {
+    if issue_key.split('-').next() == Some("INT") {
+        "INT"
+    } else {
+        "GEN-DEV"
     }
 }
 

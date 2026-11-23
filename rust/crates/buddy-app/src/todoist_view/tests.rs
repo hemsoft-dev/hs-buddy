@@ -338,3 +338,99 @@ fn returning_to_project_reveals_first_task(cx: &mut gpui_kit::TestAppContext) {
         "Returning to the selected project must reveal its first task"
     );
 }
+
+fn today_view(
+    cx: &mut gpui_kit::TestAppContext,
+) -> (gpui_kit::AnyWindowHandle, Entity<TodoistView>) {
+    use buddy_core::todoist::{AccountCalendar, Profile, parse_projects, parse_tasks};
+    use serde_json::json;
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        // No Runtime: the rendered test must never use the host vault or service.
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = TodoistView::new(window, cx);
+                let rows: Vec<_> = (0..2)
+                    .map(|i| {
+                        json!({
+                            "id": format!("task-{i}"), "content": format!("Synthetic task {i}"),
+                            "description": "", "project_id": "alpha", "priority": 4,
+                            "due": {"date": "2026-11-02", "is_recurring": false},
+                            "labels": [], "checked": false, "child_order": i
+                        })
+                    })
+                    .collect();
+                let tasks = parse_tasks(
+                    &serde_json::to_vec(&json!({"results": rows, "next_cursor": null})).unwrap(),
+                )
+                .unwrap()
+                .items;
+                let projects = parse_projects(
+                    &serde_json::to_vec(&json!({"results": [
+                        {"id": "alpha", "name": "Alpha", "color": "blue", "child_order": 0}
+                    ], "next_cursor": null}))
+                    .unwrap(),
+                )
+                .unwrap()
+                .items;
+                let now = "2026-11-02T12:00:00Z".parse().unwrap();
+                view.data = Some(Arc::new(Dataset {
+                    account: Id::parse("synthetic-account").unwrap(),
+                    calendar: Arc::new(
+                        AccountCalendar::from_profile(&Profile {
+                            id: Id::parse("synthetic-account").unwrap(),
+                            timezone: Some("UTC".into()),
+                        })
+                        .unwrap(),
+                    ),
+                    tasks,
+                    projects,
+                    read_at: now,
+                    coverage: Coverage::All,
+                    fixed_now: Some(now),
+                }));
+                view.connection_form = false;
+                view
+            })
+        })
+        .unwrap()
+    })
+}
+
+#[gpui_kit::test]
+fn a_completing_task_is_hidden_until_its_request_fails_then_returns_with_the_error(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use gpui_kit::test::TestWindowExt as _;
+    let (handle, view) = today_view(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("todoist-complete-task-0").is_some());
+        // Without a Runtime the click starts no request, so nothing is hidden.
+        view.update(cx, |view, cx| {
+            view.complete_task(Id::parse("task-0").unwrap(), cx)
+        });
+        assert!(view.read(cx).completing.is_none());
+        view.update(cx, |view, cx| {
+            // The state complete_task leaves while its request is in flight.
+            view.busy = true;
+            view.completing = Some(Id::parse("task-0").unwrap());
+            view.receive_operation(view.generation, true, None, dropped(), cx);
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("todoist-complete-task-0").is_none());
+        assert!(window.try_find("todoist-complete-task-1").is_some());
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        let state = view.read(cx);
+        assert!(state.completing.is_none() && !state.busy);
+        assert!(state.error.as_ref().unwrap().contains("unconfirmed"));
+        window.render_frame(cx);
+        assert!(window.try_find("todoist-complete-task-0").is_some());
+        assert!(!cx.has_global::<Runtime>());
+    })
+    .unwrap();
+}

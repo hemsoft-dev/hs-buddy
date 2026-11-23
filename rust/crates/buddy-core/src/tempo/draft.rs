@@ -350,6 +350,10 @@ impl Draft {
         Ok(bytes)
     }
 }
+/// Electron's create default for an empty description.
+pub fn create_description(issue_key: &str) -> String {
+    format!("Working on issue {issue_key}")
+}
 fn calendar(date: Date) -> Result<(), Error> {
     (1..=9999)
         .contains(&date.year())

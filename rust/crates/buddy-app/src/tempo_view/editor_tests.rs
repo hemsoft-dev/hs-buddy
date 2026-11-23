@@ -364,3 +364,69 @@ fn the_work_date_must_be_canonical_and_the_start_time_may_be_unpadded(
         .unwrap();
     });
 }
+
+#[gpui_kit::test]
+fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_the_issue_key(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        assert!(!cx.has_global::<Runtime>());
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TempoView::new(window, cx);
+                let author = AccountId::parse("synthetic-user").unwrap();
+                let date = "2026-10-16".parse().unwrap();
+                let body = |editor: &Editor, cx: &Context<TempoView>| -> Value {
+                    serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap())
+                        .unwrap()
+                };
+                for (key, account) in [("INT-4", "INT"), ("SYNTH-19", "GEN-DEV")] {
+                    let mut issue = details();
+                    issue.issue.key = key.into();
+                    let mut editor = Editor::new(None, date, next_start_time(0), window, cx);
+                    editor
+                        .issue
+                        .update(cx, |field, cx| field.set_value("19", window, cx));
+                    editor.accept_lookup("19".into(), issue, cx).unwrap();
+                    editor
+                        .hours
+                        .update(cx, |field, cx| field.set_value("1.5", window, cx));
+                    assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                    let value = body(&editor, cx);
+                    assert_eq!(value["description"], format!("Working on issue {key}"));
+                    assert_eq!(
+                        value["attributes"],
+                        serde_json::json!([{"key": "_Account_", "value": account}])
+                    );
+                    // Typed text and an explicit "No billing account" are kept.
+                    editor
+                        .description
+                        .update(cx, |field, cx| field.set_value("Typed work", window, cx));
+                    editor.billing.as_mut().unwrap().select(None).unwrap();
+                    let value = body(&editor, cx);
+                    assert_eq!(value["description"], "Typed work");
+                    assert_eq!(value["attributes"], serde_json::json!([]));
+                }
+                // An edit never gains either default.
+                let mut original = worklog();
+                original.description = None;
+                original.attributes = Some(Vec::new());
+                let mut editor = Editor::new(Some(original), date, next_start_time(0), window, cx);
+                editor
+                    .issue
+                    .update(cx, |field, cx| field.set_value("19", window, cx));
+                editor.accept_lookup("19".into(), details(), cx).unwrap();
+                editor
+                    .hours
+                    .update(cx, |field, cx| field.set_value("1.5", window, cx));
+                let value = body(&editor, cx);
+                assert!(value.get("description").is_none());
+                assert_eq!(value["attributes"], serde_json::json!([]));
+                view
+            })
+        })
+        .unwrap();
+    });
+}

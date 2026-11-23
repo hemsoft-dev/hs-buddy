@@ -127,3 +127,100 @@ fn a_due_date_is_ten_characters_and_may_be_unpadded(cx: &mut gpui_kit::TestAppCo
         .unwrap();
     });
 }
+
+/// Input events reach their subscribers when the window update that pressed
+/// the key finishes, so each press is its own update.
+fn press(cx: &mut gpui_kit::TestAppContext, handle: gpui_kit::AnyWindowHandle, key: &str) {
+    use gpui_kit::test::TestWindowExt as _;
+    cx.update_window(handle, |_, window, cx| window.press(key, cx))
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn enter_submits_the_task_form_and_escape_cancels_it(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        // No Runtime or planner: nothing here can reach the vault or service.
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = TodoistView::new(window, cx);
+                view.connection_form = false;
+                view
+            })
+        })
+        .unwrap()
+    });
+    // Open a new-task form with a name and due date, focusing one field.
+    let open = |cx: &mut gpui_kit::TestAppContext, name: &str, due: &str, focus: &str| {
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                let editor = Editor::new(None, None, window, cx);
+                editor
+                    .content
+                    .update(cx, |input, cx| input.set_value(name, window, cx));
+                editor
+                    .due
+                    .update(cx, |input, cx| input.set_value(due, window, cx));
+                let focused = match focus {
+                    "content" => editor.content.clone(),
+                    _ => editor.due.clone(),
+                };
+                view.editor = Some(editor);
+                view.error = None;
+                cx.notify();
+                if focus == "description" {
+                    let description = view.editor.as_ref().unwrap().description.clone();
+                    description.update(cx, |input, cx| input.focus(window, cx));
+                } else {
+                    focused.update(cx, |input, cx| input.focus(window, cx));
+                }
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+    };
+    // An invalid date shows that Enter reached the Save task path. No planner
+    // or Runtime exists, so no change can be sent.
+    for focused in ["content", "due"] {
+        open(cx, "Synthetic new task", "2026-02-30", focused);
+        press(cx, handle, "enter");
+        cx.update(|cx| {
+            assert_eq!(
+                view.read(cx).error.as_deref(),
+                Some("Enter a valid due date as YYYY-MM-DD."),
+                "Enter must submit from {focused}"
+            )
+        });
+    }
+    // As in Electron, Enter with a blank name does nothing.
+    open(cx, "   ", "2026-02-30", "content");
+    press(cx, handle, "enter");
+    cx.update(|cx| assert!(view.read(cx).error.is_none() && view.read(cx).editor.is_some()));
+    // The description keeps Enter for line breaks.
+    open(cx, "Synthetic new task", "2026-02-30", "description");
+    press(cx, handle, "enter");
+    cx.update(|cx| {
+        let state = view.read(cx);
+        assert!(state.error.is_none());
+        assert_eq!(
+            state.editor.as_ref().unwrap().description.read(cx).value(),
+            "\n"
+        );
+    });
+    // Busy keeps the form, like the disabled Cancel button.
+    open(cx, "Synthetic new task", "", "content");
+    cx.update(|cx| view.update(cx, |view, _| view.busy = true));
+    cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    press(cx, handle, "escape");
+    cx.update(|cx| assert!(view.read(cx).editor.is_some()));
+    cx.update(|cx| view.update(cx, |view, _| view.busy = false));
+    open(cx, "Synthetic new task", "", "content");
+    press(cx, handle, "escape");
+    cx.update(|cx| {
+        assert!(view.read(cx).editor.is_none());
+        assert!(!cx.has_global::<Runtime>());
+    });
+}

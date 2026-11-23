@@ -362,3 +362,86 @@ fn retained_cancel_binding_rechecks_busy_state_and_cannot_cancel_a_replacement_d
     })
     .unwrap();
 }
+
+/// Press a key in one window update; input events reach their subscribers when
+/// that update finishes, so assertions belong in a later update.
+fn press(cx: &mut TestAppContext, handle: AnyWindowHandle, key: &str) {
+    cx.update_window(handle, |_, window, cx| window.press(key, cx))
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn enter_in_a_worklog_field_submits_while_shift_enter_and_the_billing_filter_do_not(
+    cx: &mut TestAppContext,
+) {
+    let (handle, view) = setup(cx);
+    // Open a create draft whose issue no longer matches its lookup.
+    let open_unlooked = |cx: &mut TestAppContext, field: usize| {
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| open_editor(view, false, window, cx));
+            let issue = view.read(cx).editor.as_ref().unwrap().issue.clone();
+            issue.update(cx, |input, cx| input.set_value("20", window, cx));
+            view.update(cx, |view, _| view.error = None);
+            focus_editor(&view, field, window, cx);
+        })
+        .unwrap();
+    };
+    // Without a current lookup, Enter reaches the submit path and says why it
+    // cannot save. No connection or Runtime exists, so nothing is sent.
+    for field in [0, 1, 2, 3, 4] {
+        open_unlooked(cx, field);
+        press(cx, handle, "enter");
+        cx.update(|cx| {
+            let state = view.read(cx);
+            assert_eq!(
+                state.error.as_deref(),
+                Some(LOOKUP_BEFORE_SAVING),
+                "Enter must submit from field {field}"
+            );
+            assert_eq!(
+                state.editor.as_ref().unwrap().description.read(cx).value(),
+                "Unsaved draft 界",
+                "Enter must not add a line break: field {field}"
+            );
+        });
+    }
+    open_unlooked(cx, 4);
+    press(cx, handle, "shift-enter");
+    cx.update(|cx| {
+        let state = view.read(cx);
+        assert!(state.error.is_none());
+        assert_eq!(
+            state.editor.as_ref().unwrap().description.read(cx).value(),
+            "\nUnsaved draft 界",
+            "Shift+Enter inserts a line break at the cursor"
+        );
+    });
+    open_unlooked(cx, 5);
+    press(cx, handle, "enter");
+    cx.update(|cx| {
+        assert!(
+            view.read(cx).error.is_none(),
+            "The billing filter only filters"
+        )
+    });
+    open_unlooked(cx, 1);
+    cx.update(|cx| view.update(cx, |view, _| view.busy = true));
+    press(cx, handle, "enter");
+    cx.update(|cx| assert!(view.read(cx).error.is_none(), "A busy view ignores Enter"));
+    // A looked-up draft goes to the save path, which needs a connection.
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.busy = false;
+            open_editor(view, false, window, cx);
+            view.error = None;
+        });
+        focus_editor(&view, 1, window, cx);
+    })
+    .unwrap();
+    press(cx, handle, "enter");
+    cx.update(|cx| {
+        let state = view.read(cx);
+        assert!(state.error.is_none() && state.editor.is_some() && !state.busy);
+        assert!(!cx.has_global::<Runtime>());
+    });
+}

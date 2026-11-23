@@ -1,6 +1,7 @@
 use super::*;
 use buddy_core::tempo::{
     AccountId, BillingSelection, Draft, EditorIssue, JiraError, JiraIssue, Worklog,
+    create_description, inferred_account,
 };
 use jiff::civil::{Date, Time};
 #[cfg(test)]
@@ -38,8 +39,13 @@ impl Editor {
         let hours = cx.new(|cx| InputState::new(window, cx).placeholder("1.5 or 1:30"));
         let day = cx.new(|cx| InputState::new(window, cx).placeholder("YYYY-MM-DD"));
         let time = cx.new(|cx| InputState::new(window, cx).placeholder("HH:MM:SS"));
-        let description =
-            cx.new(|cx| TextareaState::new(window, cx).placeholder("Work description"));
+        // Enter submits like the Electron single-line field; Shift+Enter
+        // still adds a line break to this multi-line description.
+        let description = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder("Work description")
+                .submit_on_enter(true)
+        });
         let billing_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter billing accounts"));
         let date = original.as_ref().map(|row| row.date).unwrap_or(date);
@@ -91,12 +97,26 @@ impl Editor {
                 cx,
             )
         });
-        for input in [&issue, &hours, &day, &time, &billing_filter] {
-            cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())
-                .detach();
-        }
-        cx.subscribe(&description, |_, _, _: &InputEvent, cx| cx.notify())
+        // Enter in a worklog field submits the form, as in Electron. The
+        // billing filter only narrows the list, like Electron's select.
+        for input in [&issue, &hours, &day, &time] {
+            cx.subscribe(input, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.submit_editor_on_enter(input.entity_id(), cx);
+                }
+                cx.notify()
+            })
             .detach();
+        }
+        cx.subscribe(&billing_filter, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
+        cx.subscribe(&description, |this, input, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
+                this.submit_editor_on_enter(input.entity_id(), cx);
+            }
+            cx.notify()
+        })
+        .detach();
         Self {
             id: uuid::Uuid::new_v4(),
             original,
@@ -196,6 +216,13 @@ impl Editor {
         self.resolved_query = Some(query);
         Ok(())
     }
+    /// Whether a field that submits on Enter belongs to this draft.
+    fn submits_from(&self, input: gpui_kit::EntityId) -> bool {
+        [&self.issue, &self.hours, &self.date, &self.start]
+            .into_iter()
+            .any(|field| field.entity_id() == input)
+            || self.description.entity_id() == input
+    }
     pub fn has_current_issue(&self, cx: &Context<TempoView>) -> bool {
         self.resolved.is_some()
             && self.billing.is_some()
@@ -203,7 +230,7 @@ impl Editor {
     }
     pub fn draft(&self, account: &AccountId, cx: &Context<TempoView>) -> Result<Draft, String> {
         if !self.has_current_issue(cx) {
-            return Err("Look up the current issue and billing accounts before saving.".into());
+            return Err(LOOKUP_BEFORE_SAVING.into());
         }
         let issue = self
             .resolved
@@ -240,15 +267,24 @@ impl Editor {
         }
         draft.set_start_time(start).map_err(|e| e.to_string())?;
         let description = self.description.read(cx).value().to_string();
+        let creating = self.original.is_none();
+        // Electron's create defaults: an empty description names the issue,
+        // and an unchosen account is inferred from the issue key.
+        let description = if description.is_empty() {
+            creating.then(|| create_description(&issue.key))
+        } else {
+            Some(description)
+        };
         draft
-            .set_description((!description.is_empty()).then_some(description))
+            .set_description(description)
             .map_err(|e| e.to_string())?;
+        let billing = self.billing.as_ref();
         draft
-            .set_billing_account(
-                self.billing
-                    .as_ref()
-                    .and_then(BillingSelection::selected_key),
-            )
+            .set_billing_account(if creating {
+                billing.and_then(|billing| billing.create_account(&issue.key))
+            } else {
+                billing.and_then(BillingSelection::selected_key)
+            })
             .map_err(|e| e.to_string())?;
         Ok(draft)
     }
@@ -311,12 +347,31 @@ pub(super) fn parse_duration(value: &str) -> Result<u64, String> {
     }
 }
 
+const LOOKUP_BEFORE_SAVING: &str = "Look up the current issue and billing accounts before saving.";
+
 pub(super) fn next_start_time(seconds: u64) -> Time {
     let seconds = (seconds % 86400 + 8 * 3600) % 86400;
     Time::MIN + jiff::SignedDuration::from_secs(seconds as i64)
 }
 
 impl TempoView {
+    /// Enter in a draft field submits it as the save button would. Before the
+    /// issue lookup, native has no billing choices, so Enter explains why.
+    fn submit_editor_on_enter(&mut self, input: gpui_kit::EntityId, cx: &mut Context<Self>) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        if self.busy || !editor.submits_from(input) {
+            return;
+        }
+        if !editor.has_current_issue(cx) {
+            self.error = Some(LOOKUP_BEFORE_SAVING.into());
+            cx.notify();
+            return;
+        }
+        self.submit_editor(cx);
+    }
+
     fn cancel_editor(&mut self, editor_id: uuid::Uuid, cx: &mut Context<Self>) -> bool {
         let phase = self
             .connection
@@ -465,7 +520,7 @@ impl Editor {
                 h_flex().child(
                     Button::new("tempo-editor-no-billing")
                         .label("No billing account")
-                        .selected(billing.selected_key().is_none())
+                        .selected(billing.selected_key().is_none() && !billing.is_unchosen())
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(editor) = &mut this.editor
@@ -479,6 +534,15 @@ impl Editor {
                         })),
                 ),
             );
+            if self.original.is_none()
+                && billing.is_unchosen()
+                && let Some(issue) = &self.resolved
+            {
+                body = body.child(div().whitespace_normal().child(format!(
+                    "No account chosen. Creating bills {}, inferred from the issue key.",
+                    inferred_account(&issue.key)
+                )));
+            }
             let filter = self.billing_filter.read(cx).value().to_lowercase();
             let choices: Vec<_> = billing
                 .choices()

@@ -435,3 +435,8 @@ fn a_recovered_body_must_spell_its_date_and_start_time_canonically() {
         assert!(!recovers("2026-11-01", date), "{date:?}");
     }
 }
+
+#[test]
+fn empty_create_description_defaults_to_the_issue_key() {
+    assert_eq!(create_description("FIX-17"), "Working on issue FIX-17");
+}

@@ -222,3 +222,37 @@ fn invalid_manual_selection_preserves_the_existing_choice() {
         assert_eq!(state.selected_key(), Some("RETAINED"));
     }
 }
+
+#[test]
+fn an_unchosen_create_account_is_inferred_from_the_issue_key_prefix() {
+    assert_eq!(inferred_account("INT-12"), "INT");
+    assert_eq!(inferred_account("INT"), "INT");
+    for key in ["FIX-17", "INTX-1", "PE-992", "int-12", ""] {
+        assert_eq!(inferred_account(key), "GEN-DEV", "{key:?}");
+    }
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    let lookup = state.begin(project(7));
+    let mut empty = result(connection, 7, "UNUSED", "OPEN");
+    empty.choices.clear();
+    assert!(state.loaded(lookup, empty).unwrap());
+    assert!(state.is_unchosen());
+    assert_eq!(state.selected_key(), None);
+    assert_eq!(state.create_account("INT-4"), Some("INT"));
+    assert_eq!(state.create_account("FIX-17"), Some("GEN-DEV"));
+
+    let mut defaulted = BillingSelection::new(connection, None).unwrap();
+    let lookup = defaulted.begin(project(7));
+    defaulted
+        .loaded(lookup, result(connection, 7, "DEFAULT", "OPEN"))
+        .unwrap();
+    assert!(!defaulted.is_unchosen());
+    assert_eq!(defaulted.create_account("INT-4"), Some("DEFAULT"));
+
+    // An explicit "No billing account" choice is kept, never inferred.
+    state.select(None).unwrap();
+    assert!(!state.is_unchosen());
+    assert_eq!(state.create_account("INT-4"), None);
+    state.select(Some("CHOSEN")).unwrap();
+    assert_eq!(state.create_account("INT-4"), Some("CHOSEN"));
+}
