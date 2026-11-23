@@ -157,8 +157,11 @@ impl Editor {
     }
     /// Drop client-bound lookup state without changing any entered values.
     pub fn invalidate_connection(&mut self) {
+        // An unchosen account stays unchosen, so a create keeps inferring it
+        // from the issue key after the next lookup.
         if let Some(billing) = &self.billing {
-            self.retained_billing = Some(billing.selected_key().map(str::to_owned));
+            self.retained_billing =
+                (!billing.is_unchosen()).then(|| billing.selected_key().map(str::to_owned));
         }
         self.id = uuid::Uuid::new_v4();
         self.resolved = None;

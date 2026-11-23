@@ -383,16 +383,23 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
                         .unwrap()
                 };
                 for (key, account) in [("INT-4", "INT"), ("SYNTH-19", "GEN-DEV")] {
-                    let mut issue = details();
-                    issue.issue.key = key.into();
+                    let issue = || {
+                        let mut issue = details();
+                        issue.issue.key = key.into();
+                        issue
+                    };
                     let mut editor = Editor::new(None, date, next_start_time(0), window, cx);
                     editor
                         .issue
                         .update(cx, |field, cx| field.set_value("19", window, cx));
-                    editor.accept_lookup("19".into(), issue, cx).unwrap();
+                    editor.accept_lookup("19".into(), issue(), cx).unwrap();
                     editor
                         .hours
                         .update(cx, |field, cx| field.set_value("1.5", window, cx));
+                    assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                    // A connection re-check and a new lookup keep it unchosen.
+                    editor.invalidate_connection();
+                    editor.accept_lookup("19".into(), issue(), cx).unwrap();
                     assert!(editor.billing.as_ref().unwrap().is_unchosen());
                     let value = body(&editor, cx);
                     assert_eq!(value["description"], format!("Working on issue {key}"));
