@@ -96,6 +96,20 @@ describe('native run cleanup bounds', () => {
     expect(kept.map(receipt => receipt.requestId)).toEqual(['5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f'])
   })
 
+  test('counts the read budget in UTF-8 bytes', async () => {
+    const t = backend()
+    const jobId = await t.mutation(api.jobs.create, definition)
+    // 300 Ki three-byte characters: 900 KiB stored, 300 Ki UTF-16 units.
+    const output = '界'.repeat(300 * 1024)
+    for (let index = 0; index < 12; index++) {
+      const id = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+      await t.mutation(api.runs.complete, { id, output })
+    }
+    const first = await t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: -1 })
+    expect(first.more).toBe(true)
+    expect(first.deleted).toBeLessThan(12)
+  }, 60_000)
+
   test('stops at the read budget when runs carry large output', async () => {
     const t = backend()
     const jobId = await t.mutation(api.jobs.create, definition)

@@ -329,13 +329,22 @@ const FINISHED_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const
 const CLEANUP_RECEIPT_RETENTION_MS = MS_PER_DAY
 const CLEANUP_RECEIPT_PRUNE = 50
 
+// UTF-8 bytes of the document's JSON, plus its binary values and int64s,
+// which JSON cannot carry. Convex counts stored bytes, not UTF-16 units.
 function approximateBytes(run: Doc<'runs'>) {
-  try {
-    return JSON.stringify(run).length
-  } catch (_: unknown) {
-    // An int64 field cannot be serialized here; count the document's maximum.
-    return 1024 * 1024
-  }
+  let binary = 0
+  const text = JSON.stringify(run, (_key: string, value: unknown) => {
+    if (value instanceof ArrayBuffer) {
+      binary += value.byteLength
+      return null
+    }
+    if (typeof value === 'bigint') {
+      binary += 8
+      return null
+    }
+    return value
+  })
+  return new TextEncoder().encode(text).byteLength + binary
 }
 
 // Native cleanup: the same deletion as `cleanup`, once per request identity.
