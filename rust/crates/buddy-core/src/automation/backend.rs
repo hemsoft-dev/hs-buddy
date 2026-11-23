@@ -66,11 +66,25 @@ impl ChangeKind {
     }
 }
 
-/// `{ deleted }` from `runs:cleanup`, a whole, nonnegative count.
-pub(crate) fn cleanup_count(value: &Value) -> Option<u64> {
-    let deleted = value.as_object()?.get("deleted")?.as_f64()?;
-    (deleted.is_finite() && deleted >= 0.0 && deleted.fract() == 0.0 && deleted <= 1e15)
-        .then_some(deleted as u64)
+/// What one `runs:cleanupNative` request deleted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cleanup {
+    pub deleted: u64,
+    /// Older runs remain beyond this request's batch.
+    pub more: bool,
+}
+
+/// `{ deleted, more }`: a whole, nonnegative count and a flag.
+pub(crate) fn cleanup_result(value: &Value) -> Option<Cleanup> {
+    let object = value.as_object()?;
+    let deleted = object.get("deleted")?.as_f64()?;
+    let more = object.get("more")?.as_bool()?;
+    (deleted.is_finite() && deleted >= 0.0 && deleted.fract() == 0.0 && deleted <= 1e15).then_some(
+        Cleanup {
+            deleted: deleted as u64,
+            more,
+        },
+    )
 }
 
 fn parse<T: DeserializeOwned>(value: Value) -> Result<T, Error> {
@@ -117,19 +131,26 @@ impl AutomationBackend {
         )
     }
 
-    /// `runs:cleanup`: deletes finished runs started more than `older_than_days`
-    /// ago and returns how many. Sent once; a lost or unreadable reply is an
-    /// unknown outcome, never a reason to send it again.
-    pub async fn cleanup_runs(&self, older_than_days: u32) -> Result<u64, Error> {
+    /// `runs:cleanupNative`: deletes up to one batch of finished runs started
+    /// more than `older_than_days` ago. Sent once; a lost or unreadable reply is
+    /// an unknown outcome, never a reason to send it again. The Convex client
+    /// resends an unacknowledged mutation under a new session after a
+    /// reconnect, so `request` makes that resend return the first result
+    /// instead of deleting another batch.
+    pub async fn cleanup_runs(
+        &self,
+        request: uuid::Uuid,
+        older_than_days: u32,
+    ) -> Result<Cleanup, Error> {
         let value = self
             .client
             .call(
-                "runs:cleanup",
-                json!({"olderThanDays":older_than_days}),
+                "runs:cleanupNative",
+                json!({"requestId":request.to_string(),"olderThanDays":older_than_days}),
                 true,
             )
             .await?;
-        cleanup_count(&value).ok_or(Error::UnknownWrite)
+        cleanup_result(&value).ok_or(Error::UnknownWrite)
     }
 
     pub async fn pending(&self) -> Result<Vec<Run>, Error> {
@@ -283,18 +304,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_cleanup_reply_must_be_a_whole_deleted_count() {
-        assert_eq!(cleanup_count(&json!({"deleted": 12})), Some(12));
-        assert_eq!(cleanup_count(&json!({"deleted": 0.0})), Some(0));
+    fn a_cleanup_reply_must_be_a_whole_deleted_count_and_a_flag() {
+        let read = |deleted, more| Some(Cleanup { deleted, more });
+        assert_eq!(
+            cleanup_result(&json!({"deleted": 12, "more": false})),
+            read(12, false)
+        );
+        assert_eq!(
+            cleanup_result(&json!({"deleted": 0.0, "more": true})),
+            read(0, true)
+        );
         for unreadable in [
             json!(null),
             json!(12),
             json!({}),
-            json!({"deleted": "12"}),
-            json!({"deleted": -1}),
-            json!({"deleted": 1.5}),
+            json!({"deleted": 12}),
+            json!({"deleted": "12", "more": false}),
+            json!({"deleted": -1, "more": false}),
+            json!({"deleted": 1.5, "more": false}),
+            json!({"deleted": 1, "more": "no"}),
         ] {
-            assert_eq!(cleanup_count(&unreadable), None, "{unreadable}");
+            assert_eq!(cleanup_result(&unreadable), None, "{unreadable}");
         }
     }
 }

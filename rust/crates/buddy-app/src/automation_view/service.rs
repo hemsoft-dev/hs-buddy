@@ -1,7 +1,7 @@
 //! Serialized background I/O and execution; GPUI only reads bounded snapshots.
 use crate::runtime::Runtime;
 use buddy_core::automation::{
-    backend::{AutomationBackend, ChangeKind, Error as BackendError},
+    backend::{AutomationBackend, ChangeKind, Cleanup, Error as BackendError},
     edit::{Edit, Error as EditError},
     engine::{Engine, Phase},
     journal::Context,
@@ -58,11 +58,16 @@ pub(super) struct ScheduleRuns {
 
 /// What a sent cleanup says. It is sent once: an unknown outcome is reported,
 /// never retried, and History's next refresh shows the runs that remain.
-pub(super) fn cleanup_outcome(result: Result<u64, BackendError>) -> Result<String, String> {
+pub(super) fn cleanup_outcome(result: Result<Cleanup, BackendError>) -> Result<String, String> {
     match result {
-        Ok(deleted) => Ok(format!(
-            "Cleaned up {deleted} old run{}.",
-            if deleted == 1 { "" } else { "s" }
+        Ok(Cleanup { deleted, more }) => Ok(format!(
+            "Cleaned up {deleted} old run{}.{}",
+            if deleted == 1 { "" } else { "s" },
+            if more {
+                " Older runs remain; clean up again to continue."
+            } else {
+                ""
+            }
         )),
         Err(BackendError::Unavailable) => {
             Err("Automation is offline. No runs were deleted.".into())
@@ -115,7 +120,7 @@ pub(super) enum Command {
     Cancel(String),
     /// Follow this schedule's recent runs, or none.
     ScheduleRuns(Option<String>),
-    /// `runs:cleanup` for runs older than [`CLEANUP_DAYS`], after confirmation.
+    /// `runs:cleanupNative` for runs older than [`CLEANUP_DAYS`], after confirmation.
     Cleanup,
     Stop,
 }
@@ -375,7 +380,10 @@ impl Coordinator {
                 return Ok(());
             }
             Command::Cleanup => {
-                let notice = cleanup_outcome(self.backend.cleanup_runs(CLEANUP_DAYS).await)?;
+                // One identity per confirmed cleanup; it is never sent again.
+                let request = uuid::Uuid::new_v4();
+                let notice =
+                    cleanup_outcome(self.backend.cleanup_runs(request, CLEANUP_DAYS).await)?;
                 self.snapshot.notice = Some(notice);
             }
             Command::Save(kind, arguments) => {

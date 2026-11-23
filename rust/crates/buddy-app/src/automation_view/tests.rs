@@ -908,10 +908,16 @@ fn control_a_per_view_quit_hook_is_gone_with_its_view(cx: &mut gpui_kit::TestApp
 #[test]
 fn a_cleanup_reports_its_count_or_why_nothing_is_known_and_is_never_resent() {
     use super::service::cleanup_outcome;
-    use buddy_core::automation::backend::Error;
-    assert_eq!(cleanup_outcome(Ok(0)).unwrap(), "Cleaned up 0 old runs.");
-    assert_eq!(cleanup_outcome(Ok(1)).unwrap(), "Cleaned up 1 old run.");
-    assert_eq!(cleanup_outcome(Ok(12)).unwrap(), "Cleaned up 12 old runs.");
+    use buddy_core::automation::backend::{Cleanup, Error};
+    let done = |deleted, more| cleanup_outcome(Ok(Cleanup { deleted, more })).unwrap();
+    assert_eq!(done(0, false), "Cleaned up 0 old runs.");
+    assert_eq!(done(1, false), "Cleaned up 1 old run.");
+    assert_eq!(done(12, false), "Cleaned up 12 old runs.");
+    // One request deletes at most a batch and says when older runs remain.
+    assert_eq!(
+        done(500, true),
+        "Cleaned up 500 old runs. Older runs remain; clean up again to continue."
+    );
     for error in [Error::Unavailable, Error::Rejected] {
         assert!(
             cleanup_outcome(Err(error))

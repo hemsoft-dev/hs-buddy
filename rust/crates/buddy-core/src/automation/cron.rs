@@ -170,6 +170,28 @@ fn replace_names(value: &str) -> Result<String, InvalidCron> {
 }
 
 fn parse_field(raw: &str, field: Field) -> Result<u64, InvalidCron> {
+    stored_bits(field_values(raw, field)?, field)
+}
+
+/// cron-parser checks for a repeated value only after it has parsed every
+/// atom, and `CronDayOfMonth.fromMonth` first drops days a single month can't
+/// have (unless none would remain), so `1,31,31` in February keeps only 1.
+fn stored_bits(values: Vec<i64>, field: Field) -> Result<u64, InvalidCron> {
+    let mut stored = 0u64;
+    for number in values {
+        if stored & (1 << number) != 0 {
+            return Err(InvalidCron);
+        }
+        stored |= 1 << number;
+    }
+    let mut bits = stored;
+    if field.weekday && bits & (1 << 7) != 0 {
+        bits = (bits & !(1 << 7)) | 1;
+    }
+    Ok(bits)
+}
+
+fn field_values(raw: &str, field: Field) -> Result<Vec<i64>, InvalidCron> {
     let value = if field.names {
         replace_names(raw)?
     } else {
@@ -186,12 +208,9 @@ fn parse_field(raw: &str, field: Field) -> Result<u64, InvalidCron> {
     // cron-parser keeps the values it parsed, and a repeated one is invalid:
     // a single weekday is stored modulo 7 and a weekday range keeps its 7
     // (adding 0 when the range reaches 7), so `0,7` repeats but `0-7` does not.
-    let mut stored = 0u64;
+    let mut values = Vec::new();
     let mut store = |number: i64| -> Result<(), InvalidCron> {
-        if stored & (1 << number) != 0 {
-            return Err(InvalidCron);
-        }
-        stored |= 1 << number;
+        values.push(number);
         Ok(())
     };
     let in_range = |number: i64| number >= i64::from(field.min) && number <= i64::from(field.max);
@@ -243,11 +262,26 @@ fn parse_field(raw: &str, field: Field) -> Result<u64, InvalidCron> {
             }
         }
     }
-    let mut bits = stored;
-    if field.weekday && bits & (1 << 7) != 0 {
-        bits = (bits & !(1 << 7)) | 1;
+    Ok(values)
+}
+
+/// `DAYS_IN_MONTH` in cron-parser: February counts 29 days.
+const DAYS_IN_MONTH: [i64; 12] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+fn parse_days(raw: &str, months: u16) -> Result<u64, InvalidCron> {
+    let mut values = field_values(raw, DAY)?;
+    if months.count_ones() == 1 {
+        let length = DAYS_IN_MONTH[months.trailing_zeros() as usize - 1];
+        let possible: Vec<i64> = values
+            .iter()
+            .copied()
+            .filter(|day| *day <= length)
+            .collect();
+        if !possible.is_empty() {
+            values = possible;
+        }
     }
-    Ok(bits)
+    stored_bits(values, DAY)
 }
 
 impl Cron {
@@ -282,11 +316,12 @@ impl Cron {
         if doubled || hashed || normalized.contains('#') || day.contains('L') {
             return Err(InvalidCron);
         }
+        let months = parse_field(month, MONTH)? as u16;
         Ok(Self {
             minutes: parse_field(minute, MINUTE)?,
             hours: parse_field(hour, HOUR)? as u32,
-            days: parse_field(day, DAY)? as u32,
-            months: parse_field(month, MONTH)? as u16,
+            days: parse_days(day, months)? as u32,
+            months,
             weekdays: parse_field(weekday, WEEKDAY)? as u8,
             any_day: matches!(*day, "*" | "?"),
             any_weekday: matches!(*weekday, "*" | "?"),

@@ -405,3 +405,27 @@ fn a_span_from_summer_keeps_the_next_springs_moved_time() {
     assert!(runs.iter().any(|run| run == "2027-03-14T07:30:00Z"));
     assert!(runs.iter().any(|run| run == "2027-03-15T06:30:00Z"));
 }
+
+#[test]
+fn a_single_month_drops_days_it_cannot_have_before_checking_repeats() {
+    // cron-parser 5.10.2: `CronDayOfMonth.fromMonth` filters, then validates.
+    let january_15 = 1_768_435_200_000;
+    let later = january_15 + 120 * 86_400_000;
+    assert_eq!(
+        times("0 9 1,31,31 2 *", "UTC", january_15, later, 1).unwrap(),
+        ["2026-02-01T09:00:00Z"]
+    );
+    assert_eq!(
+        times("0 9 1,30,30 2 *", "UTC", january_15, later, 1).unwrap(),
+        ["2026-02-01T09:00:00Z"]
+    );
+    // Nothing would remain, or more than one month: the repeat is invalid.
+    for expression in [
+        "0 9 31,31 2 *",
+        "0 9 29,29 2 *",
+        "0 9 1,31,31 1,2 *",
+        "0 9 1,30,30 2,3 *",
+    ] {
+        assert!(Cron::parse(expression).is_err(), "{expression}");
+    }
+}

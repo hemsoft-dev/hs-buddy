@@ -8,6 +8,7 @@ import {
   createRun,
   getNativeTrigger as lookupNativeTrigger,
   triggerNativeRun,
+  validateRequestId,
 } from './lib/runCreate'
 import {
   claimNativeRun,
@@ -315,6 +316,54 @@ export const cleanup = mutation({
     }
 
     return { deleted }
+  },
+})
+
+const NATIVE_CLEANUP_BATCH = 500
+
+// Native cleanup: the same deletion as `cleanup`, once per request identity.
+// It reads only runs older than the cutoff, so recent runs don't use up the
+// batch, and it reports whether older runs remain for another cleanup.
+export const cleanupNative = mutation({
+  args: {
+    requestId: v.string(),
+    olderThanDays: v.number(),
+  },
+  handler: async (ctx, args) => {
+    validateRequestId(args.requestId)
+    const previous = await ctx.db
+      .query('automationCleanupReceipts')
+      .withIndex('by_request', q => q.eq('requestId', args.requestId))
+      .unique()
+    if (previous) {
+      if (previous.olderThanDays !== args.olderThanDays)
+        throw new Error('Cleanup request identity cannot be reused with a different age.')
+      return { deleted: previous.deleted, more: previous.more }
+    }
+    const cutoff = Date.now() - args.olderThanDays * MS_PER_DAY
+    const oldRuns = await ctx.db
+      .query('runs')
+      .withIndex('by_started', q => q.lt('startedAt', cutoff))
+      .order('asc')
+      .take(NATIVE_CLEANUP_BATCH + 1)
+    const more = oldRuns.length > NATIVE_CLEANUP_BATCH
+    let deleted = 0
+    for (const run of oldRuns.slice(0, NATIVE_CLEANUP_BATCH)) {
+      if (isPendingOrRunning(run.status)) continue
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Retire captured job data in the same transaction as its run history.
+      await retireClaimPayload(ctx, run)
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Deletes stay in index order within one bounded batch.
+      await deleteRun(ctx, run)
+      deleted++
+    }
+    await ctx.db.insert('automationCleanupReceipts', {
+      requestId: args.requestId,
+      olderThanDays: args.olderThanDays,
+      deleted,
+      more,
+      createdAt: Date.now(),
+    })
+    return { deleted, more }
   },
 })
 

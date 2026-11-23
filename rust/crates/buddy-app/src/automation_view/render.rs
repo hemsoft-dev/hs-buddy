@@ -768,7 +768,7 @@ impl AutomationView {
                     .border_color(cx.theme().danger)
                     .debug_selector(|| "automation-cleanup-confirmation".into())
                     .child(div().whitespace_normal().child(
-                        "Delete all completed, failed and cancelled runs older than 7 days?",
+                        "Delete completed, failed and cancelled runs older than 7 days? Up to 500 are deleted at a time.",
                     ))
                     .child(
                         h_flex()
@@ -1151,7 +1151,9 @@ impl AutomationView {
             .cloned()
             .collect();
         let page = page_bounds(schedules.len(), self.page);
-        let mut list = v_flex().gap_3().child(self.render_forecast(cx));
+        // Electron shows the forecast on its own page. Here it follows the
+        // schedule list, so a filtered schedule's controls stay in view.
+        let mut list = v_flex().gap_3();
         if schedules.is_empty() {
             list = list.child(div().whitespace_normal().child(
                 if self.snapshot.schedules.is_empty() {
@@ -1166,6 +1168,7 @@ impl AutomationView {
             list = list.child(row);
         }
         list.children(self.pager("automation-schedules", schedules.len(), page, cx))
+            .child(self.render_forecast(cx))
             .into_any_element()
     }
 

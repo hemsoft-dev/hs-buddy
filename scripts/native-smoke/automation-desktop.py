@@ -242,8 +242,8 @@ def qualify_editing(driver, backend, config, echo, long):
         ("content", "Schedule"), ("sleep", 1), ("input", "Name", "Native weekdays"),
         ("content", "Run the latest missed"), ("capture", "schedule-editor-light"), ("content", "Save"), ("sleep", 3),
         ("content", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
-        # The forecast above pushes the schedule row's buttons below a
-        # 1044x788 Windows window, so scroll to each before clicking it.
+        # Scroll to each schedule button before clicking it, in case the
+        # 1044x788 Windows window leaves it below the fold.
         ("wait_scroll_text", "Pause"), ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
         ("wait_scroll_text", "Details"), ("content", "Details"), ("sleep", 2), ("capture", "schedule-detail-light"),
         ("content", "History"), ("sleep", 1), ("content", "Cleanup old runs"), ("capture", "cleanup-confirm-light"),
@@ -260,7 +260,8 @@ def qualify_editing(driver, backend, config, echo, long):
         "No scheduled runs in the next 7 days.", "All schedules are currently paused.")
     github.check(restarted / "schedule-detail-light.png", "All schedules", "Native weekdays", "Recent Runs",
         "No runs yet for this schedule.")
-    github.check(restarted / "cleanup-confirm-light.png", "Delete all completed, failed and cancelled runs older than 7 days?",
+    github.check(restarted / "cleanup-confirm-light.png", "Delete completed, failed and cancelled runs older than 7 days?",
+        "Up to 500 are deleted at a time.",
         "Delete", "Cancel")
     # Both runs are minutes old, so the confirmed cleanup deletes none of them.
     # History keeps the Jobs filter ("Native created"), so the runs are proven
