@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import socket
 import threading
+import time
 import urllib.parse
 import uuid
 from loopback_http import LoopbackHTTPServer
@@ -97,6 +98,10 @@ class Fixture:
         self.unavailable = False
         self.disconnect = False
         self.drop_next_ack = False
+        # Seconds the next completion reply waits, so a capture can show the
+        # task while its request is still in flight; then when it was sent.
+        self.hold_next_close = 0
+        self.held_close_replied_at = None
         self.commands = {}
         self.sync_states = {}
         self.created = 0
@@ -291,6 +296,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _handle(self, write):
         self.connection.settimeout(3)
         fixture = self.server.fixture
+        hold = 0
         try:
             audit_path = urllib.parse.urlsplit(self.path).path
         except ValueError:
@@ -371,6 +377,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         commands = json.loads(form['commands'][0])
                         fixture.requests.append(dict(method='POST', path=url.path, commands=copy.deepcopy(commands)))
                         reply = fixture._sync(commands)
+                        if fixture.hold_next_close and any(
+                                isinstance(command, dict) and command.get('type') == 'item_close' for command in commands):
+                            hold, fixture.hold_next_close = fixture.hold_next_close, 0
                         if fixture.drop_next_ack:
                             fixture.drop_next_ack = False
                             self.close_connection = True
@@ -379,6 +388,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 else:
                     fixture.requests.append(dict(method='GET', path=url.path, query=copy.deepcopy(query)))
                     reply = fixture._get(route, query)
+            if hold:
+                # Outside the lock: reads keep working while this reply waits.
+                time.sleep(hold)
+                with fixture.lock:
+                    fixture.held_close_replied_at = time.time()
             self._respond(200, reply)
         except (ValueError, KeyError, TypeError, StopIteration, OverflowError):
             self._respond(400, dict(error='Unsupported synthetic request'))

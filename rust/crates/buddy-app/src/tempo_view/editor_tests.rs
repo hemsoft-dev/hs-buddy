@@ -415,6 +415,10 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
                     let value = body(&editor, cx);
                     assert_eq!(value["description"], "Typed work");
                     assert_eq!(value["attributes"], serde_json::json!([]));
+                    // Looking the same project up again keeps that choice.
+                    editor.accept_lookup("19".into(), issue(), cx).unwrap();
+                    assert!(!editor.billing.as_ref().unwrap().is_unchosen());
+                    assert_eq!(body(&editor, cx)["attributes"], serde_json::json!([]));
                 }
                 // An edit never gains either default.
                 let mut original = worklog();

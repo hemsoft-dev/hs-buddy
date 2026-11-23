@@ -192,6 +192,16 @@ impl Editor {
             .transpose()
             .map_err(|e| e.to_string())?
             .flatten();
+        // Looking the same project up again keeps a choice someone made,
+        // including "No billing account"; only an unchosen account is
+        // inferred again.
+        if self.retained_billing.is_none()
+            && let Some(previous) = &self.billing
+            && !previous.is_unchosen()
+            && previous.project() == Some(info.billing.project)
+        {
+            self.retained_billing = Some(previous.selected_key().map(str::to_owned));
+        }
         let mut billing = if self.original.is_some() {
             BillingSelection::for_edit(info.billing.connection, initial)
         } else {
@@ -541,10 +551,17 @@ impl Editor {
                 && billing.is_unchosen()
                 && let Some(issue) = &self.resolved
             {
-                body = body.child(div().whitespace_normal().child(format!(
-                    "No account chosen. Creating bills {}, inferred from the issue key.",
-                    inferred_account(&issue.key)
-                )));
+                body = body.child(div().whitespace_normal().child(
+                    match billing.inferred_create_account(&issue.key) {
+                        Some(account) => format!(
+                            "No account chosen. Creating bills {account}, inferred from the issue key."
+                        ),
+                        None => format!(
+                            "No account chosen. The inferred account {} is not open, so creating sends no billing account.",
+                            inferred_account(&issue.key)
+                        ),
+                    },
+                ));
             }
             let filter = self.billing_filter.read(cx).value().to_lowercase();
             let choices: Vec<_> = billing

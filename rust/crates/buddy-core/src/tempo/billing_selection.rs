@@ -58,10 +58,25 @@ impl BillingSelection {
     /// no chosen account takes the account inferred from its issue key.
     pub fn create_account<'a>(&'a self, issue_key: &str) -> Option<&'a str> {
         if self.is_unchosen() {
-            Some(inferred_account(issue_key))
+            self.inferred_create_account(issue_key)
         } else {
             self.selected_key()
         }
+    }
+    /// The inferred account, unless the project lists it as closed or
+    /// archived: nobody may choose such an account, so inference doesn't
+    /// either, and the create then sends no account.
+    pub fn inferred_create_account(&self, issue_key: &str) -> Option<&'static str> {
+        let inferred = inferred_account(issue_key);
+        let unavailable = self.choices.iter().any(|choice| {
+            choice.account.key() == inferred
+                && choice.account.status() != BillingAccountStatus::Open
+        });
+        (!unavailable).then_some(inferred)
+    }
+    /// The project this selection belongs to, once a lookup began.
+    pub fn project(&self) -> Option<JiraProjectId> {
+        self.project
     }
     pub fn choices(&self) -> &[ProjectBillingAccount] {
         &self.choices

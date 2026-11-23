@@ -256,3 +256,20 @@ fn an_unchosen_create_account_is_inferred_from_the_issue_key_prefix() {
     state.select(Some("CHOSEN")).unwrap();
     assert_eq!(state.create_account("INT-4"), Some("CHOSEN"));
 }
+
+#[test]
+fn inference_never_picks_an_account_the_project_lists_as_closed_or_archived() {
+    for (status, sent) in [("CLOSED", None), ("ARCHIVED", None), ("OPEN", Some("INT"))] {
+        let connection = WriteScope::new();
+        let mut state = BillingSelection::new(connection, None).unwrap();
+        let lookup = state.begin(project(7));
+        // A closed or archived default is never selected, so the account stays unchosen.
+        let mut listed = result(connection, 7, "INT", status);
+        listed.choices[0].is_default = false;
+        state.loaded(lookup, listed).unwrap();
+        assert!(state.is_unchosen(), "{status}");
+        assert_eq!(state.create_account("INT-4"), sent, "{status}");
+        // An account the project doesn't list is still inferred, as in Electron.
+        assert_eq!(state.create_account("FIX-17"), Some("GEN-DEV"), "{status}");
+    }
+}
