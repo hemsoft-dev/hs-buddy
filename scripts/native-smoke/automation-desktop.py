@@ -260,7 +260,7 @@ def qualify_editing(driver, backend, config, echo, long):
         "No scheduled runs in the next 7 days.", "All schedules are currently paused.")
     github.check(restarted / "schedule-detail-light.png", "All schedules", "Native weekdays", "Recent Runs",
         "No runs yet for this schedule.")
-    github.check(restarted / "cleanup-confirm-light.png", "Delete all completed and failed runs older than 7 days?",
+    github.check(restarted / "cleanup-confirm-light.png", "Delete all completed, failed and cancelled runs older than 7 days?",
         "Delete", "Cancel")
     # Both runs are minutes old, so the confirmed cleanup deletes none of them.
     # History keeps the Jobs filter ("Native created"), so the runs are proven

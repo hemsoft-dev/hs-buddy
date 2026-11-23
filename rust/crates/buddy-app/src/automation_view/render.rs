@@ -764,11 +764,9 @@ impl AutomationView {
                     .rounded_md()
                     .border_color(cx.theme().danger)
                     .debug_selector(|| "automation-cleanup-confirmation".into())
-                    .child(
-                        div()
-                            .whitespace_normal()
-                            .child("Delete all completed and failed runs older than 7 days?"),
-                    )
+                    .child(div().whitespace_normal().child(
+                        "Delete all completed, failed and cancelled runs older than 7 days?",
+                    ))
                     .child(
                         h_flex()
                             .gap_2()
