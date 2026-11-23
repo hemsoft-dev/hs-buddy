@@ -1083,6 +1083,18 @@ fn run_cleanup_waits_for_confirmation_and_closes_when_sent(cx: &mut gpui_kit::Te
     visual.update(|window, cx| (jobs.restore)(window, cx));
     assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
     assert!(visual.update(|_, cx| view.read(cx).pane == Pane::Jobs));
+    // And going back through the shell's history to a saved Jobs tab.
+    let saved = visual.update(|_, cx| view.read(cx).destination(view.clone(), cx));
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.select_pane(Pane::History, cx);
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| (saved.restore)(window, cx));
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    assert!(visual.update(|_, cx| view.read(cx).pane == Pane::Jobs));
 }
 
 // Test-only state access for the root shell's real status-bar mouse tests.

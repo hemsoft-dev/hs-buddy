@@ -387,3 +387,21 @@ fn a_forecast_started_after_the_spring_gap_skips_that_days_missing_time() {
         ["2026-03-08T07:30:00Z", "2026-03-09T06:30:00Z"]
     );
 }
+
+/// A span that starts in daylight time and reaches the next spring still moves
+/// that spring's skipped 02:30 forward, as cron-parser 5.10.2 does (274 runs
+/// from 2026-07-01 to 2027-04-01 in New York, including 2027-03-14 03:30 EDT).
+#[test]
+fn a_span_from_summer_keeps_the_next_springs_moved_time() {
+    let runs = times(
+        "30 2 * * *",
+        "America/New_York",
+        1_782_864_000_000,
+        1_806_537_600_000,
+        500,
+    )
+    .unwrap();
+    assert_eq!(runs.len(), 274);
+    assert!(runs.iter().any(|run| run == "2027-03-14T07:30:00Z"));
+    assert!(runs.iter().any(|run| run == "2027-03-15T06:30:00Z"));
+}

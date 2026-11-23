@@ -344,7 +344,13 @@ impl Cron {
                             AmbiguousOffset::Gap {
                                 after: later_offset,
                                 ..
-                            } if zone.to_offset(after) == later_offset => continue,
+                            } if zone.to_offset(after) == later_offset
+                                && later_offset
+                                    .to_timestamp(civil)
+                                    .is_ok_and(|gap_end| gap_end <= after) =>
+                            {
+                                continue;
+                            }
                             _ => (false, false),
                         };
                         let first = ambiguous.earlier().ok();

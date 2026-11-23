@@ -344,6 +344,8 @@ impl AutomationView {
                 let _ = window;
                 entity.update(cx, |view, cx| {
                     view.form = form.clone();
+                    // An unconfirmed cleanup never follows a restored tab.
+                    view.cleanup_confirm = false;
                     view.pane = pane;
                     view.selected_run = run.clone();
                     view.set_schedule_detail(detail.clone(), cx);
