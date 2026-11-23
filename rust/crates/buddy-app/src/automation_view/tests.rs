@@ -1071,6 +1071,18 @@ fn run_cleanup_waits_for_confirmation_and_closes_when_sent(cx: &mut gpui_kit::Te
     // Leaving History drops an unconfirmed cleanup.
     visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Jobs, cx)));
     assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    // So does leaving it through the shell sidebar.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.select_pane(Pane::History, cx);
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    let jobs = visual.update(|_, cx| view.read(cx).sidebar(view.clone()).remove(0));
+    visual.update(|window, cx| (jobs.restore)(window, cx));
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    assert!(visual.update(|_, cx| view.read(cx).pane == Pane::Jobs));
 }
 
 // Test-only state access for the root shell's real status-bar mouse tests.

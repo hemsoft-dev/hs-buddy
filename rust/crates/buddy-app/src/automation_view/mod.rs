@@ -383,6 +383,8 @@ impl AutomationView {
                 entity.update(cx, |view, cx| {
                     view.form = None;
                     view.selected_run = None;
+                    // An unconfirmed cleanup belongs to History only.
+                    view.cleanup_confirm = false;
                     view.set_schedule_detail(None, cx);
                     view.pane = pane;
                     cx.notify();
