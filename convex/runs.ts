@@ -320,10 +320,13 @@ export const cleanup = mutation({
 })
 
 const NATIVE_CLEANUP_BATCH = 500
+// Pending and running rows are skipped, not counted, so old active runs
+// cannot hold back completed ones. The scan stays bounded all the same.
+const NATIVE_CLEANUP_SCAN = 2000
 
 // Native cleanup: the same deletion as `cleanup`, once per request identity.
 // It reads only runs older than the cutoff, so recent runs don't use up the
-// batch, and it reports whether older runs remain for another cleanup.
+// batch. `more` means a full batch was deleted and another old run follows.
 export const cleanupNative = mutation({
   args: {
     requestId: v.string(),
@@ -341,21 +344,28 @@ export const cleanupNative = mutation({
       return { deleted: previous.deleted, more: previous.more }
     }
     const cutoff = Date.now() - args.olderThanDays * MS_PER_DAY
-    const oldRuns = await ctx.db
+    const finished = []
+    let scanned = 0
+    let more = false
+    for await (const run of ctx.db
       .query('runs')
       .withIndex('by_started', q => q.lt('startedAt', cutoff))
-      .order('asc')
-      .take(NATIVE_CLEANUP_BATCH + 1)
-    const more = oldRuns.length > NATIVE_CLEANUP_BATCH
-    let deleted = 0
-    for (const run of oldRuns.slice(0, NATIVE_CLEANUP_BATCH)) {
-      if (isPendingOrRunning(run.status)) continue
+      .order('asc')) {
+      if (finished.length === NATIVE_CLEANUP_BATCH) {
+        more = true
+        break
+      }
+      if (scanned === NATIVE_CLEANUP_SCAN) break
+      scanned++
+      if (!isPendingOrRunning(run.status)) finished.push(run)
+    }
+    for (const run of finished) {
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Retire captured job data in the same transaction as its run history.
       await retireClaimPayload(ctx, run)
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Deletes stay in index order within one bounded batch.
       await deleteRun(ctx, run)
-      deleted++
     }
+    const deleted = finished.length
     await ctx.db.insert('automationCleanupReceipts', {
       requestId: args.requestId,
       olderThanDays: args.olderThanDays,

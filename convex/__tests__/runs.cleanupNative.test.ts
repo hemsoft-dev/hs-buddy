@@ -75,6 +75,19 @@ describe('native run cleanup', () => {
     expect(left.map(run => run.status)).toEqual(['pending'])
   })
 
+  test('old pending runs never hold back a finished run behind them', async () => {
+    const t = backend()
+    const jobId = await t.mutation(api.jobs.create, definition)
+    for (let index = 0; index < 501; index++) {
+      await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+    }
+    const id = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+    await t.mutation(api.runs.complete, { id })
+    const result = await t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: -1 })
+    expect(result).toEqual({ deleted: 1, more: false })
+    expect(await t.query(api.runs.get, { id })).toBeNull()
+  }, 60_000)
+
   test('deletes one bounded batch and reports that older runs remain', async () => {
     const t = backend()
     await finishedRuns(t, 501)

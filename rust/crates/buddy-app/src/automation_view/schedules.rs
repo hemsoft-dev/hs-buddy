@@ -3,6 +3,7 @@
 //! (`ScheduleDetailPanel.tsx`).
 use buddy_core::automation::forecast::{self, DAY_OPTIONS, Forecast};
 use buddy_core::automation::models::{Run, Schedule, WorkerType};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{AnyElement, App, ClickEvent, SharedString};
@@ -94,11 +95,7 @@ impl AutomationView {
 
     pub(super) fn render_forecast(&self, cx: &mut Context<Self>) -> AnyElement {
         let forecast = self.forecast(cx);
-        let (muted, border, hover) = (
-            cx.theme().muted_foreground,
-            cx.theme().border,
-            cx.theme().muted,
-        );
+        let (muted, border) = (cx.theme().muted_foreground, cx.theme().border);
         let mono = cx.theme().mono_font_family.clone();
         let view = cx.entity().downgrade();
         let days = forecast.days;
@@ -164,34 +161,38 @@ impl AutomationView {
                 )
                 .into();
                 let id = occurrence.schedule_id.clone();
-                items = items.child(
-                    h_flex()
-                        .id(("automation-forecast-row", index))
-                        .debug_selector(move || format!("automation-forecast-row-{index}"))
-                        .gap_3()
-                        .px_2()
-                        .py_1()
-                        .rounded_md()
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(hover))
-                        .child(
-                            div()
-                                .text_color(muted)
-                                .font_family(mono.clone())
-                                .child(time),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .whitespace_normal()
-                                .child(format!("{} › {job_name}", occurrence.schedule_name)),
-                        )
-                        .child(div().text_color(muted).child(worker))
-                        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.set_schedule_detail(Some(id.clone()), cx)
-                        })),
-                );
+                // A ghost button, as Electron's occurrence is a button: Tab
+                // reaches it and Enter or Space opens its schedule.
+                items =
+                    items.child(
+                        Button::new(("automation-forecast-row", index))
+                            .ghost()
+                            .w_full()
+                            .h_auto()
+                            .px_2()
+                            .py_1()
+                            .debug_selector(move || format!("automation-forecast-row-{index}"))
+                            .tooltip(tooltip)
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_color(muted)
+                                            .font_family(mono.clone())
+                                            .child(time),
+                                    )
+                                    .child(div().flex_1().whitespace_normal().child(format!(
+                                        "{} › {job_name}",
+                                        occurrence.schedule_name
+                                    )))
+                                    .child(div().text_color(muted).child(worker)),
+                            )
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.set_schedule_detail(Some(id.clone()), cx)
+                            })),
+                    );
                 index += 1;
             }
             timeline =
