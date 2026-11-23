@@ -338,6 +338,13 @@ impl Cron {
                                 self.hours == ALL_HOURS
                                     && before.seconds() - later_offset.seconds() == 3600,
                             ),
+                            // cron-parser moves a skipped wall time past the gap only
+                            // when enumeration crosses it; starting after the clocks
+                            // went forward, that day's skipped time does not run.
+                            AmbiguousOffset::Gap {
+                                after: later_offset,
+                                ..
+                            } if zone.to_offset(after) == later_offset => continue,
                             _ => (false, false),
                         };
                         let first = ambiguous.earlier().ok();

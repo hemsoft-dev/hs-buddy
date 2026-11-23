@@ -357,3 +357,33 @@ fn a_forecast_opened_inside_a_repeated_hour_keeps_its_second_instant() {
         ["2026-11-01T05:30:00Z", "2026-11-02T06:30:00Z"]
     );
 }
+
+/// cron-parser 5.10.2 created after New York's spring gap (03:05 EDT on
+/// 2026-03-08) does not run that day's skipped 02:30; started before the gap,
+/// it moves the 02:30 forward to 03:30 EDT.
+#[test]
+fn a_forecast_started_after_the_spring_gap_skips_that_days_missing_time() {
+    let to_after = 1_773_039_900_000; // 2026-03-09T07:05:00Z
+    assert_eq!(
+        times(
+            "30 2 * * *",
+            "America/New_York",
+            1_772_953_500_000,
+            to_after,
+            500
+        )
+        .unwrap(),
+        ["2026-03-09T06:30:00Z"]
+    );
+    assert_eq!(
+        times(
+            "30 2 * * *",
+            "America/New_York",
+            1_772_946_000_000,
+            to_after,
+            500
+        )
+        .unwrap(),
+        ["2026-03-08T07:30:00Z", "2026-03-09T06:30:00Z"]
+    );
+}
