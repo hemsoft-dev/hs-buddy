@@ -58,22 +58,63 @@ describe('native run cleanup', () => {
     const recent = await t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: 7 })
     expect(recent).toEqual({ deleted: 0, more: false })
     expect(await t.query(api.runs.listRecent, {})).toHaveLength(2)
+    // An empty cleanup changed nothing and keeps no receipt.
+    expect(await t.run(ctx => ctx.db.query('automationCleanupReceipts').collect())).toEqual([])
 
-    await expect(
-      t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: -1 })
-    ).rejects.toThrow('different age')
     await expect(
       t.mutation(api.runs.cleanupNative, { requestId: 'not-a-uuid', olderThanDays: -1 })
     ).rejects.toThrow()
-
-    const old = await t.mutation(api.runs.cleanupNative, {
-      requestId: otherRequestId,
-      olderThanDays: -1,
-    })
+    const old = await t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: -1 })
     expect(old).toEqual({ deleted: 1, more: false })
+    await expect(
+      t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: 7 })
+    ).rejects.toThrow('different age')
     const left = await t.query(api.runs.listRecent, {})
     expect(left.map(run => run.status)).toEqual(['pending'])
   })
+})
+
+describe('native run cleanup bounds', () => {
+  test('prunes receipts older than a day', async () => {
+    const t = backend()
+    await t.run(async ctx => {
+      for (const [id, age] of [
+        [otherRequestId, 2 * 86_400_000],
+        ['5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f', 60_000],
+      ] as const) {
+        await ctx.db.insert('automationCleanupReceipts', {
+          requestId: id,
+          olderThanDays: 7,
+          deleted: 1,
+          more: false,
+          createdAt: Date.now() - age,
+        })
+      }
+    })
+    await t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: 7 })
+    const kept = await t.run(ctx => ctx.db.query('automationCleanupReceipts').collect())
+    expect(kept.map(receipt => receipt.requestId)).toEqual(['5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f'])
+  })
+
+  test('stops at the read budget when runs carry large output', async () => {
+    const t = backend()
+    const jobId = await t.mutation(api.jobs.create, definition)
+    const output = 'x'.repeat(900 * 1024)
+    for (let index = 0; index < 12; index++) {
+      const id = await t.mutation(api.runs.create, { jobId, triggeredBy: 'manual' })
+      await t.mutation(api.runs.complete, { id, output })
+    }
+    const first = await t.mutation(api.runs.cleanupNative, { requestId, olderThanDays: -1 })
+    expect(first.more).toBe(true)
+    expect(first.deleted).toBeGreaterThan(0)
+    expect(first.deleted).toBeLessThan(12)
+    const second = await t.mutation(api.runs.cleanupNative, {
+      requestId: otherRequestId,
+      olderThanDays: -1,
+    })
+    expect(first.deleted + second.deleted).toBe(12)
+    expect(second.more).toBe(false)
+  }, 60_000)
 
   test('old pending runs never hold back a finished run behind them', async () => {
     const t = backend()

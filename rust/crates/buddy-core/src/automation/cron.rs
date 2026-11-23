@@ -358,6 +358,21 @@ impl Cron {
         let last = zone.to_datetime(until).date();
         while date <= last && found.len() < limit {
             if self.matches_date(date) {
+                // When the clocks skip the start of a day, cron-parser's move
+                // to that day lands after the gap, so the day's skipped times
+                // never run.
+                // When they repeat it, that move lands in the second pass.
+                let midnight = zone
+                    .to_ambiguous_timestamp(date.to_datetime(jiff::civil::time(0, 0, 0, 0)))
+                    .offset();
+                let midnight_gap = matches!(midnight, AmbiguousOffset::Gap { .. });
+                // A start inside that day's first pass stays in the first pass.
+                let midnight_fold = match midnight {
+                    AmbiguousOffset::Fold { before, .. } => {
+                        zone.to_datetime(after).date() != date || zone.to_offset(after) != before
+                    }
+                    _ => false,
+                };
                 let mut day = Vec::new();
                 for hour in (0..24).filter(|hour| self.hours & (1 << hour) != 0) {
                     for minute in (0..60).filter(|minute| self.minutes & (1 << minute) != 0) {
@@ -373,6 +388,7 @@ impl Cron {
                                 self.hours == ALL_HOURS
                                     && before.seconds() - later_offset.seconds() == 3600,
                             ),
+                            AmbiguousOffset::Gap { .. } if midnight_gap => continue,
                             // cron-parser moves a skipped wall time past the gap only
                             // when enumeration crosses it; starting after the clocks
                             // went forward, that day's skipped time does not run.
@@ -395,7 +411,9 @@ impl Cron {
                         // the repeated hour's second pass, it still lists that instant.
                         let instants = if both {
                             [first, ambiguous.later().ok()]
-                        } else if rolled_back && first.is_some_and(|first| first <= after) {
+                        } else if midnight_fold
+                            || rolled_back && first.is_some_and(|first| first <= after)
+                        {
                             [ambiguous.later().ok(), None]
                         } else {
                             [ambiguous.compatible().ok(), None]

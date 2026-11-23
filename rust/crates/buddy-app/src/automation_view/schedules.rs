@@ -11,6 +11,12 @@ use gpui_kit::{AnyElement, App, ClickEvent, SharedString};
 use super::render::local_time;
 use super::*;
 
+/// Forecast occurrences drawn at first and added by each "Show more". Electron
+/// draws every occurrence; a busy window can hold tens of thousands.
+pub(super) const FORECAST_SHOWN: usize = 100;
+/// What a cached forecast was computed from: schedules, window, minute, zone.
+pub(super) type ForecastKey = (Vec<Schedule>, f64, i64, String);
+
 /// `automation.scheduleForecastDays` as Electron's panel reads it.
 pub(super) fn forecast_days(cx: &gpui_kit::App) -> f64 {
     if cx.has_global::<Settings>() {
@@ -84,13 +90,34 @@ impl AutomationView {
         cx.notify();
     }
 
-    fn forecast(&self, cx: &App) -> Forecast {
-        forecast::forecast(
+    /// The forecast for the current minute, rebuilt only when what it
+    /// depends on changed: typing in the filter redraws without recomputing.
+    pub(super) fn forecast(&self, cx: &App) -> std::rc::Rc<Forecast> {
+        let now = jiff::Timestamp::now();
+        let zone = jiff::tz::TimeZone::system();
+        let days = forecast_days(cx);
+        let minute = now.as_second().div_euclid(60);
+        let zone_name = zone.iana_name().unwrap_or_default().to_owned();
+        let mut cache = self.forecast_cache.borrow_mut();
+        if let Some(((schedules, cached_days, cached_minute, cached_zone), forecast)) = &*cache
+            && *schedules == self.snapshot.schedules
+            && *cached_days == days
+            && *cached_minute == minute
+            && *cached_zone == zone_name
+        {
+            return forecast.clone();
+        }
+        let forecast = std::rc::Rc::new(forecast::forecast(
             &self.snapshot.schedules,
-            jiff::Timestamp::now(),
-            &jiff::tz::TimeZone::system(),
-            forecast_days(cx),
-        )
+            now,
+            &zone,
+            days,
+        ));
+        *cache = Some((
+            (self.snapshot.schedules.clone(), days, minute, zone_name),
+            forecast.clone(),
+        ));
+        forecast
     }
 
     pub(super) fn render_forecast(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -141,16 +168,26 @@ impl AutomationView {
                 .child(div().whitespace_normal().child(message))
                 .children(hint.map(|hint| div().text_color(muted).child(hint)));
         }
+        let jobs: std::collections::HashMap<&str, _> = self
+            .snapshot
+            .jobs
+            .iter()
+            .map(|job| (job.id.as_str(), job))
+            .collect();
+        let total: usize = forecast
+            .groups
+            .iter()
+            .map(|group| group.occurrences.len())
+            .sum();
         let mut index = 0usize;
         for group in &forecast.groups {
+            if index >= self.forecast_shown {
+                break;
+            }
             let runs = group.occurrences.len();
             let mut items = v_flex().gap_1();
-            for occurrence in &group.occurrences {
-                let job = self
-                    .snapshot
-                    .jobs
-                    .iter()
-                    .find(|job| job.id == occurrence.job_id);
+            for occurrence in group.occurrences.iter().take(self.forecast_shown - index) {
+                let job = jobs.get(occurrence.job_id.as_str()).copied();
                 let job_name = job.map_or("(unknown job)", |job| job.name.as_str());
                 let worker = worker_badge(job.map_or(WorkerType::Exec, |job| job.worker_type));
                 let time = buddy_core::format::hour_minute(occurrence.at.time())
@@ -210,6 +247,20 @@ impl AutomationView {
                         )
                         .child(items),
                 );
+        }
+        let hidden = total.saturating_sub(self.forecast_shown);
+        if hidden > 0 {
+            timeline = timeline.child(
+                Button::new("automation-forecast-more")
+                    .label(format!(
+                        "Show {} more of {hidden} upcoming runs",
+                        hidden.min(FORECAST_SHOWN)
+                    ))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.forecast_shown = this.forecast_shown.saturating_add(FORECAST_SHOWN);
+                        cx.notify();
+                    })),
+            );
         }
         v_flex()
             .gap_2()

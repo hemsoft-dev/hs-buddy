@@ -1,4 +1,5 @@
 import { v } from 'convex/values'
+import type { Doc } from './_generated/dataModel'
 import { mutation, query } from './_generated/server'
 import { MS_PER_DAY } from './lib/constants'
 import { isPendingOrRunning, notFoundError, runStatusValidator } from './lib/domain'
@@ -320,13 +321,27 @@ export const cleanup = mutation({
 })
 
 const NATIVE_CLEANUP_BATCH = 500
-// Pending and running rows are skipped, not counted, so old active runs
-// cannot hold back completed ones. The scan stays bounded all the same.
-const NATIVE_CLEANUP_SCAN = 2000
+// Convex stops a transaction that reads more than 16 MiB. Runs can carry
+// large inline output, so one request stops reading at half of that.
+const NATIVE_CLEANUP_READ_BUDGET = 8 * 1024 * 1024
+const FINISHED_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const
+// A receipt only has to outlive the client's resend after a reconnect.
+const CLEANUP_RECEIPT_RETENTION_MS = MS_PER_DAY
+const CLEANUP_RECEIPT_PRUNE = 50
+
+function approximateBytes(run: Doc<'runs'>) {
+  try {
+    return JSON.stringify(run).length
+  } catch (_: unknown) {
+    // An int64 field cannot be serialized here; count the document's maximum.
+    return 1024 * 1024
+  }
+}
 
 // Native cleanup: the same deletion as `cleanup`, once per request identity.
-// It reads only runs older than the cutoff, so recent runs don't use up the
-// batch. `more` means a full batch was deleted and another old run follows.
+// It reads finished runs older than the cutoff through the status index, so
+// pending and running runs never use up the batch or stall it. `more` means
+// it stopped at the batch or read budget with another old run still waiting.
 export const cleanupNative = mutation({
   args: {
     requestId: v.string(),
@@ -343,21 +358,23 @@ export const cleanupNative = mutation({
         throw new Error('Cleanup request identity cannot be reused with a different age.')
       return { deleted: previous.deleted, more: previous.more }
     }
-    const cutoff = Date.now() - args.olderThanDays * MS_PER_DAY
-    const finished = []
-    let scanned = 0
+    const now = Date.now()
+    const cutoff = now - args.olderThanDays * MS_PER_DAY
+    const finished: Doc<'runs'>[] = []
+    let read = 0
     let more = false
-    for await (const run of ctx.db
-      .query('runs')
-      .withIndex('by_started', q => q.lt('startedAt', cutoff))
-      .order('asc')) {
-      if (finished.length === NATIVE_CLEANUP_BATCH) {
-        more = true
-        break
+    scan: for (const status of FINISHED_RUN_STATUSES) {
+      for await (const run of ctx.db
+        .query('runs')
+        .withIndex('by_status_started', q => q.eq('status', status).lt('startedAt', cutoff))
+        .order('asc')) {
+        if (finished.length === NATIVE_CLEANUP_BATCH || read >= NATIVE_CLEANUP_READ_BUDGET) {
+          more = true
+          break scan
+        }
+        read += approximateBytes(run)
+        finished.push(run)
       }
-      if (scanned === NATIVE_CLEANUP_SCAN) break
-      scanned++
-      if (!isPendingOrRunning(run.status)) finished.push(run)
     }
     for (const run of finished) {
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Retire captured job data in the same transaction as its run history.
@@ -366,13 +383,24 @@ export const cleanupNative = mutation({
       await deleteRun(ctx, run)
     }
     const deleted = finished.length
-    await ctx.db.insert('automationCleanupReceipts', {
-      requestId: args.requestId,
-      olderThanDays: args.olderThanDays,
-      deleted,
-      more,
-      createdAt: Date.now(),
-    })
+    // An empty cleanup changed nothing, so a resend may simply run again.
+    if (deleted > 0) {
+      await ctx.db.insert('automationCleanupReceipts', {
+        requestId: args.requestId,
+        olderThanDays: args.olderThanDays,
+        deleted,
+        more,
+        createdAt: now,
+      })
+    }
+    const expired = await ctx.db
+      .query('automationCleanupReceipts')
+      .withIndex('by_created', q => q.lt('createdAt', now - CLEANUP_RECEIPT_RETENTION_MS))
+      .take(CLEANUP_RECEIPT_PRUNE)
+    for (const receipt of expired) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- A small, bounded prune of expired receipts.
+      await ctx.db.delete(receipt._id)
+    }
     return { deleted, more }
   },
 })

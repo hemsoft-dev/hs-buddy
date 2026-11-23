@@ -360,7 +360,9 @@ export default defineSchema({
     deleted: v.number(),
     more: v.boolean(),
     createdAt: v.number(),
-  }).index('by_request', ['requestId']),
+  })
+    .index('by_request', ['requestId'])
+    .index('by_created', ['createdAt']),
 
   /** Native request identities survive execution-history cleanup. */
   automationReceipts: defineTable({
@@ -404,6 +406,7 @@ export default defineSchema({
     .index('by_job_count_version', ['jobId', 'runCountVersion'])
     .index('by_schedule', ['scheduleId'])
     .index('by_status', ['status'])
+    .index('by_status_started', ['status', 'startedAt'])
     .index('by_started', ['startedAt'])
     .index('by_run_count_version', ['runCountVersion']),
 

@@ -429,3 +429,44 @@ fn a_single_month_drops_days_it_cannot_have_before_checking_repeats() {
         assert!(Cron::parse(expression).is_err(), "{expression}");
     }
 }
+
+#[test]
+fn a_day_that_starts_in_a_clock_change_follows_cron_parsers_move_to_that_day() {
+    let day = 86_400_000;
+    // Cairo skips the first hour of 24 April 2026: the missing midnight never runs.
+    assert_eq!(
+        times(
+            "0 0 * * *",
+            "Africa/Cairo",
+            1_776_938_400_000,
+            1_776_938_400_000 + 3 * day,
+            2
+        )
+        .unwrap(),
+        ["2026-04-24T21:00:00Z", "2026-04-25T21:00:00Z"]
+    );
+    // Havana repeats midnight on 1 November 2026: the move to that day lands in
+    // the second pass, unless the forecast opens inside the first pass.
+    assert_eq!(
+        times(
+            "30 0 * * *",
+            "America/Havana",
+            1_793_462_400_000,
+            1_793_462_400_000 + 3 * day,
+            2
+        )
+        .unwrap(),
+        ["2026-11-01T05:30:00Z", "2026-11-02T05:30:00Z"]
+    );
+    assert_eq!(
+        times(
+            "30 0 * * *",
+            "America/Havana",
+            1_793_505_600_000,
+            1_793_505_600_000 + 3 * day,
+            2
+        )
+        .unwrap(),
+        ["2026-11-01T04:30:00Z", "2026-11-02T05:30:00Z"]
+    );
+}

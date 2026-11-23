@@ -1178,3 +1178,52 @@ fn the_tab_names_the_schedule_detail_over_a_run_left_expanded_in_history(
     });
     assert_eq!(label, "Run: r-1");
 }
+
+#[gpui_kit::test]
+fn a_long_forecast_draws_a_page_of_runs_and_is_not_rebuilt_on_every_redraw(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view) = open_drawn(cx);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            // Every minute: 500 runs in the forecast window.
+            let mut minutely = half_hourly();
+            minutely.cron = "* * * * *".into();
+            view.snapshot.schedules.push(minutely);
+            view.select_pane(Pane::Schedules, cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let shown = super::schedules::FORECAST_SHOWN;
+    // Debug selectors are static strings.
+    let row = |name: &str| -> &'static str { Box::leak(name.to_owned().into_boxed_str()) };
+    assert!(
+        visual
+            .debug_bounds(row(&format!("automation-forecast-row-{}", shown - 1)))
+            .is_some()
+    );
+    assert!(
+        visual
+            .debug_bounds(row(&format!("automation-forecast-row-{shown}")))
+            .is_none()
+    );
+    let same = visual.update(|_, cx| {
+        let view = view.read(cx);
+        std::rc::Rc::ptr_eq(&view.forecast(cx), &view.forecast(cx))
+    });
+    assert!(same, "an unchanged forecast is reused");
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.forecast_shown += super::schedules::FORECAST_SHOWN;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds(row(&format!("automation-forecast-row-{}", 2 * shown - 1)))
+            .is_some()
+    );
+}

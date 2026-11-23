@@ -49,6 +49,16 @@ pub struct AutomationView {
     schedule_detail: Option<String>,
     /// The run-history cleanup waits for this confirmation.
     cleanup_confirm: bool,
+    /// The last forecast and what it was computed from: it is rebuilt only
+    /// when the schedules, window, zone or minute change, not on every redraw.
+    forecast_cache: std::cell::RefCell<
+        Option<(
+            schedules::ForecastKey,
+            std::rc::Rc<buddy_core::automation::forecast::Forecast>,
+        )>,
+    >,
+    /// How many forecast occurrences are drawn; "Show more" raises it.
+    forecast_shown: usize,
     deletion: Option<(ChangeKind, String, String)>,
     discard_confirm: bool,
     trigger_discard_confirm: bool,
@@ -157,6 +167,8 @@ impl AutomationView {
             selected_run: None,
             schedule_detail: None,
             cleanup_confirm: false,
+            forecast_cache: std::cell::RefCell::new(None),
+            forecast_shown: schedules::FORECAST_SHOWN,
             deletion: None,
             discard_confirm: false,
             trigger_discard_confirm: false,
