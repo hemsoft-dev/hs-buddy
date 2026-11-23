@@ -76,8 +76,9 @@ impl AutomationView {
         }
         use buddy_core::application_settings::LocalEdit;
         let edit = LocalEdit::ScheduleForecastDays(days);
-        if let Err(error) = Settings::try_update(cx, |config| edit.apply(config)) {
-            self.error = Some(error.to_string());
+        match Settings::try_update(cx, |config| edit.apply(config)) {
+            Ok(()) => self.error = None,
+            Err(error) => self.error = Some(error.to_string()),
         }
         cx.notify();
     }

@@ -1095,6 +1095,30 @@ fn run_cleanup_waits_for_confirmation_and_closes_when_sent(cx: &mut gpui_kit::Te
     visual.update(|window, cx| (saved.restore)(window, cx));
     assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
     assert!(visual.update(|_, cx| view.read(cx).pane == Pane::Jobs));
+    // Opening an editor from History drops it too.
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.select_pane(Pane::History, cx);
+            view.cleanup_confirm = true;
+            view.open_job(None, false, window, cx);
+        })
+    });
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    // And the prompt only ever renders over History's run list.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.form = None;
+            view.select_pane(Pane::Jobs, cx);
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds("automation-cleanup-confirmation")
+            .is_none()
+    );
 }
 
 // Test-only state access for the root shell's real status-bar mouse tests.

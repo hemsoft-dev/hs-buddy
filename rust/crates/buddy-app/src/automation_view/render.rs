@@ -166,7 +166,7 @@ impl AutomationView {
         }
     }
 
-    fn open_job(
+    pub(super) fn open_job(
         &mut self,
         job: Option<Job>,
         duplicate: bool,
@@ -174,6 +174,7 @@ impl AutomationView {
         cx: &mut Context<Self>,
     ) {
         self.form = Some(Form::new_job(job.as_ref(), duplicate, window, cx));
+        self.cleanup_confirm = false;
         self.dismiss_notice();
         self.error = None;
         cx.notify();
@@ -194,6 +195,7 @@ impl AutomationView {
             window,
             cx,
         ));
+        self.cleanup_confirm = false;
         self.dismiss_notice();
         self.error = None;
         cx.notify();
@@ -755,7 +757,8 @@ impl AutomationView {
                     .into_any_element(),
             );
         }
-        if self.cleanup_confirm {
+        // The cleanup prompt belongs to History's run list only.
+        if self.cleanup_confirm && self.pane == Pane::History && self.form.is_none() {
             return Some(
                 v_flex()
                     .gap_2()
