@@ -1145,3 +1145,30 @@ impl AutomationView {
         assert_eq!((self.page, self.job_page), (0, 0));
     }
 }
+
+/// A run expanded in History does not name the tab once Schedules shows a
+/// schedule's detail.
+#[gpui_kit::test]
+fn the_tab_names_the_schedule_detail_over_a_run_left_expanded_in_history(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view) = open_drawn(cx);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    let label = visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            view.snapshot.schedules.push(half_hourly());
+            view.select_pane(Pane::History, cx);
+            view.selected_run = Some("r-1".into());
+            view.select_pane(Pane::Schedules, cx);
+            view.set_schedule_detail(Some("s-2".into()), cx);
+        });
+        view.read(cx).destination(view.clone(), cx).label
+    });
+    assert_eq!(label, "Schedule: Half hourly");
+    let label = visual.update(|_, cx| {
+        view.update(cx, |view, cx| view.select_pane(Pane::History, cx));
+        view.read(cx).destination(view.clone(), cx).label
+    });
+    assert_eq!(label, "Run: r-1");
+}

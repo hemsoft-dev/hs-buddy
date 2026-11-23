@@ -325,15 +325,14 @@ impl AutomationView {
                     form.target.as_deref().unwrap_or("New")
                 )
             } else {
-                match (&run, &detail_name) {
-                    (Some(id), _) => format!("Run: {id}"),
-                    (None, Some(name)) => format!("Schedule: {name}"),
-                    (None, None) => match pane {
-                        Pane::Jobs => "Automation: Jobs",
-                        Pane::Schedules => "Automation: Schedules",
-                        Pane::History => "Automation: Run history",
-                    }
-                    .into(),
+                // Each pane names only what it shows: an expanded run belongs
+                // to History and a schedule detail to Schedules.
+                match (pane, &run, &detail_name) {
+                    (Pane::History, Some(id), _) => format!("Run: {id}"),
+                    (Pane::Schedules, _, Some(name)) => format!("Schedule: {name}"),
+                    (Pane::Jobs, ..) => "Automation: Jobs".into(),
+                    (Pane::Schedules, ..) => "Automation: Schedules".into(),
+                    (Pane::History, ..) => "Automation: Run history".into(),
                 }
             },
             section: Some(crate::app::Section::Automation),
