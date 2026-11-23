@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import unittest.mock
@@ -258,14 +259,21 @@ class TodoistFixtureTests(unittest.TestCase):
         self.assertEqual(self.all_tasks('project-empty'), [])
 
     def test_a_held_completion_reply_waits_once_while_reads_continue(self):
-        self.api.hold_next_close = 0.4
+        self.api.hold_next_close = 1.0
         update = self.command('item_update', id='task-today', content='Synthetic held-free update')
         self.request('sync', [update])
-        self.assertEqual((self.api.hold_next_close, self.api.held_close_replied_at), (0.4, None))
+        self.assertEqual((self.api.hold_next_close, self.api.held_close_replied_at), (1.0, None))
         before = time.time()
-        self.request('sync', [self.command('item_close', id='task-overdue')])
+        closing = threading.Thread(target=self.request, args=('sync', [self.command('item_close', id='task-overdue')]))
+        closing.start()
+        # A read made while the completion reply is held still answers first.
+        time.sleep(.1)
+        self.assertTrue(self.all_tasks('project-alpha'))
+        self.assertIsNone(self.api.held_close_replied_at)
+        self.assertTrue(closing.is_alive())
+        closing.join(5)
         replied = self.api.held_close_replied_at
-        self.assertGreaterEqual(replied - before, 0.4)
+        self.assertGreaterEqual(replied - before, 1.0)
         self.assertEqual(self.api.hold_next_close, 0)
         self.request('sync', [self.command('item_close', id='task-upcoming')])
         self.assertEqual(self.api.held_close_replied_at, replied)

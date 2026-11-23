@@ -273,3 +273,30 @@ fn inference_never_picks_an_account_the_project_lists_as_closed_or_archived() {
         assert_eq!(state.create_account("FIX-17"), Some("GEN-DEV"), "{status}");
     }
 }
+
+#[test]
+fn only_a_person_initial_value_or_edit_counts_as_a_chosen_account() {
+    let connection = WriteScope::new();
+    // A project default picked by the lookup is not a choice, so a repeated
+    // lookup or connection recheck takes the fresh default instead.
+    let mut defaulted = BillingSelection::new(connection, None).unwrap();
+    let lookup = defaulted.begin(project(7));
+    defaulted
+        .loaded(lookup, result(connection, 7, "DEFAULT", "OPEN"))
+        .unwrap();
+    assert_eq!(defaulted.selected_key(), Some("DEFAULT"));
+    assert!(!defaulted.is_chosen());
+    defaulted.select(None).unwrap();
+    assert!(defaulted.is_chosen());
+    assert!(
+        BillingSelection::new(connection, Some("TEMPLATE"))
+            .unwrap()
+            .is_chosen()
+    );
+    assert!(
+        BillingSelection::for_edit(connection, None)
+            .unwrap()
+            .is_chosen()
+    );
+    assert!(!BillingSelection::new(connection, None).unwrap().is_chosen());
+}

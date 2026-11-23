@@ -54,6 +54,11 @@ impl BillingSelection {
     pub fn is_unchosen(&self) -> bool {
         !self.manual && self.selected.is_none()
     }
+    /// A person, an initial value or an edit chose the account. A project
+    /// default picked by a lookup is not a choice: a fresh lookup replaces it.
+    pub fn is_chosen(&self) -> bool {
+        self.manual
+    }
     /// The account a new worklog sends. As in the Electron app, a create with
     /// no chosen account takes the account inferred from its issue key.
     pub fn create_account<'a>(&'a self, issue_key: &str) -> Option<&'a str> {

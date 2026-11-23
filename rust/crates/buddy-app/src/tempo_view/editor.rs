@@ -157,11 +157,12 @@ impl Editor {
     }
     /// Drop client-bound lookup state without changing any entered values.
     pub fn invalidate_connection(&mut self) {
-        // An unchosen account stays unchosen, so a create keeps inferring it
-        // from the issue key after the next lookup.
+        // Only a choice survives: an unchosen account is inferred again and a
+        // project default comes from the fresh lookup, never a stale one.
         if let Some(billing) = &self.billing {
-            self.retained_billing =
-                (!billing.is_unchosen()).then(|| billing.selected_key().map(str::to_owned));
+            self.retained_billing = billing
+                .is_chosen()
+                .then(|| billing.selected_key().map(str::to_owned));
         }
         self.id = uuid::Uuid::new_v4();
         self.resolved = None;
@@ -193,11 +194,11 @@ impl Editor {
             .map_err(|e| e.to_string())?
             .flatten();
         // Looking the same project up again keeps a choice someone made,
-        // including "No billing account"; only an unchosen account is
-        // inferred again.
+        // including "No billing account". A project default is not a choice:
+        // the fresh lookup picks the current one.
         if self.retained_billing.is_none()
             && let Some(previous) = &self.billing
-            && !previous.is_unchosen()
+            && previous.is_chosen()
             && previous.project() == Some(info.billing.project)
         {
             self.retained_billing = Some(previous.selected_key().map(str::to_owned));

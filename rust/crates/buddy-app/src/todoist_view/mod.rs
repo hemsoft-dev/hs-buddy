@@ -473,6 +473,10 @@ async fn write_result(
             ));
         }
     };
+    // A rejected change left Todoist as it was. Report it now rather than
+    // after a list refresh, so a rejected completion's task returns at once;
+    // the message asks for a refresh before a new change.
+    let rejected = report.phase == WritePhase::Rejected;
     if let Some(problem) = report.cleanup_problem {
         if !report.acknowledgement_durable {
             return Ok((
@@ -486,6 +490,9 @@ async fn write_result(
             format!("{message} {problem} Retry cleanup only; do not send the change again."),
             confirmed,
         ));
+    }
+    if rejected {
+        return Ok((message.into(), false));
     }
     match planner.refresh().await {
         Ok(_) => Ok((message.into(), false)),
