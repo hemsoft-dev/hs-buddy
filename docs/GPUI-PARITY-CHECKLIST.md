@@ -45,7 +45,8 @@ against it. Each area page lists them first, with the concrete difference.
   route or control exists but does nothing yet. *Label only* means a label or
   enum entry with no behavior behind it.
 - **Native state**:
-  - *Ported*: the native app has equivalent behavior.
+  - *Ported*: the native app has equivalent behavior. A deliberate difference,
+    such as a safer default, is named in the row's Difference column.
   - *Partly ported*: it has the capability with a named difference.
   - *Missing*: no native counterpart was found.
   - *Placeholder*: the native app shows a placeholder.
