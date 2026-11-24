@@ -257,11 +257,14 @@ def rerun_turns(driver):
         ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
         ('content', 'Re-run this prompt'), ('wait_text', 'Re-running this prompt'), ('sleep', 3),
         ('content', 'Cancel re-run'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
-        ('content', 'Open re-run result'), ('wait_text', 'Partial synthetic answer'), ('capture', 'rerun-opened-dark'),
+        # The saved answer sits below the failure notice and its actions.
+        ('content', 'Open re-run result'), ('wait_scroll_text', 'Partial synthetic answer'), ('capture', 'rerun-opened-dark'),
     ], record=True)
     github.check(rerun / 'recent-opened-dark.png', 'RECENTROW', 'Re-run this prompt')
     github.check(rerun / 'rerun-saved-dark.png', 'Re-run cancelled', 'Re-run saved as a new result', 'Open re-run result')
-    github.check(rerun / 'rerun-opened-dark.png', 'RECENTROW', 'Partial synthetic answer')
+    # Scrolled to the answer, the title may be above the view; the backend
+    # check ties the record to its prompt.
+    github.check(rerun / 'rerun-opened-dark.png', 'Partial synthetic answer')
 
 
 def require_prompt_records(backend, started_ms):
