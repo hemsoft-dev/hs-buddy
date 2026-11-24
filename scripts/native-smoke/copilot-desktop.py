@@ -228,37 +228,52 @@ def chat_turns(driver):
         ('content', 'Copy answer'), ('capture', 'completed-dark'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Synthetic assistant'), ('capture', 'saved-result-dark'),
-        # Re-run the saved prompt: a new saved result with the same category.
-        ('content', 'Re-run this prompt'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
-        ('content', 'Open re-run result'), ('wait_text', 'Synthetic assistant'), ('capture', 'rerun-opened-dark'),
         # A new conversation starts from the saved account or the active gh
         # login; the runner has neither, so name the synthetic account again.
         ('content', 'Chat'), ('content', 'New conversation'), ('input', 'GitHub account', 'synthetic-account'),
-        ('input', 'Message', 'BUDDYCANCEL73429'),
+        # RECENTROW tells this saved prompt apart from the headless runner's.
+        ('input', 'Message', 'BUDDYCANCEL73429 RECENTROW'),
         ('content', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('content', 'Cancel response'),
         ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
         ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
-        # A cleared conversation leaves the cancelled prompt only in Recent;
-        # its row opens the saved result.
-        ('content', 'New conversation'), ('wait_scroll_text', 'BUDDYCANCEL73429'), ('content', 'BUDDYCANCEL73429'),
-        ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
     ], record=True)
     github.check(dark / 'streaming-dark.png', 'Assistant is responding')
     github.check(dark / 'streaming-dark.png', '1 active')
     github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results', 'Documentation')
     github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant', 'Re-run this prompt')
-    github.check(dark / 'rerun-saved-dark.png', 'Re-run saved as a new result', 'Open re-run result')
-    github.check(dark / 'rerun-opened-dark.png', 'Completed', 'Synthetic assistant')
-    github.check(dark / 'recent-opened-dark.png', 'BUDDYCANCEL73429', 'Re-run this prompt')
-
-
-def require_prompt_records(backend):
-    """The chosen category reached the saved result and its re-run."""
-    streamed = [row for row in backend.query('copilotResults:listRecent')
-        if row.get('prompt') == 'BUDDYSTREAM61527']
-    if len(streamed) != 2 or any(row.get('category') != 'documentation' or row['status'] != 'completed' for row in streamed):
-        raise RuntimeError('The chosen category or the re-run did not reach the saved results')
     github.check(dark / 'cancelled-compact-dark.png', 'Cancelled', 'Partial synthetic answer')
+
+
+def rerun_turns(driver):
+    """Open the cancelled prompt from Recent, re-run it and cancel the re-run.
+
+    A fresh app session after the streaming capture: the provider permits only
+    one streaming turn while that capture is armed, and the cancel marker never
+    streams to completion, so the re-run ends by its own Cancel."""
+    rerun = driver.drive('rerun-dark', [
+        ('wait_scroll_text', 'RECENTROW'), ('content', 'RECENTROW'),
+        ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
+        ('content', 'Re-run this prompt'), ('wait_text', 'Re-running this prompt'), ('sleep', 3),
+        ('content', 'Cancel re-run'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
+        ('content', 'Open re-run result'), ('wait_text', 'Partial synthetic answer'), ('capture', 'rerun-opened-dark'),
+    ], record=True)
+    github.check(rerun / 'recent-opened-dark.png', 'RECENTROW', 'Re-run this prompt')
+    github.check(rerun / 'rerun-saved-dark.png', 'Re-run cancelled', 'Re-run saved as a new result', 'Open re-run result')
+    github.check(rerun / 'rerun-opened-dark.png', 'RECENTROW', 'Partial synthetic answer')
+
+
+def require_prompt_records(backend, started_ms):
+    """The chosen category reached the desktop run, and the re-run copied its source's.
+
+    The headless runner saved the same marker prompts earlier, so only rows
+    created by the desktop scenes count."""
+    rows = [row for row in backend.query('copilotResults:listRecent') if row.get('createdAt', 0) >= started_ms]
+    streamed = [row for row in rows if row.get('prompt') == 'BUDDYSTREAM61527']
+    if len(streamed) != 1 or streamed[0].get('category') != 'documentation' or streamed[0]['status'] != 'completed':
+        raise RuntimeError('The chosen Documentation category did not reach the saved result')
+    recent = [row for row in rows if row.get('prompt') == 'BUDDYCANCEL73429 RECENTROW']
+    if len(recent) != 2 or len({row.get('category') for row in recent}) != 1:
+        raise RuntimeError('The re-run did not save one new result with its source category')
 
 
 def code_copy(driver, appearance):
@@ -400,9 +415,11 @@ def qualify(executable, output, session, version, backend, api):
             sdk = headless(executable, output, config, backend)
             assert_no_owned_children(output)
             terminal.verify_sentinel(sentinel, 'headless SDK cleanup')
+            started_ms = time.time() * 1000
             with streaming_capture(output):
                 chat_turns(driver)
-            require_prompt_records(backend)
+            rerun_turns(driver)
+            require_prompt_records(backend, started_ms)
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
             assert_no_owned_children(output)
             code_copy(driver, 'dark')

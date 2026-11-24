@@ -187,9 +187,14 @@ impl ResultsView {
         if state.phase == Phase::Cancelled {
             status = status.child(div().text_color(muted).child("Re-run cancelled."));
         }
-        if let Some(failure) = state.failure
-            && state.save != SaveState::Reconciled
-        {
+        // A reconciled record exists, but its prompt was never sent: say so
+        // rather than the stale "could not be confirmed".
+        let never_sent = state.save == SaveState::Reconciled && state.failure.is_some();
+        if never_sent {
+            status = status.child(div().text_color(danger).child(
+                "The re-run's record was found and saved as failed, but its prompt was never sent. Re-run again for an answer.",
+            ));
+        } else if let Some(failure) = state.failure {
             status = status.child(div().text_color(danger).child(failure.to_string()));
         }
         let mut actions = h_flex().flex_wrap().gap_2();
@@ -257,11 +262,13 @@ impl ResultsView {
             && matches!(state.save, SaveState::Saved | SaveState::Reconciled)
             && let Some(id) = state.result_id
         {
-            status = status.child(
-                div()
-                    .text_color(muted)
-                    .child("Re-run saved as a new result."),
-            );
+            if !never_sent {
+                status = status.child(
+                    div()
+                        .text_color(muted)
+                        .child("Re-run saved as a new result."),
+                );
+            }
             actions = actions.child(
                 Button::new("copilot-rerun-open")
                     .label("Open re-run result")

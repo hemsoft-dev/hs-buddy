@@ -389,11 +389,10 @@ impl ChatView {
                             if this.sidebar_context.is_some() {
                                 this.conversation_scroll.scroll_to_bottom();
                             }
-                            let now = this.run.as_ref().map(|run| {
-                                let state = run.snapshot();
-                                (state.result_id.is_some(), state.busy)
-                            });
-                            if saved && let Some(now) = now.filter(|now| *now != seen) {
+                            let now = saved
+                                .then(|| this.run.as_ref().map(RunHandle::record_and_busy))
+                                .flatten();
+                            if let Some(now) = now.filter(|now| *now != seen) {
                                 seen = now;
                                 this.refresh_recent(cx);
                             }

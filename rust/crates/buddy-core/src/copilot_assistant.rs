@@ -159,6 +159,12 @@ impl RunHandle {
             cleanup_warning: state.cleanup_warning,
         }
     }
+    /// Whether the run has a saved record and is still busy, without copying
+    /// its output.
+    pub fn record_and_busy(&self) -> (bool, bool) {
+        let state = lock(&self.shared.state);
+        (state.execution.result_id().is_some(), state.busy)
+    }
     pub fn subscribe(&self) -> watch::Receiver<()> {
         self.shared.updates.subscribe()
     }
