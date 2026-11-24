@@ -171,6 +171,10 @@ async function rerunSource(ctx: MutationCtx, args: BeginArgs, sourceId: Id<'copi
   const source = await ctx.db.get(sourceId)
   if (!source) throw new Error('The result to re-run no longer exists.')
   if (source.prompt !== args.prompt) throw new Error('A re-run must send the saved prompt.')
+  // A native session cannot fetch a PR's diff, so its answer must never stand
+  // for a review of the saved head.
+  if (source.category === 'pr-review')
+    throw new Error('A PR review is re-run from its pull request, not from a saved result.')
   const metadata: unknown = source.metadata
   const raw = isRecord(metadata) ? metadata.ghAccount : undefined
   // A blank or padded saved login reads as the native client reads it:

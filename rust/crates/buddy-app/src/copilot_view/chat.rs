@@ -967,7 +967,7 @@ impl ChatView {
         row
     }
 
-    /// Electron's "Recent" list: shown once there is a result; a row opens it.
+    /// Electron's "Recent" list; a row opens it. Refresh is always offered.
     fn recent_list(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let muted = cx.theme().muted_foreground;
         let mut list = v_flex()
@@ -1005,9 +1005,8 @@ impl ChatView {
                     .on_click(cx.listener(|this, _, _, cx| this.refresh_recent(cx))),
             );
         let mut section = v_flex().gap_1();
-        if !self.recent.rows.is_empty() || self.recent.unavailable {
-            section = section.child(header);
-        }
+        // The header carries Refresh, so it stays even when nothing is saved yet.
+        section = section.child(header);
         if self.recent.unavailable {
             section = section.child(
                 div()

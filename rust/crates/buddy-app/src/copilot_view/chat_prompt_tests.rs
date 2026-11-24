@@ -260,3 +260,22 @@ fn a_refresh_asked_for_while_loading_waits_and_the_sidebar_never_reads(
         })
     });
 }
+
+#[gpui_kit::test]
+fn recent_keeps_refresh_after_an_empty_successful_read(cx: &mut gpui_kit::TestAppContext) {
+    let (handle, view) = open(cx);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.recent.apply(Some(recent::fetched(
+                Vec::new(),
+                Some(ActiveCounts::default()),
+            )));
+            cx.notify();
+        })
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("copilot-recent-refresh").is_some());
+    })
+    .unwrap();
+}

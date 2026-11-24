@@ -62,28 +62,17 @@ test('a request without a category stays general and a captured review stays a P
   expect(results.map(row => row.category).sort()).toEqual(['general', 'pr-review'])
 })
 
-test('a re-run copies the saved category and metadata but adds no AI Reviews entry', async () => {
+test('a PR review is never re-run from a saved result', async () => {
   const t = convexTest(schema, modules)
   const source = await t.mutation(begin, { ...input, review })
-  const rerun = { ...input, requestId: rerunRequest, rerunOf: source.id }
-  const created = await t.mutation(begin, rerun)
-  expect(created).toMatchObject({ created: true, status: 'pending' })
-  expect(created.id).not.toBe(source.id)
-  expect(await t.mutation(begin, rerun)).toEqual({
-    id: created.id,
-    created: false,
-    status: 'pending',
-  })
+  await expect(
+    t.mutation(begin, { ...input, requestId: rerunRequest, rerunOf: source.id })
+  ).rejects.toThrow('PR review')
   const { results, reviews } = await rows(t)
-  const copy = results.find(row => row._id === created.id)
-  const original = results.find(row => row._id === source.id)
-  expect(copy).toMatchObject({ prompt: input.prompt, category: 'pr-review' })
-  expect(copy?.metadata).toEqual(original?.metadata)
-  // Without tools a native re-run never sees the diff, so it must not stand
-  // for a review of the saved head in the PR's AI Reviews history.
+  // Only the original result and its review run exist.
+  expect(results).toHaveLength(1)
   expect(reviews).toHaveLength(1)
-  expect(reviews.find(row => row.resultId === created.id)).toBeUndefined()
-  expect(await t.query(api.copilotResults.countActive, {})).toEqual({ pending: 2, running: 0 })
+  expect(await t.query(api.copilotResults.countActive, {})).toEqual({ pending: 1, running: 0 })
 })
 
 test('a re-run of an Electron result keeps its metadata and category as saved', async () => {

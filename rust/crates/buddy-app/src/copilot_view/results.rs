@@ -421,13 +421,13 @@ impl ResultsView {
                         cx.notify();
                     })),
             )
-            .child(
+            .children(result.can_rerun().then(|| {
                 Button::new("copilot-rerun-saved-prompt")
                     .label("Re-run this prompt")
                     .icon(IconName::RefreshCw)
                     .disabled(self.busy() || self.rerun_busy())
-                    .on_click(cx.listener(|this, _, _, cx| this.rerun(cx))),
-            )
+                    .on_click(cx.listener(|this, _, _, cx| this.rerun(cx)))
+            }))
             .child(
                 Button::new("copilot-delete-saved-result")
                     .label("Delete saved result…")
@@ -504,7 +504,11 @@ impl ResultsView {
         if let Some(message) = message {
             detail = detail.child(div().text_color(muted).child(message));
         }
-        if result.content_state() == ContentState::Failed {
+        if !result.can_rerun() {
+            detail = detail.child(div().text_color(muted).child(
+                "A PR review is not re-run here: start a new review from the pull request so it sees the current changes.",
+            ));
+        } else if result.content_state() == ContentState::Failed {
             // Electron's failed panel offers Retry under the failure message.
             detail = detail.child(
                 Button::new("copilot-retry-failed-result")

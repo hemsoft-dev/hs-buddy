@@ -98,7 +98,7 @@ impl ResultsView {
         if self.busy() || self.rerun_busy() || !cx.has_global::<Runtime>() {
             return;
         }
-        let Some(result) = &self.selected else {
+        let Some(result) = self.selected.as_ref().filter(|result| result.can_rerun()) else {
             return;
         };
         let settings = cx
@@ -230,6 +230,21 @@ impl ResultsView {
                         .on_click(cx.listener(|this, _, _, cx| this.dismiss_rerun(cx))),
                 );
             }
+        }
+        if !state.output.is_empty() && !state.busy && state.save != SaveState::Saved {
+            // A failed save keeps the answer only here; let it be copied
+            // before continuing without confirmation drops it.
+            actions = actions.child(
+                Button::new("copilot-rerun-copy")
+                    .label("Copy re-run answer")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(run) = &this.rerun.run {
+                            cx.write_to_clipboard(ClipboardItem::new_string(run.snapshot().output));
+                            this.notice = Some("Re-run answer copied.".into());
+                            cx.notify();
+                        }
+                    })),
+            );
         }
         if !state.busy && state.save == SaveState::Reconciled && state.result_id.is_none() {
             status = status.child(

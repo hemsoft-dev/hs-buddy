@@ -119,6 +119,12 @@ impl SavedResult {
             && (1.0..=9_007_199_254_740_991.0).contains(&number))
         .then_some(number as u64)
     }
+    /// A native session has no tools to fetch a PR's diff, so a PR review is
+    /// never re-run here: its answer could be published as a review of a
+    /// head it never saw.
+    pub fn can_rerun(&self) -> bool {
+        self.category.as_deref() != Some(REVIEW_CATEGORY)
+    }
     /// Electron offers "Open PR on GitHub" only for a pr-review result with
     /// a metadata.prUrl. Native opens it only as a credential-free web link.
     pub fn pull_request_url(&self) -> Option<String> {

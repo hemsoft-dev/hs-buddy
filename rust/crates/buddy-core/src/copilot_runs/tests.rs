@@ -271,3 +271,15 @@ fn review_freshness_compares_captured_repository_pr_and_head_without_rebinding()
         ReviewFreshness::NotAReview
     );
 }
+
+#[test]
+fn a_refused_creation_is_definite_and_never_starts_a_model_turn() {
+    let mut run = run(true);
+    assert!(run.record_rejected(run.key()));
+    assert_eq!(run.phase(), Phase::Failed);
+    assert_eq!(run.failure(), Some(Failure::RecordRejected));
+    // Nothing was created, so a late identifier cannot attach to it.
+    assert!(!run.record_created(run.key(), "late-id".into()));
+    assert_eq!(run.result_id(), None);
+    assert!(matches!(run.begin_send(), Err(Failure::NotPrepared)));
+}

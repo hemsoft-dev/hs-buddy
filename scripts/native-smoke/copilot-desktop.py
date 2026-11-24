@@ -221,11 +221,16 @@ def chat_turns(driver):
     dark = driver.drive('chat-dark', [
         ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
         ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
-        ('content', 'Run and save'), ('wait_text', 'Assistant is responding'), ('capture', 'streaming-dark'),
+        # Electron's category is chosen before the run and stored on the result.
+        ('content', 'Documentation'),
+        ('content', 'Run and save'), ('wait_text', 'Assistant is responding'), ('wait_text', '1 active'), ('capture', 'streaming-dark'),
         ('wait_scroll_text', 'Saved to results'), ('reveal_text', 'Copy answer', 'Saved to results'),
         ('content', 'Copy answer'), ('capture', 'completed-dark'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Synthetic assistant'), ('capture', 'saved-result-dark'),
+        # Re-run the saved prompt: a new saved result with the same category.
+        ('content', 'Re-run this prompt'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
+        ('content', 'Open re-run result'), ('wait_text', 'Synthetic assistant'), ('capture', 'rerun-opened-dark'),
         # A new conversation starts from the saved account or the active gh
         # login; the runner has neither, so name the synthetic account again.
         ('content', 'Chat'), ('content', 'New conversation'), ('input', 'GitHub account', 'synthetic-account'),
@@ -233,12 +238,26 @@ def chat_turns(driver):
         ('content', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('content', 'Cancel response'),
         ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
         ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
+        # A cleared conversation leaves the cancelled prompt only in Recent;
+        # its row opens the saved result.
+        ('content', 'New conversation'), ('wait_scroll_text', 'BUDDYCANCEL73429'), ('content', 'BUDDYCANCEL73429'),
+        ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
     ], record=True)
     github.check(dark / 'streaming-dark.png', 'Assistant is responding')
-    # Electron's prompt-box categories and its saved result's re-run action.
-    # The scene does not re-run: the provider receipt counts five turns.
+    github.check(dark / 'streaming-dark.png', '1 active')
     github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results', 'Documentation')
     github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant', 'Re-run this prompt')
+    github.check(dark / 'rerun-saved-dark.png', 'Re-run saved as a new result', 'Open re-run result')
+    github.check(dark / 'rerun-opened-dark.png', 'Completed', 'Synthetic assistant')
+    github.check(dark / 'recent-opened-dark.png', 'BUDDYCANCEL73429', 'Re-run this prompt')
+
+
+def require_prompt_records(backend):
+    """The chosen category reached the saved result and its re-run."""
+    streamed = [row for row in backend.query('copilotResults:listRecent')
+        if row.get('prompt') == 'BUDDYSTREAM61527']
+    if len(streamed) != 2 or any(row.get('category') != 'documentation' or row['status'] != 'completed' for row in streamed):
+        raise RuntimeError('The chosen category or the re-run did not reach the saved results')
     github.check(dark / 'cancelled-compact-dark.png', 'Cancelled', 'Partial synthetic answer')
 
 
@@ -383,6 +402,7 @@ def qualify(executable, output, session, version, backend, api):
             terminal.verify_sentinel(sentinel, 'headless SDK cleanup')
             with streaming_capture(output):
                 chat_turns(driver)
+            require_prompt_records(backend)
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
             assert_no_owned_children(output)
             code_copy(driver, 'dark')

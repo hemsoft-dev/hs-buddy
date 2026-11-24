@@ -355,3 +355,32 @@ fn a_re_run_without_an_account_explains_why_and_starts_nothing(cx: &mut gpui_kit
         })
     });
 }
+
+#[gpui_kit::test]
+fn a_pr_review_is_not_re_run_from_saved_results(cx: &mut gpui_kit::TestAppContext) {
+    let view = setup(cx);
+    let window = cx.update(|cx| cx.windows()[0]);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            let mut review = saved_result(
+                "failed",
+                serde_json::json!({"ghAccount": "saved-account"}),
+                Some("saved-model"),
+            );
+            review.category = Some("pr-review".into());
+            view.selected_id = Some("saved-result".into());
+            view.selected = Some(review);
+            // Even a direct call starts nothing: the native session can't see the diff.
+            view.rerun_with(cx, |_, _| never_started());
+            assert!(rerun::test_run(&view.rerun).is_none());
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("copilot-rerun-saved-prompt").is_none());
+        assert!(window.try_find("copilot-retry-failed-result").is_none());
+    })
+    .unwrap();
+}

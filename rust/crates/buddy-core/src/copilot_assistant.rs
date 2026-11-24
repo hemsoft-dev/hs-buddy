@@ -307,6 +307,18 @@ async fn drive(
                 // now, not only once a slow runtime start has finished.
                 shared.changed();
             }
+            Err(crate::copilot_backend::Error::Rejected) => {
+                // The mutation threw and rolled back: no record exists, so
+                // there is nothing to reconcile or retry saving.
+                let mut state = lock(&shared.state);
+                state.execution.record_rejected(key);
+                state.save = SaveState::NotRequested;
+                state.busy = false;
+                state.progress = Progress::Finished;
+                drop(state);
+                shared.changed();
+                return;
+            }
             receipt => {
                 let mut state = lock(&shared.state);
                 state.execution.record_unknown(key);
