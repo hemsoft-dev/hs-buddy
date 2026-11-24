@@ -167,6 +167,14 @@ fn reconciliation_never_rewrites_an_already_running_or_terminal_result() {
             let key = state.execution.key();
             assert!(state.execution.record_unknown(key));
         }
+        if status == RecordStatus::Deleted {
+            // A duplicate begin receipt may already have attached the id.
+            let mut state = lock(&handle.shared.state);
+            let key = state.execution.key();
+            state
+                .execution
+                .record_created(key, "existing-result".into());
+        }
         assert!(reconciled_record(&handle.shared, "existing-result".into(), status).is_none());
         assert!(lock(&handle.shared.state).captured.is_none());
         assert_eq!(handle.snapshot().save, SaveState::Reconciled);

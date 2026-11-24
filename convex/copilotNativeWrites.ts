@@ -189,7 +189,6 @@ async function rerunSource(ctx: MutationCtx, args: BeginArgs, sourceId: Id<'copi
       : { ghAccount: args.account },
     // No AI Reviews entry: a native session has no tools to fetch the PR
     // diff, so a re-run must not stand for a review of the saved head.
-    review: null,
   }
 }
 
@@ -200,7 +199,6 @@ async function recordFields(ctx: MutationCtx, args: BeginArgs) {
     return {
       category: args.category ?? 'general',
       metadata: { ghAccount: args.account },
-      review: null,
     }
   return {
     category: 'pr-review',
@@ -212,40 +210,26 @@ async function recordFields(ctx: MutationCtx, args: BeginArgs) {
       ghAccount: args.account,
       reviewedHeadSha: review.head,
     },
-    review: null,
   }
 }
 
+// Only a captured review creates a linked review run.
 async function insertReviewRun(
   ctx: MutationCtx,
   args: BeginArgs,
   resultId: Id<'copilotResults'>,
-  now: number,
-  previous: Doc<'prReviewRuns'> | null
+  now: number
 ) {
   const review = args.review
-  const pull = review
-    ? {
-        owner: review.owner,
-        repo: review.repo,
-        prNumber: review.prNumber,
-        prUrl: pullRequestUrl(review),
-        prTitle: review.title,
-        reviewedHeadSha: review.head,
-        reviewedThreadStats: review.threadStats,
-      }
-    : previous && {
-        owner: previous.owner,
-        repo: previous.repo,
-        prNumber: previous.prNumber,
-        prUrl: previous.prUrl,
-        prTitle: previous.prTitle,
-        reviewedHeadSha: previous.reviewedHeadSha,
-        reviewedThreadStats: previous.reviewedThreadStats,
-      }
-  if (!pull) return
+  if (!review) return
   await ctx.db.insert('prReviewRuns', {
-    ...pull,
+    owner: review.owner,
+    repo: review.repo,
+    prNumber: review.prNumber,
+    prUrl: pullRequestUrl(review),
+    prTitle: review.title,
+    reviewedHeadSha: review.head,
+    reviewedThreadStats: review.threadStats,
     prompt: args.prompt,
     resultId,
     model: args.model,
@@ -300,7 +284,7 @@ export const begin = mutation({
       payloadDigest: fingerprint,
       resultId: id,
     })
-    await insertReviewRun(ctx, args, id, now, fields.review)
+    await insertReviewRun(ctx, args, id, now)
     await transitionResultCount(ctx, undefined, 'pending')
     return { id, created: true, status: 'pending' as const }
   },

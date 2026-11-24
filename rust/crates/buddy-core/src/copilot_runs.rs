@@ -285,6 +285,15 @@ impl Execution {
         true
     }
 
+    /// The record was deleted: keep the outcome but nothing left to open.
+    pub fn record_deleted(&mut self, key: RunKey) -> bool {
+        if key != self.key {
+            return false;
+        }
+        self.result_id = None;
+        true
+    }
+
     /// A definite refusal: the backend created nothing, so nothing is unknown.
     pub fn record_rejected(&mut self, key: RunKey) -> bool {
         if key != self.key || self.phase != Phase::AwaitingRecord {

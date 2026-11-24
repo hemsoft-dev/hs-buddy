@@ -162,13 +162,32 @@ test('a saved Chat conversation previews the user turn that ran, not its preambl
   const preamble = 'Answer using the supplied conversation. Format the response as Markdown.\n'
   await t.run(async ctx => {
     await ctx.db.insert('copilotResults', {
+      nativeRequestId: 'aa112233-4455-4677-8899-aabbccddeeff',
       prompt: preamble + 'User: first\nAssistant: one\nUser: Second question 界',
       status: 'completed',
+      createdAt: 3,
+    })
+    // An Electron prompt that quotes a dialogue keeps its whole text.
+    await ctx.db.insert('copilotResults', {
+      prompt: 'Summarize this:\nUser: hello',
+      status: 'completed',
+      createdAt: 2,
+    })
+    // A captured review, or a turn that would be empty, keeps its whole prompt.
+    await ctx.db.insert('copilotResults', {
+      nativeRequestId: 'bb112233-4455-4677-8899-aabbccddeeff',
+      prompt: 'Review this pull request.\nUser: ',
+      status: 'completed',
+      category: 'pr-review',
       createdAt: 1,
     })
   })
   const result = await t.query(list, { paginationOpts: { numItems: 25, cursor: null } })
-  expect(result.page.map(row => row.promptPreview)).toEqual(['Second question 界'])
+  expect(result.page.map(row => row.promptPreview)).toEqual([
+    'Second question 界',
+    'Summarize this: User: hello',
+    'Review this pull request. User: ',
+  ])
 })
 
 test('empty, exact-length and control-character previews preserve Unicode boundaries', async () => {

@@ -145,7 +145,12 @@ impl NativeRequest {
             "requestId": identity, "prompt": execution.prompt(),
             "model": context.model, "account": context.account,
         });
-        if let Some(category) = record.category {
+        // General is the backend's default; omitting it keeps Run and save
+        // working against a deployment from before categories.
+        if let Some(category) = record
+            .category
+            .filter(|category| *category != Category::General)
+        {
             arguments["category"] = json!(category.code());
         }
         if let Some(source) = &record.rerun_of {

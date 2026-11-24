@@ -219,6 +219,15 @@ fn a_saved_request_carries_the_chosen_category_or_the_result_it_re_runs() {
     assert!(request.arguments.get("category").is_none());
     let plain = NativeRequest::new(&execution(None, true), None).unwrap();
     assert!(plain.arguments.get("category").is_none());
+    let general = RecordOptions {
+        category: Some(Category::General),
+        rerun_of: None,
+    };
+    let request = NativeRequest::recorded(&execution(None, true), None, &general).unwrap();
+    assert!(
+        request.arguments.get("category").is_none(),
+        "the default is left to the backend"
+    );
     assert!(plain.arguments.get("rerunOf").is_none());
     // A re-run keeps the saved category; a captured review is always a PR Review.
     for record in [

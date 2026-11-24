@@ -575,7 +575,9 @@ fn reconciled_record(
     let mut state = lock(&shared.state);
     let key = state.execution.key();
     if status == RecordStatus::Deleted {
-        // Stored, then deleted: known, but there is no result to open.
+        // Stored, then deleted: known, but there is no result to open, even
+        // when a duplicate begin receipt already attached its id.
+        state.execution.record_deleted(key);
         state.save = SaveState::Reconciled;
         return None;
     }
