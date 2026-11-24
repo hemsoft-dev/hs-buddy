@@ -1,6 +1,8 @@
 import { v } from 'convex/values'
-import { mutation, query, type DatabaseReader } from './_generated/server'
+import { mutation, query, type DatabaseReader, type DatabaseWriter } from './_generated/server'
+import { MS_PER_DAY } from './lib/constants'
 import { SINGLETON_KEY } from './lib/domain'
+import { validateRequestId } from './lib/runCreate'
 import {
   validateStatFields,
   buildIncrementPatch,
@@ -135,23 +137,62 @@ export const batchIncrement = mutation({
   args: {
     fields: v.any(), // Record<string, number>
   },
-  handler: async (ctx, { fields }) => {
-    const entries = Object.entries(fields as Record<string, number>)
-    validateStatFields(fields as Record<string, number>, COUNTER_FIELDS)
+  handler: async (ctx, { fields }) => applyIncrement(ctx.db, fields as Record<string, number>),
+})
 
+async function applyIncrement(db: DatabaseWriter, fields: Record<string, number>) {
+  const entries = Object.entries(fields)
+  validateStatFields(fields, COUNTER_FIELDS)
+
+  const now = Date.now()
+
+  const existing = await getDefaultStats(db)
+
+  if (existing) {
+    const patch = buildIncrementPatch(entries, existing as Record<string, unknown>)
+    patch.updatedAt = now
+    await db.patch('buddyStats', existing._id, patch)
+    return existing._id
+  }
+
+  const doc = buildInitialStatsDoc({ key: SINGLETON_KEY, ...DEFAULT_STATS }, entries, now)
+  return await db.insert('buddyStats', doc as never)
+}
+
+// A receipt only has to outlive the client's resend after a reconnect.
+const INCREMENT_RECEIPT_RETENTION_MS = MS_PER_DAY
+const INCREMENT_RECEIPT_PRUNE = 50
+
+/**
+ * Native counters: the same validation and increment as `batchIncrement`,
+ * once per request identity. The Rust Convex client resends an unacknowledged
+ * mutation under a new session after a reconnect, so a repeated `requestId`
+ * returns without counting again.
+ */
+export const incrementNative = mutation({
+  args: {
+    requestId: v.string(),
+    fields: v.any(), // Record<string, number>
+  },
+  handler: async (ctx, { requestId, fields }) => {
+    validateRequestId(requestId)
+    const previous = await ctx.db
+      .query('buddyStatsReceipts')
+      .withIndex('by_request', q => q.eq('requestId', requestId))
+      .unique()
+    if (previous) return { counted: false }
+    await applyIncrement(ctx.db, fields as Record<string, number>)
     const now = Date.now()
-
-    const existing = await getDefaultStats(ctx.db)
-
-    if (existing) {
-      const patch = buildIncrementPatch(entries, existing as Record<string, unknown>)
-      patch.updatedAt = now
-      await ctx.db.patch('buddyStats', existing._id, patch)
-      return existing._id
+    await ctx.db.insert('buddyStatsReceipts', { requestId, createdAt: now })
+    const expired = await ctx.db
+      .query('buddyStatsReceipts')
+      .withIndex('by_created', q => q.lt('createdAt', now - INCREMENT_RECEIPT_RETENTION_MS))
+      .take(INCREMENT_RECEIPT_PRUNE)
+    for (const receipt of expired) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- A small, bounded prune of expired receipts.
+      await ctx.db.delete(receipt._id)
     }
-
-    const doc = buildInitialStatsDoc({ key: SINGLETON_KEY, ...DEFAULT_STATS }, entries, now)
-    return await ctx.db.insert('buddyStats', doc as never)
+    return { counted: true }
   },
 })
 
@@ -163,41 +204,47 @@ export const batchIncrement = mutation({
  */
 export const recordSessionStart = mutation({
   args: {},
-  handler: async ctx => {
-    const now = Date.now()
+  handler: async ctx => (await startSession(ctx.db)).id,
+})
 
-    const existing = await getDefaultStats(ctx.db)
+async function startSession(db: DatabaseWriter, owner?: string) {
+  const now = Date.now()
 
-    if (existing) {
-      // If a session is already active, don't double-count
-      if (existing.lastSessionStart) {
-        return existing._id
-      }
+  const existing = await getDefaultStats(db)
 
-      const patch: Record<string, unknown> = {
-        appLaunches: existing.appLaunches + 1,
-        lastSessionStart: now,
-        updatedAt: now,
-      }
-      // Set firstLaunchDate if it was never set (or zero)
-      if (!existing.firstLaunchDate) {
-        patch.firstLaunchDate = now
-      }
-      await ctx.db.patch('buddyStats', existing._id, patch)
-      return existing._id
+  if (existing) {
+    // If a session is already active, don't double-count
+    if (existing.lastSessionStart) {
+      return { id: existing._id, started: false }
     }
 
-    return await ctx.db.insert('buddyStats', {
-      key: SINGLETON_KEY,
-      ...DEFAULT_STATS,
-      appLaunches: 1,
-      firstLaunchDate: now,
+    const patch: Record<string, unknown> = {
+      appLaunches: existing.appLaunches + 1,
       lastSessionStart: now,
-      createdAt: now,
       updatedAt: now,
-    })
-  },
-})
+    }
+    // Set firstLaunchDate if it was never set (or zero)
+    if (!existing.firstLaunchDate) {
+      patch.firstLaunchDate = now
+    }
+    // An Electron start (no owner) clears any owner left by an older session.
+    patch.sessionOwner = owner
+    await db.patch('buddyStats', existing._id, patch)
+    return { id: existing._id, started: true }
+  }
+
+  const id = await db.insert('buddyStats', {
+    key: SINGLETON_KEY,
+    ...DEFAULT_STATS,
+    appLaunches: 1,
+    firstLaunchDate: now,
+    lastSessionStart: now,
+    ...(owner ? { sessionOwner: owner } : {}),
+    createdAt: now,
+    updatedAt: now,
+  })
+  return { id, started: true }
+}
 
 /**
  * Record session end — flush accumulated uptime.
@@ -206,21 +253,32 @@ export const recordSessionStart = mutation({
 export const recordSessionEnd = mutation({
   args: {},
   handler: async ctx => {
-    const now = Date.now()
-
-    const existing = await getDefaultStats(ctx.db)
-
-    if (!existing || !existing.lastSessionStart) return
-
-    const elapsed = Math.max(0, now - existing.lastSessionStart)
-
-    await ctx.db.patch('buddyStats', existing._id, {
-      totalUptimeMs: existing.totalUptimeMs + elapsed,
-      lastSessionStart: undefined,
-      updatedAt: now,
-    })
+    await flushUptime(ctx.db, { end: true })
   },
 })
+
+/**
+ * Add the time since `lastSessionStart` to `totalUptimeMs`, then end the
+ * session (and its owner) or restart its clock. With `owner`, only that
+ * client's session.
+ */
+async function flushUptime(db: DatabaseWriter, { end, owner }: { end: boolean; owner?: string }) {
+  const now = Date.now()
+
+  const existing = await getDefaultStats(db)
+
+  if (!existing || !existing.lastSessionStart) return
+  if (owner !== undefined && existing.sessionOwner !== owner) return
+
+  const elapsed = Math.max(0, now - existing.lastSessionStart)
+
+  await db.patch('buddyStats', existing._id, {
+    totalUptimeMs: existing.totalUptimeMs + elapsed,
+    lastSessionStart: end ? undefined : now,
+    ...(end ? { sessionOwner: undefined } : {}),
+    updatedAt: now,
+  })
+}
 
 /**
  * Checkpoint uptime without ending the session.
@@ -230,18 +288,46 @@ export const recordSessionEnd = mutation({
 export const checkpointUptime = mutation({
   args: {},
   handler: async ctx => {
-    const now = Date.now()
+    await flushUptime(ctx.db, { end: false })
+  },
+})
 
+// ── Native session ────────────────────────────────────────────────────────
+//
+// The native app names its session with one UUID per launch (`owner`), so a
+// resent start is recognised and a native checkpoint or quit never touches a
+// session another client opened. Electron keeps the functions above.
+
+/**
+ * Start the native session. `started` is true when this owner holds the
+ * session: newly opened (counting a launch), or already its own (a resend).
+ * Another client's open session is left as it is and `started` is false.
+ */
+export const recordSessionStartNative = mutation({
+  args: { owner: v.string() },
+  handler: async (ctx, { owner }) => {
+    validateRequestId(owner)
     const existing = await getDefaultStats(ctx.db)
+    if (existing?.lastSessionStart) return { started: existing.sessionOwner === owner }
+    const { started } = await startSession(ctx.db, owner)
+    return { started }
+  },
+})
 
-    if (!existing || !existing.lastSessionStart) return
+/** `checkpointUptime`, for the owner's own session only. */
+export const checkpointUptimeNative = mutation({
+  args: { owner: v.string() },
+  handler: async (ctx, { owner }) => {
+    validateRequestId(owner)
+    await flushUptime(ctx.db, { end: false, owner })
+  },
+})
 
-    const elapsed = Math.max(0, now - existing.lastSessionStart)
-
-    await ctx.db.patch('buddyStats', existing._id, {
-      totalUptimeMs: existing.totalUptimeMs + elapsed,
-      lastSessionStart: now,
-      updatedAt: now,
-    })
+/** `recordSessionEnd`, for the owner's own session only; it clears the owner. */
+export const recordSessionEndNative = mutation({
+  args: { owner: v.string() },
+  handler: async (ctx, { owner }) => {
+    validateRequestId(owner)
+    await flushUptime(ctx.db, { end: true, owner })
   },
 })

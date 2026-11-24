@@ -108,14 +108,14 @@ are enforced by `scripts/check-readme-metadata.ts`.
 │           │ Convex SDK                                           │
 │           ▼                                                      │
 │  ┌────────────────────┐                                          │
-│  │  Convex Cloud       │  21 schema tables · scheduled jobs      │
+│  │  Convex Cloud       │  22 schema tables · scheduled jobs      │
 │  │  Real-time sync     │  File storage for run outputs           │
 │  │  Offline resilience │                                          │
 │  └────────────────────┘                                          │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Model (21 Convex Schema Tables + System Storage)
+### Data Model (22 Convex Schema Tables + System Storage)
 
 | Table                       | Purpose                                                         |
 | --------------------------- | --------------------------------------------------------------- |
@@ -131,6 +131,7 @@ are enforced by `scripts/check-readme-metadata.ts`.
 | `bookmarks`                 | URL collection with categories, tags, sort order                |
 | `repoBookmarks`             | Folder-organized repo collection                                |
 | `buddyStats`                | 16 lifetime counters (launches, tabs, PRs viewed, etc.)         |
+| `buddyStatsReceipts`        | Native counter request receipts: each increment counts once     |
 | `copilotResults`            | Stored Copilot prompt/response pairs                            |
 | `copilotNativeRequests`     | Native execution receipts and deleted-result tombstones         |
 | `copilotResultCounts`       | Aggregated Copilot result totals                                |

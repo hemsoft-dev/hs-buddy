@@ -5,6 +5,11 @@
 //! after that, or a process that is killed, leaves the session open, as a
 //! crashed Electron window does, and the next checkpoint then counts that gap.
 //!
+//! The worker (`session_activity::serve`) names this launch's session with one
+//! owner UUID. It sends the start again on each later event until Convex
+//! answers it, and sends checkpoints and the end only for a session this
+//! launch opened, so a quit never ends another client's session.
+//!
 //! The timer runs on GPUI's executor, so tests drive it with the test clock.
 use std::rc::Rc;
 

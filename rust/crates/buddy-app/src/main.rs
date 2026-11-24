@@ -476,7 +476,6 @@ fn main() {
         zoom::init(cx);
         terminal_view::init(cx);
         bookmarks_view::init(cx);
-        browser_view::init(cx);
         app::init_navigation(cx);
         explorer_view::init(cx);
 

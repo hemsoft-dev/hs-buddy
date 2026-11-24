@@ -1153,26 +1153,6 @@ impl Render for BuddyApp {
                     this.restore_tab(window, cx);
                 }))
                 .on_action(cx.listener(Self::open_folder))
-                .on_action(
-                    cx.listener(|this, _: &crate::browser_view::ZoomPageIn, _, cx| {
-                        if !this
-                            .browser_view
-                            .update(cx, |view, cx| view.zoom_shortcut(true, cx))
-                        {
-                            cx.propagate();
-                        }
-                    }),
-                )
-                .on_action(
-                    cx.listener(|this, _: &crate::browser_view::ZoomPageOut, _, cx| {
-                        if !this
-                            .browser_view
-                            .update(cx, |view, cx| view.zoom_shortcut(false, cx))
-                        {
-                            cx.propagate();
-                        }
-                    }),
-                )
                 .on_action(cx.listener(|this, _: &ToggleTerminal, window, cx| {
                     this.toggle_terminal(window, cx)
                 }))

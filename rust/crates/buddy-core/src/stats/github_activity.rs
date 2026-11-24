@@ -6,6 +6,7 @@
 
 use serde_json::{Value, json};
 
+use super::{INCREMENT, increment};
 use crate::terminal_backend::{BackendError, TerminalBackend};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,12 +17,12 @@ pub enum GitHubOpen {
     RepositoryList,
 }
 
-fn arguments(open: GitHubOpen) -> Value {
+fn fields(open: GitHubOpen) -> Value {
     let field = match open {
         GitHubOpen::View => "tabsOpened",
         GitHubOpen::RepositoryList => "reposBrowsed",
     };
-    json!({"fields": {field: 1}})
+    json!({field: 1})
 }
 
 pub async fn record(url: &str, open: GitHubOpen) -> Result<(), BackendError> {
@@ -37,7 +38,7 @@ where
     F: FnOnce(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, BackendError>>,
 {
-    write("buddyStats:batchIncrement", arguments(open)).await?;
+    write(INCREMENT, increment(fields(open))).await?;
     Ok(())
 }
 
@@ -47,13 +48,10 @@ mod tests {
 
     #[test]
     fn each_open_increments_only_its_electron_counter() {
+        assert_eq!(fields(GitHubOpen::View), json!({"tabsOpened": 1}));
         assert_eq!(
-            arguments(GitHubOpen::View),
-            json!({"fields": {"tabsOpened": 1}})
-        );
-        assert_eq!(
-            arguments(GitHubOpen::RepositoryList),
-            json!({"fields": {"reposBrowsed": 1}})
+            fields(GitHubOpen::RepositoryList),
+            json!({"reposBrowsed": 1})
         );
     }
 
@@ -63,8 +61,8 @@ mod tests {
             let mut calls = 0;
             record_with(open, |function, sent| {
                 calls += 1;
-                assert_eq!(function, "buddyStats:batchIncrement");
-                assert_eq!(sent, arguments(open));
+                assert_eq!(function, "buddyStats:incrementNative");
+                assert_eq!(super::super::increment_fields(&sent), &fields(open));
                 std::future::ready(Ok(Value::Null))
             })
             .await

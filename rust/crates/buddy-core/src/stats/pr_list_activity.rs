@@ -4,10 +4,11 @@
 
 use serde_json::{Value, json};
 
+use super::{INCREMENT, increment};
 use crate::github::PrMode;
 use crate::terminal_backend::{BackendError, TerminalBackend};
 
-fn arguments(mode: PrMode) -> Value {
+fn fields(mode: PrMode) -> Value {
     let mut fields = json!({"tabsOpened": 1});
     let counter = match mode {
         PrMode::MyPrs => Some("prsViewed"),
@@ -18,7 +19,7 @@ fn arguments(mode: PrMode) -> Value {
     if let Some(counter) = counter {
         fields[counter] = json!(1);
     }
-    json!({"fields": fields})
+    fields
 }
 
 pub async fn record(url: &str, mode: PrMode) -> Result<(), BackendError> {
@@ -34,7 +35,7 @@ where
     F: FnOnce(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, BackendError>>,
 {
-    write("buddyStats:batchIncrement", arguments(mode)).await?;
+    write(INCREMENT, increment(fields(mode))).await?;
     Ok(())
 }
 
@@ -44,7 +45,7 @@ mod tests {
 
     #[test]
     fn each_explicit_open_matches_the_electron_counter_mapping() {
-        for (mode, fields) in [
+        for (mode, expected) in [
             (PrMode::MyPrs, json!({"tabsOpened": 1, "prsViewed": 1})),
             (
                 PrMode::NeedsReview,
@@ -56,7 +57,7 @@ mod tests {
             ),
             (PrMode::NeedANudge, json!({"tabsOpened": 1})),
         ] {
-            assert_eq!(arguments(mode), json!({"fields": fields}));
+            assert_eq!(fields(mode), expected);
         }
     }
 
@@ -70,8 +71,11 @@ mod tests {
             let mut calls = 0;
             let result = record_with(PrMode::MyPrs, |function, arguments| {
                 calls += 1;
-                assert_eq!(function, "buddyStats:batchIncrement");
-                assert_eq!(arguments, json!({"fields":{"tabsOpened":1,"prsViewed":1}}));
+                assert_eq!(function, "buddyStats:incrementNative");
+                assert_eq!(
+                    super::super::increment_fields(&arguments),
+                    &json!({"tabsOpened":1,"prsViewed":1})
+                );
                 std::future::ready(Err(failure))
             })
             .await;
