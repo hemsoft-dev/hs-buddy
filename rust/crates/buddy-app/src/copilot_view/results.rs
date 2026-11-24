@@ -357,7 +357,10 @@ impl ResultsView {
             );
         }
         let Some(result) = &self.selected else {
+            // A re-run keeps its progress and recovery controls in view after
+            // the list reloads without its source result.
             return detail
+                .children(self.rerun_status(cx))
                 .child(
                     div()
                         .text_color(muted)

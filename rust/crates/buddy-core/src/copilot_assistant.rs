@@ -303,6 +303,9 @@ async fn drive(
                 lock(&shared.state)
                     .execution
                     .record_created(key, receipt.id);
+                // Watchers (Recent, the active badge) learn of the saved row
+                // now, not only once a slow runtime start has finished.
+                shared.changed();
             }
             receipt => {
                 let mut state = lock(&shared.state);
@@ -553,6 +556,11 @@ fn reconciled_record(
 ) -> Option<Arc<CapturedOutcome>> {
     let mut state = lock(&shared.state);
     let key = state.execution.key();
+    if status == RecordStatus::Deleted {
+        // Stored, then deleted: known, but there is no result to open.
+        state.save = SaveState::Reconciled;
+        return None;
+    }
     state.execution.record_created(key, id.clone());
     if status == RecordStatus::Pending {
         let captured = Arc::new(CapturedOutcome {

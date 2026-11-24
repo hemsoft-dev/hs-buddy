@@ -170,6 +170,11 @@ fn reconciliation_never_rewrites_an_already_running_or_terminal_result() {
         assert!(reconciled_record(&handle.shared, "existing-result".into(), status).is_none());
         assert!(lock(&handle.shared.state).captured.is_none());
         assert_eq!(handle.snapshot().save, SaveState::Reconciled);
+        // A deleted record leaves nothing to open.
+        assert_eq!(
+            handle.snapshot().result_id.is_none(),
+            status == RecordStatus::Deleted
+        );
         assert!(!root.exists());
     }
 }

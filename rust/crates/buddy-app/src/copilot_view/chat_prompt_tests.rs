@@ -217,6 +217,11 @@ fn the_prompt_header_shows_the_active_count_only_while_prompts_are_active(
         Some(ActiveCounts::default()),
     )));
     assert_eq!(recent.badge(), None);
+    // A split page is shown with a note that newer results may be missing.
+    recent.apply(Some(recent::fetched_page(Vec::new(), true, None)));
+    assert!(recent.partial);
+    recent.apply(Some(recent::fetched(Vec::new(), None)));
+    assert!(!recent.partial);
 
     // The header shows it only in the Copilot pane, never in the sidebar assistant.
     let (_, view) = open(cx);

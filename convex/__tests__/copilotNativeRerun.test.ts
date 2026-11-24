@@ -62,7 +62,7 @@ test('a request without a category stays general and a captured review stays a P
   expect(results.map(row => row.category).sort()).toEqual(['general', 'pr-review'])
 })
 
-test('a re-run copies the saved category, metadata and PR review link into a new result', async () => {
+test('a re-run copies the saved category and metadata but adds no AI Reviews entry', async () => {
   const t = convexTest(schema, modules)
   const source = await t.mutation(begin, { ...input, review })
   const rerun = { ...input, requestId: rerunRequest, rerunOf: source.id }
@@ -79,14 +79,10 @@ test('a re-run copies the saved category, metadata and PR review link into a new
   const original = results.find(row => row._id === source.id)
   expect(copy).toMatchObject({ prompt: input.prompt, category: 'pr-review' })
   expect(copy?.metadata).toEqual(original?.metadata)
-  expect(reviews).toHaveLength(2)
-  expect(reviews.find(row => row.resultId === created.id)).toMatchObject({
-    prTitle: review.title,
-    prUrl: 'https://github.com/owner/repo/pull/7',
-    reviewedHeadSha: review.head,
-    reviewedThreadStats: review.threadStats,
-    status: 'pending',
-  })
+  // Without tools a native re-run never sees the diff, so it must not stand
+  // for a review of the saved head in the PR's AI Reviews history.
+  expect(reviews).toHaveLength(1)
+  expect(reviews.find(row => row.resultId === created.id)).toBeUndefined()
   expect(await t.query(api.copilotResults.countActive, {})).toEqual({ pending: 2, running: 0 })
 })
 

@@ -16,10 +16,12 @@ pub(super) struct Recent {
     /// Another refresh was asked for while one was loading.
     pub stale: bool,
     pub unavailable: bool,
+    /// The read stopped early (a split page), so newer results may be missing.
+    pub partial: bool,
 }
 
 pub(super) struct Fetched {
-    rows: Result<Vec<ResultSummary>, Error>,
+    rows: Result<(Vec<ResultSummary>, bool), Error>,
     active: Result<ActiveCounts, Error>,
 }
 
@@ -27,7 +29,11 @@ pub(super) async fn fetch(backend: CopilotBackend) -> Fetched {
     let rows = backend
         .history(None, LIMIT, &HistoryFilter::All)
         .await
-        .map(|page| page.rows);
+        .map(|page| {
+            let partial =
+                !page.can_append() || (!page.is_done && page.rows.len() < usize::from(LIMIT));
+            (page.rows, partial)
+        });
     let active = backend.count_active().await;
     Fetched { rows, active }
 }
@@ -41,9 +47,10 @@ impl Recent {
             return;
         };
         self.unavailable = fetched.rows.is_err() || fetched.active.is_err();
-        if let Ok(rows) = fetched.rows {
+        if let Ok((rows, partial)) = fetched.rows {
             self.rows = rows;
             self.rows.truncate(LIMIT.into());
+            self.partial = partial;
         }
         if let Ok(active) = fetched.active {
             self.active = active;
@@ -79,8 +86,17 @@ pub(super) fn now_ms() -> f64 {
 
 #[cfg(test)]
 pub(super) fn fetched(rows: Vec<ResultSummary>, active: Option<ActiveCounts>) -> Fetched {
+    fetched_page(rows, false, active)
+}
+
+#[cfg(test)]
+pub(super) fn fetched_page(
+    rows: Vec<ResultSummary>,
+    partial: bool,
+    active: Option<ActiveCounts>,
+) -> Fetched {
     Fetched {
-        rows: Ok(rows),
+        rows: Ok((rows, partial)),
         active: active.ok_or(Error::Unavailable),
     }
 }

@@ -183,7 +183,9 @@ async function rerunSource(ctx: MutationCtx, args: BeginArgs, sourceId: Id<'copi
     metadata: isRecord(metadata)
       ? { ...metadata, ghAccount: args.account }
       : { ghAccount: args.account },
-    review: await linkedReview(ctx, sourceId),
+    // No AI Reviews entry: a native session has no tools to fetch the PR
+    // diff, so a re-run must not stand for a review of the saved head.
+    review: null,
   }
 }
 

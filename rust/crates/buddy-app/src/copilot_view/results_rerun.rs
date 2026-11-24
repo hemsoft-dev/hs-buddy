@@ -231,6 +231,13 @@ impl ResultsView {
                 );
             }
         }
+        if !state.busy && state.save == SaveState::Reconciled && state.result_id.is_none() {
+            status = status.child(
+                div()
+                    .text_color(muted)
+                    .child("The re-run was stored, then deleted."),
+            );
+        }
         if !state.busy
             && matches!(state.save, SaveState::Saved | SaveState::Reconciled)
             && let Some(id) = state.result_id

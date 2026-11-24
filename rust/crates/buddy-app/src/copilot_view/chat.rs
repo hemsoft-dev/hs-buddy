@@ -1018,6 +1018,11 @@ impl ChatView {
         if !self.recent.rows.is_empty() {
             section = section.child(list);
         }
+        if self.recent.partial {
+            section = section.child(div().text_color(muted).child(
+                "Some recent results were too large to list here. Saved results has them all.",
+            ));
+        }
         section.into_any_element()
     }
 }
