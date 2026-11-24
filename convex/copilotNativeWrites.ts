@@ -172,8 +172,11 @@ async function rerunSource(ctx: MutationCtx, args: BeginArgs, sourceId: Id<'copi
   if (!source) throw new Error('The result to re-run no longer exists.')
   if (source.prompt !== args.prompt) throw new Error('A re-run must send the saved prompt.')
   const metadata: unknown = source.metadata
-  const saved = isRecord(metadata) ? metadata.ghAccount : undefined
-  if (typeof saved === 'string' && saved.toLowerCase() !== args.account.toLowerCase())
+  const raw = isRecord(metadata) ? metadata.ghAccount : undefined
+  // A blank or padded saved login reads as the native client reads it:
+  // trimmed, and unset when empty.
+  const saved = typeof raw === 'string' ? raw.trim() : ''
+  if (saved !== '' && saved.toLowerCase() !== args.account.toLowerCase())
     throw new Error('Re-run this result with its saved account.')
   return {
     category: source.category,

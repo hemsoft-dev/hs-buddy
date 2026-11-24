@@ -47,11 +47,39 @@ fn identity(
 }
 
 impl ResultsView {
-    fn rerun_busy(&self) -> bool {
+    pub(super) fn rerun_busy(&self) -> bool {
         self.rerun.run.as_ref().is_some_and(|run| {
             let state = run.snapshot();
             state.busy || state.save == SaveState::Unconfirmed
         })
+    }
+
+    /// A re-run that never started: drop the finished one before it, so
+    /// this error is what the status shows.
+    fn rerun_not_started(&mut self, error: String, cx: &mut Context<Self>) {
+        self.rerun.run = None;
+        self.rerun.generation += 1;
+        self.rerun.error = Some(error);
+        cx.notify();
+    }
+
+    /// Leave an unconfirmed re-run, as Chat's "Continue" does: Saved results
+    /// shows whether it was stored, and another re-run is allowed again.
+    pub(super) fn dismiss_rerun(&mut self, cx: &mut Context<Self>) {
+        if self
+            .rerun
+            .run
+            .as_ref()
+            .is_some_and(|run| run.snapshot().busy)
+        {
+            return;
+        }
+        self.rerun.run = None;
+        self.rerun.generation += 1;
+        self.notice = Some(
+            "Re-run left unconfirmed. Refresh saved results to check whether it was stored.".into(),
+        );
+        cx.notify();
     }
 
     pub(super) fn rerun(&mut self, cx: &mut Context<Self>) {
@@ -79,14 +107,12 @@ impl ResultsView {
         let context = match identity(result, settings) {
             Ok(context) => context,
             Err(error) => {
-                self.rerun.error = Some(error.into());
-                cx.notify();
+                self.rerun_not_started(error.into(), cx);
                 return;
             }
         };
         let Some((executable, owned_directory)) = super::super::chat::assistant_paths() else {
-            self.rerun.error = Some("The private assistant directory is unavailable.".into());
-            cx.notify();
+            self.rerun_not_started("The private assistant directory is unavailable.".into(), cx);
             return;
         };
         let record = RecordOptions {
@@ -108,8 +134,7 @@ impl ResultsView {
         let (run, future) = match started {
             Ok(started) => started,
             Err(error) => {
-                self.rerun.error = Some(error.to_string());
-                cx.notify();
+                self.rerun_not_started(error.to_string(), cx);
                 return;
             }
         };
@@ -198,6 +223,13 @@ impl ResultsView {
                         }
                     })),
             );
+            if !state.busy {
+                actions = actions.child(
+                    Button::new("copilot-rerun-dismiss")
+                        .label("Continue without confirming")
+                        .on_click(cx.listener(|this, _, _, cx| this.dismiss_rerun(cx))),
+                );
+            }
         }
         if !state.busy
             && matches!(state.save, SaveState::Saved | SaveState::Reconciled)

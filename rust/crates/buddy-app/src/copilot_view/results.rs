@@ -422,7 +422,7 @@ impl ResultsView {
                 Button::new("copilot-rerun-saved-prompt")
                     .label("Re-run this prompt")
                     .icon(IconName::RefreshCw)
-                    .disabled(self.busy())
+                    .disabled(self.busy() || self.rerun_busy())
                     .on_click(cx.listener(|this, _, _, cx| this.rerun(cx))),
             )
             .child(
@@ -507,7 +507,7 @@ impl ResultsView {
                 Button::new("copilot-retry-failed-result")
                     .label("Retry")
                     .icon(IconName::RefreshCw)
-                    .disabled(self.busy())
+                    .disabled(self.busy() || self.rerun_busy())
                     .on_click(cx.listener(|this, _, _, cx| this.rerun(cx))),
             );
         }

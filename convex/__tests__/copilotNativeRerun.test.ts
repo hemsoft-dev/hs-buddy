@@ -116,6 +116,20 @@ test('a re-run of an Electron result keeps its metadata and category as saved', 
   expect(stored?.metadata).toEqual({ ghAccount: 'synth' })
 })
 
+test('a blank or padded saved account reads as the native client reads it', async () => {
+  const t = convexTest(schema, modules)
+  const ids = ['dd', 'ee', 'ff'].map(prefix => `${prefix}112233-4455-4677-8899-aabbccddeeff`)
+  for (const [index, ghAccount] of ['', '   ', '  Synth  '].entries()) {
+    const id = await t.mutation(api.copilotResults.create, {
+      prompt: input.prompt,
+      metadata: { ghAccount },
+    })
+    const created = await t.mutation(begin, { ...input, requestId: ids[index], rerunOf: id })
+    const { results } = await rows(t)
+    expect(results.find(row => row._id === created.id)?.metadata).toEqual({ ghAccount: 'synth' })
+  }
+})
+
 test('a re-run refuses a changed prompt, another account, extra fields or a missing source', async () => {
   const t = convexTest(schema, modules)
   const source = await t.mutation(begin, input)
