@@ -30,6 +30,18 @@ impl TodoistView {
         cx.notify();
     }
 
+    /// Hide the task while Todoist completes it, as Electron does.
+    pub(super) fn complete_task(&mut self, id: Id, cx: &mut Context<Self>) {
+        if !self.can_task(&id, WriteKind::Complete) {
+            return;
+        }
+        self.operate(Operation::Submit(TaskChange::Complete(id.clone())), cx);
+        if self.busy {
+            self.completing = Some(id);
+            cx.notify();
+        }
+    }
+
     pub(super) fn can_write(&self) -> bool {
         !self.busy && self.data.is_some() && self.planner.as_ref().is_some_and(Planner::can_submit)
     }
@@ -246,15 +258,17 @@ impl TodoistView {
         }
         let needle = self.filter.read(cx).value().to_lowercase();
         rows.retain(|(_, task)| {
-            task.content.to_lowercase().contains(&needle)
-                || task.description.to_lowercase().contains(&needle)
-                || task
-                    .labels
-                    .iter()
-                    .any(|label| label.to_lowercase().contains(&needle))
-                || project_by_id
-                    .get(&task.project_id)
-                    .is_some_and(|project| project.name.to_lowercase().contains(&needle))
+            // Electron hides a task as soon as Complete is clicked.
+            self.completing.as_ref() != Some(&task.id)
+                && (task.content.to_lowercase().contains(&needle)
+                    || task.description.to_lowercase().contains(&needle)
+                    || task
+                        .labels
+                        .iter()
+                        .any(|label| label.to_lowercase().contains(&needle))
+                    || project_by_id
+                        .get(&task.project_id)
+                        .is_some_and(|project| project.name.to_lowercase().contains(&needle)))
         });
         let matching_tasks = !rows.is_empty();
         if self.pane != Pane::Projects {
@@ -368,10 +382,7 @@ impl TodoistView {
                             .label("Complete")
                             .disabled(!self.can_task(&task.id, WriteKind::Complete))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.operate(
-                                    Operation::Submit(TaskChange::Complete(complete.clone())),
-                                    cx,
-                                )
+                                this.complete_task(complete.clone(), cx)
                             })),
                     )
                     .child(

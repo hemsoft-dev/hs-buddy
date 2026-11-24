@@ -1,5 +1,5 @@
 use super::*;
-use buddy_core::todoist::{CreateDraft, EditDraft, Priority, Task, WriteKind};
+use buddy_core::todoist::{CreateDraft, EditDraft, Priority, Project, Task, WriteKind};
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::{AnyElement, InteractiveElement, StatefulInteractiveElement};
 #[cfg(test)]
@@ -35,9 +35,16 @@ impl Editor {
                 state.set_value(task.description.clone(), window, cx)
             });
         }
+        // Enter in the name or date field submits, as in Electron's add form.
+        // The description keeps Enter for line breaks.
         for input in [&content, &due] {
-            cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())
-                .detach();
+            cx.subscribe(input, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.submit_editor_on_enter(input.entity_id(), cx);
+                }
+                cx.notify()
+            })
+            .detach();
         }
         cx.subscribe(&description, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
@@ -59,6 +66,10 @@ impl Editor {
                 .map(|task| task.priority)
                 .unwrap_or_else(|| Priority::from_api(1).expect("P4")),
         }
+    }
+
+    fn submits_from(&self, input: gpui_kit::EntityId) -> bool {
+        self.content.entity_id() == input || self.due.entity_id() == input
     }
 
     fn change(&self, cx: &Context<TodoistView>) -> Result<TaskChange, String> {
@@ -121,20 +132,22 @@ impl TodoistView {
         cx.notify();
     }
 
-    pub(super) fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(editor) = &self.editor else {
-            return div().into_any_element();
-        };
-        let selected_project = editor.project.as_ref().and_then(|id| {
+    fn editor_project(&self, editor: &Editor) -> Option<&Project> {
+        editor.project.as_ref().and_then(|id| {
             self.data
                 .as_ref()?
                 .projects
                 .iter()
                 .find(|project| &project.id == id && !project.archived && !project.deleted)
-        });
-        let unavailable_project =
-            editor.target.is_none() && editor.project.is_some() && selected_project.is_none();
-        let permitted = match &editor.target {
+        })
+    }
+
+    fn editor_unavailable_project(&self, editor: &Editor) -> bool {
+        editor.target.is_none() && editor.project.is_some() && self.editor_project(editor).is_none()
+    }
+
+    fn editor_permitted(&self, editor: &Editor) -> bool {
+        match &editor.target {
             Some(id) => self.can_task(id, WriteKind::Edit),
             None => {
                 !self.busy
@@ -143,7 +156,60 @@ impl TodoistView {
                         .as_ref()
                         .is_some_and(|planner| planner.can_create_in(editor.project.as_ref()))
             }
+        }
+    }
+
+    /// The Save task path. Validation problems are shown before the write
+    /// permission check, so Enter explains an invalid field like Save does.
+    fn save_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = &self.editor else {
+            return;
         };
+        match editor.change(cx) {
+            Ok(change) => {
+                if self.editor_permitted(editor) && !self.editor_unavailable_project(editor) {
+                    self.operate(Operation::Submit(change), cx);
+                }
+            }
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+            }
+        }
+    }
+
+    /// Enter in the task name or date field. As in Electron, a blank name
+    /// does nothing.
+    fn submit_editor_on_enter(&mut self, input: gpui_kit::EntityId, cx: &mut Context<Self>) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        if self.busy
+            || !editor.submits_from(input)
+            || editor.content.read(cx).value().trim().is_empty()
+        {
+            return;
+        }
+        self.save_editor(cx);
+    }
+
+    /// Escape anywhere in the editor cancels it, like the Cancel button.
+    fn cancel_editor_on_escape(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.busy || self.editor.is_none() {
+            return false;
+        }
+        self.editor = None;
+        cx.notify();
+        true
+    }
+
+    pub(super) fn render_editor(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(editor) = &self.editor else {
+            return div().into_any_element();
+        };
+        let selected_project = self.editor_project(editor);
+        let unavailable_project = self.editor_unavailable_project(editor);
+        let permitted = self.editor_permitted(editor);
         let mut priorities = h_flex().flex_wrap().gap_2();
         for value in (1..=4).rev() {
             let priority = Priority::from_api(value).expect("bounded priority");
@@ -161,6 +227,12 @@ impl TodoistView {
             );
         }
         let mut form = v_flex()
+            // Capture before an Input or Textarea handles Escape locally.
+            .capture_key_down(cx.listener(|this, event: &gpui_kit::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && this.cancel_editor_on_escape(cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .gap_3()
             .child(div().text_lg().child(if editor.target.is_some() {
                 "Edit task"
@@ -244,16 +316,7 @@ impl TodoistView {
                     Button::new("todoist-save-task")
                         .label("Save task")
                         .disabled(!permitted || unavailable_project)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let change = this.editor.as_ref().expect("visible editor").change(cx);
-                            match change {
-                                Ok(change) => this.operate(Operation::Submit(change), cx),
-                                Err(error) => {
-                                    this.error = Some(error);
-                                    cx.notify();
-                                }
-                            }
-                        })),
+                        .on_click(cx.listener(|this, _, _, cx| this.save_editor(cx))),
                 )
                 .child(
                     Button::new("todoist-cancel-editor")

@@ -40,11 +40,11 @@ mod transport;
 
 pub use crate::pending_file::StorageError;
 pub use accounts::{BillingAccount, BillingAccountId, BillingAccountStatus};
-pub use billing_selection::{BillingLookup, BillingSelection};
+pub use billing_selection::{BillingLookup, BillingSelection, inferred_account};
 pub use calendar::AccountCalendar;
 pub use capitalization_totals::CapitalizationTotals;
 pub use change::{ChangeError, DispatchReport, SavedChange, SavedRecovery};
-pub use draft::{Draft, DraftKind};
+pub use draft::{Draft, DraftKind, create_description};
 pub use jira::{JiraClient, JiraError, JiraIssue, JiraProfile, JiraProject, JiraProjectId};
 pub use model::{
     AccountId, Attribute, DaySchedule, IssueId, Page, ScheduleKind, Worklog, WorklogId,

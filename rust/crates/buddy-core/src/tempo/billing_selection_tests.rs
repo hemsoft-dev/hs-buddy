@@ -222,3 +222,81 @@ fn invalid_manual_selection_preserves_the_existing_choice() {
         assert_eq!(state.selected_key(), Some("RETAINED"));
     }
 }
+
+#[test]
+fn an_unchosen_create_account_is_inferred_from_the_issue_key_prefix() {
+    assert_eq!(inferred_account("INT-12"), "INT");
+    assert_eq!(inferred_account("INT"), "INT");
+    for key in ["FIX-17", "INTX-1", "PE-992", "int-12", ""] {
+        assert_eq!(inferred_account(key), "GEN-DEV", "{key:?}");
+    }
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    let lookup = state.begin(project(7));
+    let mut empty = result(connection, 7, "UNUSED", "OPEN");
+    empty.choices.clear();
+    assert!(state.loaded(lookup, empty).unwrap());
+    assert!(state.is_unchosen());
+    assert_eq!(state.selected_key(), None);
+    assert_eq!(state.create_account("INT-4"), Some("INT"));
+    assert_eq!(state.create_account("FIX-17"), Some("GEN-DEV"));
+
+    let mut defaulted = BillingSelection::new(connection, None).unwrap();
+    let lookup = defaulted.begin(project(7));
+    defaulted
+        .loaded(lookup, result(connection, 7, "DEFAULT", "OPEN"))
+        .unwrap();
+    assert!(!defaulted.is_unchosen());
+    assert_eq!(defaulted.create_account("INT-4"), Some("DEFAULT"));
+
+    // An explicit "No billing account" choice is kept, never inferred.
+    state.select(None).unwrap();
+    assert!(!state.is_unchosen());
+    assert_eq!(state.create_account("INT-4"), None);
+    state.select(Some("CHOSEN")).unwrap();
+    assert_eq!(state.create_account("INT-4"), Some("CHOSEN"));
+}
+
+#[test]
+fn inference_never_picks_an_account_the_project_lists_as_closed_or_archived() {
+    for (status, sent) in [("CLOSED", None), ("ARCHIVED", None), ("OPEN", Some("INT"))] {
+        let connection = WriteScope::new();
+        let mut state = BillingSelection::new(connection, None).unwrap();
+        let lookup = state.begin(project(7));
+        // A closed or archived default is never selected, so the account stays unchosen.
+        let mut listed = result(connection, 7, "INT", status);
+        listed.choices[0].is_default = false;
+        state.loaded(lookup, listed).unwrap();
+        assert!(state.is_unchosen(), "{status}");
+        assert_eq!(state.create_account("INT-4"), sent, "{status}");
+        // An account the project doesn't list is still inferred, as in Electron.
+        assert_eq!(state.create_account("FIX-17"), Some("GEN-DEV"), "{status}");
+    }
+}
+
+#[test]
+fn only_a_person_initial_value_or_edit_counts_as_a_chosen_account() {
+    let connection = WriteScope::new();
+    // A project default picked by the lookup is not a choice, so a repeated
+    // lookup or connection recheck takes the fresh default instead.
+    let mut defaulted = BillingSelection::new(connection, None).unwrap();
+    let lookup = defaulted.begin(project(7));
+    defaulted
+        .loaded(lookup, result(connection, 7, "DEFAULT", "OPEN"))
+        .unwrap();
+    assert_eq!(defaulted.selected_key(), Some("DEFAULT"));
+    assert!(!defaulted.is_chosen());
+    defaulted.select(None).unwrap();
+    assert!(defaulted.is_chosen());
+    assert!(
+        BillingSelection::new(connection, Some("TEMPLATE"))
+            .unwrap()
+            .is_chosen()
+    );
+    assert!(
+        BillingSelection::for_edit(connection, None)
+            .unwrap()
+            .is_chosen()
+    );
+    assert!(!BillingSelection::new(connection, None).unwrap().is_chosen());
+}

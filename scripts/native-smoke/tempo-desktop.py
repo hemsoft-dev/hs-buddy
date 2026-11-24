@@ -400,8 +400,8 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'Create worklog', 'No billing account'), ('click', 'Create worklog'),
                     ('wait_scroll_up', 'Enter positive hours'), ('capture', 'invalid-duration-dark'),
                     ('wait_scroll_text', 'Hours or H:MM:SS', 'Tempo timesheet'),
-                    ('input', 'Hours or H:MM:SS', '1:30:01'),
-                    ('wait_scroll_text', 'Create worklog', 'Hours or H:MM:SS'), ('click', 'Create worklog'),
+                    # Enter in a worklog field submits, as in Electron.
+                    ('input', 'Hours or H:MM:SS', '1:30:01'), ('key', 'Return'),
                     ('wait_scroll_up', 'Tempo rejected the worklog change'), ('capture', 'permission-denied-dark'),
                     # OCR cannot read a value inside the focus ring; move focus
                     # to the next editor so the retained hours are legible.

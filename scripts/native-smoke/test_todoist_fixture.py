@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import unittest.mock
 import urllib.error
@@ -255,6 +257,26 @@ class TodoistFixtureTests(unittest.TestCase):
         self.assertEqual(len(self.all_tasks('project-empty')), 1)
         self.request('sync', [self.command('item_delete', id=identifier)])
         self.assertEqual(self.all_tasks('project-empty'), [])
+
+    def test_a_held_completion_reply_waits_once_while_reads_continue(self):
+        self.api.hold_next_close = 1.0
+        update = self.command('item_update', id='task-today', content='Synthetic held-free update')
+        self.request('sync', [update])
+        self.assertEqual((self.api.hold_next_close, self.api.held_close_replied_at), (1.0, None))
+        before = time.time()
+        closing = threading.Thread(target=self.request, args=('sync', [self.command('item_close', id='task-overdue')]))
+        closing.start()
+        # A read made while the completion reply is held still answers first.
+        time.sleep(.1)
+        self.assertTrue(self.all_tasks('project-alpha'))
+        self.assertIsNone(self.api.held_close_replied_at)
+        self.assertTrue(closing.is_alive())
+        closing.join(5)
+        replied = self.api.held_close_replied_at
+        self.assertGreaterEqual(replied - before, 1.0)
+        self.assertEqual(self.api.hold_next_close, 0)
+        self.request('sync', [self.command('item_close', id='task-upcoming')])
+        self.assertEqual(self.api.held_close_replied_at, replied)
 
     def test_dropped_ack_applies_once_and_exact_original_uuid_retry_recovers_ack(self):
         command = self.command(content='Synthetic ambiguous create', project_id='project-empty')

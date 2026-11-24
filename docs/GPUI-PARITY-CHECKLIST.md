@@ -16,8 +16,8 @@ The remaining work is tracked per area in #988 to #995.
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 331 are ported,
-185 are partly ported, 75 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 335 are ported,
+185 are partly ported, 71 are missing natively, 5 are a
 placeholder natively and 26 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
@@ -26,11 +26,11 @@ placeholder natively and 26 do not apply to a native app.
 | [GitHub repositories and pull requests](parity/github.md) | 82 | 16 | 0 | 42 | 23 | 1 |
 | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | 47 | 0 | 0 | 9 | 36 | 2 |
 | [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 14 | 0 | 26 | 31 | 3 |
-| [Todoist and Tempo](parity/planning.md) | 71 | 12 | 0 | 18 | 40 | 1 |
+| [Todoist and Tempo](parity/planning.md) | 71 | 8 | 0 | 18 | 44 | 1 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 10 | 0 | 24 | 52 | 3 |
 | [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 6 | 4 | 21 | 26 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 11 | 0 | 29 | 54 | 7 |
-| **All areas** | **622** | **75** | **5** | **185** | **331** | **26** |
+| **All areas** | **622** | **71** | **5** | **185** | **335** | **26** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
@@ -45,7 +45,8 @@ against it. Each area page lists them first, with the concrete difference.
   route or control exists but does nothing yet. *Label only* means a label or
   enum entry with no behavior behind it.
 - **Native state**:
-  - *Ported*: the native app has equivalent behavior.
+  - *Ported*: the native app has equivalent behavior. A deliberate difference,
+    such as a safer default, is named in the row's Difference column.
   - *Partly ported*: it has the capability with a named difference.
   - *Missing*: no native counterpart was found.
   - *Placeholder*: the native app shows a placeholder.

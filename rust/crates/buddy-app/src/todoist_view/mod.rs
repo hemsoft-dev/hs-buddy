@@ -41,7 +41,9 @@ enum Operation {
     Recovery,
 }
 type ConnectionResult = Result<Option<(Planner, Option<String>)>, String>;
-type OperationResult = (Planner, Result<String, String>);
+/// The flag keeps a confirmed completion hidden while the loaded list does
+/// not yet reflect it.
+type OperationResult = (Planner, Result<String, String>, bool);
 
 pub struct TodoistView {
     planner: Option<Planner>,
@@ -56,6 +58,8 @@ pub struct TodoistView {
     project_page: usize,
     editor: Option<editor::Editor>,
     delete_target: Option<Id>,
+    /// A task hidden from the list while its completion is in flight.
+    completing: Option<Id>,
     clear_token: bool,
     initialized: bool,
     busy: bool,
@@ -107,6 +111,7 @@ impl TodoistView {
             project_page: 0,
             editor: None,
             delete_target: None,
+            completing: None,
             clear_token: false,
             initialized: false,
             busy: false,
@@ -336,6 +341,7 @@ impl TodoistView {
                         this.data = planner.data().cloned();
                         this.catalog = planner.catalog().cloned();
                         this.planner = Some(planner);
+                        this.completing = None;
                         this.connection_form = false;
                         this.clear_token = true;
                         this.day_refresh_attempted = None;
@@ -377,6 +383,7 @@ impl TodoistView {
             _ => None,
         };
         let rx = Runtime::global(cx).spawn(async move {
+            let mut keep_hidden = false;
             let result = match operation {
                 Operation::Refresh => planner.refresh().await.map(|_| "Tasks refreshed.".to_owned()).map_err(|error| error.to_string()),
                 Operation::DayRefresh(now) => planner.refresh_day_at(now).await.map(|_| "Tasks refreshed for the new account day.".to_owned()).map_err(|error| error.to_string()),
@@ -384,10 +391,11 @@ impl TodoistView {
                 Operation::Cleanup => planner.retry_cleanup().map(|_| "Recovery cleanup finished. No task change was sent.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Discard => planner.discard_pending().map(|_| "Saved recovery discarded. Refresh to check Todoist; the remote change may already exist.".to_owned()).map_err(|error| error.to_string()),
                 Operation::Recovery => planner.check_recovery().await.map(|_| "Recovery checked. Saved changes require an explicit retry.".to_owned()).map_err(|error| error.to_string()),
-                Operation::Submit(change) => write_result(&mut planner, Some(change)).await,
-                Operation::Retry => write_result(&mut planner, None).await,
+                Operation::Submit(change) => write_result(&mut planner, Some(change)).await
+                    .map(|(message, stale)| { keep_hidden = stale; message }),
+                Operation::Retry => write_result(&mut planner, None).await.map(|(message, _)| message),
             };
-            (planner, result)
+            (planner, result, keep_hidden)
         });
         self.receive_operation(generation, submitted, navigation, rx, cx);
         cx.notify();
@@ -408,7 +416,10 @@ impl TodoistView {
                 this.busy = false;
                 this.notice = None;
                 match result {
-                    Ok((planner, result)) => {
+                    Ok((planner, result, keep_hidden)) => {
+                        // A failure restores the task beside its error. A
+                        // reloaded list shows the task as Todoist has it.
+                        if !keep_hidden { this.completing = None; }
                         if result.is_ok() && let Some((pane, project)) = navigation {
                             this.pane = pane;
                             this.project = project;
@@ -424,6 +435,7 @@ impl TodoistView {
                         match result { Ok(notice) => this.notice = Some(notice), Err(error) => this.error = Some(error) }
                     }
                     Err(_) => {
+                        this.completing = None;
                         this.connection_form = this.data.is_none();
                         this.error = Some("The operation stopped. Its outcome may be unconfirmed. Reconnect to check saved recovery before sending another change.".into());
                     }
@@ -434,12 +446,18 @@ impl TodoistView {
     }
 }
 
-async fn write_result(planner: &mut Planner, change: Option<TaskChange>) -> Result<String, String> {
+/// The flag is true when Todoist confirmed the change but the loaded list was
+/// not refreshed to reflect it.
+async fn write_result(
+    planner: &mut Planner,
+    change: Option<TaskChange>,
+) -> Result<(String, bool), String> {
     let report = match change {
         Some(change) => planner.submit(change).await,
         None => planner.retry().await,
     }
     .map_err(|error| error.to_string())?;
+    let confirmed = report.phase == WritePhase::Confirmed;
     let message = match report.phase {
         WritePhase::Confirmed => "Todoist confirmed the change.",
         WritePhase::Rejected => {
@@ -455,20 +473,32 @@ async fn write_result(planner: &mut Planner, change: Option<TaskChange>) -> Resu
             ));
         }
     };
+    // A rejected change left Todoist as it was. Report it now rather than
+    // after a list refresh, so a rejected completion's task returns at once;
+    // the message asks for a refresh before a new change.
+    let rejected = report.phase == WritePhase::Rejected;
     if let Some(problem) = report.cleanup_problem {
         if !report.acknowledgement_durable {
-            return Ok(format!(
-                "{message} The known outcome could not be saved locally. Keep this app open and retry cleanup after restoring file access. No further service write is needed. {problem}"
+            return Ok((
+                format!(
+                    "{message} The known outcome could not be saved locally. Keep this app open and retry cleanup after restoring file access. No further service write is needed. {problem}"
+                ),
+                confirmed,
             ));
         }
-        return Ok(format!(
-            "{message} {problem} Retry cleanup only; do not send the change again."
+        return Ok((
+            format!("{message} {problem} Retry cleanup only; do not send the change again."),
+            confirmed,
         ));
     }
+    if rejected {
+        return Ok((message.into(), false));
+    }
     match planner.refresh().await {
-        Ok(_) => Ok(message.into()),
-        Err(error) => Ok(format!(
-            "{message} The task list could not refresh. {error}"
+        Ok(_) => Ok((message.into(), false)),
+        Err(error) => Ok((
+            format!("{message} The task list could not refresh. {error}"),
+            confirmed,
         )),
     }
 }

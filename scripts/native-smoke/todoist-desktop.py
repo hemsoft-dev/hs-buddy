@@ -269,8 +269,9 @@ def qualify(executable, output, session, version, backend):
             edited = driver.drive('edit-light', [
                 ('wait_text', 'Synthetic today task'), ('content', 'Projects'), ('content', 'Synthetic Beta'),
                 ('input', 'Filter tasks', 'Synthetic undated task', {'labelBottomOffset': 32}), ('wait_text', 'Synthetic undated task'),
+                # Enter in Task name submits the form, as in Electron.
                 ('content', 'Edit'), ('input', 'Task name', 'Synthetic undated task revised', {'labelBottomOffset': 32}),
-                ('wait_scroll_text', 'Save task'), ('content', 'Save task'),
+                ('key', 'Return'),
                 ('wait_text', 'Todoist confirmed the change'), ('capture', 'edited-light'),
                 ('content', 'Complete'), ('wait_text', 'Todoist confirmed the change'), ('capture', 'completed-light'),
                 ('input', 'Filter tasks', 'Synthetic recurring task', {'labelBottomOffset': 32}), ('wait_text', 'Synthetic recurring task'),
@@ -286,15 +287,27 @@ def qualify(executable, output, session, version, backend):
             if len(posts(api)) != 6:
                 raise RuntimeError('Editing, completing or deleting sent an unexpected task write')
 
+            # The completion reply waits 6 seconds, so the capture one second
+            # after the click shows the list while the request is in flight.
+            with api.lock:
+                api.hold_next_close = 6
             permissions = driver.drive('project-permissions-light', [
                 ('wait_text', 'Synthetic today task'), ('content', 'Projects'), ('content', 'Synthetic Complete Only'),
                 ('wait_text', 'This project permits completing tasks only'), ('capture', 'complete-only-light'),
-                ('content', 'Complete'), ('wait_text', 'Todoist confirmed the change'),
+                ('content', 'Complete'), ('sleep', 1), ('capture', 'complete-in-flight-light'),
+                ('wait_text', 'Todoist confirmed the change'),
                 ('wait_text', 'No tasks in this view'), ('capture', 'complete-only-completed-light'),
                 ('content', 'Synthetic Read Only'), ('wait_text', 'Tasks are read-only'),
                 ('capture', 'read-only-project-light'),
             ])
             github.check(permissions / 'complete-only-light.png', 'completing tasks only', 'Synthetic Complete Only task')
+            # Electron hides a task as soon as Complete is clicked.
+            in_flight = permissions / 'complete-in-flight-light.png'
+            github.check(in_flight, 'completing tasks only', absent=('Synthetic Complete Only task',))
+            with api.lock:
+                replied, held = api.held_close_replied_at, api.hold_next_close
+            if held or replied is None or in_flight.stat().st_mtime >= replied:
+                raise RuntimeError('The in-flight capture was not taken before Todoist answered the completion')
             github.check(permissions / 'read-only-project-light.png', 'read-only', 'Synthetic Read Only task')
             check_task(api, 'task-project-complete', checked=True)
             if len(posts(api)) != 7:
