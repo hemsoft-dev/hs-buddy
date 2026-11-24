@@ -626,11 +626,13 @@ impl Render for ChatView {
                 );
             }
         }
+        // The category row and Recent sit below the prompt; the conversation
+        // keeps room for the exchange and its status line however much they take.
         let mut body = v_flex()
             .id("copilot-conversation")
             .track_scroll(&self.conversation_scroll)
             .flex_1()
-            .min_h_0()
+            .min_h(zpx(160.0))
             .gap_4()
             .overflow_y_scroll();
         if self.messages.is_empty() && self.sidebar_context.is_none() {
@@ -972,7 +974,8 @@ impl ChatView {
         let mut list = v_flex()
             .id("copilot-recent-list")
             .gap_1()
-            .max_h(zpx(180.0))
+            // About three rows; the list scrolls for the rest of the ten.
+            .max_h(zpx(108.0))
             .overflow_y_scroll();
         let now = recent::now_ms();
         for (index, row) in self.recent.rows.iter().enumerate() {
