@@ -253,10 +253,13 @@ impl BuddyApp {
     /// its entry stands for Electron's Insights view opens. Other sections
     /// count their own opens, or none, as their Electron views do.
     pub(crate) fn open_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
-        if matches!(section, None | Some(Section::Bookmarks | Section::Insights)) {
+        self.set_section(section, cx);
+        // Only an open that happened counts: a failed save keeps the old section.
+        if self.active_section == section
+            && matches!(section, None | Some(Section::Bookmarks | Section::Insights))
+        {
             crate::view_activity::record(cx);
         }
-        self.set_section(section, cx);
     }
 
     /// Opens `target`'s section, then its view. The section's tab follows the
@@ -1152,14 +1155,22 @@ impl Render for BuddyApp {
                 .on_action(cx.listener(Self::open_folder))
                 .on_action(
                     cx.listener(|this, _: &crate::browser_view::ZoomPageIn, _, cx| {
-                        this.browser_view
+                        if !this
+                            .browser_view
                             .update(cx, |view, cx| view.zoom_shortcut(true, cx))
+                        {
+                            cx.propagate();
+                        }
                     }),
                 )
                 .on_action(
                     cx.listener(|this, _: &crate::browser_view::ZoomPageOut, _, cx| {
-                        this.browser_view
+                        if !this
+                            .browser_view
                             .update(cx, |view, cx| view.zoom_shortcut(false, cx))
+                        {
+                            cx.propagate();
+                        }
                     }),
                 )
                 .on_action(cx.listener(|this, _: &ToggleTerminal, window, cx| {

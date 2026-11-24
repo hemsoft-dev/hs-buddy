@@ -1015,24 +1015,39 @@ fn global_destination_restores_its_page_and_close_disposes_it(cx: &mut gpui_kit:
 struct ZoomRoot {
     focus: gpui_kit::FocusHandle,
     browser: Entity<BrowserView>,
+    /// Zoom keys the root let through to an outer handler, as a text field gets them.
+    passed: usize,
 }
 
 impl gpui_kit::Render for ZoomRoot {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
         use gpui_kit::{InteractiveElement as _, ParentElement as _, Styled as _};
-        gpui_kit::div()
+        let app = gpui_kit::div()
             .key_context("BuddyApp")
             .on_action(cx.listener(|this, _: &ZoomPageIn, _, cx| {
-                this.browser
+                if !this
+                    .browser
                     .update(cx, |view, cx| view.zoom_shortcut(true, cx))
+                {
+                    cx.propagate();
+                }
             }))
             .on_action(cx.listener(|this, _: &ZoomPageOut, _, cx| {
-                this.browser
+                if !this
+                    .browser
                     .update(cx, |view, cx| view.zoom_shortcut(false, cx))
+                {
+                    cx.propagate();
+                }
             }))
             .track_focus(&self.focus)
             .size_full()
-            .child(self.browser.clone())
+            .child(self.browser.clone());
+        gpui_kit::div()
+            .size_full()
+            .on_action(cx.listener(|this, _: &ZoomPageIn, _, _| this.passed += 1))
+            .on_action(cx.listener(|this, _: &ZoomPageOut, _, _| this.passed += 1))
+            .child(app)
     }
 }
 
@@ -1066,7 +1081,11 @@ fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
                 cx.new(|cx| {
                     let focus = cx.focus_handle();
                     window.focus(&focus, cx);
-                    ZoomRoot { focus, browser }
+                    ZoomRoot {
+                        focus,
+                        browser,
+                        passed: 0,
+                    }
                 })
             },
         )
@@ -1081,6 +1100,9 @@ fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
     visual.run_until_parked();
     visual.simulate_keystrokes("alt-=");
     assert_eq!(zoom(&mut visual), 1.0);
+    // An unused zoom key is let through, so Option+= can still type ≠.
+    let passed = |visual: &mut VisualTestContext| root.read_with(visual, |root, _| root.passed);
+    assert_eq!(passed(&mut visual), 1);
 
     browser.update(&mut visual, |view, cx| view.open(PAGE, "", cx));
     visual.run_until_parked();
@@ -1093,6 +1115,7 @@ fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
     assert_eq!(zoom(&mut visual), 1.3);
     visual.simulate_keystrokes("alt--");
     assert_eq!(zoom(&mut visual), 1.2);
+    assert_eq!(passed(&mut visual), 1, "a shown page keeps its zoom keys");
     assert!(host.log.has("zoom 1.2"), "{:?}", host.log.take());
     // No reset key, as in Electron; Alt+0 changes nothing.
     visual.simulate_keystrokes("alt-0");

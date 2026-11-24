@@ -753,10 +753,14 @@ impl BrowserView {
 
     /// Alt+= / Alt+-: zoom only while a page tab is shown, as Electron's
     /// listener lives only in a mounted page tab. The bookmark list ignores it.
-    pub(crate) fn zoom_shortcut(&mut self, zoom_in: bool, cx: &mut Context<Self>) {
-        if self.shown && self.active.is_some() {
+    /// True when a shown page took the key. Otherwise the caller lets the
+    /// keystroke through, so Option+= and Option+- still type in text fields.
+    pub(crate) fn zoom_shortcut(&mut self, zoom_in: bool, cx: &mut Context<Self>) -> bool {
+        let handled = self.shown && self.active.is_some();
+        if handled {
             self.zoom_by(if zoom_in { ZOOM_DELTA } else { -ZOOM_DELTA }, cx);
         }
+        handled
     }
 
     pub(super) fn zoom_by(&mut self, delta: f64, cx: &mut Context<Self>) {

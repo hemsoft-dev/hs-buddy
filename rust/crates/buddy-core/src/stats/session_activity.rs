@@ -79,7 +79,13 @@ impl Write for Connection {
         {
             Ok(Ok(FunctionResult::Value(_))) => Ok(()),
             Ok(Ok(_)) => Err(BackendError::Rejected),
-            Ok(Err(_)) | Err(_) => Err(BackendError::UnknownWrite),
+            Ok(Err(_)) | Err(_) => {
+                // Drop the client: a dead worker must not fail every later
+                // event, and a live one must not resend this write after a
+                // reconnect. The next event connects afresh.
+                self.client = None;
+                Err(BackendError::UnknownWrite)
+            }
         }
     }
 }
