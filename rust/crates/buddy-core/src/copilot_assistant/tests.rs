@@ -167,9 +167,22 @@ fn reconciliation_never_rewrites_an_already_running_or_terminal_result() {
             let key = state.execution.key();
             assert!(state.execution.record_unknown(key));
         }
+        if status == RecordStatus::Deleted {
+            // A duplicate begin receipt may already have attached the id.
+            let mut state = lock(&handle.shared.state);
+            let key = state.execution.key();
+            state
+                .execution
+                .record_created(key, "existing-result".into());
+        }
         assert!(reconciled_record(&handle.shared, "existing-result".into(), status).is_none());
         assert!(lock(&handle.shared.state).captured.is_none());
         assert_eq!(handle.snapshot().save, SaveState::Reconciled);
+        // A deleted record leaves nothing to open.
+        assert_eq!(
+            handle.snapshot().result_id.is_none(),
+            status == RecordStatus::Deleted
+        );
         assert!(!root.exists());
     }
 }
@@ -270,4 +283,26 @@ fn temporary_state_cleanup_waits_for_a_releasing_windows_file_handle() {
     assert!(close_temporary_directory(directory));
     release.join().unwrap();
     assert!(!path.exists());
+}
+
+#[test]
+fn an_unsaved_turn_cannot_carry_a_category_or_re_run_a_saved_result() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("must-remain-absent");
+    for record in [
+        RecordOptions {
+            category: Some(crate::copilot_results::Category::Documentation),
+            rerun_of: None,
+        },
+        RecordOptions {
+            category: None,
+            rerun_of: Some("saved-result".into()),
+        },
+    ] {
+        assert!(matches!(
+            start_with(options(root.clone()), record),
+            Err(Failure::InvalidContext)
+        ));
+    }
+    assert!(!root.exists());
 }

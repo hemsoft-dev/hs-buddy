@@ -64,6 +64,7 @@ pub(super) fn failure_text(failure: Failure) -> &'static str {
         Failure::RecordUnknown => {
             "The assistant could not confirm that the reply started. Send the message again."
         }
+        Failure::RecordRejected => "The reply could not start. Send the message again.",
         Failure::SendUnknown => {
             "The assistant could not confirm that it received the message, so it was not sent again."
         }

@@ -185,3 +185,202 @@ fn the_detail_header_opens_the_reviewed_pull_request_only_for_a_pr_review(
         assert_eq!(visual.opened_url().as_deref(), offered.then_some(PR));
     }
 }
+
+fn saved_result(status: &str, metadata: serde_json::Value, model: Option<&str>) -> SavedResult {
+    let mut value = serde_json::json!({"_id": "saved-result", "prompt": "Saved prompt 界",
+        "status": status, "category": "code-analysis", "metadata": metadata,
+        "createdAt": 1_792_152_000_000.0});
+    if let Some(model) = model {
+        value["model"] = model.into();
+    }
+    buddy_core::copilot_results::parse_detail(&serde_json::to_vec(&value).unwrap())
+        .unwrap()
+        .unwrap()
+}
+
+#[test]
+fn a_re_run_uses_the_saved_account_and_model_then_falls_back_to_settings() {
+    let saved = saved_result(
+        "completed",
+        serde_json::json!({"ghAccount": "saved-account"}),
+        Some("saved-model"),
+    );
+    let context = rerun::test_identity(&saved, None).unwrap();
+    assert_eq!(
+        (context.account.as_str(), context.model.as_str()),
+        ("saved-account", "saved-model")
+    );
+    assert!(context.review.is_none());
+    let bare = saved_result("failed", serde_json::json!({}), None);
+    assert!(rerun::test_identity(&bare, None).is_err());
+    let mut config = buddy_core::config::AppConfig::default();
+    config.copilot.gh_account = "settings-account".into();
+    config.copilot.model = "settings-model".into();
+    let context = rerun::test_identity(&bare, Some(&config)).unwrap();
+    assert_eq!(
+        (context.account.as_str(), context.model.as_str()),
+        ("settings-account", "settings-model")
+    );
+    config.copilot.gh_account = " ".into();
+    assert!(rerun::test_identity(&bare, Some(&config)).is_err());
+}
+
+/// A real handle whose driver never runs. Nothing is started or written.
+fn idle_run(
+    temp: &tempfile::TempDir,
+) -> Result<
+    (
+        buddy_core::copilot_assistant::RunHandle,
+        std::future::Ready<()>,
+    ),
+    buddy_core::copilot_runs::Failure,
+> {
+    buddy_core::copilot_assistant::start(buddy_core::copilot_assistant::RunOptions {
+        context: buddy_core::copilot_runs::Context {
+            account: "synthetic-account".into(),
+            model: "gpt-4.1".into(),
+            review: None,
+        },
+        prompt: "Synthetic test".into(),
+        saved: false,
+        review: None,
+        backend: None,
+        executable: temp.path().join("never-start.exe"),
+        owned_directory: temp.path().join("must-remain-absent"),
+    })
+    .map(|(run, _driver)| (run, std::future::ready(())))
+}
+
+#[gpui_kit::test]
+fn re_run_and_retry_start_one_saved_run_of_the_same_prompt_bound_to_the_saved_result(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let view = setup(cx);
+    let window = cx.update(|cx| cx.windows()[0]);
+    let shown = |cx: &mut gpui_kit::TestAppContext, id: &'static str| {
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.try_find(id).is_some()
+        })
+        .unwrap()
+    };
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.selected_id = Some("saved-result".into());
+            view.selected = Some(saved_result(
+                "completed",
+                serde_json::json!({"ghAccount": "saved-account"}),
+                Some("saved-model"),
+            ));
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
+    // Electron's header always offers re-run; Retry belongs to a failed result.
+    assert!(shown(cx, "copilot-rerun-saved-prompt"));
+    assert!(!shown(cx, "copilot-retry-failed-result"));
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.selected = Some(saved_result(
+                "failed",
+                serde_json::json!({"ghAccount": "saved-account"}),
+                Some("saved-model"),
+            ));
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
+    assert!(shown(cx, "copilot-retry-failed-result"));
+
+    let temp = tempfile::tempdir().unwrap();
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    for _ in 0..2 {
+        let calls = calls.clone();
+        let temp = &temp;
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                view.rerun_with(cx, |options, record| {
+                    calls.borrow_mut().push((
+                        options.prompt.clone(),
+                        options.saved,
+                        options.context.account.clone(),
+                        options.context.model.clone(),
+                        options.review.is_none(),
+                        record.category,
+                        record.rerun_of.clone(),
+                    ));
+                    idle_run(temp)
+                })
+            })
+        });
+        cx.run_until_parked();
+    }
+    // The second attempt is refused while the first re-run is still busy.
+    assert_eq!(
+        *calls.borrow(),
+        [(
+            "Saved prompt 界".to_string(),
+            true,
+            "saved-account".to_string(),
+            "saved-model".to_string(),
+            true,
+            None,
+            Some("saved-result".to_string()),
+        )]
+    );
+    cx.update(|cx| assert!(rerun::test_run(&view.read(cx).rerun).is_some()));
+    assert!(shown(cx, "copilot-rerun-cancel"));
+}
+
+fn never_started() -> Result<
+    (
+        buddy_core::copilot_assistant::RunHandle,
+        std::future::Ready<()>,
+    ),
+    buddy_core::copilot_runs::Failure,
+> {
+    panic!("A re-run without an account cannot start")
+}
+
+#[gpui_kit::test]
+fn a_re_run_without_an_account_explains_why_and_starts_nothing(cx: &mut gpui_kit::TestAppContext) {
+    let view = setup(cx);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.selected_id = Some("saved-result".into());
+            view.selected = Some(saved_result("failed", serde_json::json!({}), None));
+            view.rerun_with(cx, |_, _| never_started());
+            assert!(view.rerun.error.as_ref().unwrap().contains("account"));
+            assert!(rerun::test_run(&view.rerun).is_none());
+        })
+    });
+}
+
+#[gpui_kit::test]
+fn a_pr_review_is_not_re_run_from_saved_results(cx: &mut gpui_kit::TestAppContext) {
+    let view = setup(cx);
+    let window = cx.update(|cx| cx.windows()[0]);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            let mut review = saved_result(
+                "failed",
+                serde_json::json!({"ghAccount": "saved-account"}),
+                Some("saved-model"),
+            );
+            review.category = Some("pr-review".into());
+            view.selected_id = Some("saved-result".into());
+            view.selected = Some(review);
+            // Even a direct call starts nothing: the native session can't see the diff.
+            view.rerun_with(cx, |_, _| never_started());
+            assert!(rerun::test_run(&view.rerun).is_none());
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("copilot-rerun-saved-prompt").is_none());
+        assert!(window.try_find("copilot-retry-failed-result").is_none());
+    })
+    .unwrap();
+}

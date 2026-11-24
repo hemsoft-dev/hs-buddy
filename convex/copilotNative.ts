@@ -12,6 +12,19 @@ function pageOptions(options: PaginationOptions): PaginationOptions {
   return { ...options, maximumRowsRead: 25, maximumBytesRead: 2 * 1024 * 1024 }
 }
 
+// Native Chat saves its whole conversation: a preamble and earlier turns,
+// then the turn that ran. Its preview names that last user turn. Electron
+// prompts and captured reviews keep their whole prompt, and so does a turn
+// that would leave nothing to show.
+function promptForPreview(row: Doc<'copilotResults'>): string {
+  if (row.nativeRequestId === undefined || row.category === 'pr-review') return row.prompt
+  const marker = '\nUser: '
+  const index = row.prompt.lastIndexOf(marker)
+  if (index < 0) return row.prompt
+  const turn = row.prompt.slice(index + marker.length)
+  return turn.trim() === '' ? row.prompt : turn
+}
+
 function preview(text: string): string {
   let output = ''
   let count = 0
@@ -36,7 +49,7 @@ function reviewedPullRequestUrl(row: Doc<'copilotResults'>): string | undefined 
 function resultSummary(row: Doc<'copilotResults'>) {
   return {
     _id: row._id,
-    promptPreview: preview(row.prompt),
+    promptPreview: preview(promptForPreview(row)),
     status: row.status,
     modelLabel: row.model === undefined ? undefined : preview(row.model),
     categoryLabel: row.category === undefined ? undefined : preview(row.category),

@@ -230,3 +230,43 @@ fn only_a_pr_review_result_offers_its_stored_web_link() {
         .unwrap();
     assert!(result.pull_request_url().is_none());
 }
+
+#[test]
+fn categories_store_electrons_values_and_status_emoji_match_its_recent_list() {
+    let codes: Vec<_> = Category::ALL.iter().map(|c| c.code()).collect();
+    assert_eq!(
+        codes,
+        ["general", "pr-review", "code-analysis", "documentation"]
+    );
+    let labels: Vec<_> = Category::ALL.iter().map(|c| c.label()).collect();
+    assert_eq!(
+        labels,
+        ["General", "PR Review", "Code Analysis", "Documentation"]
+    );
+    assert_eq!(status_emoji(Status::Pending), "⏳");
+    assert_eq!(status_emoji(Status::Running), "🔄");
+    assert_eq!(status_emoji(Status::Completed), "✅");
+    assert_eq!(status_emoji(Status::Failed), "❌");
+    assert_eq!(status_emoji(Status::Unknown), "•");
+}
+
+#[test]
+fn a_re_run_uses_the_saved_metadata_account_when_there_is_one() {
+    let mut value = saved();
+    value["metadata"] = json!({"ghAccount": " saved-account "});
+    let result = parse_detail(&serde_json::to_vec(&value).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.saved_account(), Some("saved-account"));
+    for metadata in [
+        json!({"ghAccount": ""}),
+        json!({"ghAccount": 7}),
+        json!(null),
+    ] {
+        value["metadata"] = metadata;
+        let result = parse_detail(&serde_json::to_vec(&value).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.saved_account(), None);
+    }
+}

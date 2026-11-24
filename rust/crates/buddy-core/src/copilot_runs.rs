@@ -55,6 +55,8 @@ pub enum Failure {
     InvalidPrompt,
     NotPrepared,
     RecordUnknown,
+    /// The backend refused to create the record: nothing was stored or sent.
+    RecordRejected,
     SendUnknown,
     AuthenticationRequired,
     ServiceUnavailable,
@@ -73,6 +75,9 @@ impl std::fmt::Display for Failure {
             Self::NotPrepared => "This execution has already started or is not ready.",
             Self::RecordUnknown => {
                 "Result creation could not be confirmed. Refresh history before trying again."
+            }
+            Self::RecordRejected => {
+                "The backend refused to save this run, so nothing was stored or sent. A re-run's saved result may have been deleted; refresh saved results."
             }
             Self::SendUnknown => {
                 "Prompt delivery could not be confirmed. This execution will not be sent again."
@@ -277,6 +282,24 @@ impl Execution {
             return false;
         }
         self.stop(Failure::RecordUnknown);
+        true
+    }
+
+    /// The record was deleted: keep the outcome but nothing left to open.
+    pub fn record_deleted(&mut self, key: RunKey) -> bool {
+        if key != self.key {
+            return false;
+        }
+        self.result_id = None;
+        true
+    }
+
+    /// A definite refusal: the backend created nothing, so nothing is unknown.
+    pub fn record_rejected(&mut self, key: RunKey) -> bool {
+        if key != self.key || self.phase != Phase::AwaitingRecord {
+            return false;
+        }
+        self.stop(Failure::RecordRejected);
         true
     }
 

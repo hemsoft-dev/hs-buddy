@@ -2,6 +2,7 @@
 pub(crate) mod chat;
 mod enterprise;
 pub(crate) mod markdown;
+mod recent;
 mod results;
 mod sessions;
 mod usage;

@@ -18,6 +18,8 @@ use crate::runtime::Runtime;
 use crate::zoom::zpx;
 #[path = "results_publish.rs"]
 mod publish;
+#[path = "results_rerun.rs"]
+mod rerun;
 #[cfg(test)]
 #[path = "results_tests.rs"]
 mod tests;
@@ -54,6 +56,7 @@ pub(super) struct ResultsView {
     notice: Option<String>,
     skipped: usize,
     publication: publish::State,
+    rerun: rerun::State,
 }
 fn status_label(status: Status) -> &'static str {
     match status {
@@ -100,6 +103,7 @@ impl ResultsView {
             notice: None,
             skipped: 0,
             publication: publish::State::default(),
+            rerun: rerun::State::default(),
         }
     }
     fn busy(&self) -> bool {
@@ -260,6 +264,7 @@ impl ResultsView {
         self.show_prompt = false;
         self.show_error = false;
         self.delete_confirm = false;
+        self.rerun.error = None;
         self.detail_loading = true;
         self.detail_error = None;
         self.notice = None;
@@ -352,7 +357,10 @@ impl ResultsView {
             );
         }
         let Some(result) = &self.selected else {
+            // A re-run keeps its progress and recovery controls in view after
+            // the list reloads without its source result.
             return detail
+                .children(self.rerun_status(cx))
                 .child(
                     div()
                         .text_color(muted)
@@ -413,6 +421,13 @@ impl ResultsView {
                         cx.notify();
                     })),
             )
+            .children(result.can_rerun().then(|| {
+                Button::new("copilot-rerun-saved-prompt")
+                    .label("Re-run this prompt")
+                    .icon(IconName::RefreshCw)
+                    .disabled(self.busy() || self.rerun_busy())
+                    .on_click(cx.listener(|this, _, _, cx| this.rerun(cx)))
+            }))
             .child(
                 Button::new("copilot-delete-saved-result")
                     .label("Delete saved result…")
@@ -443,6 +458,7 @@ impl ResultsView {
             );
         }
         detail = detail.child(actions);
+        detail = detail.children(self.rerun_status(cx));
         detail = detail.child(self.publication_controls(cx));
         if self.delete_confirm {
             detail = detail.child(
@@ -487,6 +503,20 @@ impl ResultsView {
         };
         if let Some(message) = message {
             detail = detail.child(div().text_color(muted).child(message));
+        }
+        if !result.can_rerun() {
+            detail = detail.child(div().text_color(muted).child(
+                "A PR review is not re-run here: start a new review from the pull request so it sees the current changes.",
+            ));
+        } else if result.content_state() == ContentState::Failed {
+            // Electron's failed panel offers Retry under the failure message.
+            detail = detail.child(
+                Button::new("copilot-retry-failed-result")
+                    .label("Retry")
+                    .icon(IconName::RefreshCw)
+                    .disabled(self.busy() || self.rerun_busy())
+                    .on_click(cx.listener(|this, _, _, cx| this.rerun(cx))),
+            );
         }
         if result.error.is_some() {
             detail = detail.child(

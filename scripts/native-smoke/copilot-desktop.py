@@ -175,7 +175,7 @@ CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
 UNCONFIRMED_ENDING = 'will not resend'
 UNCONFIRMED_LAST_LINE_WORD = 'resend'
-STARTUP_SCENES = ('chat-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
+STARTUP_SCENES = ('chat-dark', 'rerun-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -221,7 +221,9 @@ def chat_turns(driver):
     dark = driver.drive('chat-dark', [
         ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
         ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'), ('input', 'Message', 'BUDDYSTREAM61527'),
-        ('content', 'Run and save'), ('wait_text', 'Assistant is responding'), ('capture', 'streaming-dark'),
+        # Electron's category is chosen before the run and stored on the result.
+        ('content', 'Documentation'),
+        ('content', 'Run and save'), ('wait_text', 'Assistant is responding'), ('wait_text', '1 active'), ('capture', 'streaming-dark'),
         ('wait_scroll_text', 'Saved to results'), ('reveal_text', 'Copy answer', 'Saved to results'),
         ('content', 'Copy answer'), ('capture', 'completed-dark'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
@@ -229,15 +231,55 @@ def chat_turns(driver):
         # A new conversation starts from the saved account or the active gh
         # login; the runner has neither, so name the synthetic account again.
         ('content', 'Chat'), ('content', 'New conversation'), ('input', 'GitHub account', 'synthetic-account'),
-        ('input', 'Message', 'BUDDYCANCEL73429'),
+        # RECENTROW tells this saved prompt apart from the headless runner's.
+        ('input', 'Message', 'BUDDYCANCEL73429 RECENTROW'),
         ('content', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('content', 'Cancel response'),
         ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
-        ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
+        # At 900x650 the conversation keeps its 160 px minimum and scrolls to
+        # the end, so the "Assistant" label sits above it; anchor on the answer.
+        ('reveal_text', 'Cancelled', 'Partial synthetic answer'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
     ], record=True)
     github.check(dark / 'streaming-dark.png', 'Assistant is responding')
-    github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results')
-    github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant')
+    github.check(dark / 'streaming-dark.png', '1 active')
+    github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results', 'Documentation')
+    github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant', 'Re-run this prompt')
     github.check(dark / 'cancelled-compact-dark.png', 'Cancelled', 'Partial synthetic answer')
+
+
+def rerun_turns(driver):
+    """Open the cancelled prompt from Recent, re-run it and cancel the re-run.
+
+    A fresh app session after the streaming capture: the provider permits only
+    one streaming turn while that capture is armed, and the cancel marker never
+    streams to completion, so the re-run ends by its own Cancel."""
+    rerun = driver.drive('rerun-dark', [
+        ('wait_scroll_text', 'RECENTROW'), ('content', 'RECENTROW'),
+        ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
+        ('content', 'Re-run this prompt'), ('wait_text', 'Re-running this prompt'), ('sleep', 3),
+        ('content', 'Cancel re-run'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
+        # The saved answer sits below the failure notice and its actions.
+        ('content', 'Open re-run result'), ('wait_scroll_text', 'Partial synthetic answer'), ('capture', 'rerun-opened-dark'),
+    ], record=True)
+    github.check(rerun / 'recent-opened-dark.png', 'RECENTROW', 'Re-run this prompt')
+    github.check(rerun / 'rerun-saved-dark.png', 'Re-run cancelled', 'Re-run saved as a new result', 'Open re-run result')
+    # Scrolled to the answer, the title may be above the view; the backend
+    # check ties the record to its prompt.
+    github.check(rerun / 'rerun-opened-dark.png', 'Partial synthetic answer')
+
+
+def require_prompt_records(backend, started_ms):
+    """The chosen category reached the desktop run, and the re-run copied its source's.
+
+    The headless runner saved the same marker prompts earlier, so only rows
+    created by the desktop scenes count."""
+    rows = [row for row in backend.query('copilotResults:listRecent') if row.get('createdAt', 0) >= started_ms]
+    # Native Chat saves the conversation: a preamble, then the user's turn.
+    streamed = [row for row in rows if row.get('prompt', '').endswith('User: BUDDYSTREAM61527')]
+    if len(streamed) != 1 or streamed[0].get('category') != 'documentation' or streamed[0]['status'] != 'completed':
+        raise RuntimeError('The chosen Documentation category did not reach the saved result')
+    recent = [row for row in rows if row.get('prompt', '').endswith('User: BUDDYCANCEL73429 RECENTROW')]
+    if len(recent) != 2 or len({row.get('category') for row in recent}) != 1:
+        raise RuntimeError('The re-run did not save one new result with its source category')
 
 
 def code_copy(driver, appearance):
@@ -379,8 +421,11 @@ def qualify(executable, output, session, version, backend, api):
             sdk = headless(executable, output, config, backend)
             assert_no_owned_children(output)
             terminal.verify_sentinel(sentinel, 'headless SDK cleanup')
+            started_ms = time.time() * 1000
             with streaming_capture(output):
                 chat_turns(driver)
+            rerun_turns(driver)
+            require_prompt_records(backend, started_ms)
             terminal.verify_sentinel(sentinel, 'chat app shutdown')
             assert_no_owned_children(output)
             code_copy(driver, 'dark')
