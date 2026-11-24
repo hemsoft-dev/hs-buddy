@@ -248,6 +248,20 @@ impl BuddyApp {
         self.show_section(section, cx);
     }
 
+    /// An activity-bar click. Electron's `openTab` counts the Dashboard and
+    /// Bookmarks (`bookmarks-all`) opens; Insights has no sub-views here, so
+    /// its entry stands for Electron's Insights view opens. Other sections
+    /// count their own opens, or none, as their Electron views do.
+    pub(crate) fn open_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
+        self.set_section(section, cx);
+        // Only an open that happened counts: a failed save keeps the old section.
+        if self.active_section == section
+            && matches!(section, None | Some(Section::Bookmarks | Section::Insights))
+        {
+            crate::view_activity::record(cx);
+        }
+    }
+
     /// Opens `target`'s section, then its view. The section's tab follows the
     /// view as it changes (see `observe_navigation`).
     pub(crate) fn open_target(&mut self, target: ViewTarget, cx: &mut Context<Self>) {
@@ -730,6 +744,8 @@ impl BuddyApp {
         }
         this.observe_navigation(cx);
         this.window_bounds_changed(window, cx);
+        // Electron's tab list opens the Dashboard when its window starts.
+        crate::view_activity::record(cx);
         this
     }
 
@@ -745,7 +761,9 @@ impl BuddyApp {
         cx.notify();
     }
 
+    /// A terminal's Open Folder: Electron's `openTab('folder-view:…')`.
     fn show_folder(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        crate::view_activity::record(cx);
         self.show_explorer(cx);
         self.explorer_view
             .update(cx, |view, cx| view.open(path, cx));

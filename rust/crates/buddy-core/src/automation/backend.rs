@@ -190,7 +190,11 @@ impl AutomationBackend {
     /// Usage counters are best effort, like Electron's editors: one call, never retried.
     pub async fn increment_stat(&self, field: &str) -> Result<(), Error> {
         self.client
-            .call("buddyStats:increment", json!({"field": field}), true)
+            .call(
+                crate::stats::INCREMENT,
+                crate::stats::increment(json!({field: 1})),
+                true,
+            )
             .await?;
         Ok(())
     }

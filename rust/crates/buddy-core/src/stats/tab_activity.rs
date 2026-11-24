@@ -2,6 +2,7 @@
 //! acknowledgements are never replayed.
 use serde_json::{Value, json};
 
+use super::{INCREMENT, increment};
 use crate::terminal_backend::{BackendError, TerminalBackend};
 
 pub async fn record(url: &str) -> Result<(), BackendError> {
@@ -15,11 +16,7 @@ where
     F: FnOnce(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, BackendError>>,
 {
-    write(
-        "buddyStats:batchIncrement",
-        json!({"fields":{"tabsOpened":1}}),
-    )
-    .await?;
+    write(INCREMENT, increment(json!({"tabsOpened":1}))).await?;
     Ok(())
 }
 
@@ -32,8 +29,11 @@ mod tests {
         let mut calls = 0;
         record_with(|function, arguments| {
             calls += 1;
-            assert_eq!(function, "buddyStats:batchIncrement");
-            assert_eq!(arguments, json!({"fields":{"tabsOpened":1}}));
+            assert_eq!(function, "buddyStats:incrementNative");
+            assert_eq!(
+                super::super::increment_fields(&arguments),
+                &json!({"tabsOpened":1})
+            );
             std::future::ready(Ok(Value::Null))
         })
         .await

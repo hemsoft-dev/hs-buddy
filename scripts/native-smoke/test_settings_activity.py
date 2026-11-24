@@ -17,11 +17,14 @@ settings_spec.loader.exec_module(settings)
 
 class CategoryActivity(unittest.TestCase):
     def test_exact_delta_rejects_missing_duplicate_and_foreign_events(self):
-        activity.require_delta({}, {"tabsOpened": 3}, 3)
-        for after in ({"tabsOpened": 0}, {"tabsOpened": 4},
-                      {"tabsOpened": 3, "appLaunches": 1},
-                      {"tabsOpened": 3, "totalUptimeMs": 1},
-                      {"tabsOpened": 3, "lastSessionStart": 1}):
+        # Three category opens, the launch's Dashboard, one closed session.
+        closed = {"tabsOpened": 4, "appLaunches": 1, "totalUptimeMs": 900}
+        activity.require_delta({}, closed, 3)
+        activity.require_delta(closed, dict(closed, tabsOpened=5, appLaunches=2, totalUptimeMs=1800), 0)
+        for after in (dict(closed, tabsOpened=3), dict(closed, tabsOpened=5),
+                      dict(closed, appLaunches=0), dict(closed, appLaunches=2),
+                      dict(closed, totalUptimeMs=0), dict(closed, lastSessionStart=1),
+                      dict(closed, prsViewed=1), {"tabsOpened": 4}):
             with self.subTest(after=after), self.assertRaises(RuntimeError):
                 activity.require_delta({}, after, 3)
 
@@ -32,7 +35,8 @@ class CategoryActivity(unittest.TestCase):
             original = b'{"ui":{"theme":"dark","bgPrimary":"#1e1e1e","fontColor":"#cccccc"},"synthetic":"unchanged"}\n'
             config.write_bytes(original)
             backend = Mock()
-            backend.query.side_effect = [{}, {"tabsOpened": 3}, {"tabsOpened": 3}]
+            backend.query.side_effect = [{}, {"tabsOpened": 4, "appLaunches": 1, "totalUptimeMs": 900},
+                {"tabsOpened": 5, "appLaunches": 2, "totalUptimeMs": 1800}]
             driver = Mock()
             def drive(name, *_args, **_kwargs):
                 if name == "category-restored-light":
@@ -68,7 +72,8 @@ class CategoryActivity(unittest.TestCase):
                 config = output / "config.json"
                 config.write_text('{"ui":{"theme":"dark"}}')
                 backend = Mock()
-                backend.query.side_effect = [{}, {"tabsOpened": 3}, {"tabsOpened": 3}]
+                backend.query.side_effect = [{}, {"tabsOpened": 4, "appLaunches": 1, "totalUptimeMs": 900},
+                {"tabsOpened": 5, "appLaunches": 2, "totalUptimeMs": 1800}]
                 driver = Mock()
                 def drive(name, *_args, **_kwargs):
                     target = output / name

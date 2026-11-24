@@ -2,12 +2,34 @@
 //! Workspace Pulse figures from `WelcomePanel.tsx`.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 pub mod copilot_review_activity;
 pub mod github_activity;
 pub mod pr_list_activity;
+pub mod session_activity;
 pub mod tab_activity;
+
+/// Native counter writes. The Convex client resends an unacknowledged
+/// mutation under a new session after a reconnect, so each logical increment
+/// carries its own request identity and Convex counts it once.
+pub(crate) const INCREMENT: &str = "buddyStats:incrementNative";
+
+/// Arguments for one logical increment of `fields` (`{counter: amount}`),
+/// under a fresh request identity. Never reuse them for another increment.
+pub(crate) fn increment(fields: Value) -> Value {
+    json!({"requestId": uuid::Uuid::new_v4().to_string(), "fields": fields})
+}
+
+/// The fields of one increment, after checking its request identity.
+#[cfg(test)]
+pub(crate) fn increment_fields(arguments: &Value) -> &Value {
+    let id = arguments["requestId"].as_str().expect("a request identity");
+    let id = uuid::Uuid::parse_str(id).expect("a UUID request identity");
+    assert_eq!(id.get_version_num(), 4);
+    assert_eq!(arguments.as_object().map(|map| map.len()), Some(2));
+    &arguments["fields"]
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -119,6 +141,15 @@ impl WorkspacePulse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_increment_has_its_own_request_identity() {
+        let first = increment(json!({"tabsOpened": 1}));
+        let second = increment(json!({"tabsOpened": 1}));
+        assert_eq!(increment_fields(&first), &json!({"tabsOpened": 1}));
+        assert_eq!(increment_fields(&second), &json!({"tabsOpened": 1}));
+        assert_ne!(first["requestId"], second["requestId"]);
+    }
 
     #[test]
     fn derives_pulse_like_welcome_panel() {

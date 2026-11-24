@@ -102,8 +102,8 @@ pub async fn add_bookmark(
     let stats_updated = !result["inserted"].as_bool().unwrap_or(false)
         || mutate(
             url,
-            "buddyStats:increment",
-            json!({"field":"bookmarksCreated"}),
+            crate::stats::INCREMENT,
+            crate::stats::increment(json!({"bookmarksCreated": 1})),
         )
         .await
         .is_ok();

@@ -409,8 +409,13 @@ def stats(**changes):
 
 
 def passes():
-    """The baseline, then each pass's snapshot: one repository-list open per pass."""
-    return [stats(reposBrowsed=3 + count) for count in range(4)]
+    """The baseline, then each pass's snapshot: one launch, with its Dashboard
+    open and one closed session, and one repository-list open per pass."""
+    snapshots = [stats(reposBrowsed=3 + count, tabsOpened=3 + count, appLaunches=3 + count,
+        totalUptimeMs=3 + 1000 * count) for count in range(4)]
+    for snapshot in snapshots:
+        del snapshot["lastSessionStart"]
+    return snapshots
 
 
 READS = [dict(method="POST", path="/graphql", account="fixture-one", query="query NativeViewerPulls", body=None),
@@ -483,16 +488,24 @@ class NoBackendChange(unittest.TestCase):
         self.assertEqual(list(activity["passes"]), ["menu-dark", "commands-dark", "menu-light"])
         for count, value in enumerate(activity["passes"].values(), 1):
             self.assertEqual(value["browsed"], 1)
-            self.assertEqual(value["changes"], {key: count if key == "reposBrowsed" else 0 for key in scene.COUNTERS})
+            self.assertEqual(value["launches"], count)
+            self.assertEqual(value["changes"], {key: count if key in ("reposBrowsed", "tabsOpened", "appLaunches")
+                else 1000 * count if key == "totalUptimeMs" else 0 for key in scene.COUNTERS})
         self.assertEqual(receipts["requests.json"], READS)
 
     def test_any_activity_counter_change_in_any_pass_fails_the_scene(self):
         for failing, name in enumerate(("menu-dark", "commands-dark", "menu-light")):
-            for change in (dict(tabsOpened=4), dict(prsViewed=4), dict(totalUptimeMs=4), dict(lastSessionStart=1),
-                    dict(reposBrowsed=3 + failing), dict(reposBrowsed=5 + failing)):
-                with self.subTest(name=name, change=change):
+            changes = dict(extra_tab=lambda snapshot: dict(tabsOpened=snapshot["tabsOpened"] + 1),
+                missing_dashboard=lambda snapshot: dict(tabsOpened=snapshot["tabsOpened"] - 1),
+                foreign=lambda _: dict(prsViewed=4),
+                missing_launch=lambda snapshot: dict(appLaunches=snapshot["appLaunches"] - 1),
+                no_uptime=lambda _: dict(totalUptimeMs=3), open_session=lambda _: dict(lastSessionStart=1),
+                missing_list=lambda snapshot: dict(reposBrowsed=snapshot["reposBrowsed"] - 1),
+                extra_list=lambda snapshot: dict(reposBrowsed=snapshot["reposBrowsed"] + 1))
+            for change_name, change in changes.items():
+                with self.subTest(name=name, change=change_name):
                     good = passes()
-                    snapshots = good[:failing + 1] + [dict(snapshot, **change) for snapshot in good[failing + 1:]]
+                    snapshots = good[:failing + 1] + [dict(snapshot, **change(snapshot)) for snapshot in good[failing + 1:]]
                     with self.assertRaisesRegex(RuntimeError, f"changed the backend in {name}"):
                         self.qualify(snapshots)
                     # The scene stops at the pass that wrote; it leaves no passing receipt.
@@ -501,7 +514,7 @@ class NoBackendChange(unittest.TestCase):
     def test_a_write_left_by_an_earlier_pass_is_still_found_against_the_baseline(self):
         # Each pass alone looks unchanged from the one before it.
         good = passes()
-        changed = [dict(snapshot, tabsOpened=4) for snapshot in good[2:]]
+        changed = [dict(snapshot, tabsOpened=snapshot["tabsOpened"] + 1) for snapshot in good[2:]]
         with self.assertRaisesRegex(RuntimeError, "changed the backend in commands-dark"):
             self.qualify(good[:2] + changed)
 
@@ -513,6 +526,14 @@ class NoBackendChange(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "changed the backend in pass"):
                 scene.require_unchanged(stats(), stats(reposBrowsed=5), "pass", browsed)
         self.assertIn("tabsOpened", scene.COUNTERS)
+        # Two launches: two Dashboard opens and two closed sessions.
+        launched = stats(tabsOpened=5, appLaunches=5, totalUptimeMs=4000)
+        del launched["lastSessionStart"]
+        self.assertEqual(scene.require_unchanged(stats(), launched, "pass", 0, 2)["tabsOpened"], 2)
+        for wrong in (dict(launched, tabsOpened=4), dict(launched, appLaunches=4),
+                dict(launched, totalUptimeMs=3), dict(launched, lastSessionStart=1)):
+            with self.subTest(wrong=wrong), self.assertRaisesRegex(RuntimeError, "changed the backend in pass"):
+                scene.require_unchanged(stats(), wrong, "pass", 0, 2)
         for key in scene.COUNTERS:
             with self.assertRaisesRegex(RuntimeError, "changed the backend in pass"):
                 scene.require_unchanged(stats(), stats(**{key: 4}), "pass")

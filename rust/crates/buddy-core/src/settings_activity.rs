@@ -1,6 +1,7 @@
 //! Explicit Settings category opens, matching Electron's tab-open callback.
 use serde_json::{Value, json};
 
+use crate::stats::{INCREMENT, increment};
 use crate::terminal_backend::{BackendError, TerminalBackend};
 
 pub async fn record(url: &str) -> Result<(), BackendError> {
@@ -14,11 +15,7 @@ where
     F: FnOnce(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, BackendError>>,
 {
-    write(
-        "buddyStats:batchIncrement",
-        json!({"fields": {"tabsOpened": 1}}),
-    )
-    .await?;
+    write(INCREMENT, increment(json!({"tabsOpened": 1}))).await?;
     Ok(())
 }
 
@@ -36,8 +33,11 @@ mod tests {
             let mut calls = 0;
             let result = record_with(|function, arguments| {
                 calls += 1;
-                assert_eq!(function, "buddyStats:batchIncrement");
-                assert_eq!(arguments, json!({"fields": {"tabsOpened": 1}}));
+                assert_eq!(function, "buddyStats:incrementNative");
+                assert_eq!(
+                    crate::stats::increment_fields(&arguments),
+                    &json!({"tabsOpened": 1})
+                );
                 std::future::ready(Err(error))
             })
             .await;

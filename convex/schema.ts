@@ -196,11 +196,20 @@ export default defineSchema({
     firstLaunchDate: v.number(), // Epoch ms — set once on first launch
     totalUptimeMs: v.number(), // Cumulative session time
     lastSessionStart: v.optional(v.number()), // Epoch ms — current session start
+    sessionOwner: v.optional(v.string()), // Native launch UUID that opened the session
 
     // Timestamps
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_key', ['key']),
+
+  /** Native counter request identities, so a resent increment counts once. */
+  buddyStatsReceipts: defineTable({
+    requestId: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_request', ['requestId'])
+    .index('by_created', ['createdAt']),
 
   /**
    * Copilot usage history - immutable timestamped snapshots of Copilot

@@ -17,7 +17,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlparse
 
-from desktop import fixture
+from desktop import fixture, require_closed_sessions
 
 HERE = Path(__file__).resolve().parent
 CHECKOUT = HERE.parent.parent
@@ -291,13 +291,16 @@ def saved_tabs(config):
     return [tab["url"] for tab in json.loads(config.read_text(encoding="utf-8"))["native"].get("browser", {}).get("tabs", [])]
 
 
-def require_bookmark_activity(backend, before, opens):
+def require_bookmark_activity(backend, before, opens, launches):
+    """`opens` embedded bookmark opens, plus the Dashboard each launch opens,
+    as Electron's tab list does when its window starts, and one closed
+    session per launch."""
     after = backend.query("buddyStats:get")
-    expected = dict(tabsOpened=opens, prsViewed=0, prsReviewed=0,
-        prsMergedWatched=0, appLaunches=0, totalUptimeMs=0)
+    expected = dict(tabsOpened=opens + launches, prsViewed=0, prsReviewed=0, prsMergedWatched=0)
     observed = {field: after.get(field, 0) - before.get(field, 0) for field in expected}
     if observed != expected:
         raise RuntimeError(f"Bookmark tab activity differs from explicit opens: {observed}, expected {expected}")
+    require_closed_sessions(before, after, launches)
     return after
 
 
@@ -314,18 +317,19 @@ def qualify(executable, output, session, version, backend, site):
     driver.input_desktop = True
     activity_before = backend.query("buddyStats:get")
     first_pass(driver, "dark")
-    activity_opened = require_bookmark_activity(backend, activity_before, 3)
+    activity_opened = require_bookmark_activity(backend, activity_before, 3, 1)
     restart_pass(driver, "dark", 2)
-    activity_restored = require_bookmark_activity(backend, activity_before, 3)
+    activity_restored = require_bookmark_activity(backend, activity_before, 3, 2)
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
     terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
     light_pass(driver, 3)
-    activity_switched = require_bookmark_activity(backend, activity_before, 3)
+    activity_switched = require_bookmark_activity(backend, activity_before, 3, 3)
     (output / "bookmark-activity.json").write_text(json.dumps(dict(
         before=activity_before, opened=activity_opened, restored=activity_restored,
         switched=activity_switched, dataSource="isolated anonymous Convex fixture",
         checks=["three explicit opens including repeated URL", "restart persistence",
-            "tab restoration and switching do not write", "PR/session counters unchanged"]), indent=2), encoding="utf-8")
+            "tab restoration and switching do not write", "PR counters unchanged",
+            "one Dashboard open and one closed session per launch"]), indent=2), encoding="utf-8")
     with site.lock:
         result = evaluate(audit_records(audit), dict(site.beacons), site.downloads,
             frame_origin(site.server.server_port))

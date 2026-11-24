@@ -2,7 +2,7 @@
 import json
 import sys
 
-from desktop import fixture
+from desktop import fixture, require_closed_sessions
 
 
 COUNTERS = (
@@ -17,11 +17,18 @@ THEME_FIELDS = (
 )
 
 
-def require_delta(before, after, expected):
-    changes = {key: after.get(key, 0) - before.get(key, 0) for key in COUNTERS}
-    wanted = {key: expected if key == "tabsOpened" else 0 for key in COUNTERS}
-    if changes != wanted or before.get("lastSessionStart") != after.get("lastSessionStart"):
+# Written by every launch (Electron's useAppSessionStats); checked on their own.
+SESSION_COUNTERS = ("appLaunches", "totalUptimeMs")
+
+
+def require_delta(before, after, expected, launches=1):
+    """`expected` category opens, plus the Dashboard each launch opens, as
+    Electron's tab list does when its window starts."""
+    changes = {key: after.get(key, 0) - before.get(key, 0) for key in COUNTERS if key not in SESSION_COUNTERS}
+    wanted = {key: expected + launches if key == "tabsOpened" else 0 for key in changes}
+    if changes != wanted:
         raise RuntimeError(f"Settings category activity differs: {changes}, expected {wanted}")
+    require_closed_sessions(before, after, launches)
 
 
 def qualify(driver, backend, config, output, verify):
@@ -48,7 +55,7 @@ def qualify(driver, backend, config, output, verify):
         require_delta(after, restarted, 0)
         (output / "category-activity.json").write_text(json.dumps(dict(
             before=before, after=after, restarted=restarted, explicitOpens=3,
-            restartOpens=0,
+            restartOpens=0, launchDashboardOpens=1, sessionsPerLaunch=1,
         ), indent=2), encoding="utf-8")
     finally:
         primary = sys.exc_info()[1]

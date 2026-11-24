@@ -25,6 +25,7 @@ mod performance_probe;
 mod platform_placement;
 mod ralph_view;
 mod runtime;
+mod session_stats;
 mod settings;
 mod settings_view;
 mod shell;
@@ -32,6 +33,7 @@ mod tempo_view;
 mod terminal_view;
 mod theme;
 mod todoist_view;
+mod view_activity;
 mod window_geometry;
 mod window_persistence;
 #[cfg(any(windows, test))]
@@ -469,6 +471,8 @@ fn main() {
         theme::install(&config, cx);
         cx.set_global(Settings::new(config.clone()));
         cx.set_global(Runtime::start());
+        view_activity::install(cx);
+        session_stats::install(cx);
         zoom::init(cx);
         terminal_view::init(cx);
         bookmarks_view::init(cx);

@@ -147,7 +147,7 @@ pub fn render(app: &BuddyApp, cx: &mut Context<BuddyApp>) -> impl IntoElement + 
             IconName::LayoutDashboard,
             dashboard_active,
             cx,
-            |this, _, cx| this.set_section(None, cx),
+            |this, _, cx| this.open_section(None, cx),
         ))
         .child(
             div()
@@ -164,7 +164,7 @@ pub fn render(app: &BuddyApp, cx: &mut Context<BuddyApp>) -> impl IntoElement + 
                 entry.icon,
                 app.active_section == Some(section),
                 cx,
-                move |this, _, cx| this.set_section(Some(section), cx),
+                move |this, _, cx| this.open_section(Some(section), cx),
             )
         }))
 }

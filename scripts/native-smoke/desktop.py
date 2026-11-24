@@ -46,6 +46,20 @@ def require_version(text, version):
         raise RuntimeError(f"Screenshot is missing exact version {version!r}")
 
 
+def require_closed_sessions(before, after, launches):
+    """Each installed launch is one Buddy session, as in Electron's
+    useAppSessionStats: the start counts appLaunches, the quit ends the session
+    and adds its uptime, so none is left open. Uptime depends on the clock,
+    so only its growth is required. Without a launch nothing may change."""
+    launched = after.get("appLaunches", 0) - before.get("appLaunches", 0)
+    uptime = after.get("totalUptimeMs", 0) - before.get("totalUptimeMs", 0)
+    session = before.get("lastSessionStart") if launches == 0 else None
+    if (launched != launches or uptime < 0 or (uptime > 0) != (launches > 0)
+            or after.get("lastSessionStart") != session):
+        raise RuntimeError(f"Native sessions differ: {launched} launches, {uptime} ms uptime, "
+            f"open={after.get('lastSessionStart') is not None}; expected {launches} closed sessions")
+
+
 def require_dashboard(text, version):
     normalized = re.sub(r"\s+", " ", text).lower()
     # Dashboard in the tab bar alone does not prove that the body rendered.

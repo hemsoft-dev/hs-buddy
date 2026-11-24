@@ -282,6 +282,14 @@ impl BookmarksView {
         }
     }
 
+    /// A click on "All bookmarks" or a category in the tree: Electron's
+    /// `openTab('bookmarks-all')` or `openTab('bookmarks-category:…')`, which
+    /// counts every click. Restoring the tab selects without counting.
+    pub(super) fn choose_category(&mut self, category: Option<String>, cx: &mut Context<Self>) {
+        Runtime::global(cx).spawn_detached(self.service.record_tab_open());
+        self.select_category(category, cx);
+    }
+
     /// Shows a category's bookmarks, including its subcategories', and expands it in
     /// the tree.
     pub(super) fn select_category(&mut self, category: Option<String>, cx: &mut Context<Self>) {
