@@ -112,6 +112,27 @@ test("a native start leaves another client's open session alone", async () => {
   expect(await stored(t)).toEqual(before)
 })
 
+test("a native start takes over another client's stale session without its gap", async () => {
+  const t = backend()
+  await t.mutation(api.buddyStats.recordSessionStartNative, { owner: otherOwner })
+  const before = await stored(t)
+  // Twenty minutes without a checkpoint: that client quit without ending.
+  await t.run(ctx =>
+    ctx.db.patch('buddyStats', before!._id, { lastSessionStart: Date.now() - 20 * 60_000 })
+  )
+  expect(await t.mutation(api.buddyStats.recordSessionStartNative, { owner })).toEqual({
+    started: true,
+  })
+  const after = await stored(t)
+  expect(after!.appLaunches).toBe(before!.appLaunches + 1)
+  expect(after!.totalUptimeMs).toBe(before!.totalUptimeMs)
+  expect(after!.sessionOwner).toBe(owner)
+  expect(Date.now() - after!.lastSessionStart!).toBeLessThan(60_000)
+  // The old owner can no longer checkpoint or end it.
+  await t.mutation(api.buddyStats.recordSessionEndNative, { owner: otherOwner })
+  expect((await stored(t))!.sessionOwner).toBe(owner)
+})
+
 test("native checkpoint and end never touch another client's session", async () => {
   const t = backend()
   await t.mutation(api.buddyStats.recordSessionStartNative, { owner: otherOwner })

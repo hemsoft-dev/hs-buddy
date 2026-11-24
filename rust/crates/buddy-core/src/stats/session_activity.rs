@@ -105,7 +105,8 @@ enum Ownership {
     /// No start has been confirmed yet; the next event sends it again.
     Unconfirmed,
     Owned,
-    /// Another client's session was open at the start.
+    /// Another client's session was open. Each checkpoint asks again, so a
+    /// session that client left stale is taken over (Convex decides).
     Other,
 }
 
@@ -127,7 +128,8 @@ async fn serve_with(
 ) {
     let mut ownership = Ownership::Unconfirmed;
     while let Some(request) = requests.next().await {
-        if ownership == Ownership::Unconfirmed {
+        let retake = ownership == Ownership::Other && request.event == SessionEvent::Checkpoint;
+        if ownership == Ownership::Unconfirmed || retake {
             ownership = start(writer, owner).await;
         }
         if request.event != SessionEvent::Start
@@ -269,12 +271,30 @@ mod tests {
     #[test]
     fn another_clients_session_gets_no_checkpoint_or_end() {
         let mut fake = Fake {
+            starts: VecDeque::from([
+                Ok(json!({"started": false})),
+                Ok(json!({"started": false})),
+                Ok(json!({"started": false})),
+            ]),
+            ..Fake::default()
+        };
+        serve_events(&mut fake, &[Start, Checkpoint, Checkpoint, End]);
+        // Each checkpoint asks again; the end never starts a session.
+        assert_eq!(fake.functions(), [START, START, START]);
+    }
+
+    #[test]
+    fn a_checkpoint_takes_over_a_session_its_owner_left_stale() {
+        let mut fake = Fake {
+            // Convex hands over the session once the other client's is stale.
             starts: VecDeque::from([Ok(json!({"started": false}))]),
             ..Fake::default()
         };
         serve_events(&mut fake, &[Start, Checkpoint, Checkpoint, End]);
-        // The start is not retried either: Convex answered it.
-        assert_eq!(fake.functions(), [START]);
+        assert_eq!(
+            fake.functions(),
+            [START, START, CHECKPOINT, CHECKPOINT, END]
+        );
     }
 
     #[test]

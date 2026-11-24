@@ -303,12 +303,30 @@ export const checkpointUptime = mutation({
  * session: newly opened (counting a launch), or already its own (a resend).
  * Another client's open session is left as it is and `started` is false.
  */
+// Live sessions checkpoint every five minutes. An open session older than two
+// intervals belongs to a client that quit without ending it (killed, or out of
+// time to send its end), so a native start takes it over rather than stopping
+// session stats until another client ends it.
+const STALE_SESSION_MS = 12 * 60 * 1000
+
 export const recordSessionStartNative = mutation({
   args: { owner: v.string() },
   handler: async (ctx, { owner }) => {
     validateRequestId(owner)
     const existing = await getDefaultStats(ctx.db)
-    if (existing?.lastSessionStart) return { started: existing.sessionOwner === owner }
+    if (existing?.lastSessionStart) {
+      if (existing.sessionOwner === owner) return { started: true }
+      const now = Date.now()
+      if (now - existing.lastSessionStart <= STALE_SESSION_MS) return { started: false }
+      // The stale gap is not uptime: count this launch from now.
+      await ctx.db.patch('buddyStats', existing._id, {
+        appLaunches: existing.appLaunches + 1,
+        lastSessionStart: now,
+        sessionOwner: owner,
+        updatedAt: now,
+      })
+      return { started: true }
+    }
     const { started } = await startSession(ctx.db, owner)
     return { started }
   },
