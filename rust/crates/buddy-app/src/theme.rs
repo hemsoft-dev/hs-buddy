@@ -165,7 +165,7 @@ pub fn install(config: &AppConfig, cx: &mut App) {
     };
     apply_user_overrides(config, &mut palette, cx);
     cx.set_global(palette);
-    crate::zoom::theme_installed(cx);
+    crate::zoom::theme_installed(config, cx);
 }
 
 fn apply_user_overrides(config: &AppConfig, palette: &mut BuddyPalette, cx: &mut App) {

@@ -223,6 +223,7 @@ fn appearance_differs(a: &UiConfig, b: &UiConfig) -> bool {
         || a.mono_font_family != b.mono_font_family
         || a.status_bar_bg != b.status_bar_bg
         || a.status_bar_fg != b.status_bar_fg
+        || a.root_font_percent() != b.root_font_percent()
 }
 
 /// Refuse the edit when another Buddy process owns the shared file. The

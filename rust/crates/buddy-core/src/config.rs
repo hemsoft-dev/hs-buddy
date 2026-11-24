@@ -175,6 +175,22 @@ impl Default for UiConfig {
     }
 }
 
+/// The range Electron's schema allows for `ui.zoomLevel`.
+pub const ZOOM_LEVEL_RANGE: std::ops::RangeInclusive<f64> = 80.0..=150.0;
+
+impl UiConfig {
+    /// `ui.zoomLevel` as the root font-size percentage Electron's
+    /// `useAppAppearance` sets on `<html>`. Electron's store refuses to load
+    /// a value outside 80-150, so such a value (or a non-number) means 100.
+    pub fn root_font_percent(&self) -> f64 {
+        if ZOOM_LEVEL_RANGE.contains(&self.zoom_level) {
+            self.zoom_level
+        } else {
+            100.0
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PrConfig {
@@ -829,6 +845,54 @@ mod tests {
         assert!(!reloaded.is_dashboard_card_visible("weather"));
         assert_eq!(reloaded.extra.get("x"), Some(&serde_json::json!(1)));
         assert!(serde_json::from_str::<serde_json::Value>(&body).is_ok());
+    }
+
+    #[test]
+    fn a_sidebar_drag_saves_pane_sizes_and_keeps_zoom_level_and_unknown_keys() {
+        let _guard = env_lock();
+        let dir = std::env::temp_dir().join(format!("buddy-pane-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"ui":{"zoomLevel":120,"paneSizes":[250,950,420,7],"futureUi":{"a":1}},"future":[1]}"#,
+        )
+        .unwrap();
+        let (mut config, stamp) = AppConfig::load_with_stamp_from(&path).unwrap();
+        config.ui.pane_sizes =
+            crate::pane_sizes::after_sidebar_drag(&config.ui.pane_sizes, 320.0, 880.0).unwrap();
+        let saved = config.save_if_unchanged_at(&path, &stamp).unwrap();
+        let reloaded = AppConfig::load_from(&path).unwrap();
+        let body: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(saved);
+        assert_eq!(reloaded.ui.pane_sizes, vec![320.0, 880.0, 420.0]);
+        assert_eq!(reloaded.ui.zoom_level, 120.0);
+        assert_eq!(reloaded.ui.root_font_percent(), 120.0);
+        assert_eq!(body["ui"]["futureUi"], serde_json::json!({ "a": 1 }));
+        assert_eq!(body["future"], serde_json::json!([1]));
+    }
+
+    #[test]
+    fn zoom_level_outside_electrons_schema_range_means_one_hundred_percent() {
+        let percent = |level: f64| {
+            UiConfig {
+                zoom_level: level,
+                ..UiConfig::default()
+            }
+            .root_font_percent()
+        };
+        assert_eq!(percent(100.0), 100.0);
+        assert_eq!(percent(80.0), 80.0);
+        assert_eq!(percent(112.5), 112.5);
+        assert_eq!(percent(150.0), 150.0);
+        for level in [0.0, 79.0, 151.0, -120.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(percent(level), 100.0, "{level}");
+        }
+        let config = AppConfig::from_json(r#"{"ui":{"zoomLevel":90}}"#).unwrap();
+        assert_eq!(config.ui.root_font_percent(), 90.0);
     }
 
     #[test]

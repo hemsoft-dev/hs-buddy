@@ -30,6 +30,7 @@ pub mod format;
 pub mod gh;
 pub mod github;
 pub mod http;
+pub mod pane_sizes;
 pub mod pollen;
 pub mod pollen_credentials;
 pub mod ralph;
