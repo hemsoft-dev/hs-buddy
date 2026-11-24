@@ -25,6 +25,7 @@ pub struct LocaleFormat {
     month_year: DateTimeFormatter<YM>,
     weekday_date: DateTimeFormatter<MDE>,
     clock: DateTimeFormatter<T>,
+    hour_minute: DateTimeFormatter<T>,
 }
 
 thread_local! {
@@ -61,12 +62,16 @@ impl LocaleFormat {
         let clock =
             DateTimeFormatter::try_new(locale.into(), T::hms().with_alignment(Alignment::Column))
                 .map_err(|err| err.to_string())?;
+        let hour_minute =
+            DateTimeFormatter::try_new(locale.into(), T::hm().with_alignment(Alignment::Column))
+                .map_err(|err| err.to_string())?;
         Ok(Self {
             formatter,
             usd,
             month_year,
             weekday_date,
             clock,
+            hour_minute,
         })
     }
 
@@ -182,6 +187,19 @@ impl LocaleFormat {
         .ok()?;
         Some(self.clock.format(&time).to_string())
     }
+
+    /// `formatTime` from `dateUtils.ts`: `toLocaleTimeString(undefined,
+    /// { hour: "2-digit", minute: "2-digit" })` (`09:05 AM`, `09:05`).
+    pub fn hour_minute(&self, time: jiff::civil::Time) -> Option<String> {
+        let time = Time::try_new(
+            u8::try_from(time.hour()).ok()?,
+            u8::try_from(time.minute()).ok()?,
+            0,
+            0,
+        )
+        .ok()?;
+        Some(self.hour_minute.format(&time).to_string())
+    }
 }
 
 /// JavaScript's spelling of the values a `Decimal` cannot hold.
@@ -230,6 +248,11 @@ pub fn clock(time: jiff::civil::Time) -> Option<String> {
     SYSTEM.with(|f| f.clock(time))
 }
 
+/// Wall-clock hours and minutes in the system locale's hour cycle.
+pub fn hour_minute(time: jiff::civil::Time) -> Option<String> {
+    SYSTEM.with(|f| f.hour_minute(time))
+}
+
 const SECOND_MS: u64 = 1_000;
 const MINUTE_MS: u64 = 60 * SECOND_MS;
 const HOUR_MS: u64 = 60 * MINUTE_MS;
@@ -271,6 +294,53 @@ pub fn ago(ms: u64) -> String {
     }
 }
 
+/// `formatDistanceToNow` from `dateUtils.ts` for a time `ms` in the past:
+/// the two largest of months (30 days), weeks, days, hours and minutes
+/// (`3 days and 4 hours ago`), or `just now` under a minute.
+pub fn distance_to_now(ms: u64) -> String {
+    const UNITS: [(u64, &str); 5] = [
+        (30 * DAY_MS, "month"),
+        (7 * DAY_MS, "week"),
+        (DAY_MS, "day"),
+        (HOUR_MS, "hour"),
+        (MINUTE_MS, "minute"),
+    ];
+    let mut remaining = ms;
+    let mut parts = Vec::new();
+    for (size, label) in UNITS {
+        let count = remaining / size;
+        if count == 0 {
+            continue;
+        }
+        parts.push(format!(
+            "{count} {label}{}",
+            if count == 1 { "" } else { "s" }
+        ));
+        remaining -= count * size;
+        if parts.len() == 2 {
+            break;
+        }
+    }
+    match parts.as_slice() {
+        [] => "just now".to_string(),
+        [one] => format!("{one} ago"),
+        [first, second, ..] => format!("{first} and {second} ago"),
+    }
+}
+
+/// `formatDuration` from `dateUtils.ts`: `850ms`, `12.5s`, `2m 5s`.
+pub fn duration(ms: f64) -> String {
+    if ms < 1_000.0 {
+        // JavaScript prints whole numbers without a fraction.
+        return format!("{ms}ms");
+    }
+    if ms < MINUTE_MS as f64 {
+        return format!("{:.1}s", ms / 1_000.0);
+    }
+    let total = (ms / 1_000.0).round() as u64;
+    format!("{}m {}s", total / 60, total % 60)
+}
+
 /// Countdown label such as `4m 12s` or `45s`, rounding partial seconds up so
 /// the label never shows `0s` while time remains.
 pub fn countdown(ms: u64) -> String {
@@ -298,6 +368,13 @@ mod tests {
         assert_eq!(en_us().clock(time).as_deref(), Some("03:04:05\u{202f}PM"));
         let de = LocaleFormat::for_locale(&locale!("de-DE"));
         assert_eq!(de.clock(time).as_deref(), Some("15:04:05"));
+        // `formatTime`'s two-digit hour and minute.
+        let morning = jiff::civil::time(9, 5, 59, 0);
+        assert_eq!(
+            en_us().hour_minute(morning).as_deref(),
+            Some("09:05\u{202f}AM")
+        );
+        assert_eq!(de.hour_minute(time).as_deref(), Some("15:04"));
         let h24 = LocaleFormat::for_locale(&locale!("en-US-u-hc-h23"));
         assert_eq!(h24.clock(time).as_deref(), Some("15:04:05"));
     }
@@ -397,5 +474,29 @@ mod tests {
         assert_eq!(uptime(HOUR_MS + 5 * MINUTE_MS), "1h 5m");
         assert_eq!(uptime(2 * HOUR_MS), "2h");
         assert_eq!(uptime(3 * DAY_MS + 4 * HOUR_MS), "3d 4h");
+    }
+
+    #[test]
+    fn relative_times_and_durations_read_like_electron() {
+        assert_eq!(distance_to_now(59 * SECOND_MS), "just now");
+        assert_eq!(distance_to_now(MINUTE_MS), "1 minute ago");
+        assert_eq!(distance_to_now(32 * MINUTE_MS + 5), "32 minutes ago");
+        assert_eq!(
+            distance_to_now(3 * DAY_MS + 4 * HOUR_MS + 9 * MINUTE_MS),
+            "3 days and 4 hours ago"
+        );
+        assert_eq!(
+            distance_to_now(8 * DAY_MS + 5 * MINUTE_MS),
+            "1 week and 1 day ago"
+        );
+        assert_eq!(
+            distance_to_now(31 * DAY_MS + 3 * MINUTE_MS),
+            "1 month and 1 day ago"
+        );
+        assert_eq!(distance_to_now(2 * HOUR_MS + 30 * SECOND_MS), "2 hours ago");
+        assert_eq!(duration(850.0), "850ms");
+        assert_eq!(duration(12_449.0), "12.4s");
+        assert_eq!(duration(60_000.0), "1m 0s");
+        assert_eq!(duration(125_400.0), "2m 5s");
     }
 }

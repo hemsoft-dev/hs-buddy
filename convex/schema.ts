@@ -349,6 +349,21 @@ export default defineSchema({
     .index('by_status', ['status'])
     .index('by_created', ['createdAt']),
 
+  /**
+   * Native cleanup receipts. The Rust Convex client resends an unacknowledged
+   * mutation under a new session after a reconnect, so a repeated request
+   * returns its first result instead of deleting another batch.
+   */
+  automationCleanupReceipts: defineTable({
+    requestId: v.string(),
+    olderThanDays: v.number(),
+    deleted: v.number(),
+    more: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index('by_request', ['requestId'])
+    .index('by_created', ['createdAt']),
+
   /** Native request identities survive execution-history cleanup. */
   automationReceipts: defineTable({
     kind: v.union(v.literal('claim'), v.literal('trigger')),
@@ -391,6 +406,7 @@ export default defineSchema({
     .index('by_job_count_version', ['jobId', 'runCountVersion'])
     .index('by_schedule', ['scheduleId'])
     .index('by_status', ['status'])
+    .index('by_status_started', ['status', 'startedAt'])
     .index('by_started', ['startedAt'])
     .index('by_run_count_version', ['runCountVersion']),
 

@@ -905,6 +905,228 @@ fn control_a_per_view_quit_hook_is_gone_with_its_view(cx: &mut gpui_kit::TestApp
     assert!(!lock_dir(&config).exists());
 }
 
+#[test]
+fn a_cleanup_reports_its_count_or_why_nothing_is_known_and_is_never_resent() {
+    use super::service::cleanup_outcome;
+    use buddy_core::automation::backend::{Cleanup, Error};
+    let done = |deleted, more| cleanup_outcome(Ok(Cleanup { deleted, more })).unwrap();
+    assert_eq!(done(0, false), "Cleaned up 0 old runs.");
+    assert_eq!(done(1, false), "Cleaned up 1 old run.");
+    assert_eq!(done(12, false), "Cleaned up 12 old runs.");
+    // One request deletes at most a batch and says when older runs remain.
+    assert_eq!(
+        done(500, true),
+        "Cleaned up 500 old runs. Older runs remain; clean up again to continue."
+    );
+    for error in [Error::Unavailable, Error::Rejected] {
+        assert!(
+            cleanup_outcome(Err(error))
+                .unwrap_err()
+                .contains("No runs were deleted.")
+        );
+    }
+    for error in [Error::UnknownWrite, Error::InvalidResponse] {
+        assert!(
+            cleanup_outcome(Err(error))
+                .unwrap_err()
+                .contains("sent once and is not sent again")
+        );
+    }
+}
+
+#[test]
+fn recent_schedule_runs_read_like_electrons_detail_rows() {
+    use super::schedules::recent_run_parts;
+    let now = 1_800_000_000_000.0;
+    let run: Run = serde_json::from_value(json!({"_id":"r","jobId":"j","scheduleId":"s",
+        "status":"completed","startedAt":now - 3.0 * 3_600_000.0 - 120_000.0,
+        "triggeredBy":"schedule","duration":12_449.0}))
+    .unwrap();
+    assert_eq!(
+        recent_run_parts(&run, now),
+        [
+            "completed",
+            "schedule",
+            "3 hours and 2 minutes ago",
+            "12.4s"
+        ]
+    );
+    // No duration yet, an older run without `triggeredBy`, and a clock behind the server.
+    let run: Run = serde_json::from_value(
+        json!({"_id":"r","jobId":"j","status":"running","startedAt":now + 5_000.0}),
+    )
+    .unwrap();
+    assert_eq!(
+        recent_run_parts(&run, now),
+        ["running", "manual", "just now"]
+    );
+}
+
+fn open_drawn(
+    cx: &mut gpui_kit::TestAppContext,
+) -> (gpui_kit::AnyWindowHandle, Entity<AutomationView>) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        let (window, view) = gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| AutomationView::new(window, cx))
+        })
+        .unwrap();
+        (window, view)
+    })
+}
+
+fn half_hourly() -> Schedule {
+    // Every half hour, so a three-day forecast is never empty.
+    serde_json::from_value(json!({"_id":"s-2","jobId":"job-1","name":"Half hourly",
+        "cron":"*/30 * * * *","timezone":"UTC","enabled":true,"missedPolicy":"skip"}))
+    .unwrap()
+}
+
+#[gpui_kit::test]
+fn a_forecast_occurrence_opens_its_schedule_detail_with_recent_runs(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use super::service::ScheduleRuns;
+    let (window, view) = open_drawn(cx);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            view.snapshot.schedules.push(half_hourly());
+            view.select_pane(Pane::Schedules, cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-forecast").is_some());
+    assert!(visual.debug_bounds("automation-forecast-summary").is_some());
+    let row = visual
+        .debug_bounds("automation-forecast-row-0")
+        .expect("a half-hourly schedule has a forecast row");
+    visual.simulate_click(row.center(), gpui_kit::Modifiers::default());
+    let (detail, key, label) = visual.update(|_, cx| {
+        let state = view.read(cx);
+        let destination = state.destination(view.clone(), cx);
+        (
+            state.schedule_detail.clone(),
+            destination.key,
+            destination.label,
+        )
+    });
+    // Both schedules run at :00 or :30 UTC; the half-hourly one is never later.
+    assert!(detail.is_some());
+    let name = if detail.as_deref() == Some("s-2") {
+        "Half hourly"
+    } else {
+        "Weekdays"
+    };
+    assert_eq!(label, format!("Schedule: {name}"));
+    assert!(key.ends_with(&format!(":schedule:{}", detail.clone().unwrap())));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-schedule-detail").is_some());
+    assert!(visual.debug_bounds("automation-forecast").is_none());
+    // The coordinator's answer for this schedule lists its runs.
+    let run: Run = serde_json::from_value(json!({"_id":"run-9","jobId":"job-1",
+        "scheduleId":detail.clone().unwrap(),"status":"failed","startedAt":1.0}))
+    .unwrap();
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot.schedule_runs = Some(ScheduleRuns {
+                schedule_id: detail.clone().unwrap(),
+                runs: Some(vec![run]),
+                error: None,
+            });
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-schedule-run-0").is_some());
+    // Another list leaves the detail.
+    visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::History, cx)));
+    assert!(visual.update(|_, cx| view.read(cx).schedule_detail.is_none()));
+}
+
+#[gpui_kit::test]
+fn run_cleanup_waits_for_confirmation_and_closes_when_sent(cx: &mut gpui_kit::TestAppContext) {
+    let (window, view) = open_drawn(cx);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            view.select_pane(Pane::History, cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds("automation-cleanup-confirmation")
+            .is_none()
+    );
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds("automation-cleanup-confirmation")
+            .is_some()
+    );
+    // Leaving History drops an unconfirmed cleanup.
+    visual.update(|_, cx| view.update(cx, |view, cx| view.select_pane(Pane::Jobs, cx)));
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    // So does leaving it through the shell sidebar.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.select_pane(Pane::History, cx);
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    let jobs = visual.update(|_, cx| view.read(cx).sidebar(view.clone()).remove(0));
+    visual.update(|window, cx| (jobs.restore)(window, cx));
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    assert!(visual.update(|_, cx| view.read(cx).pane == Pane::Jobs));
+    // And going back through the shell's history to a saved Jobs tab.
+    let saved = visual.update(|_, cx| view.read(cx).destination(view.clone(), cx));
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.select_pane(Pane::History, cx);
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| (saved.restore)(window, cx));
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    assert!(visual.update(|_, cx| view.read(cx).pane == Pane::Jobs));
+    // Opening an editor from History drops it too.
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.select_pane(Pane::History, cx);
+            view.cleanup_confirm = true;
+            view.open_job(None, false, window, cx);
+        })
+    });
+    assert!(visual.update(|_, cx| !view.read(cx).cleanup_confirm));
+    // And the prompt only ever renders over History's run list.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.form = None;
+            view.select_pane(Pane::Jobs, cx);
+            view.cleanup_confirm = true;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds("automation-cleanup-confirmation")
+            .is_none()
+    );
+}
+
 // Test-only state access for the root shell's real status-bar mouse tests.
 impl AutomationView {
     /// A retained page on a different list than `target` opens.
@@ -928,4 +1150,80 @@ impl AutomationView {
         assert!(self.pane == expected);
         assert_eq!((self.page, self.job_page), (0, 0));
     }
+}
+
+/// A run expanded in History does not name the tab once Schedules shows a
+/// schedule's detail.
+#[gpui_kit::test]
+fn the_tab_names_the_schedule_detail_over_a_run_left_expanded_in_history(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view) = open_drawn(cx);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    let label = visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            view.snapshot.schedules.push(half_hourly());
+            view.select_pane(Pane::History, cx);
+            view.selected_run = Some("r-1".into());
+            view.select_pane(Pane::Schedules, cx);
+            view.set_schedule_detail(Some("s-2".into()), cx);
+        });
+        view.read(cx).destination(view.clone(), cx).label
+    });
+    assert_eq!(label, "Schedule: Half hourly");
+    let label = visual.update(|_, cx| {
+        view.update(cx, |view, cx| view.select_pane(Pane::History, cx));
+        view.read(cx).destination(view.clone(), cx).label
+    });
+    assert_eq!(label, "Run: r-1");
+}
+
+#[gpui_kit::test]
+fn a_long_forecast_draws_a_page_of_runs_and_is_not_rebuilt_on_every_redraw(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, view) = open_drawn(cx);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            // Every minute: 500 runs in the forecast window.
+            let mut minutely = half_hourly();
+            minutely.cron = "* * * * *".into();
+            view.snapshot.schedules.push(minutely);
+            view.select_pane(Pane::Schedules, cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let shown = super::schedules::FORECAST_SHOWN;
+    // Debug selectors are static strings.
+    let row = |name: &str| -> &'static str { Box::leak(name.to_owned().into_boxed_str()) };
+    assert!(
+        visual
+            .debug_bounds(row(&format!("automation-forecast-row-{}", shown - 1)))
+            .is_some()
+    );
+    assert!(
+        visual
+            .debug_bounds(row(&format!("automation-forecast-row-{shown}")))
+            .is_none()
+    );
+    let same = visual.update(|_, cx| {
+        let view = view.read(cx);
+        std::rc::Rc::ptr_eq(&view.forecast(cx), &view.forecast(cx))
+    });
+    assert!(same, "an unchanged forecast is reused");
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.forecast_shown += super::schedules::FORECAST_SHOWN;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual
+            .debug_bounds(row(&format!("automation-forecast-row-{}", 2 * shown - 1)))
+            .is_some()
+    );
 }

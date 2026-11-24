@@ -1,6 +1,6 @@
 # Parity checklist: Shell, dashboard and settings
 
-Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Every source link points at commit `55e4ee06`.
+Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Source links point at commit `55e4ee06` unless they name another commit, as native links added by later pull requests do.
 
 99 Electron capabilities: 6 missing natively, 1 placeholder natively, 16 partly ported, 69 ported, 7 not applicable to the native app.
 

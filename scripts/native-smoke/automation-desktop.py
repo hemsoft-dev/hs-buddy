@@ -230,7 +230,9 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
 
 def qualify_editing(driver, backend, config, echo, long):
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
-    terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
+    # A seven-day forecast window, as Electron's dropdown saves it.
+    terminal.write_config(config, lambda value: (value["ui"].update(light["ui"]),
+        value.setdefault("automation", {}).update(scheduleForecastDays=7)))
     restarted = driver.drive("restart-light", [
         ("content", "History"), ("sleep", 2), ("capture", "history-after-restart-light"),
         ("content", "Jobs"), ("content", "New job"), ("sleep", 1), ("capture", "new-job-light"),
@@ -240,14 +242,33 @@ def qualify_editing(driver, backend, config, echo, long):
         ("content", "Schedule"), ("sleep", 1), ("input", "Name", "Native weekdays"),
         ("content", "Run the latest missed"), ("capture", "schedule-editor-light"), ("content", "Save"), ("sleep", 3),
         ("content", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
-        ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
+        # Scroll to each schedule button before clicking it, in case the
+        # 1044x788 Windows window leaves it below the fold.
+        ("wait_scroll_text", "Pause"), ("content", "Pause"), ("sleep", 3), ("capture", "schedule-paused-light"),
+        ("wait_scroll_text", "Details"), ("content", "Details"), ("sleep", 2), ("capture", "schedule-detail-light"),
+        ("content", "History"), ("sleep", 1), ("content", "Cleanup old runs"), ("capture", "cleanup-confirm-light"),
+        ("content", "Delete"), ("sleep", 3), ("capture", "cleanup-done-light"),
     ])
     github.check(restarted / "history-after-restart-light.png", "Completed", "Cancelled", "Echo job", "Long job")
     github.check(restarted / "new-job-light.png", "New job", "Shell command", "Command", "Save")
     github.check(restarted / "job-created-light.png", "Native created job", "Run now")
     github.check(restarted / "schedule-editor-light.png", "New schedule", "Native created job", "Run the latest missed")
-    github.check(restarted / "schedule-created-light.png", "Native weekdays", "Enabled", "Run the latest missed")
-    github.check(restarted / "schedule-paused-light.png", "Native weekdays", "Paused", "Enable", "Not scheduled")
+    # Forecast days and times depend on the clock, so only stable words are checked.
+    github.check(restarted / "schedule-created-light.png", "Native weekdays", "Enabled", "Run the latest missed",
+        "Upcoming Scheduled Jobs", "Forecast:", "active schedule", "in next 7 days")
+    github.check(restarted / "schedule-paused-light.png", "Native weekdays", "Paused", "Enable", "Not scheduled",
+        "No scheduled runs in the next 7 days.", "All schedules are currently paused.")
+    github.check(restarted / "schedule-detail-light.png", "All schedules", "Native weekdays", "Recent Runs",
+        "No runs yet for this schedule.")
+    github.check(restarted / "cleanup-confirm-light.png", "Delete completed, failed and cancelled runs older than 7 days?",
+        "Up to 500 are deleted at a time.",
+        "Delete", "Cancel")
+    # Both runs are minutes old, so the confirmed cleanup deletes none of them.
+    # History keeps the Jobs filter ("Native created"), so the runs are proven
+    # by the backend checks below rather than by their rows in this capture.
+    github.check(restarted / "cleanup-done-light.png", "Cleaned up 0 old runs.")
+    if json.loads(config.read_text(encoding="utf-8-sig")).get("automation", {}).get("scheduleForecastDays") != 7:
+        raise RuntimeError("The native app did not keep automation.scheduleForecastDays")
     check_status_totals(restarted / "schedule-paused-light.png", backend)
     # The restarted dispatcher reconciles; it never runs either job again.
     single_run(backend, echo, "completed")
@@ -266,7 +287,11 @@ def qualify_editing(driver, backend, config, echo, long):
     changed = driver.drive("change-light", [
         ("input", "Filter", "Native created"), ("content", "Schedules"), ("sleep", 1),
         ("content", "Delete"), ("capture", "schedule-delete-light"), ("content", "Delete schedule"), ("sleep", 3),
-        ("content", "Jobs"), ("sleep", 1), ("content", "Edit"), ("sleep", 1), ("capture", "edit-job-light"),
+        # The Schedules pane's "Upcoming Scheduled Jobs" heading is a second
+        # visible "Jobs" (and the driver's "sidebar" action is the GitHub
+        # PR-mode list), so leave through History, where "Jobs" is unique.
+        ("content", "History"), ("sleep", 1), ("content", "Jobs"), ("sleep", 1),
+        ("content", "Edit"), ("sleep", 1), ("capture", "edit-job-light"),
         ("input", "Command", "echo native_updated"), ("content", "Save"), ("sleep", 3),
         ("resize", 900, 650), ("sleep", 1), ("capture", "compact-light"),
     ])
@@ -317,7 +342,8 @@ def qualify(executable, output, session, version, backend):
         checks=["offline start and reconnect", "manual run queued once", "Unicode working directory and explicit environment", "exact stored output",
             "live output while running", "cancellation stops the job's process family", "unrelated process preserved",
             "restart reconciles without rerunning", "job create/edit/delete", "schedule create/pause/delete",
-            "missed policy and timezone", "compact window", "light/dark"]), indent=2), encoding="utf-8")
+            "missed policy and timezone", "schedule forecast from automation.scheduleForecastDays",
+            "schedule detail recent runs", "confirmed run cleanup", "compact window", "light/dark"]), indent=2), encoding="utf-8")
 
 
 def main():

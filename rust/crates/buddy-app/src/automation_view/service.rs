@@ -1,7 +1,7 @@
 //! Serialized background I/O and execution; GPUI only reads bounded snapshots.
 use crate::runtime::Runtime;
 use buddy_core::automation::{
-    backend::{AutomationBackend, ChangeKind, Error as BackendError},
+    backend::{AutomationBackend, ChangeKind, Cleanup, Error as BackendError},
     edit::{Edit, Error as EditError},
     engine::{Engine, Phase},
     journal::Context,
@@ -37,7 +37,49 @@ pub(super) struct Snapshot {
     /// The last failed user command; cleared when the next command starts.
     pub error: Option<String>,
     pub notice: Option<String>,
+    /// The open schedule detail's newest runs (`runs:listBySchedule`).
+    pub schedule_runs: Option<ScheduleRuns>,
     pub sequence: u64,
+}
+
+/// `ScheduleDetailPanel` asks for this many recent runs.
+pub(super) const SCHEDULE_RUNS: u32 = 10;
+/// `RunList` deletes finished runs older than this many days.
+pub(super) const CLEANUP_DAYS: u32 = 7;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ScheduleRuns {
+    pub schedule_id: String,
+    /// `None` until the first read for this schedule answers.
+    pub runs: Option<Vec<Run>>,
+    /// The last failed read; earlier runs stay listed.
+    pub error: Option<String>,
+}
+
+/// What a sent cleanup says. It is sent once: an unknown outcome is reported,
+/// never retried, and History's next refresh shows the runs that remain.
+pub(super) fn cleanup_outcome(result: Result<Cleanup, BackendError>) -> Result<String, String> {
+    match result {
+        Ok(Cleanup { deleted, more }) => Ok(format!(
+            "Cleaned up {deleted} old run{}.{}",
+            if deleted == 1 { "" } else { "s" },
+            if more {
+                " Older runs remain; clean up again to continue."
+            } else {
+                ""
+            }
+        )),
+        Err(BackendError::Unavailable) => {
+            Err("Automation is offline. No runs were deleted.".into())
+        }
+        Err(BackendError::Rejected) => {
+            Err("The backend rejected the cleanup. No runs were deleted.".into())
+        }
+        Err(BackendError::UnknownWrite | BackendError::InvalidResponse) => Err(
+            "The cleanup result is unknown. It was sent once and is not sent again; History shows the runs that remain."
+                .into(),
+        ),
+    }
 }
 impl Default for Snapshot {
     fn default() -> Self {
@@ -58,6 +100,7 @@ impl Default for Snapshot {
             dispatch_error: None,
             error: None,
             notice: None,
+            schedule_runs: None,
             sequence: 0,
         }
     }
@@ -75,6 +118,10 @@ pub(super) enum Command {
     ClearEdit,
     DiscardEdit,
     Cancel(String),
+    /// Follow this schedule's recent runs, or none.
+    ScheduleRuns(Option<String>),
+    /// `runs:cleanupNative` for runs older than [`CLEANUP_DAYS`], after confirmation.
+    Cleanup,
     Stop,
 }
 pub(super) struct Envelope {
@@ -267,6 +314,7 @@ impl Coordinator {
                 self.snapshot.connected = true;
                 self.snapshot.loaded = true;
                 self.snapshot.connection_error = None;
+                self.refresh_schedule_runs().await;
             }
             (jobs, schedules, runs) => {
                 self.snapshot.connected = false;
@@ -275,6 +323,32 @@ impl Coordinator {
                     .or(schedules.err())
                     .or(runs.err())
                     .map(|e| e.to_string());
+            }
+        }
+    }
+    async fn refresh_schedule_runs(&mut self) {
+        let Some(id) = self
+            .snapshot
+            .schedule_runs
+            .as_ref()
+            .map(|s| s.schedule_id.clone())
+        else {
+            return;
+        };
+        let result = self.backend.schedule_runs(&id, SCHEDULE_RUNS).await;
+        // A newer selection may have replaced this one while the read was out.
+        if let Some(current) = self
+            .snapshot
+            .schedule_runs
+            .as_mut()
+            .filter(|current| current.schedule_id == id)
+        {
+            match result {
+                Ok(runs) => {
+                    current.runs = Some(runs);
+                    current.error = None;
+                }
+                Err(error) => current.error = Some(error.to_string()),
             }
         }
     }
@@ -292,6 +366,27 @@ impl Coordinator {
             Command::Refresh => {
                 self.refresh().await;
                 return Ok(());
+            }
+            Command::ScheduleRuns(id) => {
+                let current = self.snapshot.schedule_runs.as_ref().map(|s| &s.schedule_id);
+                if current != id.as_ref() {
+                    self.snapshot.schedule_runs = id.map(|schedule_id| ScheduleRuns {
+                        schedule_id,
+                        runs: None,
+                        error: None,
+                    });
+                }
+                self.refresh_schedule_runs().await;
+                return Ok(());
+            }
+            Command::Cleanup => {
+                // A previous cleanup's notice never stands beside this one's outcome.
+                self.snapshot.notice = None;
+                // One identity per confirmed cleanup; it is never sent again.
+                let request = uuid::Uuid::new_v4();
+                let notice =
+                    cleanup_outcome(self.backend.cleanup_runs(request, CLEANUP_DAYS).await)?;
+                self.snapshot.notice = Some(notice);
             }
             Command::Save(kind, arguments) => {
                 let notice = save_notice(kind, &arguments);

@@ -166,7 +166,7 @@ impl AutomationView {
         }
     }
 
-    fn open_job(
+    pub(super) fn open_job(
         &mut self,
         job: Option<Job>,
         duplicate: bool,
@@ -174,6 +174,7 @@ impl AutomationView {
         cx: &mut Context<Self>,
     ) {
         self.form = Some(Form::new_job(job.as_ref(), duplicate, window, cx));
+        self.cleanup_confirm = false;
         self.dismiss_notice();
         self.error = None;
         cx.notify();
@@ -194,6 +195,7 @@ impl AutomationView {
             window,
             cx,
         ));
+        self.cleanup_confirm = false;
         self.dismiss_notice();
         self.error = None;
         cx.notify();
@@ -755,6 +757,45 @@ impl AutomationView {
                     .into_any_element(),
             );
         }
+        // The cleanup prompt belongs to History's run list only.
+        if self.cleanup_confirm && self.pane == Pane::History && self.form.is_none() {
+            return Some(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .border_1()
+                    .rounded_md()
+                    .border_color(cx.theme().danger)
+                    .debug_selector(|| "automation-cleanup-confirmation".into())
+                    .child(div().whitespace_normal().child(
+                        "Delete completed, failed and cancelled runs older than 7 days? Up to 500 are deleted at a time.",
+                    ))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("automation-cleanup-confirm")
+                                    .danger()
+                                    .label("Delete")
+                                    .disabled(self.locked())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        // Closed before it is sent: one click, one request.
+                                        this.cleanup_confirm = false;
+                                        this.operate(Command::Cleanup, false, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("automation-cleanup-cancel")
+                                    .label("Cancel")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.cleanup_confirm = false;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
         let (_, name) = self.run_target.as_ref()?;
         Some(
             v_flex()
@@ -967,7 +1008,137 @@ impl AutomationView {
             .into_any_element()
     }
 
+    /// A schedule's summary and actions; the list adds Details, the detail
+    /// view shows the same row without it.
+    pub(super) fn schedule_row(
+        &self,
+        index: usize,
+        schedule: &Schedule,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Div {
+        let locked = self.locked() || self.form.is_some();
+        let in_detail = self.schedule_detail.is_some();
+        // Times read in the schedule's own zone, next to its cron expression.
+        let zone = schedule
+            .timezone
+            .as_deref()
+            .unwrap_or(super::forms::DEFAULT_TIMEZONE);
+        let at = |key: &str| {
+            schedule
+                .extra
+                .get(key)
+                .and_then(Value::as_f64)
+                .map(|ms| schedule_time(ms, zone).unwrap_or_else(|| local_time(ms)))
+        };
+        let (next, last) = (at("nextRunAt"), at("lastRunAt"));
+        let (detail, edit, toggle, delete) = (
+            schedule.id.clone(),
+            schedule.clone(),
+            schedule.clone(),
+            schedule.clone(),
+        );
+        let mut buttons = h_flex().flex_wrap().gap_2();
+        if !in_detail {
+            buttons = buttons.child(
+                Button::new(("automation-schedule-details", index))
+                    .label("Details")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_schedule_detail(Some(detail.clone()), cx)
+                    })),
+            );
+        }
+        buttons = buttons
+            .child(
+                Button::new(("automation-schedule-edit", index))
+                    .label("Edit")
+                    .disabled(locked)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_schedule(Some(edit.clone()), None, window, cx)
+                    })),
+            )
+            .child(
+                Button::new(("automation-schedule-toggle", index))
+                    .label(if schedule.enabled { "Pause" } else { "Enable" })
+                    .disabled(locked)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        // An explicit target state, never a retryable toggle.
+                        this.operate(
+                            Command::Save(
+                                ChangeKind::UpdateSchedule,
+                                serde_json::json!({"id": toggle.id, "enabled": !toggle.enabled}),
+                            ),
+                            false,
+                            cx,
+                        )
+                    })),
+            )
+            .child(
+                Button::new(("automation-schedule-delete", index))
+                    .label("Delete")
+                    .disabled(locked)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.deletion = Some((
+                            ChangeKind::DeleteSchedule,
+                            delete.id.clone(),
+                            delete.name.clone(),
+                        ));
+                        cx.notify();
+                    })),
+            );
+        Self::row(index, "automation-schedule-row", cx)
+            .child(div().whitespace_normal().child(format!(
+                "{} · {}",
+                schedule.name,
+                if schedule.enabled {
+                    "Enabled"
+                } else {
+                    "Paused"
+                }
+            )))
+            .child(
+                div()
+                    .whitespace_normal()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "{} · {} {} · {}",
+                        self.job_name(&schedule.job_id),
+                        schedule.cron,
+                        schedule
+                            .timezone
+                            .as_deref()
+                            .unwrap_or(super::forms::DEFAULT_TIMEZONE),
+                        policy_label(schedule.missed_policy)
+                    )),
+            )
+            .child(div().whitespace_normal().child(format!(
+                "Next: {} · Last: {}",
+                next.unwrap_or_else(|| "Not scheduled".into()),
+                last.unwrap_or_else(|| "Never".into())
+            )))
+            .child(buttons)
+    }
+
     fn render_schedules(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.schedule_detail.is_some() {
+            return match self.detail_schedule().cloned() {
+                Some(schedule) => self.render_schedule_detail(&schedule, cx),
+                None => {
+                    v_flex()
+                        .gap_3()
+                        .child(div().child("Schedule not found."))
+                        .child(
+                            h_flex().child(
+                                Button::new("automation-schedule-back")
+                                    .label("All schedules")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_schedule_detail(None, cx)
+                                    })),
+                            ),
+                        )
+                        .into_any_element()
+                }
+            };
+        }
         let schedules: Vec<Schedule> = self
             .snapshot
             .schedules
@@ -980,6 +1151,8 @@ impl AutomationView {
             .cloned()
             .collect();
         let page = page_bounds(schedules.len(), self.page);
+        // Electron shows the forecast on its own page. Here it follows the
+        // schedule list, so a filtered schedule's controls stay in view.
         let mut list = v_flex().gap_3();
         if schedules.is_empty() {
             list = list.child(div().whitespace_normal().child(
@@ -990,90 +1163,12 @@ impl AutomationView {
                 },
             ));
         }
-        let locked = self.locked() || self.form.is_some();
         for (index, schedule) in schedules.iter().skip(page * PAGE).take(PAGE).enumerate() {
-            // Times read in the schedule's own zone, next to its cron expression.
-            let zone = schedule
-                .timezone
-                .as_deref()
-                .unwrap_or(super::forms::DEFAULT_TIMEZONE);
-            let at = |key: &str| {
-                schedule
-                    .extra
-                    .get(key)
-                    .and_then(Value::as_f64)
-                    .map(|ms| schedule_time(ms, zone).unwrap_or_else(|| local_time(ms)))
-            };
-            let (next, last) = (at("nextRunAt"), at("lastRunAt"));
-            let (edit, toggle, delete) = (schedule.clone(), schedule.clone(), schedule.clone());
-            let row = Self::row(index, "automation-schedule-row", cx)
-                .child(div().whitespace_normal().child(format!(
-                    "{} · {}",
-                    schedule.name,
-                    if schedule.enabled { "Enabled" } else { "Paused" }
-                )))
-                .child(
-                    div()
-                        .whitespace_normal()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "{} · {} {} · {}",
-                            self.job_name(&schedule.job_id),
-                            schedule.cron,
-                            schedule.timezone.as_deref().unwrap_or(super::forms::DEFAULT_TIMEZONE),
-                            policy_label(schedule.missed_policy)
-                        )),
-                )
-                .child(div().whitespace_normal().child(format!(
-                    "Next: {} · Last: {}",
-                    next.unwrap_or_else(|| "Not scheduled".into()),
-                    last.unwrap_or_else(|| "Never".into())
-                )))
-                .child(
-                    h_flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(
-                            Button::new(("automation-schedule-edit", index))
-                                .label("Edit")
-                                .disabled(locked)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.open_schedule(Some(edit.clone()), None, window, cx)
-                                })),
-                        )
-                        .child(
-                            Button::new(("automation-schedule-toggle", index))
-                                .label(if schedule.enabled { "Pause" } else { "Enable" })
-                                .disabled(locked)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    // An explicit target state, never a retryable toggle.
-                                    this.operate(
-                                        Command::Save(
-                                            ChangeKind::UpdateSchedule,
-                                            serde_json::json!({"id": toggle.id, "enabled": !toggle.enabled}),
-                                        ),
-                                        false,
-                                        cx,
-                                    )
-                                })),
-                        )
-                        .child(
-                            Button::new(("automation-schedule-delete", index))
-                                .label("Delete")
-                                .disabled(locked)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.deletion = Some((
-                                        ChangeKind::DeleteSchedule,
-                                        delete.id.clone(),
-                                        delete.name.clone(),
-                                    ));
-                                    cx.notify();
-                                })),
-                        ),
-                );
+            let row = self.schedule_row(index, schedule, cx);
             list = list.child(row);
         }
         list.children(self.pager("automation-schedules", schedules.len(), page, cx))
+            .child(self.render_forecast(cx))
             .into_any_element()
     }
 
@@ -1089,7 +1184,20 @@ impl AutomationView {
             .cloned()
             .collect();
         let page = page_bounds(runs.len(), self.page);
-        let mut list = v_flex().gap_3();
+        // `RunList`'s header action; the server keeps active runs.
+        let mut list = v_flex().gap_3().child(
+            h_flex().child(
+                Button::new("automation-runs-cleanup")
+                    .label("Cleanup old runs (7+ days)")
+                    .disabled(self.locked() || self.cleanup_confirm)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.cleanup_confirm = true;
+                        this.deletion = None;
+                        this.run_target = None;
+                        cx.notify();
+                    })),
+            ),
+        );
         if runs.is_empty() {
             list = list.child(div().child(if self.snapshot.runs.is_empty() {
                 "No runs yet."

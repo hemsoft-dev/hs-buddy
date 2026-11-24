@@ -66,6 +66,27 @@ impl ChangeKind {
     }
 }
 
+/// What one `runs:cleanupNative` request deleted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cleanup {
+    pub deleted: u64,
+    /// Older runs remain beyond this request's batch.
+    pub more: bool,
+}
+
+/// `{ deleted, more }`: a whole, nonnegative count and a flag.
+pub(crate) fn cleanup_result(value: &Value) -> Option<Cleanup> {
+    let object = value.as_object()?;
+    let deleted = object.get("deleted")?.as_f64()?;
+    let more = object.get("more")?.as_bool()?;
+    (deleted.is_finite() && deleted >= 0.0 && deleted.fract() == 0.0 && deleted <= 1e15).then_some(
+        Cleanup {
+            deleted: deleted as u64,
+            more,
+        },
+    )
+}
+
 fn parse<T: DeserializeOwned>(value: Value) -> Result<T, Error> {
     serde_json::from_value(value).map_err(|_| Error::InvalidResponse)
 }
@@ -95,6 +116,41 @@ impl AutomationBackend {
                 .call("runs:listRecent", json!({"limit":100}), false)
                 .await?,
         )
+    }
+
+    /// `runs:listBySchedule`: the schedule's newest runs first.
+    pub async fn schedule_runs(&self, schedule_id: &str, limit: u32) -> Result<Vec<Run>, Error> {
+        parse(
+            self.client
+                .call(
+                    "runs:listBySchedule",
+                    json!({"scheduleId":schedule_id,"limit":limit}),
+                    false,
+                )
+                .await?,
+        )
+    }
+
+    /// `runs:cleanupNative`: deletes up to one batch of finished runs started
+    /// more than `older_than_days` ago. Sent once; a lost or unreadable reply is
+    /// an unknown outcome, never a reason to send it again. The Convex client
+    /// resends an unacknowledged mutation under a new session after a
+    /// reconnect, so `request` makes that resend return the first result
+    /// instead of deleting another batch.
+    pub async fn cleanup_runs(
+        &self,
+        request: uuid::Uuid,
+        older_than_days: u32,
+    ) -> Result<Cleanup, Error> {
+        let value = self
+            .client
+            .call(
+                "runs:cleanupNative",
+                json!({"requestId":request.to_string(),"olderThanDays":older_than_days}),
+                true,
+            )
+            .await?;
+        cleanup_result(&value).ok_or(Error::UnknownWrite)
     }
 
     pub async fn pending(&self) -> Result<Vec<Run>, Error> {
@@ -240,5 +296,35 @@ impl AutomationBackend {
             return Err(Error::UnknownWrite);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cleanup_reply_must_be_a_whole_deleted_count_and_a_flag() {
+        let read = |deleted, more| Some(Cleanup { deleted, more });
+        assert_eq!(
+            cleanup_result(&json!({"deleted": 12, "more": false})),
+            read(12, false)
+        );
+        assert_eq!(
+            cleanup_result(&json!({"deleted": 0.0, "more": true})),
+            read(0, true)
+        );
+        for unreadable in [
+            json!(null),
+            json!(12),
+            json!({}),
+            json!({"deleted": 12}),
+            json!({"deleted": "12", "more": false}),
+            json!({"deleted": -1, "more": false}),
+            json!({"deleted": 1.5, "more": false}),
+            json!({"deleted": 1, "more": "no"}),
+        ] {
+            assert_eq!(cleanup_result(&unreadable), None, "{unreadable}");
+        }
     }
 }

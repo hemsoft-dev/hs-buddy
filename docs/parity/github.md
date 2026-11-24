@@ -1,6 +1,6 @@
 # Parity checklist: GitHub repositories and pull requests
 
-Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Every source link points at commit `55e4ee06`.
+Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Source links point at commit `55e4ee06` unless they name another commit, as native links added by later pull requests do.
 
 82 Electron capabilities: 16 missing natively, 42 partly ported, 23 ported, 1 not applicable to the native app.
 

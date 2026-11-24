@@ -1,6 +1,6 @@
 # Parity checklist: Copilot chat, assistant, results, usage and sessions
 
-Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Every source link points at commit `55e4ee06`.
+Part of the [GPUI parity checklist](../GPUI-PARITY-CHECKLIST.md). Source links point at commit `55e4ee06` unless they name another commit, as native links added by later pull requests do.
 
 74 Electron capabilities: 14 missing natively, 26 partly ported, 31 ported, 3 not applicable to the native app.
 

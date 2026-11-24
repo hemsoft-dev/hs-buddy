@@ -2,6 +2,7 @@
 mod forms;
 mod lifecycle;
 mod render;
+mod schedules;
 mod service;
 #[cfg(test)]
 mod tests;
@@ -44,6 +45,20 @@ pub struct AutomationView {
     page: usize,
     job_page: usize,
     selected_run: Option<String>,
+    /// The schedule whose detail and recent runs replace the Schedules list.
+    schedule_detail: Option<String>,
+    /// The run-history cleanup waits for this confirmation.
+    cleanup_confirm: bool,
+    /// The last forecast and what it was computed from: it is rebuilt only
+    /// when the schedules, window, zone or minute change, not on every redraw.
+    forecast_cache: std::cell::RefCell<
+        Option<(
+            schedules::ForecastKey,
+            std::rc::Rc<buddy_core::automation::forecast::Forecast>,
+        )>,
+    >,
+    /// How many forecast occurrences are drawn; "Show more" raises it.
+    forecast_shown: usize,
     deletion: Option<(ChangeKind, String, String)>,
     discard_confirm: bool,
     trigger_discard_confirm: bool,
@@ -83,9 +98,27 @@ impl AutomationView {
     }
 
     fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        self.set_schedule_detail(None, cx);
+        self.cleanup_confirm = false;
         self.pane = pane;
         self.page = 0;
         self.job_page = 0;
+        cx.notify();
+    }
+
+    /// Opens a schedule's detail (`None` returns to the list) and has the
+    /// coordinator follow that schedule's recent runs.
+    fn set_schedule_detail(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        if self.schedule_detail == id {
+            return;
+        }
+        if let Some(handle) = &self.handle {
+            handle.send(Command::ScheduleRuns(id.clone()));
+        }
+        if id.is_some() {
+            self.pane = Pane::Schedules;
+        }
+        self.schedule_detail = id;
         cx.notify();
     }
 
@@ -132,6 +165,10 @@ impl AutomationView {
             page: 0,
             job_page: 0,
             selected_run: None,
+            schedule_detail: None,
+            cleanup_confirm: false,
+            forecast_cache: std::cell::RefCell::new(None),
+            forecast_shown: schedules::FORECAST_SHOWN,
             deletion: None,
             discard_confirm: false,
             trigger_discard_confirm: false,
@@ -270,9 +307,25 @@ impl AutomationView {
         let form = self.form.clone();
         let form_key = form.as_ref().map(|f| (f.kind as usize, f.target.clone()));
         let run = self.selected_run.clone();
+        let detail = self.schedule_detail.clone();
+        let detail_name = detail.as_ref().map(|id| {
+            self.snapshot
+                .schedules
+                .iter()
+                .find(|schedule| &schedule.id == id)
+                .map_or_else(|| id.clone(), |schedule| schedule.name.clone())
+        });
         let _ = cx;
+        // A schedule detail adds its own key part, so the plain lists keep theirs.
+        let detail_key = detail
+            .as_ref()
+            .map(|id| format!(":schedule:{id}"))
+            .unwrap_or_default();
         crate::shell::navigation::Destination {
-            key: format!("automation:{}:{run:?}:{form_key:?}", pane as usize),
+            key: format!(
+                "automation:{}:{run:?}:{form_key:?}{detail_key}",
+                pane as usize
+            ),
             label: if let Some(form) = &form {
                 format!(
                     "{}: {}",
@@ -284,14 +337,14 @@ impl AutomationView {
                     form.target.as_deref().unwrap_or("New")
                 )
             } else {
-                match &run {
-                    Some(id) => format!("Run: {id}"),
-                    None => match pane {
-                        Pane::Jobs => "Automation: Jobs",
-                        Pane::Schedules => "Automation: Schedules",
-                        Pane::History => "Automation: Run history",
-                    }
-                    .into(),
+                // Each pane names only what it shows: an expanded run belongs
+                // to History and a schedule detail to Schedules.
+                match (pane, &run, &detail_name) {
+                    (Pane::History, Some(id), _) => format!("Run: {id}"),
+                    (Pane::Schedules, _, Some(name)) => format!("Schedule: {name}"),
+                    (Pane::Jobs, ..) => "Automation: Jobs".into(),
+                    (Pane::Schedules, ..) => "Automation: Schedules".into(),
+                    (Pane::History, ..) => "Automation: Run history".into(),
                 }
             },
             section: Some(crate::app::Section::Automation),
@@ -302,8 +355,11 @@ impl AutomationView {
                 let _ = window;
                 entity.update(cx, |view, cx| {
                     view.form = form.clone();
+                    // An unconfirmed cleanup never follows a restored tab.
+                    view.cleanup_confirm = false;
                     view.pane = pane;
                     view.selected_run = run.clone();
+                    view.set_schedule_detail(detail.clone(), cx);
                     cx.notify();
                 });
             }),
@@ -340,6 +396,9 @@ impl AutomationView {
                 entity.update(cx, |view, cx| {
                     view.form = None;
                     view.selected_run = None;
+                    // An unconfirmed cleanup belongs to History only.
+                    view.cleanup_confirm = false;
+                    view.set_schedule_detail(None, cx);
                     view.pane = pane;
                     cx.notify();
                 })
