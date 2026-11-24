@@ -193,6 +193,23 @@ fn the_recent_list_shows_newest_results_with_status_and_time_and_opens_the_click
     .unwrap();
     cx.run_until_parked();
     assert_eq!(*opened.borrow(), ["result-1"]);
+    // During a conversation the conversation keeps that space.
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.messages.push(super::Message {
+                user: true,
+                partial: false,
+                unconfirmed: false,
+                text: "Synthetic question".into(),
+            });
+            cx.notify();
+        })
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find(("copilot-recent-row", 0usize)).is_none());
+    })
+    .unwrap();
 }
 
 #[gpui_kit::test]

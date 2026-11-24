@@ -924,7 +924,9 @@ impl Render for ChatView {
         if let Some(notice) = &self.notice {
             content = content.child(div().text_color(muted).child(notice.clone()));
         }
-        if self.sidebar_context.is_none() {
+        // Recent helps start or pick up a prompt; during a conversation the
+        // conversation keeps the space. New conversation brings Recent back.
+        if self.sidebar_context.is_none() && self.messages.is_empty() {
             content = content.child(self.recent_list(cx));
         }
         content
