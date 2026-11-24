@@ -31,16 +31,6 @@ placeholder natively and 26 do not apply to a native app.
 | [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 6 | 4 | 21 | 26 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 11 | 0 | 29 | 54 | 7 |
 | **All areas** | **622** | **67** | **5** | **185** | **339** | **26** |
-<<<<<<< HEAD
-| [Todoist and Tempo](parity/planning.md) | 71 | 8 | 0 | 18 | 44 | 1 |
-| [Automation, Ralph and Crew](parity/automation.md) | 89 | 10 | 0 | 24 | 52 | 3 |
-=======
-| [Todoist and Tempo](parity/planning.md) | 71 | 12 | 0 | 18 | 40 | 1 |
-| [Automation, Ralph and Crew](parity/automation.md) | 89 | 6 | 0 | 24 | 56 | 3 |
->>>>>>> cf46b3a6 (docs(native): mark the schedule forecast, detail runs and cleanup ported)
-| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 6 | 4 | 21 | 26 | 2 |
-| [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 11 | 0 | 29 | 54 | 7 |
-| **All areas** | **622** | **71** | **5** | **185** | **335** | **26** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
