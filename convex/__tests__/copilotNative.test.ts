@@ -157,6 +157,20 @@ test('large private fields stay in the detail record', async () => {
   expect(original?.result).toBe('private-answer-'.repeat(30_000))
 })
 
+test('a saved Chat conversation previews the user turn that ran, not its preamble', async () => {
+  const t = convexTest(schema, modules)
+  const preamble = 'Answer using the supplied conversation. Format the response as Markdown.\n'
+  await t.run(async ctx => {
+    await ctx.db.insert('copilotResults', {
+      prompt: preamble + 'User: first\nAssistant: one\nUser: Second question 界',
+      status: 'completed',
+      createdAt: 1,
+    })
+  })
+  const result = await t.query(list, { paginationOpts: { numItems: 25, cursor: null } })
+  expect(result.page.map(row => row.promptPreview)).toEqual(['Second question 界'])
+})
+
 test('empty, exact-length and control-character previews preserve Unicode boundaries', async () => {
   const t = convexTest(schema, modules)
   await t.run(async ctx => {

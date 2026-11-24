@@ -175,7 +175,7 @@ CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
 UNCONFIRMED_ENDING = 'will not resend'
 UNCONFIRMED_LAST_LINE_WORD = 'resend'
-STARTUP_SCENES = ('chat-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
+STARTUP_SCENES = ('chat-dark', 'rerun-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -268,10 +268,11 @@ def require_prompt_records(backend, started_ms):
     The headless runner saved the same marker prompts earlier, so only rows
     created by the desktop scenes count."""
     rows = [row for row in backend.query('copilotResults:listRecent') if row.get('createdAt', 0) >= started_ms]
-    streamed = [row for row in rows if row.get('prompt') == 'BUDDYSTREAM61527']
+    # Native Chat saves the conversation: a preamble, then the user's turn.
+    streamed = [row for row in rows if row.get('prompt', '').endswith('User: BUDDYSTREAM61527')]
     if len(streamed) != 1 or streamed[0].get('category') != 'documentation' or streamed[0]['status'] != 'completed':
         raise RuntimeError('The chosen Documentation category did not reach the saved result')
-    recent = [row for row in rows if row.get('prompt') == 'BUDDYCANCEL73429 RECENTROW']
+    recent = [row for row in rows if row.get('prompt', '').endswith('User: BUDDYCANCEL73429 RECENTROW')]
     if len(recent) != 2 or len({row.get('category') for row in recent}) != 1:
         raise RuntimeError('The re-run did not save one new result with its source category')
 

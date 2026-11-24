@@ -164,6 +164,7 @@ fn the_recent_list_shows_newest_results_with_status_and_time_and_opens_the_click
         recent::line(&sample[1], now),
         format!("❌ {}… · 3 hours ago", "x".repeat(80))
     );
+
     let (handle, view) = open(cx);
     let opened = Rc::new(RefCell::new(Vec::new()));
     cx.update(|cx| {

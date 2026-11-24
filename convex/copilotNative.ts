@@ -12,6 +12,14 @@ function pageOptions(options: PaginationOptions): PaginationOptions {
   return { ...options, maximumRowsRead: 25, maximumBytesRead: 2 * 1024 * 1024 }
 }
 
+// Native Chat saves its whole conversation: a preamble and earlier turns,
+// then the turn that ran. A preview names that last user turn.
+function lastUserTurn(text: string): string {
+  const marker = '\nUser: '
+  const index = text.lastIndexOf(marker)
+  return index < 0 ? text : text.slice(index + marker.length)
+}
+
 function preview(text: string): string {
   let output = ''
   let count = 0
@@ -36,7 +44,7 @@ function reviewedPullRequestUrl(row: Doc<'copilotResults'>): string | undefined 
 function resultSummary(row: Doc<'copilotResults'>) {
   return {
     _id: row._id,
-    promptPreview: preview(row.prompt),
+    promptPreview: preview(lastUserTurn(row.prompt)),
     status: row.status,
     modelLabel: row.model === undefined ? undefined : preview(row.model),
     categoryLabel: row.category === undefined ? undefined : preview(row.category),
