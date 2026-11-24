@@ -235,8 +235,10 @@ def chat_turns(driver):
         ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
     ], record=True)
     github.check(dark / 'streaming-dark.png', 'Assistant is responding')
-    github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results')
-    github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant')
+    # Electron's prompt-box categories and its saved result's re-run action.
+    # The scene does not re-run: the provider receipt counts five turns.
+    github.check(dark / 'completed-dark.png', 'Answer copied', 'Saved to results', 'Documentation')
+    github.check(dark / 'saved-result-dark.png', 'Completed', 'Synthetic assistant', 'Re-run this prompt')
     github.check(dark / 'cancelled-compact-dark.png', 'Cancelled', 'Partial synthetic answer')
 
 

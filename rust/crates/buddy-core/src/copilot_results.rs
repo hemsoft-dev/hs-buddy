@@ -10,6 +10,52 @@ const MAX_RESPONSE: usize = 8 * 1024 * 1024;
 const MAX_LINK: usize = 2048;
 pub const REVIEW_CATEGORY: &str = "pr-review";
 
+/// Electron's prompt-box categories, stored on a saved result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    General,
+    PrReview,
+    CodeAnalysis,
+    Documentation,
+}
+
+impl Category {
+    pub const ALL: [Self; 4] = [
+        Self::General,
+        Self::PrReview,
+        Self::CodeAnalysis,
+        Self::Documentation,
+    ];
+    /// The value stored on the result record.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::PrReview => REVIEW_CATEGORY,
+            Self::CodeAnalysis => "code-analysis",
+            Self::Documentation => "documentation",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::PrReview => "PR Review",
+            Self::CodeAnalysis => "Code Analysis",
+            Self::Documentation => "Documentation",
+        }
+    }
+}
+
+/// `getStatusEmoji` from Electron's `statusDisplay.ts`.
+pub fn status_emoji(status: Status) -> &'static str {
+    match status {
+        Status::Pending => "⏳",
+        Status::Running => "🔄",
+        Status::Completed => "✅",
+        Status::Failed => "❌",
+        Status::Unknown => "•",
+    }
+}
+
 /// A stored link opens only as an http(s) URL with a host and no credentials.
 pub fn web_link(value: &str) -> Option<String> {
     if value.len() > MAX_LINK || value.chars().any(char::is_control) {
@@ -90,6 +136,16 @@ impl SavedResult {
             Status::Completed if self.result.is_some() => ContentState::Captured,
             Status::Completed => ContentState::Missing,
         }
+    }
+
+    /// Electron re-runs with the saved metadata's `ghAccount`.
+    pub fn saved_account(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()?
+            .get("ghAccount")?
+            .as_str()
+            .map(str::trim)
+            .filter(|account| !account.is_empty())
     }
 
     pub fn prompt_preview(&self) -> String {

@@ -19,6 +19,13 @@ const failureValidator = v.union(
   v.literal('incomplete-stream'),
   v.literal('output-limit')
 )
+// Electron's prompt box offers these four categories.
+const categoryValidator = v.union(
+  v.literal('general'),
+  v.literal('pr-review'),
+  v.literal('code-analysis'),
+  v.literal('documentation')
+)
 
 function requestId(value: string) {
   if (!/^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i.test(value)) {
@@ -101,13 +108,17 @@ function containsControl(text: string) {
   })
 }
 
-function validateBegin(args: {
+type BeginArgs = {
   requestId: string
   prompt: string
   model: string
   account: string
   review?: Review
-}) {
+  category?: string
+  rerunOf?: Id<'copilotResults'>
+}
+
+function validateBegin(args: BeginArgs) {
   requestId(args.requestId)
   account(args.account)
   textLimit(args.prompt, 256 * 1024)
@@ -115,6 +126,125 @@ function validateBegin(args: {
   if (!args.prompt.trim()) throw new Error('Enter an assistant prompt.')
   if (!args.model || containsControl(args.model)) throw new Error('Choose a valid assistant model.')
   if (args.review) reviewContext(args.review)
+  validateRecord(args)
+}
+
+function validateRecord(args: BeginArgs) {
+  if (args.review && args.category !== undefined && args.category !== 'pr-review')
+    throw new Error('A captured pull request review is always a PR Review.')
+  if (args.rerunOf !== undefined && (args.review || args.category !== undefined))
+    throw new Error('A re-run keeps the saved result category and review.')
+}
+
+function fingerprintFields(args: BeginArgs) {
+  const review = args.review
+  const fields: unknown[] = [
+    args.prompt,
+    args.model,
+    args.account,
+    review
+      ? [
+          review.owner,
+          review.repo,
+          review.prNumber,
+          review.title,
+          review.head,
+          review.threadStats.total,
+          review.threadStats.unresolved,
+          review.threadStats.outdated,
+        ]
+      : null,
+  ]
+  // Requests without the newer fields keep their original digest.
+  if (args.category !== undefined || args.rerunOf !== undefined)
+    fields.push([args.category ?? null, args.rerunOf ?? null])
+  return fields
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+// Electron's re-run sends the saved prompt, category and metadata again; the
+// metadata's ghAccount chooses the account.
+async function rerunSource(ctx: MutationCtx, args: BeginArgs, sourceId: Id<'copilotResults'>) {
+  const source = await ctx.db.get(sourceId)
+  if (!source) throw new Error('The result to re-run no longer exists.')
+  if (source.prompt !== args.prompt) throw new Error('A re-run must send the saved prompt.')
+  const metadata: unknown = source.metadata
+  const saved = isRecord(metadata) ? metadata.ghAccount : undefined
+  if (typeof saved === 'string' && saved.toLowerCase() !== args.account.toLowerCase())
+    throw new Error('Re-run this result with its saved account.')
+  return {
+    category: source.category,
+    metadata: isRecord(metadata)
+      ? { ...metadata, ghAccount: args.account }
+      : { ghAccount: args.account },
+    review: await linkedReview(ctx, sourceId),
+  }
+}
+
+async function recordFields(ctx: MutationCtx, args: BeginArgs) {
+  if (args.rerunOf !== undefined) return rerunSource(ctx, args, args.rerunOf)
+  const review = args.review
+  if (!review)
+    return {
+      category: args.category ?? 'general',
+      metadata: { ghAccount: args.account },
+      review: null,
+    }
+  return {
+    category: 'pr-review',
+    metadata: {
+      owner: review.owner,
+      repo: review.repo,
+      prNumber: review.prNumber,
+      prUrl: pullRequestUrl(review),
+      ghAccount: args.account,
+      reviewedHeadSha: review.head,
+    },
+    review: null,
+  }
+}
+
+async function insertReviewRun(
+  ctx: MutationCtx,
+  args: BeginArgs,
+  resultId: Id<'copilotResults'>,
+  now: number,
+  previous: Doc<'prReviewRuns'> | null
+) {
+  const review = args.review
+  const pull = review
+    ? {
+        owner: review.owner,
+        repo: review.repo,
+        prNumber: review.prNumber,
+        prUrl: pullRequestUrl(review),
+        prTitle: review.title,
+        reviewedHeadSha: review.head,
+        reviewedThreadStats: review.threadStats,
+      }
+    : previous && {
+        owner: previous.owner,
+        repo: previous.repo,
+        prNumber: previous.prNumber,
+        prUrl: previous.prUrl,
+        prTitle: previous.prTitle,
+        reviewedHeadSha: previous.reviewedHeadSha,
+        reviewedThreadStats: previous.reviewedThreadStats,
+      }
+  if (!pull) return
+  await ctx.db.insert('prReviewRuns', {
+    ...pull,
+    prompt: args.prompt,
+    resultId,
+    model: args.model,
+    ghAccount: args.account,
+    status: 'pending',
+    createdAt: now,
+    updatedAt: now,
+  })
 }
 
 // Creation, counters and optional PR snapshot commit as one transaction.
@@ -125,27 +255,12 @@ export const begin = mutation({
     model: v.string(),
     account: v.string(),
     review: v.optional(reviewValidator),
+    category: v.optional(categoryValidator),
+    rerunOf: v.optional(v.id('copilotResults')),
   },
   handler: async (ctx, args) => {
     validateBegin(args)
-    const review = args.review
-    const fingerprint = await digest([
-      args.prompt,
-      args.model,
-      args.account,
-      review
-        ? [
-            review.owner,
-            review.repo,
-            review.prNumber,
-            review.title,
-            review.head,
-            review.threadStats.total,
-            review.threadStats.unresolved,
-            review.threadStats.outdated,
-          ]
-        : null,
-    ])
+    const fingerprint = await digest(fingerprintFields(args))
     const previous = await ctx.db
       .query('copilotNativeRequests')
       .withIndex('by_request', q => q.eq('requestId', args.requestId))
@@ -160,6 +275,7 @@ export const begin = mutation({
         status: result?.status ?? ('deleted' as const),
       }
     }
+    const fields = await recordFields(ctx, args)
     const now = Date.now()
     const id = await ctx.db.insert('copilotResults', {
       nativeRequestId: args.requestId,
@@ -167,41 +283,15 @@ export const begin = mutation({
       model: args.model,
       status: 'pending',
       createdAt: now,
-      category: review ? 'pr-review' : 'general',
-      metadata: review
-        ? {
-            owner: review.owner,
-            repo: review.repo,
-            prNumber: review.prNumber,
-            prUrl: pullRequestUrl(review),
-            ghAccount: args.account,
-            reviewedHeadSha: review.head,
-          }
-        : { ghAccount: args.account },
+      category: fields.category,
+      metadata: fields.metadata,
     })
     await ctx.db.insert('copilotNativeRequests', {
       requestId: args.requestId,
       payloadDigest: fingerprint,
       resultId: id,
     })
-    if (review) {
-      await ctx.db.insert('prReviewRuns', {
-        owner: review.owner,
-        repo: review.repo,
-        prNumber: review.prNumber,
-        prUrl: pullRequestUrl(review),
-        prTitle: review.title,
-        prompt: args.prompt,
-        resultId: id,
-        model: args.model,
-        ghAccount: args.account,
-        reviewedHeadSha: review.head,
-        reviewedThreadStats: review.threadStats,
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now,
-      })
-    }
+    await insertReviewRun(ctx, args, id, now, fields.review)
     await transitionResultCount(ctx, undefined, 'pending')
     return { id, created: true, status: 'pending' as const }
   },

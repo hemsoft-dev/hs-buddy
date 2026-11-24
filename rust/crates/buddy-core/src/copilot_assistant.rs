@@ -11,7 +11,7 @@ use github_copilot_sdk::session::Session;
 use tokio::sync::watch;
 
 use crate::copilot_backend::{
-    CopilotBackend, NativeRequest, RecordStatus, ReviewSnapshot, failure_code,
+    CopilotBackend, NativeRequest, RecordOptions, RecordStatus, ReviewSnapshot, failure_code,
 };
 use crate::copilot_runs::{Context, Execution, Failure, Phase, SendRequest};
 use crate::copilot_sdk::{AssistantRuntime, EventAction, apply_event};
@@ -204,6 +204,17 @@ impl Drop for RunHandle {
 }
 
 pub fn start(options: RunOptions) -> Result<(RunHandle, impl Future<Output = ()> + Send), Failure> {
+    start_with(options, RecordOptions::default())
+}
+
+/// A saved run with a chosen category, or a re-run of a saved result.
+pub fn start_with(
+    options: RunOptions,
+    record: RecordOptions,
+) -> Result<(RunHandle, impl Future<Output = ()> + Send), Failure> {
+    if !options.saved && record != RecordOptions::default() {
+        return Err(Failure::InvalidContext);
+    }
     let fixture = crate::copilot_fixture::load(&options.owned_directory)?;
     if let Some(fixture) = &fixture {
         fixture.identity(&options.context.account, Some(&options.context.model))?;
@@ -223,9 +234,10 @@ pub fn start(options: RunOptions) -> Result<(RunHandle, impl Future<Output = ()>
         return Err(Failure::PersistenceFailed);
     }
     let request = if options.saved {
-        Some(Arc::new(NativeRequest::new(
+        Some(Arc::new(NativeRequest::recorded(
             &execution,
             options.review.as_ref(),
+            &record,
         )?))
     } else {
         None

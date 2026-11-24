@@ -1,12 +1,14 @@
 //! Copilot's native workspace. User execution and backend refresh are explicit.
 use super::markdown;
+use super::recent::{self, Recent};
 use gpui_kit::EventEmitter;
 use gpui_kit::StatefulInteractiveElement as _;
 
 use buddy_core::copilot_assistant::{self, Progress, RunHandle, RunOptions, SaveState};
-use buddy_core::copilot_backend::CopilotBackend;
+use buddy_core::copilot_backend::{CopilotBackend, RecordOptions};
+use buddy_core::copilot_results::Category;
 use buddy_core::copilot_runs::{Context as RunContext, Phase};
-use gpui_kit::base::Disableable;
+use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
@@ -64,6 +66,18 @@ pub(crate) struct ChatView {
     review: Option<buddy_core::copilot_review::CapturedReview>,
     review_loading: bool,
     apply_review: bool,
+    /// Electron's prompt-box category, stored on a saved result.
+    category: Category,
+    recent: Recent,
+}
+
+/// The assistant helper and its private state directory.
+pub(super) fn assistant_paths() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let owned = buddy_core::config::config_path()
+        .ok()?
+        .parent()?
+        .join("native-assistant");
+    Some((std::env::current_exe().ok()?, owned))
 }
 
 impl ChatView {
@@ -131,6 +145,8 @@ impl ChatView {
             review: None,
             review_loading: false,
             apply_review: false,
+            category: Category::General,
+            recent: Recent::default(),
         }
     }
     pub fn set_default_account(&mut self, account: Option<String>, cx: &mut Context<Self>) {
@@ -138,7 +154,42 @@ impl ChatView {
         self.populate = true;
         cx.notify();
     }
-    pub fn set_active(&mut self, _: bool, cx: &mut Context<Self>) {
+    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if active {
+            self.refresh_recent(cx);
+        }
+        cx.notify();
+    }
+
+    /// Reads the 10 newest results and the active count again. A request made
+    /// while one is loading runs once that finishes.
+    pub(super) fn refresh_recent(&mut self, cx: &mut Context<Self>) {
+        if self.sidebar_context.is_some() || !cx.has_global::<Runtime>() {
+            return;
+        }
+        if self.recent.loading {
+            self.recent.stale = true;
+            return;
+        }
+        let Some(backend) = self.backend.clone() else {
+            self.recent.unavailable = true;
+            return;
+        };
+        self.recent.loading = true;
+        self.recent.stale = false;
+        let rx = Runtime::global(cx).spawn(recent::fetch(backend));
+        cx.spawn(async move |this, cx| {
+            let fetched = rx.await.ok();
+            this.update(cx, |this, cx| {
+                this.recent.apply(fetched);
+                if this.recent.stale {
+                    this.refresh_recent(cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
     }
 
@@ -204,7 +255,7 @@ impl ChatView {
             saved,
             window,
             cx,
-            copilot_assistant::start,
+            |options, record| copilot_assistant::start_with(options, record.clone()),
             Self::record_review_run,
         );
     }
@@ -226,7 +277,10 @@ impl ChatView {
         saved: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-        start: impl FnOnce(RunOptions) -> Result<(RunHandle, F), buddy_core::copilot_runs::Failure>,
+        start: impl FnOnce(
+            RunOptions,
+            &RecordOptions,
+        ) -> Result<(RunHandle, F), buddy_core::copilot_runs::Failure>,
         record_review_run: impl FnOnce(&gpui_kit::App),
     ) {
         if self.models_loading
@@ -268,24 +322,29 @@ impl ChatView {
                 .as_ref()
                 .map(|review| review.snapshot.context.clone()),
         };
-        let owned = buddy_core::config::config_path()
-            .ok()
-            .and_then(|path| path.parent().map(|parent| parent.join("native-assistant")));
-        let (Some(owned_directory), Ok(executable)) = (owned, std::env::current_exe()) else {
+        let Some((executable, owned_directory)) = assistant_paths() else {
             self.error = Some("The private assistant directory is unavailable.".into());
             cx.notify();
             return;
         };
         let review_run = self.review.is_some();
-        let result = start(RunOptions {
-            context,
-            prompt: full,
-            saved,
-            review: self.review.as_ref().map(|review| review.snapshot.clone()),
-            backend: self.backend.clone(),
-            executable,
-            owned_directory,
-        });
+        // A captured review is always stored as a PR Review by the backend.
+        let record = RecordOptions {
+            category: (saved && !review_run).then_some(self.category),
+            rerun_of: None,
+        };
+        let result = start(
+            RunOptions {
+                context,
+                prompt: full,
+                saved,
+                review: self.review.as_ref().map(|review| review.snapshot.clone()),
+                backend: self.backend.clone(),
+                executable,
+                owned_directory,
+            },
+            &record,
+        );
         let (run, future) = match result {
             Ok(run) => run,
             Err(error) => {
@@ -320,12 +379,23 @@ impl ChatView {
             .update(cx, |prompt, cx| prompt.set_value("", window, cx));
         Runtime::global(cx).spawn_detached(future);
         cx.spawn(async move |this, cx| {
+            // A saved run refreshes Recent and the badge when its record is
+            // created and again when it finishes.
+            let mut seen = (false, true);
             while updates.changed().await.is_ok() {
                 if this
                     .update(cx, |this, cx| {
                         if this.generation == generation {
                             if this.sidebar_context.is_some() {
                                 this.conversation_scroll.scroll_to_bottom();
+                            }
+                            let now = this.run.as_ref().map(|run| {
+                                let state = run.snapshot();
+                                (state.result_id.is_some(), state.busy)
+                            });
+                            if saved && let Some(now) = now.filter(|now| *now != seen) {
+                                seen = now;
+                                this.refresh_recent(cx);
                             }
                             cx.notify();
                         }
@@ -703,11 +773,19 @@ impl Render for ChatView {
             .child(
                 h_flex()
                     .justify_between()
-                    .child(div().text_lg().child(if self.sidebar_context.is_some() {
-                        "Copilot Assistant"
-                    } else {
-                        "Conversation"
-                    }))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().text_lg().child(if self.sidebar_context.is_some() {
+                                "Copilot Assistant"
+                            } else {
+                                "Conversation"
+                            }))
+                            .children(
+                                self.header_badge()
+                                    .map(|badge| div().text_sm().text_color(muted).child(badge)),
+                            ),
+                    )
                     .child(
                         Button::new("copilot-new-conversation")
                             .label(if self.sidebar_context.is_some() {
@@ -781,6 +859,9 @@ impl Render for ChatView {
             } else {
                 "Enter sends without saving · Shift+Enter adds a newline"
             }))
+            .children(self.sidebar_context.is_none().then(|| {
+                self.category_picker(busy || self.models_loading || self.review_loading, cx)
+            }))
             .child(
                 h_flex()
                     .flex_wrap()
@@ -842,7 +923,102 @@ impl Render for ChatView {
         if let Some(notice) = &self.notice {
             content = content.child(div().text_color(muted).child(notice.clone()));
         }
+        if self.sidebar_context.is_none() {
+            content = content.child(self.recent_list(cx));
+        }
         content
+    }
+}
+
+impl ChatView {
+    /// Electron's prompt-header "N active" badge; the sidebar assistant has none.
+    fn header_badge(&self) -> Option<String> {
+        self.sidebar_context
+            .is_none()
+            .then(|| self.recent.badge())
+            .flatten()
+    }
+
+    /// Electron's category dropdown beside Send. A captured review is always
+    /// a PR Review.
+    fn category_picker(&self, disabled: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let chosen = if self.review.is_some() {
+            Category::PrReview
+        } else {
+            self.category
+        };
+        let mut row = h_flex().flex_wrap().items_center().gap_2().child(
+            div()
+                .text_color(cx.theme().muted_foreground)
+                .child("Category"),
+        );
+        for (index, category) in Category::ALL.into_iter().enumerate() {
+            row = row.child(
+                Button::new(("copilot-category", index))
+                    .label(category.label())
+                    .selected(chosen == category)
+                    .disabled(disabled || self.review.is_some())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.category = category;
+                        cx.notify();
+                    })),
+            );
+        }
+        row
+    }
+
+    /// Electron's "Recent" list: shown once there is a result; a row opens it.
+    fn recent_list(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let mut list = v_flex()
+            .id("copilot-recent-list")
+            .gap_1()
+            .max_h(zpx(180.0))
+            .overflow_y_scroll();
+        let now = recent::now_ms();
+        for (index, row) in self.recent.rows.iter().enumerate() {
+            let id = row.id.clone();
+            list = list.child(
+                Button::new(("copilot-recent-row", index))
+                    .label(recent::line(row, now))
+                    .ghost()
+                    .w_full()
+                    .tooltip(row.prompt_preview.clone())
+                    .on_click(
+                        cx.listener(move |_, _, _, cx| cx.emit(ChatEvent::OpenResult(id.clone()))),
+                    ),
+            );
+        }
+        let header = h_flex()
+            .gap_2()
+            .items_center()
+            .child(div().text_color(muted).child("Recent"))
+            .child(
+                Button::new("copilot-recent-refresh")
+                    .label(if self.recent.loading {
+                        "Refreshing…"
+                    } else {
+                        "Refresh"
+                    })
+                    .ghost()
+                    .disabled(self.recent.loading)
+                    .on_click(cx.listener(|this, _, _, cx| this.refresh_recent(cx))),
+            );
+        let mut section = v_flex().gap_1();
+        if !self.recent.rows.is_empty() || self.recent.unavailable {
+            section = section.child(header);
+        }
+        if self.recent.unavailable {
+            section = section.child(
+                div()
+                    .text_color(muted)
+                    .child("Recent results could not be refreshed."),
+            );
+        }
+        if !self.recent.rows.is_empty() {
+            section = section.child(list);
+        }
+        section.into_any_element()
     }
 }
 
@@ -961,8 +1137,10 @@ mod review_stats_tests {
                         saved,
                         window,
                         cx,
-                        |options| {
+                        |options, record| {
                             assert!(options.saved);
+                            // A captured review is stored as a PR Review by the backend.
+                            assert_eq!(record.category.is_some(), options.review.is_none());
                             if fail {
                                 Err(Failure::InvalidContext)
                             } else {
@@ -1197,3 +1375,7 @@ mod account_tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "chat_prompt_tests.rs"]
+mod prompt_tests;

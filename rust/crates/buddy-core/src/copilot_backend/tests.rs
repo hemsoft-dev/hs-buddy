@@ -199,3 +199,93 @@ fn service_errors_cannot_echo_backend_or_private_content() {
     );
     assert!(CopilotBackend::new("https://private:credential@example.com").is_err());
 }
+
+#[test]
+fn a_saved_request_carries_the_chosen_category_or_the_result_it_re_runs() {
+    use crate::copilot_results::Category;
+    let category = RecordOptions {
+        category: Some(Category::Documentation),
+        rerun_of: None,
+    };
+    let request = NativeRequest::recorded(&execution(None, true), None, &category).unwrap();
+    assert_eq!(request.arguments["category"], "documentation");
+    assert!(request.arguments.get("rerunOf").is_none());
+    let rerun = RecordOptions {
+        category: None,
+        rerun_of: Some("saved-result".into()),
+    };
+    let request = NativeRequest::recorded(&execution(None, true), None, &rerun).unwrap();
+    assert_eq!(request.arguments["rerunOf"], "saved-result");
+    assert!(request.arguments.get("category").is_none());
+    let plain = NativeRequest::new(&execution(None, true), None).unwrap();
+    assert!(plain.arguments.get("category").is_none());
+    assert!(plain.arguments.get("rerunOf").is_none());
+    // A re-run keeps the saved category; a captured review is always a PR Review.
+    for record in [
+        RecordOptions {
+            category: Some(Category::General),
+            rerun_of: Some("saved-result".into()),
+        },
+        RecordOptions {
+            category: None,
+            rerun_of: Some("bad\nid".into()),
+        },
+    ] {
+        assert!(matches!(
+            NativeRequest::recorded(&execution(None, true), None, &record),
+            Err(Failure::InvalidContext)
+        ));
+    }
+    let context = ReviewContext {
+        repository: "owner/repo".into(),
+        pull_request: 7,
+        head: "a".repeat(40),
+    };
+    let snapshot = ReviewSnapshot {
+        account: "synthetic-account".into(),
+        context: context.clone(),
+        title: "Synthetic title".into(),
+        threads: ThreadStats {
+            total: 0,
+            unresolved: 0,
+            outdated: 0,
+        },
+    };
+    let reviewed = execution(Some(context), true);
+    let wrong = RecordOptions {
+        category: Some(Category::CodeAnalysis),
+        rerun_of: None,
+    };
+    assert!(NativeRequest::recorded(&reviewed, Some(&snapshot), &wrong).is_err());
+    let right = RecordOptions {
+        category: Some(Category::PrReview),
+        rerun_of: None,
+    };
+    assert!(NativeRequest::recorded(&reviewed, Some(&snapshot), &right).is_ok());
+}
+
+#[test]
+fn active_counts_accept_whole_non_negative_numbers_only() {
+    assert_eq!(
+        active_counts(&json!({"pending": 2.0, "running": 1})),
+        Ok(ActiveCounts {
+            pending: 2,
+            running: 1
+        })
+    );
+    assert_eq!(
+        active_counts(&json!({"pending": 2, "running": 1}))
+            .unwrap()
+            .total(),
+        3
+    );
+    for value in [
+        json!(null),
+        json!({"pending": 1}),
+        json!({"pending": -1, "running": 0}),
+        json!({"pending": 1.5, "running": 0}),
+        json!({"pending": "1", "running": 0}),
+    ] {
+        assert_eq!(active_counts(&value), Err(Error::InvalidResponse));
+    }
+}

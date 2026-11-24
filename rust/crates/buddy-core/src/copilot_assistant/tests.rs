@@ -271,3 +271,25 @@ fn temporary_state_cleanup_waits_for_a_releasing_windows_file_handle() {
     release.join().unwrap();
     assert!(!path.exists());
 }
+
+#[test]
+fn an_unsaved_turn_cannot_carry_a_category_or_re_run_a_saved_result() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("must-remain-absent");
+    for record in [
+        RecordOptions {
+            category: Some(crate::copilot_results::Category::Documentation),
+            rerun_of: None,
+        },
+        RecordOptions {
+            category: None,
+            rerun_of: Some("saved-result".into()),
+        },
+    ] {
+        assert!(matches!(
+            start_with(options(root.clone()), record),
+            Err(Failure::InvalidContext)
+        ));
+    }
+    assert!(!root.exists());
+}

@@ -73,6 +73,39 @@ pub struct ReviewSnapshot {
     pub threads: ThreadStats,
 }
 
+/// How a saved run is recorded: the prompt box's category, or the saved
+/// result it re-runs (which keeps that result's category and metadata).
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct RecordOptions {
+    pub category: Option<crate::copilot_results::Category>,
+    pub rerun_of: Option<String>,
+}
+
+/// `copilotResults:countActive`, the prompt header's active badge.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActiveCounts {
+    pub pending: u32,
+    pub running: u32,
+}
+
+impl ActiveCounts {
+    pub fn total(self) -> u32 {
+        self.pending.saturating_add(self.running)
+    }
+}
+
+fn active_counts(value: &Value) -> Result<ActiveCounts, Error> {
+    let count = |key: &str| {
+        let number = value.get(key)?.as_f64()?;
+        (number.is_finite() && number.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&number))
+            .then_some(number as u32)
+    };
+    match (count("pending"), count("running")) {
+        (Some(pending), Some(running)) => Ok(ActiveCounts { pending, running }),
+        _ => Err(Error::InvalidResponse),
+    }
+}
+
 /// Immutable payload and UUID survive reconciliation and storage-only retries.
 pub struct NativeRequest {
     identity: String,
@@ -81,6 +114,21 @@ pub struct NativeRequest {
 
 impl NativeRequest {
     pub fn new(execution: &Execution, review: Option<&ReviewSnapshot>) -> Result<Self, Failure> {
+        Self::recorded(execution, review, &RecordOptions::default())
+    }
+
+    pub fn recorded(
+        execution: &Execution,
+        review: Option<&ReviewSnapshot>,
+        record: &RecordOptions,
+    ) -> Result<Self, Failure> {
+        use crate::copilot_results::Category;
+        if record.rerun_of.as_ref().is_some_and(|source| {
+            !valid_id(source) || review.is_some() || record.category.is_some()
+        }) || (review.is_some() && record.category.is_some_and(|c| c != Category::PrReview))
+        {
+            return Err(Failure::InvalidContext);
+        }
         if execution.phase() != Phase::AwaitingRecord
             || execution.context().review.as_ref() != review.map(|snapshot| &snapshot.context)
             || review.is_some_and(|snapshot| {
@@ -97,6 +145,12 @@ impl NativeRequest {
             "requestId": identity, "prompt": execution.prompt(),
             "model": context.model, "account": context.account,
         });
+        if let Some(category) = record.category {
+            arguments["category"] = json!(category.code());
+        }
+        if let Some(source) = &record.rerun_of {
+            arguments["rerunOf"] = json!(source);
+        }
         if let Some(snapshot) = review {
             let (owner, repo) = snapshot
                 .context
@@ -320,6 +374,14 @@ impl CopilotBackend {
             .await?;
         let bytes = serde_json::to_vec(&value).map_err(|_| Error::InvalidResponse)?;
         crate::copilot_results::parse_detail(&bytes).map_err(|_| Error::InvalidResponse)
+    }
+
+    pub async fn count_active(&self) -> Result<ActiveCounts, Error> {
+        let value = self
+            .client
+            .call("copilotResults:countActive", json!({}), false)
+            .await?;
+        active_counts(&value)
     }
 
     pub async fn remove(&self, id: &str) -> Result<(), Error> {
