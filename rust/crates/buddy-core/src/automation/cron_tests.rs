@@ -470,3 +470,12 @@ fn a_day_that_starts_in_a_clock_change_follows_cron_parsers_move_to_that_day() {
         ["2026-11-01T04:30:00Z", "2026-11-02T05:30:00Z"]
     );
 }
+
+#[test]
+fn an_uppercase_l_in_the_weekday_field_is_rejected_like_electrons_check() {
+    // cronUtils.ts checks fields[4].includes('L') before lowercasing names.
+    for expression in ["0 0 * * JUL", "0 0 * * 5L", "0 0 L * *"] {
+        assert!(Cron::parse(expression).is_err(), "{expression}");
+    }
+    assert!(Cron::parse("0 0 * * fri").is_ok());
+}

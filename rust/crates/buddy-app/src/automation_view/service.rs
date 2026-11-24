@@ -380,6 +380,8 @@ impl Coordinator {
                 return Ok(());
             }
             Command::Cleanup => {
+                // A previous cleanup's notice never stands beside this one's outcome.
+                self.snapshot.notice = None;
                 // One identity per confirmed cleanup; it is never sent again.
                 let request = uuid::Uuid::new_v4();
                 let notice =

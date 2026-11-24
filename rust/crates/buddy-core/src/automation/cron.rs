@@ -301,6 +301,7 @@ impl Cron {
             return Err(InvalidCron);
         };
         // Electron rejects a doubled range such as `1-2-3`, and the `L`, `#`
+        // (an uppercase L in the weekday field too, as in `JUL`)
         // and `H` extensions; `THU` is the one name with an H in it.
         let doubled = fields
             .iter()
@@ -313,7 +314,12 @@ impl Cron {
             };
             field.contains(['h', 'H'])
         });
-        if doubled || hashed || normalized.contains('#') || day.contains('L') {
+        if doubled
+            || hashed
+            || normalized.contains('#')
+            || day.contains('L')
+            || weekday.contains('L')
+        {
             return Err(InvalidCron);
         }
         let months = parse_field(month, MONTH)? as u16;
