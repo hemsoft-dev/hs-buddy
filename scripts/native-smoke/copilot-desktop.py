@@ -235,7 +235,9 @@ def chat_turns(driver):
         ('input', 'Message', 'BUDDYCANCEL73429 RECENTROW'),
         ('content', 'Run and save'), ('wait_text', 'Partial synthetic answer'), ('content', 'Cancel response'),
         ('wait_scroll_text', 'Cancelled'), ('wait_scroll_text', 'Saved to results'), ('resize', 900, 650),
-        ('reveal_text', 'Cancelled', 'Assistant'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
+        # At 900x650 the conversation keeps its 160 px minimum and scrolls to
+        # the end, so the "Assistant" label sits above it; anchor on the answer.
+        ('reveal_text', 'Cancelled', 'Partial synthetic answer'), ('wait_text', 'Partial synthetic answer'), ('capture', 'cancelled-compact-dark'),
     ], record=True)
     github.check(dark / 'streaming-dark.png', 'Assistant is responding')
     github.check(dark / 'streaming-dark.png', '1 active')
