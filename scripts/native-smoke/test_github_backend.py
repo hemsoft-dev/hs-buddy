@@ -69,6 +69,13 @@ class GitHubBackendTests(unittest.TestCase):
             server.scenario = "empty"
             self.assertEqual(self.request(server, "/graphql", fallback)[1]["data"]["viewer"]["pullRequests"]["nodes"], [])
 
+    def test_the_overview_quota_is_a_consistent_core_reading(self):
+        with backend.GitHubBackend() as server:
+            status, response, _ = self.request(server, "/rate_limit")
+            core = response["resources"]["core"]
+            self.assertEqual((status, core["limit"], core["remaining"], core["used"]), (200, 5000, 4321, 679))
+            self.assertGreater(core["reset"], 0)
+
     def test_denial_rate_limit_and_unknown_endpoints_fail_explicitly(self):
         with backend.GitHubBackend() as server:
             self.assertEqual(self.request(server, "/repos/fixture-org/denied")[0], 403)

@@ -340,9 +340,11 @@ def qualify(executable, output, session, version, backend, api):
         ("content", "People"), ("content", "fixture-author"), ("capture", "profile-dark"),
         ("content", "Favorite user"), ("tab", "Authored PRs"), ("tab", "Reviewed PRs"),
         ("tab", "Activity"), ("tab", "Team memberships"), ("content", "Native Team"),
-        ("content", "Organization"),
+        # RateLimitGauge.tsx: the overview header shows the remaining quota.
+        ("content", "Organization"), ("wait_content", "resets"), ("capture", "organization-dark"),
     ])
     check(navigation / "repository-dark.png", "native-demo", "Languages", "Rust")
+    check(navigation / "organization-dark.png", "4,321", "resets")
     check(navigation / "profile-dark.png", "Demo Contributor", "Contribution calendar")
     check(navigation / "bookmarked-only-dark.png", "1 of 3 loaded repositories", "native-demo",
         absent=("fixture-org/limited", "fixture-org/denied"))
@@ -406,7 +408,7 @@ def qualify(executable, output, session, version, backend, api):
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
-            "repository/commit/issue navigation", "profile/calendar/teams", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
+            "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
             "GitHub view and repository-list activity", "bookmarked-only repository filter",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 

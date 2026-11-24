@@ -5,6 +5,7 @@ mod nudges;
 mod reviews;
 #[cfg(test)]
 mod tests;
+mod workbench;
 
 use buddy_core::github::{
     self, AccountScope, GitHubClients, GitHubError, PageCursor, PendingWrite, PrMode,
@@ -179,6 +180,8 @@ pub struct GitHubView {
     review_poll_at: Option<Instant>,
     review_loading: bool,
     review_sound: crate::notification_audio::SoundPreview,
+    rate_limit_read_at: Option<Instant>,
+    rate_limit_loading: bool,
 }
 
 struct LoadContext {
@@ -240,6 +243,7 @@ impl GitHubView {
                             && this.pending_nudge.is_none()
                         {
                             this.poll_review(cx);
+                            this.poll_rate_limit(cx);
                         }
                     })
                     .is_err()
@@ -286,6 +290,8 @@ impl GitHubView {
             review_poll_at: None,
             review_loading: false,
             review_sound: Default::default(),
+            rate_limit_read_at: None,
+            rate_limit_loading: false,
         }
     }
 
@@ -578,6 +584,10 @@ impl GitHubView {
             .pr
             .recently_merged_days
             .clamp(1.0, 3650.0) as u32;
+        if route == Route::Organization {
+            // The overview reads the quota; the 60-second poll starts after it.
+            self.rate_limit_read_at = Some(Instant::now());
+        }
         let (abort, registration) = AbortHandle::new_pair();
         self.read_abort = Some(abort);
         self.loading = true;
@@ -1052,10 +1062,19 @@ impl Render for GitHubView {
             );
         }
         if let Some(data) = &self.data {
+            let mut heading = h_flex()
+                .flex_wrap()
+                .justify_between()
+                .items_start()
+                .gap_3()
+                .child(div().text_size(zpx(20.0)).child(data.title.clone()));
+            if let Some(limit) = &data.rate_limit {
+                heading = heading.child(self.rate_limit_gauge(limit, cx));
+            }
             let mut body = v_flex()
                 .id(format!("github-page-{}", self.route.key()))
                 .gap_3()
-                .child(div().text_size(zpx(20.0)).child(data.title.clone()));
+                .child(heading);
             for warning in &data.warnings {
                 body = body.child(div().child(warning.clone()));
             }
@@ -1063,6 +1082,9 @@ impl Render for GitHubView {
                 body = body.child(div().whitespace_normal().child(description.clone()));
             }
             body = body.child(self.actions(cx));
+            if let Some(activity) = &data.activity {
+                body = body.child(self.workbench(activity, cx));
+            }
             if !data.contribution_days.is_empty() {
                 body = body.child(self.contributions(&data.contribution_days, cx));
             }

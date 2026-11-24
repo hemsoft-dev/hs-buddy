@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import re
 import threading
+import time
 from urllib.parse import urlparse, parse_qs
 from loopback_http import LoopbackHTTPServer
 
@@ -175,6 +176,10 @@ class GitHubBackend:
             if "NativePull(" in query:
                 return ok(dict(data=dict(repository=dict(pullRequest=pull(account, variables["number"])))))
             return 422, dict(message="Unimplemented fixture GraphQL operation"), {}
+        if route == "/rate_limit":
+            # The organization overview's gauge: a partly used quota resetting in 12 minutes.
+            core = dict(limit=5000, remaining=4321, used=679, reset=int(time.time()) + 720)
+            return ok(dict(resources=dict(core=core)))
         if route == "/users/fixture-org":
             return ok(dict(login="fixture-org", type="Organization"))
         if route.startswith("/users/") and route.endswith("/events"):
