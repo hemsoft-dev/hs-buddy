@@ -642,7 +642,7 @@ def main():
     parser.add_argument("--field", action="store_true")
     parser.add_argument("--tab", action="store_true")
     parser.add_argument("--content", action="store_true")
-    parser.add_argument("--between-labels", nargs=2)
+    parser.add_argument("--between-labels", nargs="+")
     parser.add_argument("--workspace", action="store_true")
     parser.add_argument("--sidebar", action="store_true")
     args = parser.parse_args()

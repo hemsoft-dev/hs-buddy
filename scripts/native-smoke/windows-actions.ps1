@@ -130,7 +130,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     if ($Mode -eq 'sidebar') { $arguments += '--sidebar' }
     if ($Mode -eq 'tab') { $arguments += '--tab' }
     if ($BetweenLabels.Count -ne 0) {
-        if ($BetweenLabels.Count -ne 2) { throw 'A row needs two visible boundary labels' }
+        if ($BetweenLabels.Count -notin 1, 2) { throw 'A row needs one or two visible boundary labels' }
         $arguments += @('--between-labels') + $BetweenLabels
     }
     if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
@@ -308,8 +308,9 @@ try {
                 Write-OwnedText $parts[1]
             }
             'between64' {
-                if ($parts.Count -ne 4) { throw 'A row action needs a control and two visible labels' }
-                $boundaries = @($parts[2..3] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
+                # One label bounds a row from above (a list's last row); two bound it on both sides.
+                if ($parts.Count -notin 3, 4) { throw 'A row action needs a control and one or two visible labels' }
+                $boundaries = @($parts[2..($parts.Count - 1)] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
                 $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
                 Click-OwnedPoint $point.X $point.Y
             }
