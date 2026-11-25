@@ -650,7 +650,6 @@ fn favicon_formats_are_recognised_by_their_signature() {
         (ImageFormat::Png, Format::Png),
         (ImageFormat::Jpeg, Format::Jpeg),
         (ImageFormat::Gif, Format::Gif),
-        (ImageFormat::WebP, Format::Webp),
         (ImageFormat::Ico, Format::Ico),
         (ImageFormat::Bmp, Format::Bmp),
     ] {
@@ -677,7 +676,6 @@ fn favicons_are_decoded_here_to_one_small_frame() {
         (ImageFormat::Png, Format::Png),
         (ImageFormat::Jpeg, Format::Jpeg),
         (ImageFormat::Gif, Format::Gif),
-        (ImageFormat::WebP, Format::Webp),
         (ImageFormat::Ico, Format::Ico),
         (ImageFormat::Bmp, Format::Bmp),
     ] {
@@ -702,6 +700,51 @@ fn favicons_are_decoded_here_to_one_small_frame() {
         let icon = sanitize(&encoded(ImageFormat::Png, width, height, [9, 9, 9, 255])).unwrap();
         assert_eq!(icon.image.dimensions(), fitted, "{width} x {height}");
         assert!(icon.image.width() <= ICON_SIDE && icon.image.height() <= ICON_SIDE);
+    }
+}
+
+/// A WebP whose canvas is `canvas` px a side and whose lossy VP8 frame
+/// declares `frame` px a side, with no pixel data after the frame header.
+fn webp_with_frame(canvas: u32, frame: u16) -> Vec<u8> {
+    let mut vp8x = b"VP8X".to_vec();
+    vp8x.extend_from_slice(&10u32.to_le_bytes());
+    vp8x.extend_from_slice(&[0; 4]);
+    vp8x.extend_from_slice(&(canvas - 1).to_le_bytes()[..3]);
+    vp8x.extend_from_slice(&(canvas - 1).to_le_bytes()[..3]);
+    // A key frame tag (version 0, shown, a 16 byte first partition), the
+    // start code, then the frame's width and height.
+    let tag: u32 = (1 << 4) | (16 << 5);
+    let mut frame_data = tag.to_le_bytes()[..3].to_vec();
+    frame_data.extend_from_slice(&[0x9d, 0x01, 0x2a]);
+    frame_data.extend_from_slice(&frame.to_le_bytes());
+    frame_data.extend_from_slice(&frame.to_le_bytes());
+    frame_data.extend_from_slice(&[0; 22]);
+    let mut vp8 = b"VP8 ".to_vec();
+    vp8.extend_from_slice(&(frame_data.len() as u32).to_le_bytes());
+    vp8.extend_from_slice(&frame_data);
+    let mut bytes = b"RIFF".to_vec();
+    bytes.extend_from_slice(&((4 + vp8x.len() + vp8.len()) as u32).to_le_bytes());
+    bytes.extend_from_slice(b"WEBP");
+    bytes.extend_from_slice(&vp8x);
+    bytes.extend_from_slice(&vp8);
+    bytes
+}
+
+#[test]
+fn a_webp_favicon_is_refused_without_being_decoded() {
+    use super::favicon::{FaviconError, MAX_BYTES, sanitize, sniff};
+    use image::ImageFormat;
+    // A 1 px canvas holding a 2048 px lossy frame: image-webp 0.2 decodes the
+    // frame, 6 MiB of planes, before it compares it with the canvas.
+    let oversized = webp_with_frame(1, 2048);
+    assert!(oversized.len() < MAX_BYTES);
+    // A sound WebP is refused the same way, so the refusal is the signature's,
+    // not a decode that failed.
+    let sound = encoded(ImageFormat::WebP, 16, 16, [255, 0, 255, 255]);
+    assert!(image::load_from_memory(&sound).is_ok());
+    for bytes in [oversized, sound] {
+        assert_eq!(sniff(&bytes), None);
+        assert_eq!(sanitize(&bytes), Err(FaviconError::NotAnImage));
     }
 }
 

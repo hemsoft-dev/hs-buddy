@@ -756,10 +756,12 @@ impl BrowserView {
 
     /// Alt+= / Alt+-: zoom only while a page tab is shown, as Electron's
     /// listener lives only in a mounted page tab; the toolbar buttons' step.
-    /// True when a shown page took the key. Otherwise the caller lets the
-    /// keystroke through, so Option+= and Option+- still type in text fields.
+    /// True when a shown page took the key. A tab with no page (a refused
+    /// address, or no engine on this system) has nothing to zoom, so its zoom
+    /// isn't changed or saved. Otherwise the caller lets the keystroke
+    /// through, so Option+= and Option+- still type in text fields.
     pub(crate) fn zoom_shortcut(&mut self, zoom_in: bool, cx: &mut Context<Self>) -> bool {
-        let handled = self.shown && self.active.is_some();
+        let handled = self.shown && self.active_tab().is_some_and(|tab| tab.page.is_some());
         if handled {
             self.zoom_by(if zoom_in { ZOOM_DELTA } else { -ZOOM_DELTA }, cx);
         }

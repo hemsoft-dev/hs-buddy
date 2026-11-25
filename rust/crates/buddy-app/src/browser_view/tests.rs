@@ -1098,15 +1098,38 @@ impl gpui_kit::Render for ZoomRoot {
     }
 }
 
-#[gpui_kit::test]
-fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
+/// A browser under an app root that forwards the Alt zoom keys, with its
+/// config file.
+struct ZoomHarness {
+    visual: VisualTestContext,
+    root: Entity<ZoomRoot>,
+    browser: Entity<BrowserView>,
+    _dir: tempfile::TempDir,
+    file: PathBuf,
+}
+
+impl ZoomHarness {
+    fn zoom(&mut self) -> f64 {
+        self.browser.read_with(&self.visual, |view, _| view.zoom)
+    }
+
+    fn passed(&mut self) -> usize {
+        self.root.read_with(&self.visual, |root, _| root.passed)
+    }
+
+    fn update(&mut self, f: impl FnOnce(&mut BrowserView, &mut Context<BrowserView>)) {
+        self.browser.update(&mut self.visual, f);
+        self.visual.run_until_parked();
+    }
+}
+
+fn zoom_root(cx: &mut gpui_kit::TestAppContext, host: Rc<FakeHost>) -> ZoomHarness {
     use gpui_kit::{Bounds, Point, WindowBounds, WindowOptions};
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("config.json");
     let config = buddy_core::config::AppConfig::default();
     std::fs::write(&file, serde_json::to_string(&config).unwrap()).unwrap();
-    let host = Rc::new(FakeHost::default());
-    let engine: Rc<dyn Host> = host.clone();
+    let engine: Rc<dyn Host> = host;
     let (window, root) = cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::install(&config, cx);
@@ -1138,39 +1161,97 @@ fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
         )
         .unwrap()
     });
-    let mut visual = VisualTestContext::from_window(window, cx);
+    let visual = VisualTestContext::from_window(window, cx);
     let browser = root.read_with(&visual, |root, _| root.browser.clone());
-    let zoom = |visual: &mut VisualTestContext| browser.read_with(visual, |view, _| view.zoom);
+    ZoomHarness {
+        visual,
+        root,
+        browser,
+        _dir: dir,
+        file,
+    }
+}
+
+#[gpui_kit::test]
+fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = zoom_root(cx, host.clone());
 
     // The bookmark list is not a page tab: Electron has no listener there.
-    browser.update(&mut visual, |view, cx| view.set_active(true, cx));
-    visual.run_until_parked();
-    visual.simulate_keystrokes("alt-=");
-    assert_eq!(zoom(&mut visual), 1.0);
+    h.update(|view, cx| view.set_active(true, cx));
+    h.visual.simulate_keystrokes("alt-=");
+    assert_eq!(h.zoom(), 1.0);
     // An unused zoom key is let through, so Option+= can still type ≠.
-    let passed = |visual: &mut VisualTestContext| root.read_with(visual, |root, _| root.passed);
-    assert_eq!(passed(&mut visual), 1);
+    assert_eq!(h.passed(), 1);
 
-    browser.update(&mut visual, |view, cx| view.open(PAGE, "", cx));
-    visual.run_until_parked();
+    h.update(|view, cx| view.open(PAGE, "", cx));
     host.log.take();
-    visual.simulate_keystrokes("alt-=");
-    assert_eq!(zoom(&mut visual), 1.1);
-    visual.simulate_keystrokes("alt-+");
-    assert_eq!(zoom(&mut visual), 1.2);
-    visual.simulate_keystrokes("alt-shift-=");
-    assert_eq!(zoom(&mut visual), 1.3);
-    visual.simulate_keystrokes("alt--");
-    assert_eq!(zoom(&mut visual), 1.2);
-    assert_eq!(passed(&mut visual), 1, "a shown page keeps its zoom keys");
+    h.visual.simulate_keystrokes("alt-=");
+    assert_eq!(h.zoom(), 1.1);
+    h.visual.simulate_keystrokes("alt-+");
+    assert_eq!(h.zoom(), 1.2);
+    h.visual.simulate_keystrokes("alt-shift-=");
+    assert_eq!(h.zoom(), 1.3);
+    h.visual.simulate_keystrokes("alt--");
+    assert_eq!(h.zoom(), 1.2);
+    assert_eq!(h.passed(), 1, "a shown page keeps its zoom keys");
     assert!(host.log.has("zoom 1.2"), "{:?}", host.log.take());
     // No reset key, as in Electron; Alt+0 changes nothing.
-    visual.simulate_keystrokes("alt-0");
-    assert_eq!(zoom(&mut visual), 1.2);
+    h.visual.simulate_keystrokes("alt-0");
+    assert_eq!(h.zoom(), 1.2);
 
     // A hidden browser (another section is shown) ignores the keys.
-    browser.update(&mut visual, |view, cx| view.set_active(false, cx));
-    visual.run_until_parked();
-    visual.simulate_keystrokes("alt--");
-    assert_eq!(zoom(&mut visual), 1.2);
+    h.update(|view, cx| view.set_active(false, cx));
+    h.visual.simulate_keystrokes("alt--");
+    assert_eq!(h.zoom(), 1.2);
+}
+
+/// A tab with no page has nothing to zoom: the key goes through, as on the
+/// bookmark list, and the zoom isn't changed or saved.
+fn assert_a_tab_without_a_page_lets_the_zoom_keys_through(h: &mut ZoomHarness, url: &str) {
+    h.update(|view, cx| view.set_active(true, cx));
+    h.update(|view, cx| view.open(url, "", cx));
+    let page = h.browser.read_with(&h.visual, |view, _| {
+        view.active_tab().map(|tab| tab.page.is_some())
+    });
+    assert_eq!(page, Some(false), "the selected tab has no page");
+    let before = std::fs::read_to_string(&h.file).unwrap();
+    h.visual.simulate_keystrokes("alt-=");
+    h.visual.simulate_keystrokes("alt--");
+    assert_eq!(h.zoom(), 1.0);
+    assert_eq!(h.passed(), 2, "both keys went through");
+    assert_eq!(
+        std::fs::read_to_string(&h.file).unwrap(),
+        before,
+        "nothing was saved"
+    );
+}
+
+#[gpui_kit::test]
+fn alt_keys_pass_a_refused_tab_by(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = zoom_root(cx, host.clone());
+    assert_a_tab_without_a_page_lets_the_zoom_keys_through(&mut h, "file:///C:/notes.txt");
+    let log = host.log.take();
+    assert!(
+        !log.iter().any(|entry| entry.starts_with("zoom")),
+        "{log:?}"
+    );
+}
+
+#[gpui_kit::test]
+fn alt_keys_pass_a_tab_without_an_engine_by(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost {
+        refuse: Some(Unavailable(
+            "Web pages can't be embedded on Wayland yet.".into(),
+        )),
+        ..FakeHost::default()
+    });
+    let mut h = zoom_root(cx, host.clone());
+    assert_a_tab_without_a_page_lets_the_zoom_keys_through(&mut h, PAGE);
+    let log = host.log.take();
+    assert!(
+        !log.iter().any(|entry| entry.starts_with("zoom")),
+        "{log:?}"
+    );
 }

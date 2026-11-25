@@ -4,14 +4,16 @@
 //! the host is resolved and checked, the request goes only to those addresses,
 //! every redirect is checked again, and each request has a 5 second timeout.
 //!
-//! The body is capped at [`MAX_BYTES`] and must be a PNG, JPEG, GIF, WebP, ICO
-//! or BMP image, recognised from its first bytes. It is decoded here, never by
+//! The body is capped at [`MAX_BYTES`] and must be a PNG, JPEG, GIF, ICO or BMP
+//! image, recognised from its first bytes. It is decoded here, never by
 //! GPUI: the decoder refuses an image over [`MAX_SIDE`] pixels a side or one
 //! that needs more than [`MAX_DECODE_BYTES`], takes only the first frame of an
 //! animation, and the result is scaled down to at most [`ICON_SIDE`] a side.
 //! GPUI is handed those few pixels, so a favicon holds at most 16 KiB however
 //! its file is built. SVG is refused: it isn't pixels, and drawing one would
-//! need a renderer outside these limits.
+//! need a renderer outside these limits. WebP is refused before decoding: the
+//! WebP decoder (`image-webp` 0.2) decodes a lossy frame larger than the canvas
+//! it declares before comparing the two, so the limits don't bound it.
 use std::io::Cursor;
 
 use image::imageops::FilterType;
@@ -68,7 +70,6 @@ pub enum Format {
     Png,
     Jpeg,
     Gif,
-    Webp,
     Ico,
     Bmp,
 }
@@ -79,7 +80,6 @@ impl Format {
             Self::Png => ImageFormat::Png,
             Self::Jpeg => ImageFormat::Jpeg,
             Self::Gif => ImageFormat::Gif,
-            Self::Webp => ImageFormat::WebP,
             Self::Ico => ImageFormat::Ico,
             Self::Bmp => ImageFormat::Bmp,
         }
@@ -206,6 +206,7 @@ async fn read_capped(mut response: reqwest::Response) -> Result<Vec<u8>, Favicon
 
 /// The format from the file's signature; a server's content type is often wrong
 /// for favicons (`text/plain`, `application/octet-stream`), so it isn't used.
+/// A WebP file (`RIFF....WEBP`) is not one of them, so it is never decoded.
 pub fn sniff(bytes: &[u8]) -> Option<Format> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some(Format::Png)
@@ -213,8 +214,6 @@ pub fn sniff(bytes: &[u8]) -> Option<Format> {
         Some(Format::Jpeg)
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         Some(Format::Gif)
-    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        Some(Format::Webp)
     } else if bytes.starts_with(&[0, 0, 1, 0]) && bytes.len() >= 6 {
         Some(Format::Ico)
     } else if bytes.starts_with(b"BM") && bytes.len() >= 26 {

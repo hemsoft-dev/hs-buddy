@@ -57,6 +57,9 @@ ZOOM_BEFORE, ZOOM_AFTER = "100%", "110%"
 PAGE_BLOCK = "lime"
 PAGE_BLOCK_CSS = "width:160px;height:80px;background:#00ff00"
 ZOOM_RATIO = (1.05, 1.15)
+# After Alt+- the block is back at its 100% size, give or take a pixel of rounding;
+# a page left at 110% is 10% off.
+UNZOOM_RATIO = (0.97, 1.03)
 
 
 def solid_png(width, height, rgb):
@@ -250,9 +253,9 @@ def require_favicon(image):
     return dict(pixels=count, bounds=bounds)
 
 
-def require_zoomed(before, after):
-    """The page's content grew by one zoom step between the two captures: its
-    fixed-size block is wider and taller by about 10%, not just relabelled."""
+def require_scaled(before, after, expected, failure):
+    """The page's fixed-size block in `after`, against `before`, is within the
+    `expected` width and height ratios; the measurements are saved beside `after`."""
     sizes = []
     for image in (before, after):
         count, bounds = colour_blocks.measure(image, PAGE_BLOCK)
@@ -262,15 +265,27 @@ def require_zoomed(before, after):
     ratios = [sizes[1][side] / sizes[0][side] for side in ("width", "height")]
     evidence = dict(before=sizes[0], after=sizes[1], ratios=ratios)
     after.with_suffix(".zoom.json").write_text(json.dumps(evidence), encoding="utf-8")
-    if not all(ZOOM_RATIO[0] <= ratio <= ZOOM_RATIO[1] for ratio in ratios):
-        raise RuntimeError(f"The page did not scale by one zoom step: {evidence}")
+    if not all(expected[0] <= ratio <= expected[1] for ratio in ratios):
+        raise RuntimeError(f"{failure}: {evidence}")
     return evidence
+
+
+def require_zoomed(before, after):
+    """The page's content grew by one zoom step between the two captures: its
+    fixed-size block is wider and taller by about 10%, not just relabelled."""
+    return require_scaled(before, after, ZOOM_RATIO, "The page did not scale by one zoom step")
+
+
+def require_unzoomed(before, after):
+    """After Alt+- the page's content is back at its 100% size, not just relabelled."""
+    return require_scaled(before, after, UNZOOM_RATIO, "The page did not return to its 100% size")
 
 
 def first_pass(driver, theme):
     """A fresh session: the probe's refusals, then a page, at both sizes. The
-    Fixture page card shows its favicon, and Alt+= zooms the page one step
-    (Alt+- takes it back, so later passes see the saved zoom unchanged)."""
+    Fixture page card shows its favicon, Alt+= zooms the page one step, and
+    Alt+- takes it back to its 100% size (so later passes see the saved zoom
+    unchanged)."""
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
@@ -280,7 +295,7 @@ def first_pass(driver, theme):
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
         # The engine repaints the page a frame after it takes the zoom.
         ("altkey", "="), ("wait_text", ZOOM_AFTER), ("sleep", 1), ("capture", f"browser-page-zoom-{theme}"),
-        ("altkey", "-"), ("wait_text", ZOOM_BEFORE),
+        ("altkey", "-"), ("wait_text", ZOOM_BEFORE), ("sleep", 1), ("capture", f"browser-page-unzoom-{theme}"),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
         # Repeat after the title-qualified captures: reusing a URL selects
@@ -297,8 +312,10 @@ def first_pass(driver, theme):
     github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
     github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
     github.check(flow / f"browser-page-zoom-{theme}.png", PAGE_TEXT, ZOOM_AFTER, browser=True)
+    github.check(flow / f"browser-page-unzoom-{theme}.png", PAGE_TEXT, ZOOM_BEFORE, browser=True)
     zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
-    return dict(favicon=favicon, zoom=zoom)
+    unzoom = require_unzoomed(flow / f"page-{theme}.png", flow / f"browser-page-unzoom-{theme}.png")
+    return dict(favicon=favicon, zoom=zoom, unzoom=unzoom)
 
 
 def saved_zoom(config):
