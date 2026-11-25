@@ -327,22 +327,38 @@ def grid_marks(frame, anchors, theme):
     middle = pill['top'] + pill['height'] / 2
     left, right = span(plain)
     cell = families(frame, (left, middle - 1.2 * pill['height'], right, middle + 1.2 * pill['height']), theme)
-    strokes = max(6, height // 2)
     result = dict(theme=theme, tints=tints, holidayRednessShift=shift, marker=marker, pill=pill_counts,
         capexCell=cell, passed=False)
-    problems = []
-    # danger at 8% shifts 2R-G-B by about 19 in both themes.
-    if shift < 8:
-        problems.append('the holiday column is not tinted toward danger')
-    if marker['holiday']['danger'] < strokes or marker['plain']['danger'] * 4 > marker['holiday']['danger']:
-        problems.append('the holiday heading has no danger marker')
-    if pill_counts['success'] < strokes or pill_counts['info'] * 3 > pill_counts['success']:
-        problems.append('the CapEx pill is not success green')
-    if cell['success'] < max(4, height // 3) or cell['info'] * 3 > cell['success']:
-        problems.append('the filled CapEx cell is not success green')
+    problems = mark_problems(result, height)
     if problems:
         raise MissingGridMarks('Grid marks missing: ' + '; '.join(problems), result)
     return dict(result, passed=True)
+
+
+def mark_problems(result, height):
+    """The marks a measured capture lacks.
+
+    Subpixel (X11) and ClearType (Windows) text carries colour fringes: plain
+    grey text shows danger- and info-hued edge pixels in similar numbers, and
+    green text shows info-hued ones beside its green strokes. So a mark must
+    dominate the hues its own region holds, and the marker must hold more
+    danger than the plain weekday's fringes.
+    """
+    strokes = max(6, height // 2)
+    marker, pill, cell = result['marker'], result['pill'], result['capexCell']
+    holiday, plain = marker['holiday'], marker['plain']
+    problems = []
+    # danger at 8% shifts 2R-G-B by about 19 in both themes.
+    if result['holidayRednessShift'] < 8:
+        problems.append('the holiday column is not tinted toward danger')
+    if holiday['danger'] < strokes or holiday['info'] * 3 > holiday['danger'] \
+            or holiday['danger'] < plain['danger'] + strokes:
+        problems.append('the holiday heading has no danger marker')
+    if pill['success'] < strokes or pill['info'] * 2 > pill['success']:
+        problems.append('the CapEx pill is not success green')
+    if cell['success'] < max(4, height // 3) or cell['info'] * 2 > cell['success']:
+        problems.append('the filled CapEx cell is not success green')
+    return problems
 
 
 class MissingGridMarks(RuntimeError):

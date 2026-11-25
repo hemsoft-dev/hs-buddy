@@ -787,8 +787,9 @@ class SyntheticGrid:
     PAGE = dict(dark=(0x1e, 0x1e, 0x1e), light=(0xff, 0xff, 0xff))
     TEXT = dict(dark=(0xcc, 0xcc, 0xcc), light=(0x1f, 0x1f, 0x1f))
 
-    def __init__(self, theme='dark', scale=1, tint=True, marker=True, pill='success', cell='success'):
+    def __init__(self, theme='dark', scale=1, tint=True, marker=True, pill='success', cell='success', fringe=False):
         tokens = desktop.THEME_MARKS[theme]
+        self.theme, self.fringe = theme, fringe
         self.scale = s = scale
         self.width, self.height = 600 * s, 260 * s
         page, text = self.PAGE[theme], self.TEXT[theme]
@@ -821,8 +822,21 @@ class SyntheticGrid:
 
     def glyphs(self, box, color):
         # Vertical strokes two pixels wide every five, like text.
+        tokens, page = desktop.THEME_MARKS[self.theme], self.PAGE[self.theme]
+        family = next((name for name, token in tokens.items() if token == tuple(color)), None)
+        top, bottom = box['top'], box['top'] + box['height']
         for x in range(box['left'], box['left'] + box['width'], 5 * self.scale):
-            self.fill(x, box['top'], x + 2 * self.scale, box['top'] + box['height'], color)
+            right = x + 2 * self.scale
+            self.fill(x, top, right, bottom, color)
+            # Subpixel edges, as X11 and ClearType captures show them: grey
+            # text gets a danger-hued and an info-hued edge, green text an
+            # info-hued edge on every other row. The danger marker has none.
+            if self.fringe and family is None:
+                self.fill(x - 1, top, x, bottom, blend(tokens['danger'], page, 0.7))
+                self.fill(right, top, right + 1, bottom, blend(tokens['info'], page, 0.7))
+            elif self.fringe and family == 'success':
+                for y in range(top, bottom, 2):
+                    self.fill(right, y, right + 1, y + 1, blend(tokens['info'], page, 0.7))
 
     def frame(self):
         return desktop.Frame(self.width, self.height, bytes(self.pixels))
@@ -849,6 +863,52 @@ class GridMarks(unittest.TestCase):
                     self.assertGreaterEqual(result['holidayRednessShift'], 8)
                     self.assertEqual(result['marker']['plain']['danger'], 0)
                     self.assertEqual(result['pill']['info'], 0)
+
+    def test_fringed_text_passes_with_its_marks_and_fails_without_each(self):
+        cases = (
+            (dict(), None),
+            (dict(tint=False), 'the holiday column is not tinted toward danger'),
+            (dict(marker=False), 'the holiday heading has no danger marker'),
+            (dict(pill='info'), 'the CapEx pill is not success green'),
+            (dict(pill='text'), 'the CapEx pill is not success green'),
+            (dict(cell='info'), 'the filled CapEx cell is not success green'),
+            (dict(cell='text'), 'the filled CapEx cell is not success green'),
+        )
+        for theme in ('dark', 'light'):
+            for scale in (1, 2):
+                for options, problem in cases:
+                    with self.subTest(theme=theme, scale=scale, options=options):
+                        grid = SyntheticGrid(theme, scale, fringe=True, **options)
+                        if problem is None:
+                            result = desktop.grid_marks(grid.frame(), grid.anchors, theme)
+                            self.assertTrue(result['passed'])
+                            # The plain weekday's fringes are danger-hued too.
+                            self.assertGreater(result['marker']['plain']['danger'], 0)
+                            self.assertGreater(result['pill']['info'], 0)
+                            continue
+                        with self.assertRaises(desktop.MissingGridMarks) as raised:
+                            desktop.grid_marks(grid.frame(), grid.anchors, theme)
+                        self.assertIn(problem, str(raised.exception))
+
+    def test_the_first_real_captures_pass_and_fringes_alone_do_not(self):
+        # Measured by run 45574727167 on ubuntu-24.04 (X11) and windows-2025.
+        def measured(plain, holiday, pill, cell):
+            def counts(values):
+                return dict(zip(('danger', 'success', 'info'), values))
+            return dict(holidayRednessShift=16, marker=dict(plain=counts(plain), holiday=counts(holiday)),
+                pill=counts(pill), capexCell=counts(cell))
+        ubuntu = measured((50, 1, 48), (88, 0, 0), (0, 97, 32), (0, 87, 26))
+        windows = measured((45, 10, 29), (85, 0, 0), (0, 78, 18), (0, 73, 16))
+        for name, result in (('ubuntu', ubuntu), ('windows', windows)):
+            with self.subTest(capture=name):
+                self.assertEqual(desktop.mark_problems(result, 14), [])
+                # The holiday heading showing a fringed weekday, as plain does.
+                fringed = dict(result, marker=dict(result['marker'], holiday=result['marker']['plain']))
+                self.assertEqual(desktop.mark_problems(fringed, 14), ['the holiday heading has no danger marker'])
+                # An info-blue pill and cell with green fringes.
+                blue = dict(result, pill=dict(danger=0, success=32, info=97), capexCell=dict(danger=0, success=26, info=87))
+                self.assertEqual(desktop.mark_problems(blue, 14),
+                    ['the CapEx pill is not success green', 'the filled CapEx cell is not success green'])
 
     def test_each_missing_mark_fails_while_the_text_would_still_read(self):
         cases = (
