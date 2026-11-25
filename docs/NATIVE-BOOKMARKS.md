@@ -7,9 +7,9 @@ opens, missing IDs, refresh, rendering and retained-tab restoration do not recor
 an embedded open. Activity writes are best effort and never replayed after a
 failure or uncertain acknowledgement. Bookmark visit validation is unchanged.
 
-The isolated installed browser fixture checks three explicit opens, including
-reuse of a URL without a new HTTP visit, and zero extra activity after restart
-or tab switching. `bookmark-activity.json` retains the synthetic counter snapshots.
+The isolated installed browser fixture checks four explicit opens, including
+two reuses of a URL without a new HTTP visit, and zero extra activity after
+restart or tab switching. `bookmark-activity.json` retains the synthetic counter snapshots.
 
 Bookmarks in Buddy Native shows the web bookmarks Electron Buddy keeps in Convex, in a
 category tree and a searchable list, and adds, edits, reorders and deletes them. Both
@@ -86,8 +86,14 @@ PNG, JPEG, GIF, ICO or BMP image, recognized from its first bytes.
 
 Buddy decodes the file itself, never GPUI. The decoder refuses an image over 512 px
 a side or one that needs more than 4 MiB to decode, and it checks before it
-allocates. It reads only the first frame of an animated GIF, and in an ICO the entry
-it picks, whatever the directory claims. The result is scaled to at most 64 px a
+allocates. It reads only the first frame of an animated GIF. A PNG keeps only the
+chunks a favicon needs (IHDR, PLTE, tRNS, IDAT, IEND) before it is decoded, so a
+compressed colour profile or text chunk (iCCP, zTXt, iTXt) is never inflated, and
+a chunk with a bad length or CRC refuses the file. An ICO's directory is read by
+Buddy: at most 256 entries, each inside the file. The best entry no larger than
+512 px is picked (most bits a pixel, then most pixels). A PNG entry is filtered
+like any PNG, and a bitmap entry is decoded on its own, so the ICO decoder, which
+reads an embedded PNG with no limits, never sees one. The result is scaled to at most 64 px a
 side, keeping its shape, and GPUI gets those pixels as one ready frame. So a favicon
 holds at most 16 KiB however its file is built, and the globe shows until that frame
 is ready. An SVG favicon shows the globe: it isn't pixels, and drawing one would need

@@ -39,8 +39,11 @@ focused field (Option+= still types ≠). So do they on a tab with no page to zo
 refused address, or no engine on this system), whose zoom stays as it was and isn't
 saved. A bookmark opened from the list leaves the keyboard with the browser, so the
 keys work at once, as Electron's window listener does. Electron has no reset key,
-and neither does Buddy. The toolbar shows a new zoom only once the page's engine has
-taken it; if the engine refuses, the old zoom stays and the tab says why.
+and neither does Buddy. Zoom applies to the selected tab's page: the toolbar shows a
+new zoom only once that page's engine has taken it; if it refuses, the old zoom
+stays and the tab says why. Pages kept in background tabs get the new zoom too, but
+a refusal there is only logged and blocks nothing. Such a page gets the zoom again
+when its tab is selected, and if it refuses then, that tab, now shown, says so.
 
 ## What a page may do
 
