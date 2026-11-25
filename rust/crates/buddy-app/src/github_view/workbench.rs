@@ -1,6 +1,6 @@
 //! The organization overview's rate-limit gauge (Electron's `RateLimitGauge`)
 //! and its "Current workbench" (Electron's `ActiveRepositoriesSection`).
-use super::quota::QuotaReply;
+use super::quota::{QuotaReply, SearchHold};
 use super::*;
 use buddy_core::github::{
     ActivityItem, GitHubError, RateLimit, RepositoryActivity, RepositorySummary, RequestTicket,
@@ -114,9 +114,65 @@ pub(super) fn header_meta(activity: &RepositoryActivity, now: Timestamp) -> Vec<
     meta
 }
 
-/// What the section says above its cards, if anything.
-pub(super) fn status(activity: &RepositoryActivity) -> Option<String> {
-    let reason = |error: &Option<GitHubError>| error.as_ref().map(ToString::to_string);
+/// The longest `Retry-After` GitHub gave either search, if one was limited.
+fn search_throttle(activity: &RepositoryActivity) -> Option<u64> {
+    [&activity.issues_error, &activity.pull_requests_error]
+        .into_iter()
+        .filter_map(|error| match error {
+            Some(GitHubError::RateLimited {
+                retry_after_seconds,
+            }) => Some(*retry_after_seconds),
+            _ => None,
+        })
+        .max()
+}
+
+/// The workbench shown while GitHub's search window is open and no search
+/// is sent: a shown workbench that already says GitHub limited a search
+/// stays; anything else becomes an unread workbench limited by GitHub, read
+/// when GitHub throttled the login's searches.
+pub(super) fn held_workbench(
+    shown: Option<&RepositoryActivity>,
+    hold: SearchHold,
+    now: Timestamp,
+) -> Option<RepositoryActivity> {
+    if shown.and_then(search_throttle).is_some() {
+        return None;
+    }
+    let limited = || {
+        Some(GitHubError::RateLimited {
+            retry_after_seconds: hold.wait_seconds(),
+        })
+    };
+    Some(RepositoryActivity {
+        repositories: Vec::new(),
+        issues_error: limited(),
+        pull_requests_error: limited(),
+        issues_incomplete: false,
+        pull_requests_incomplete: false,
+        has_more: false,
+        fetched_at: jiff::SignedDuration::try_from(hold.since)
+            .ok()
+            .and_then(|since| now.checked_sub(since).ok())
+            .unwrap_or(now),
+    })
+}
+
+/// What the section says above its cards, if anything. While GitHub's
+/// search window is open, `wait_seconds` is the time left, and a limited
+/// search reports that instead of the `Retry-After` it was given.
+pub(super) fn status(activity: &RepositoryActivity, wait_seconds: Option<u64>) -> Option<String> {
+    let reason = |error: &Option<GitHubError>| {
+        error.as_ref().map(|error| match (error, wait_seconds) {
+            (GitHubError::RateLimited { .. }, Some(retry_after_seconds)) => {
+                GitHubError::RateLimited {
+                    retry_after_seconds,
+                }
+                .to_string()
+            }
+            _ => error.to_string(),
+        })
+    };
     if activity.unavailable() {
         return Some(format!(
             "Repository activity is unavailable. The rest of the overview is still current. GitHub reported: {}",
@@ -228,6 +284,7 @@ impl GitHubView {
             Section::Ready(activity) => (Some(activity), None),
         };
         let now = Timestamp::now();
+        let wait = self.search_hold().map(|hold| hold.wait_seconds());
         let muted = cx.theme().muted_foreground;
         let mut header = h_flex().flex_wrap().gap_2().items_center();
         for meta in activity.map(|a| header_meta(a, now)).unwrap_or_default() {
@@ -275,7 +332,7 @@ impl GitHubView {
             );
         if let Some(text) = placeholder
             .map(String::from)
-            .or_else(|| activity.and_then(status))
+            .or_else(|| activity.and_then(|activity| status(activity, wait)))
         {
             section = section.child(div().whitespace_normal().child(text));
         }
@@ -500,6 +557,12 @@ impl GitHubView {
         .detach();
     }
 
+    /// GitHub's search window for the overview's login, while it is open.
+    pub(super) fn search_hold(&self) -> Option<SearchHold> {
+        self.quota
+            .search_hold(self.overview.account.as_ref()?, Instant::now())
+    }
+
     fn accepts_workbench(&self, account: &AccountScope, request: u64) -> bool {
         self.overview.workbench_request == request && self.accepts_overview(account)
     }
@@ -512,15 +575,31 @@ impl GitHubView {
         force: bool,
         cx: &mut Context<Self>,
     ) {
+        let account = client.account.clone();
+        // While GitHub's search window for the login is open, neither
+        // Refresh nor auto-refresh searches; the workbench keeps saying why.
+        let Some(search) = self.quota.begin_search(&account, Instant::now()) else {
+            if let Some(held) = self.search_hold().and_then(|hold| {
+                held_workbench(self.overview.workbench.ready(), hold, Timestamp::now())
+            }) {
+                self.overview.workbench = Section::Ready(held);
+            }
+            return;
+        };
         if self.overview.workbench.ready().is_none() {
             self.overview.workbench = Section::Loading;
         }
-        let account = client.account.clone();
         let rx = Runtime::global(cx)
             .spawn(async move { client.repository_activity(&repositories, force).await });
         cx.spawn(async move |this, cx| {
             let activity = rx.await;
             this.update(cx, |this, cx| {
+                // GitHub's window applies to the credential, so it is kept
+                // even when the overview has moved on.
+                if let Ok(activity) = &activity {
+                    this.quota
+                        .finish_search(&search, search_throttle(activity), Instant::now());
+                }
                 if !this.accepts_workbench(&account, request) {
                     return;
                 }

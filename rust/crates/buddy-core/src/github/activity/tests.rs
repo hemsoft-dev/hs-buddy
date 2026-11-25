@@ -296,3 +296,50 @@ async fn the_workbench_reads_two_namespace_searches_and_keeps_the_one_that_answe
         Some(GitHubError::RateLimited { .. })
     ));
 }
+
+#[tokio::test]
+async fn activity_reused_from_the_cache_keeps_the_time_github_returned_it() {
+    let transport = Arc::new(SearchFixture::default());
+    let client = GitHubClients::with_transport(transport.clone())
+        .for_account(AccountScope::new("fixture-user", "Fixture-User").unwrap());
+    let repositories = [summary("alpha", false)];
+    let first = client.repository_activity(&repositories, false).await;
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    // Reopening inside the cache's lifetime reuses the issue search; the
+    // limited pull-request search is read again.
+    let reused = client.repository_activity(&repositories, false).await;
+    assert_eq!(transport.0.lock().unwrap().len(), 3);
+    assert_eq!(reused.repositories[0].issues[0].number, 9);
+    let drift = reused.fetched_at.duration_since(first.fetched_at);
+    assert!(
+        drift.abs() < jiff::SignedDuration::from_millis(100),
+        "{drift:?}"
+    );
+    assert!(
+        Timestamp::now().duration_since(reused.fetched_at)
+            >= jiff::SignedDuration::from_millis(300)
+    );
+
+    // A forced refresh reads both searches now.
+    let refreshed = client.repository_activity(&repositories, true).await;
+    assert!(
+        Timestamp::now().duration_since(refreshed.fetched_at)
+            < jiff::SignedDuration::from_millis(100)
+    );
+}
+
+#[test]
+fn the_read_time_is_that_of_the_oldest_shown_result() {
+    let now = at("2026-10-15T12:00:00Z");
+    assert_eq!(read_time(now, []), now);
+    assert_eq!(
+        read_time(
+            now,
+            [
+                std::time::Duration::ZERO,
+                std::time::Duration::from_secs(42)
+            ]
+        ),
+        at("2026-10-15T11:59:18Z")
+    );
+}

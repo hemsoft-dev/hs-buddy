@@ -13,6 +13,8 @@ struct OverviewFixture {
     /// only when one is named.
     throttled: Mutex<Option<u64>>,
     throttled_user: Mutex<Option<&'static str>>,
+    /// Both workbench searches are throttled with this `Retry-After`.
+    search_throttled: Mutex<Option<u64>>,
     /// The quota read and searches never answer.
     stalled: bool,
     paths: Mutex<Vec<String>>,
@@ -27,6 +29,7 @@ impl OverviewFixture {
             remaining: Mutex::new(remaining),
             throttled: Mutex::new(None),
             throttled_user: Mutex::new(None),
+            search_throttled: Mutex::new(None),
             stalled: false,
             paths: Mutex::new(Vec::new()),
             requests: Mutex::new(Vec::new()),
@@ -43,6 +46,12 @@ impl OverviewFixture {
     fn reads(&self, prefix: &str) -> usize {
         let paths = self.paths.lock().unwrap();
         paths.iter().filter(|path| path.starts_with(prefix)).count()
+    }
+
+    /// Reads of the namespace's repository list, which never wait for a
+    /// throttled search.
+    fn repository_reads(&self) -> usize {
+        self.reads("/user/repos") + self.reads("/orgs/")
     }
 
     fn reads_by(&self, username: &str, prefix: &str) -> usize {
@@ -111,10 +120,16 @@ impl Transport for OverviewFixture {
                     200,
                     json!({"resources":{"core":{"limit":5000,"remaining":remaining,"used":5000 - remaining,"reset":reset}}}),
                 )
+            } else if let (true, Some(retry)) = (
+                path.starts_with("/search/"),
+                *self.search_throttled.lock().unwrap(),
+            ) {
+                headers.insert("retry-after".into(), retry.to_string());
+                (429, Value::Null)
             } else if path.contains("is%3Aissue") {
                 (200, json!({"total_count":1,"items":[search_item(11)]}))
             } else if path.contains("is%3Apr") {
-                (403, Value::Null)
+                (502, Value::Null)
             } else {
                 (500, Value::Null)
             };
@@ -224,15 +239,15 @@ fn a_personal_overview_shows_the_quota_gauge_and_ranks_its_workbench(
             lane_summary(&alpha.issues, &activity.issues_error, false),
             ("1".to_string(), None)
         );
-        // The limited pull-request search is unknown, not an empty lane.
+        // The failed pull-request search is unknown, not an empty lane.
         assert_eq!(
             lane_summary(&alpha.pull_requests, &activity.pull_requests_error, false),
             ("!".to_string(), Some("Activity unavailable"))
         );
         assert!(
-            status(activity)
+            status(activity, None)
                 .unwrap()
-                .starts_with("Showing the activity GitHub returned. One side could not be refreshed. Pull requests: GitHub is limiting requests")
+                .starts_with("Showing the activity GitHub returned. One side could not be refreshed. Pull requests: GitHub could not be reached")
         );
         assert_eq!(
             header_meta(activity, activity.fetched_at),
@@ -606,7 +621,7 @@ fn an_unfinished_search_never_claims_there_was_no_recent_activity() {
         ..activity(None, false, Vec::new())
     };
     assert_eq!(
-        status(&sampled).as_deref(),
+        status(&sampled, None).as_deref(),
         Some(
             "No activity in the first results GitHub returned; more may exist. All activity shows the rest on GitHub."
         )
@@ -615,7 +630,7 @@ fn an_unfinished_search_never_claims_there_was_no_recent_activity() {
 
     let complete = activity(None, false, Vec::new());
     assert_eq!(
-        status(&complete).as_deref(),
+        status(&complete, None).as_deref(),
         Some("No recent issue or pull-request activity found.")
     );
     assert_eq!(
@@ -626,7 +641,7 @@ fn an_unfinished_search_never_claims_there_was_no_recent_activity() {
     // A timed-out search with nothing to show is reported like a failed lane.
     let unread = activity(Some(GitHubError::IncompleteSearch), false, Vec::new());
     assert_eq!(
-        status(&unread).as_deref(),
+        status(&unread, None).as_deref(),
         Some(
             "Showing the activity GitHub returned. One side could not be refreshed. Issues: GitHub's search timed out before it finished. Refresh to search again."
         )
@@ -642,7 +657,7 @@ fn an_unfinished_search_never_claims_there_was_no_recent_activity() {
     };
     let partial = activity(None, true, vec![alpha]);
     assert_eq!(
-        status(&partial).as_deref(),
+        status(&partial, None).as_deref(),
         Some("GitHub's search timed out before it finished, so this activity may be incomplete.")
     );
     assert_eq!(
@@ -695,4 +710,162 @@ fn another_namespaces_newer_reading_is_kept_when_reopening_the_first(
     tick(cx, &view, |_, _| {});
     open(cx, solo);
     assert_eq!(fixture.reads("/rate_limit"), 3);
+}
+
+/// When the login may next search, if GitHub throttled its searches.
+fn search_not_before(
+    cx: &mut gpui_kit::TestAppContext,
+    view: &Entity<GitHubView>,
+    account: &AccountScope,
+) -> Option<Instant> {
+    cx.update(|cx| view.read(cx).quota.search_not_before(account))
+}
+
+fn reload(cx: &mut gpui_kit::TestAppContext, view: &Entity<GitHubView>, force: bool) {
+    cx.update(|cx| view.update(cx, |view, cx| view.load(force, false, cx)));
+    cx.run_until_parked();
+}
+
+/// What the workbench says above its cards, with the live retry time.
+fn workbench_status(cx: &mut gpui_kit::TestAppContext, view: &Entity<GitHubView>) -> String {
+    cx.update(|cx| {
+        let view = view.read(cx);
+        let wait = view.search_hold().map(|hold| hold.wait_seconds());
+        status(view.overview.workbench.ready().unwrap(), wait).unwrap()
+    })
+}
+
+#[gpui_kit::test]
+fn a_throttled_workbench_search_waits_for_githubs_retry_window(cx: &mut gpui_kit::TestAppContext) {
+    let fixture = OverviewFixture::new(true, 4321);
+    let view = overview(cx, fixture.clone());
+    assert_eq!(fixture.reads("/search/issues"), 2);
+    // Refresh: GitHub throttles both searches for five minutes.
+    *fixture.search_throttled.lock().unwrap() = Some(300);
+    reload(cx, &view, true);
+    assert_eq!(fixture.reads("/search/issues"), 4);
+    let retry_at = search_not_before(cx, &view, &first()).unwrap();
+    assert!(retry_at >= Instant::now() + Duration::from_secs(290));
+    // The core quota keeps its own window.
+    assert_eq!(not_before(cx, &view, &first()), None);
+    let limited = workbench_status(cx, &view);
+    assert!(
+        limited.starts_with("Repository activity is unavailable. The rest of the overview is still current. GitHub reported: GitHub is limiting requests. Wait "),
+        "{limited}"
+    );
+
+    // Refresh and the next auto-refresh still read the repositories, but
+    // send no search before GitHub's deadline. The workbench keeps saying
+    // GitHub is limiting it, with the time left.
+    *fixture.search_throttled.lock().unwrap() = None;
+    let repositories = fixture.repository_reads();
+    reload(cx, &view, true);
+    assert_eq!(fixture.repository_reads(), repositories + 1);
+    reload(cx, &view, false);
+    assert_eq!(fixture.reads("/search/issues"), 4);
+    cx.update(|cx| {
+        let view = view.read(cx);
+        assert!(view.error.is_none());
+        assert_eq!(view.data.as_ref().unwrap().rows[0].title, "team/Alpha");
+    });
+    assert_eq!(search_not_before(cx, &view, &first()), Some(retry_at));
+    let held = workbench_status(cx, &view);
+    let seconds: u64 = held
+        .rsplit("Wait ")
+        .next()
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|n| n.parse().ok())
+        .unwrap();
+    assert!((290..=300).contains(&seconds), "{held}");
+
+    // After the deadline, the auto-refresh searches again, and so does
+    // Refresh.
+    cx.update(|cx| view.update(cx, |view, _| view.quota.expire_windows_for_test()));
+    reload(cx, &view, false);
+    assert_eq!(fixture.reads("/search/issues"), 6);
+    assert_eq!(search_not_before(cx, &view, &first()), None);
+    cx.update(|cx| {
+        let view = view.read(cx);
+        let activity = view.overview.workbench.ready().unwrap();
+        assert_eq!(activity.repositories[0].issues[0].number, 11);
+    });
+    reload(cx, &view, true);
+    assert_eq!(fixture.reads("/search/issues"), 8);
+}
+
+#[gpui_kit::test]
+fn one_login_in_another_namespace_shares_its_search_window(cx: &mut gpui_kit::TestAppContext) {
+    let fixture = OverviewFixture::new(true, 4321);
+    let view = overview(cx, fixture.clone());
+    *fixture.search_throttled.lock().unwrap() = Some(300);
+    reload(cx, &view, true);
+    assert_eq!(fixture.reads_by("First", "/search/issues"), 4);
+    *fixture.search_throttled.lock().unwrap() = None;
+
+    // The same login's personal overview in another namespace uses the same
+    // credential: it lists its repositories but sends no search.
+    let elsewhere = AccountScope::new("first", "solo").unwrap();
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.change_account(Some(elsewhere.clone()), cx);
+            view.navigate(Route::Organization, cx);
+        })
+    });
+    cx.run_until_parked();
+    reload(cx, &view, true);
+    assert_eq!(fixture.reads("/search/issues"), 4);
+    assert!(
+        fixture.reads_by("first", "/orgs/solo/repos") + fixture.reads_by("first", "/user/repos")
+            >= 1
+    );
+    assert_eq!(
+        search_not_before(cx, &view, &elsewhere),
+        search_not_before(cx, &view, &first())
+    );
+    // Its workbench says GitHub is limiting searches, as of the throttle.
+    cx.update(|cx| {
+        let view = view.read(cx);
+        let activity = view.overview.workbench.ready().unwrap();
+        assert!(activity.unavailable() && activity.repositories.is_empty());
+    });
+    assert!(workbench_status(cx, &view).contains("GitHub is limiting requests. Wait "));
+
+    // Another login is not held back.
+    let second = AccountScope::new("Second", "team").unwrap();
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.change_account(Some(second), cx);
+            view.navigate(Route::Organization, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(fixture.reads_by("Second", "/search/issues"), 2);
+}
+
+#[test]
+fn a_held_workbench_reports_githubs_limit_as_of_the_throttle() {
+    let now: Timestamp = "2026-10-15T12:00:00Z".parse().unwrap();
+    let hold = SearchHold {
+        since: Duration::from_secs(90),
+        wait: Duration::from_millis(259_500),
+    };
+    let held = held_workbench(None, hold, now).unwrap();
+    assert_eq!(
+        held.issues_error,
+        Some(GitHubError::RateLimited {
+            retry_after_seconds: 260
+        })
+    );
+    assert_eq!(held.pull_requests_error, held.issues_error);
+    assert!(held.repositories.is_empty() && !held.has_more);
+    assert_eq!(header_meta(&held, now), ["Updated 1 minute ago"]);
+    // The live wait replaces the Retry-After GitHub gave.
+    assert_eq!(
+        status(&held, Some(12)).as_deref(),
+        Some(
+            "Repository activity is unavailable. The rest of the overview is still current. GitHub reported: GitHub is limiting requests. Wait 12 seconds before refreshing."
+        )
+    );
+    // A shown workbench that already says a search was limited is kept.
+    assert!(held_workbench(Some(&held), hold, now).is_none());
 }

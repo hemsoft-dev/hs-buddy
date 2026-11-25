@@ -247,3 +247,52 @@ fn a_reading_under_a_minute_old_is_reused_in_every_namespace_of_its_login() {
     assert_eq!(quota.shown(&solo).map(|limit| limit.remaining), Some(4321));
     assert!(quota.due(&solo, now + RATE_LIMIT_REFRESH));
 }
+
+#[test]
+fn a_search_throttle_holds_back_only_the_logins_searches() {
+    let team = account("First", "team");
+    let solo = account("first", "solo");
+    let other = account("Second", "team");
+    let mut quota = QuotaTracker::default();
+    let now = Instant::now();
+    let search = quota.begin_search(&team, now).unwrap();
+    quota.finish_search(&search, Some(300), now);
+    // Every namespace of the login waits for GitHub's deadline; the core
+    // quota and another login do not.
+    for namespace in [&team, &solo] {
+        assert!(quota.begin_search(namespace, now + secs(299)).is_none());
+        let hold = quota.search_hold(namespace, now + secs(100)).unwrap();
+        assert_eq!(hold.since, secs(100));
+        assert_eq!(hold.wait_seconds(), 200);
+    }
+    assert!(quota.may_send(&team, now));
+    assert!(quota.begin_search(&other, now).is_some());
+    assert!(quota.search_hold(&team, now + secs(300)).is_none());
+    assert!(quota.begin_search(&solo, now + secs(300)).is_some());
+}
+
+#[test]
+fn a_search_window_follows_the_quota_windows_rules() {
+    let first = account("First", "team");
+    let mut quota = QuotaTracker::default();
+    let now = Instant::now();
+    // Never less than a minute.
+    let short = quota.begin_search(&first, now).unwrap();
+    quota.finish_search(&short, Some(5), now);
+    assert_eq!(quota.search_not_before(&first), Some(now + secs(60)));
+    // Only ever later.
+    let later = now + secs(60);
+    let long = quota.begin_search(&first, later).unwrap();
+    let newer = quota.begin_search(&first, later).unwrap();
+    quota.finish_search(&newer, Some(600), later);
+    quota.finish_search(&long, Some(120), later);
+    assert_eq!(quota.search_not_before(&first), Some(later + secs(600)));
+    // A success issued before the window was set never ends it.
+    quota.finish_search(&long, None, later);
+    assert_eq!(quota.search_not_before(&first), Some(later + secs(600)));
+    // One issued after it does.
+    let after = later + secs(600);
+    let next = quota.begin_search(&first, after).unwrap();
+    quota.finish_search(&next, None, after);
+    assert_eq!(quota.search_not_before(&first), None);
+}

@@ -52,16 +52,20 @@ impl RateLimit {
 
 impl GitHubClient {
     /// Reading `/rate_limit` does not count against the quota it reports.
-    /// It is always read from GitHub: the response cache is kept per
-    /// namespace, while the quota belongs to the login, so a cached reading
-    /// from one namespace could be older than one read in another. The app's
-    /// per-login tracker decides when a reading is fresh enough to reuse.
+    /// It is always read from GitHub and never stored in the response cache:
+    /// that cache is kept per namespace, while the quota belongs to the
+    /// login, so a cached reading from one namespace could be older than one
+    /// read in another, and an unused snapshot would only displace entries
+    /// that browsing reuses. The app's per-login tracker is the only store of
+    /// the reading and decides when it is fresh enough to reuse.
     pub async fn rate_limit(&self) -> Result<Loaded<RateLimit>, GitHubError> {
-        let loaded = self.request(ApiRequest::get("/rate_limit"), true).await?;
+        let response = self
+            .request_uncached(ApiRequest::get("/rate_limit"))
+            .await?;
         Ok(Loaded {
-            value: RateLimit::parse(&loaded.value.body)?,
-            from_cache: loaded.from_cache,
-            age: loaded.age,
+            value: RateLimit::parse(&response.body)?,
+            from_cache: false,
+            age: std::time::Duration::ZERO,
         })
     }
 }
@@ -144,6 +148,34 @@ mod tests {
         let again = team.rate_limit().await.unwrap();
         assert!(!again.from_cache && again.age.is_zero());
         assert_eq!(again.value.remaining, 3998);
+        assert_eq!(quota.reads.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn a_quota_read_leaves_the_response_cache_unchanged() {
+        let quota = std::sync::Arc::new(Quota::default());
+        let clients = crate::github::GitHubClients::with_transport(quota.clone());
+        let team = clients.for_account(crate::github::AccountScope::new("first", "team").unwrap());
+        let solo = clients.for_account(crate::github::AccountScope::new("first", "solo").unwrap());
+        // Browsing filled the cache with a response it reuses.
+        team.request(ApiRequest::get("/orgs/team/repos?page=1"), false)
+            .await
+            .unwrap();
+        let before = clients.cache_contents();
+        assert_eq!(
+            before,
+            ["cached first/team GET /orgs/team/repos?page=1 null"]
+        );
+        // Quota reads in two namespaces of the login store no snapshot,
+        // leave nothing in flight and displace nothing.
+        team.rate_limit().await.unwrap();
+        solo.rate_limit().await.unwrap();
+        assert_eq!(clients.cache_contents(), before);
+        let reused = team
+            .request(ApiRequest::get("/orgs/team/repos?page=1"), false)
+            .await
+            .unwrap();
+        assert!(reused.from_cache);
         assert_eq!(quota.reads.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 

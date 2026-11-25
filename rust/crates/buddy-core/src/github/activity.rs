@@ -280,6 +280,17 @@ fn build(
     }
 }
 
+/// When GitHub returned the oldest of the shown results. A search reused from
+/// the response cache keeps the time it was read, so the header never calls a
+/// cached result fresh.
+fn read_time(now: Timestamp, ages: impl IntoIterator<Item = std::time::Duration>) -> Timestamp {
+    ages.into_iter()
+        .max()
+        .and_then(|age| jiff::SignedDuration::try_from(age).ok())
+        .and_then(|age| now.checked_sub(age).ok())
+        .unwrap_or(now)
+}
+
 impl GitHubClient {
     /// Two fixed searches of the selected namespace; a failed one leaves its
     /// lane unknown while the other still ranks repositories.
@@ -298,21 +309,31 @@ impl GitHubClient {
             )
             .collect();
             async move {
-                let response = self
+                let loaded = self
                     .request(
                         ApiRequest::get(format!(
                             "/search/issues?q={query}&sort=updated&order=desc&per_page={SEARCH_ITEMS}"
                         )),
                         force,
                     )
-                    .await?
-                    .value;
-                Lane::parse(&response.body, kind)
+                    .await?;
+                Ok::<_, GitHubError>((Lane::parse(&loaded.value.body, kind)?, loaded.age))
             }
         };
         let (issues, pull_requests) =
             futures::join!(search(Kind::Issue), search(Kind::PullRequest));
-        build(repositories, issues, pull_requests, Timestamp::now())
+        let fetched_at = read_time(
+            Timestamp::now(),
+            [&issues, &pull_requests]
+                .into_iter()
+                .filter_map(|lane| lane.as_ref().ok().map(|(_, age)| *age)),
+        );
+        build(
+            repositories,
+            issues.map(|(lane, _)| lane),
+            pull_requests.map(|(lane, _)| lane),
+            fetched_at,
+        )
     }
 }
 
