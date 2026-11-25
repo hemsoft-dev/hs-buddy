@@ -50,26 +50,10 @@ pub(super) const LOAD_LIMIT: Duration = Duration::from_secs(30);
 pub(super) const STALLED: &str =
     "The page didn't finish loading. Try again, or open it externally.";
 pub(super) const ZOOM_DELTA: f64 = 0.1;
-/// The notice a page tab shows when its engine refuses a zoom.
+/// The zoom every engine gives a new page.
+pub(super) const ENGINE_ZOOM: f64 = 1.0;
+/// Starts the notice a page tab shows when its engine refuses a zoom.
 pub(super) const ZOOM_FAILED: &str = "The page couldn't be zoomed.";
-
-fn zoom_notice(error: &str) -> Notice {
-    Notice {
-        text: format!("{ZOOM_FAILED} {error}"),
-        offer: None,
-    }
-}
-
-/// Drops a zoom refusal the tab shows once its page has taken a zoom; any
-/// other notice stays.
-fn clear_zoom_notice(notice: &mut Option<Notice>) {
-    if notice
-        .as_ref()
-        .is_some_and(|notice| notice.text.starts_with(ZOOM_FAILED))
-    {
-        *notice = None;
-    }
-}
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
 actions!(
@@ -135,9 +119,13 @@ pub(super) struct Tab {
     starting: bool,
     pub(super) bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     visible: bool,
-    /// The page refused the last zoom while its tab was in the background, so
-    /// it is given the current zoom again once its tab is selected.
-    zoom_missed: bool,
+    /// The zoom the page's engine last took (`ENGINE_ZOOM` until it takes
+    /// one). While it differs from the saved zoom, the page is given the
+    /// saved zoom each time its tab is shown; see `catch_up_zoom`.
+    pub(super) applied_zoom: f64,
+    /// Why the engine refused the page's last zoom. It is kept apart from
+    /// `notice`, so a refusal never replaces another notice and its offer.
+    pub(super) zoom_error: Option<String>,
 }
 
 impl Tab {
@@ -159,6 +147,8 @@ pub struct BrowserView {
     pub(super) home: Option<AnyView>,
     shown: bool,
     pub(crate) global_tabs: bool,
+    /// The saved zoom: what the zoom keys and buttons set and the session
+    /// keeps. Each page records the zoom it has (`Tab::applied_zoom`).
     pub(super) zoom: f64,
     fixture: Option<FixtureOrigin>,
     audit: Option<PathBuf>,
@@ -314,7 +304,8 @@ impl BrowserView {
             starting: false,
             bounds: Rc::default(),
             visible: false,
-            zoom_missed: false,
+            applied_zoom: ENGINE_ZOOM,
+            zoom_error: None,
         }
     }
 
@@ -468,7 +459,6 @@ impl BrowserView {
             && tab.bounds.get().is_some();
         Some(PageConfig {
             url,
-            zoom: self.zoom,
             bounds: tab.bounds.get().unwrap_or_default(),
             checker: self.checker.clone(),
             events: tab.events.clone(),
@@ -501,6 +491,8 @@ impl BrowserView {
                 }
                 tab.visible = visible;
                 tab.page = Some(page);
+                tab.applied_zoom = ENGINE_ZOOM;
+                tab.zoom_error = None;
                 self.start_pump(cx);
                 self.start_following(cx);
             }
@@ -726,6 +718,15 @@ impl BrowserView {
         self.sync(cx);
     }
 
+    /// Hides the zoom refusal. The page keeps the zoom the toolbar shows and
+    /// is given the saved zoom again the next time its tab is shown.
+    pub(super) fn dismiss_zoom_error(&mut self, cx: &mut Context<Self>) {
+        if let Some(tab) = self.active.and_then(|index| self.tabs.get_mut(index)) {
+            tab.zoom_error = None;
+        }
+        cx.notify();
+    }
+
     pub(super) fn back(&mut self) {
         if let Some(page) = self.active_tab().and_then(|tab| tab.page.as_ref()) {
             page.back();
@@ -795,62 +796,48 @@ impl BrowserView {
         handled
     }
 
-    /// Zoom applies to the selected tab's page: the toolbar shows and saves
-    /// the new zoom only once that page has taken it. When its engine refuses,
-    /// the old zoom stays and the tab says so, as it says why a load failed.
-    /// Retained background pages are given the new zoom too, but a refusal
-    /// there neither blocks the change nor shows: it is logged, and that page
-    /// is given the zoom again when its tab is selected (`catch_up_zoom`).
+    /// The zoom the toolbar shows: the selected page's own, so it never
+    /// shows a zoom that page doesn't have, or the saved zoom while the tab
+    /// has no page.
+    pub(super) fn shown_zoom(&self) -> f64 {
+        self.active_tab()
+            .filter(|tab| tab.page.is_some())
+            .map_or(self.zoom, |tab| tab.applied_zoom)
+    }
+
+    /// One step from the zoom the toolbar shows. The selected tab's page must
+    /// take it first: when its engine refuses, nothing is saved and the tab
+    /// says why, beside any other notice. Once it is taken (or the tab has
+    /// no page), it is saved and every other page is given it.
     pub(super) fn zoom_by(&mut self, delta: f64, cx: &mut Context<Self>) {
-        let zoom = browser::clamp_zoom(((self.zoom + delta) * 10.0).round() / 10.0);
-        let selected = self.active.filter(|index| *index < self.tabs.len());
-        if let Some(index) = selected
-            && let Some(page) = &self.tabs[index].page
-            && let Err(error) = page.zoom(zoom)
+        let zoom = browser::clamp_zoom(((self.shown_zoom() + delta) * 10.0).round() / 10.0);
+        let selected = self.active.and_then(|index| self.tabs.get_mut(index));
+        if let Some(tab) = selected
+            && !apply_zoom(tab, zoom)
         {
-            log::warn!("browser: zoom failed: {error}");
-            self.tabs[index].notice = Some(zoom_notice(&error));
             cx.notify();
             return;
         }
         self.zoom = zoom;
-        for (index, tab) in self.tabs.iter_mut().enumerate() {
-            if Some(index) != selected
-                && let Some(page) = &tab.page
-                && let Err(error) = page.zoom(zoom)
-            {
-                log::warn!("browser: zoom failed on a background tab: {error}");
-                tab.zoom_missed = true;
-                continue;
+        for tab in &mut self.tabs {
+            if tab.applied_zoom != zoom {
+                apply_zoom(tab, zoom);
             }
-            tab.zoom_missed = false;
-            clear_zoom_notice(&mut tab.notice);
         }
         self.save(cx);
         cx.notify();
     }
 
-    /// A page that missed a zoom in the background takes the current zoom
-    /// once its tab is selected, and a refusal it showed before goes. If it
-    /// refuses again, that tab, now the one shown, says so; the next zoom
-    /// tries it again.
+    /// The shown tab's page takes the saved zoom if it doesn't have it yet:
+    /// it refused it earlier, or it is new. A refusal leaves the page's zoom
+    /// on the toolbar and says why; the next time the tab is shown it is
+    /// asked again.
     fn catch_up_zoom(&mut self) {
         let zoom = self.zoom;
-        let Some(tab) = self.active.and_then(|index| self.tabs.get_mut(index)) else {
-            return;
-        };
-        if !std::mem::take(&mut tab.zoom_missed) {
-            return;
-        }
-        let Some(page) = &tab.page else {
-            return;
-        };
-        match page.zoom(zoom) {
-            Ok(()) => clear_zoom_notice(&mut tab.notice),
-            Err(error) => {
-                log::warn!("browser: zoom failed: {error}");
-                tab.notice = Some(zoom_notice(&error));
-            }
+        if let Some(tab) = self.active.and_then(|index| self.tabs.get_mut(index))
+            && tab.applied_zoom != zoom
+        {
+            apply_zoom(tab, zoom);
         }
     }
 
@@ -923,6 +910,28 @@ impl BrowserView {
         };
         if Session::load(&Settings::global(cx).config, self.fixture.as_ref()) != session {
             Settings::update_at(cx, path, |config| session.store(config));
+        }
+    }
+}
+
+/// Gives `tab`'s page `zoom`. Its record changes only with the engine's
+/// answer: a taken zoom is recorded and clears an earlier refusal; a refused
+/// one is kept as the tab's zoom error. False only when the page refused; a
+/// tab without a page has nothing to refuse.
+fn apply_zoom(tab: &mut Tab, zoom: f64) -> bool {
+    let Some(page) = &tab.page else {
+        return true;
+    };
+    match page.zoom(zoom) {
+        Ok(()) => {
+            tab.applied_zoom = zoom;
+            tab.zoom_error = None;
+            true
+        }
+        Err(error) => {
+            log::warn!("browser: zoom failed: {error}");
+            tab.zoom_error = Some(error);
+            false
         }
     }
 }

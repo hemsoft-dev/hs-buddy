@@ -1035,6 +1035,15 @@ fn global_destination_restores_its_page_and_close_disposes_it(cx: &mut gpui_kit:
     assert!(host.log.has("visible false"));
 }
 
+/// The zoom requests the engine saw since the log was last taken.
+fn zooms(host: &FakeHost) -> Vec<String> {
+    host.log
+        .take()
+        .into_iter()
+        .filter(|entry| entry.starts_with("zoom"))
+        .collect()
+}
+
 #[gpui_kit::test]
 fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppContext) {
     let host = Rc::new(FakeHost::default());
@@ -1049,37 +1058,40 @@ fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppCo
     // The selected tab's engine refuses: nothing moves, and that tab says why.
     *host.zoom_error.borrow_mut() = Some("engine said no".into());
     harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1, "nothing is saved");
     assert_eq!(
-        harness.read(|view| view.zoom),
+        harness.read(BrowserView::shown_zoom),
         1.1,
         "the toolbar keeps 110%"
     );
     assert_eq!(harness.saved().zoom, 1.1, "the refused zoom isn't saved");
-    let zooms: Vec<String> = host
-        .log
-        .take()
-        .into_iter()
-        .filter(|entry| entry.starts_with("zoom"))
-        .collect();
-    assert_eq!(zooms, ["zoom 1.2 refused"], "only the shown page is asked");
+    assert_eq!(
+        zooms(&host),
+        ["zoom 1.2 refused"],
+        "only the shown page is asked"
+    );
     let selected = harness.read(|view| view.active).unwrap();
     assert_eq!(selected, 1);
-    let notice = harness
-        .read(|view| view.tabs[selected].notice.clone())
-        .unwrap();
-    assert_eq!(notice.text, format!("{ZOOM_FAILED} engine said no"));
-    assert!(harness.read(|view| view.tabs[0].notice.is_none()));
+    assert_eq!(
+        harness.read(|view| view.tabs[selected].zoom_error.clone()),
+        Some("engine said no".into())
+    );
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_some());
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
 
-    // Once the engine takes a zoom again, the shown zoom moves and the notice goes.
+    // Once the engine takes a zoom again, the shown zoom moves and the error goes.
     *host.zoom_error.borrow_mut() = None;
     harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
     assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.2);
     assert_eq!(harness.saved().zoom, 1.2);
-    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.zoom_error.is_none())));
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_none());
 }
 
 #[gpui_kit::test]
-fn a_background_tab_refusing_a_zoom_neither_blocks_nor_hides_it(cx: &mut gpui_kit::TestAppContext) {
+fn a_background_tab_refusing_a_zoom_does_not_block_it(cx: &mut gpui_kit::TestAppContext) {
     let host = Rc::new(FakeHost::default());
     let mut harness = open(cx, &host);
     shown(&mut harness);
@@ -1093,98 +1105,135 @@ fn a_background_tab_refusing_a_zoom_neither_blocks_nor_hides_it(cx: &mut gpui_ki
     *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("background said no".into());
     harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
     assert_eq!(harness.read(|view| view.zoom), 1.1, "the shown page zoomed");
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
     assert_eq!(harness.saved().zoom, 1.1);
-    let log = host.log.take();
+    let log = zooms(&host);
     assert!(log.contains(&"zoom 1.1".to_owned()), "{log:?}");
     assert!(log.contains(&"zoom 1.1 refused".to_owned()), "{log:?}");
-    assert!(
-        harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())),
-        "a background refusal shows nowhere"
-    );
-
-    // Shown again, the page is given the saved zoom; still refused, that
-    // tab, the one now shown, says so.
-    harness.update(|view, cx| view.select(Some(0), cx));
-    assert!(host.log.take().contains(&"zoom 1.1 refused".to_owned()));
-    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
-    assert_eq!(notice.text, format!("{ZOOM_FAILED} background said no"));
-    assert_eq!(harness.read(|view| view.zoom), 1.1);
-
-    // Once that engine takes zooms again, the next one clears the notice.
-    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
-    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
-    assert_eq!(harness.read(|view| view.zoom), 1.2);
-    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
+    assert_eq!(harness.read(|view| view.tabs[0].applied_zoom), 1.0);
+    assert!(harness.read(|view| view.tabs[1].zoom_error.is_none()));
 
     // A page that missed a zoom in the background takes it when selected.
-    *host.page_zoom_errors.borrow()[1].borrow_mut() = Some("later".into());
-    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
-    assert_eq!(harness.read(|view| view.zoom), 1.3);
-    *host.page_zoom_errors.borrow()[1].borrow_mut() = None;
-    host.log.take();
-    harness.update(|view, cx| view.select(Some(1), cx));
-    assert!(host.log.take().contains(&"zoom 1.3".to_owned()));
-    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
-    // Selecting it again asks nothing more of the engine.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
     harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(zooms(&host), ["zoom 1.1"]);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.zoom_error.is_none())));
+    // Selecting it again asks nothing more of the engine.
     harness.update(|view, cx| view.select(Some(1), cx));
-    assert!(
-        !host
-            .log
-            .take()
-            .iter()
-            .any(|entry| entry.starts_with("zoom"))
-    );
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert!(zooms(&host).is_empty());
 }
 
 #[gpui_kit::test]
-fn a_page_catching_up_on_a_zoom_drops_its_earlier_refusal(cx: &mut gpui_kit::TestAppContext) {
+fn a_page_that_refuses_its_catch_up_shows_its_own_zoom_until_it_takes_one(
+    cx: &mut gpui_kit::TestAppContext,
+) {
     let host = Rc::new(FakeHost::default());
     let mut harness = open(cx, &host);
     shown(&mut harness);
     harness.update(|view, cx| view.open(PAGE, "", cx));
     harness.update(|view, cx| view.open(OTHER, "", cx));
-    harness.update(|view, cx| view.select(Some(0), cx));
-    let refused = format!("{ZOOM_FAILED} first page said no");
-
-    // The shown page refuses a zoom and says so.
-    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("first page said no".into());
-    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
-    assert_eq!(harness.read(|view| view.zoom), 1.0);
-    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
-    assert_eq!(notice.text, refused);
-
-    // In the background it misses the next zoom too, and keeps the notice.
-    harness.update(|view, cx| view.select(Some(1), cx));
-    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
-    assert_eq!(harness.read(|view| view.zoom), 1.1);
-    assert!(harness.read(|view| view.tabs[0].zoom_missed));
-
-    // Selected once its engine takes zooms again, it catches up and the old
-    // refusal no longer shows: the page is at the zoom the toolbar shows.
-    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
     host.log.take();
-    harness.update(|view, cx| view.select(Some(0), cx));
-    assert!(host.log.take().contains(&"zoom 1.1".to_owned()));
-    assert!(harness.read(|view| view.tabs[0].notice.is_none()));
-    assert!(!harness.read(|view| view.tabs[0].zoom_missed));
 
-    // A catch-up leaves any other notice alone.
-    let blocked = Notice {
-        text: "Downloads are blocked.".into(),
-        offer: None,
-    };
-    harness.update(|view, _| view.tabs[0].notice = Some(blocked.clone()));
-    harness.update(|view, cx| view.select(Some(1), cx));
-    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("busy".into());
+    // The first page refuses the zoom in the background, and again when its
+    // tab is selected: the toolbar shows the zoom that page has, and why.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("still no".into());
     harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(
+        zooms(&host),
+        ["zoom 1.1", "zoom 1.1 refused", "zoom 1.1 refused"]
+    );
+    assert_eq!(harness.read(|view| view.zoom), 1.1, "the saved zoom stays");
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.0);
+    assert_eq!(
+        harness.read(|view| view.tabs[0].zoom_error.clone()),
+        Some("still no".into())
+    );
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_some());
+
+    // Dismissed, the error goes but the page is still behind, so it is asked
+    // again each time its tab is selected.
+    harness.update(|view, cx| view.dismiss_zoom_error(cx));
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.0);
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(zooms(&host), ["zoom 1.1 refused"]);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_some()));
+
+    // Once its engine recovers, selecting the tab gives it the saved zoom.
     *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(zooms(&host), ["zoom 1.1"]);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_none());
+
+    // A step starts from the zoom the toolbar shows: 110% on a page left
+    // there goes to 120%, though 120% is already saved.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("no".into());
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
     harness.update(|view, cx| view.select(Some(0), cx));
     assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    host.log.take();
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(zooms(&host), ["zoom 1.2"]);
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.2);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+}
+
+#[gpui_kit::test]
+fn a_zoom_refusal_leaves_the_tabs_other_notice_and_its_offer(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.send(
+        0,
+        PageEvent::Blocked {
+            raw: "https://93.184.215.16/popup".into(),
+            reason: Blocked::Popup,
+        },
+    );
+    harness.visual.run_until_parked();
+    let offer = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(
+        offer.offer.as_ref().map(Url::as_str),
+        Some("https://93.184.215.16/popup")
+    );
+
+    // The refusal shows beside the pop-up's offer.
+    *host.zoom_error.borrow_mut() = Some("engine said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
     assert_eq!(
         harness.read(|view| view.tabs[0].notice.clone()),
-        Some(blocked)
+        Some(offer.clone())
     );
+    assert_eq!(
+        harness.read(|view| view.tabs[0].zoom_error.clone()),
+        Some("engine said no".into())
+    );
+    assert!(harness.visual.debug_bounds("browser-notice").is_some());
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_some());
+
+    // A later zoom the engine takes clears only the refusal.
+    *host.zoom_error.borrow_mut() = None;
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert_eq!(
+        harness.read(|view| view.tabs[0].notice.clone()),
+        Some(offer)
+    );
+    assert!(harness.visual.debug_bounds("browser-notice").is_some());
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_none());
 }
 
 /// The app root's forwarding of Electron's Alt zoom keys (see `app.rs`).
