@@ -2,9 +2,11 @@
 mod controls;
 mod data;
 mod nudges;
+mod quota;
 mod reviews;
 #[cfg(test)]
 mod tests;
+mod workbench;
 
 use buddy_core::github::{
     self, AccountScope, GitHubClients, GitHubError, PageCursor, PendingWrite, PrMode,
@@ -179,6 +181,9 @@ pub struct GitHubView {
     review_poll_at: Option<Instant>,
     review_loading: bool,
     review_sound: crate::notification_audio::SoundPreview,
+    overview: workbench::OverviewExtras,
+    /// Per GitHub login, for the life of the view: see [`quota`].
+    quota: quota::QuotaTracker,
 }
 
 struct LoadContext {
@@ -240,6 +245,7 @@ impl GitHubView {
                             && this.pending_nudge.is_none()
                         {
                             this.poll_review(cx);
+                            this.poll_rate_limit(cx);
                         }
                     })
                     .is_err()
@@ -286,6 +292,8 @@ impl GitHubView {
             review_poll_at: None,
             review_loading: false,
             review_sound: Default::default(),
+            overview: Default::default(),
+            quota: Default::default(),
         }
     }
 
@@ -300,6 +308,7 @@ impl GitHubView {
             if entering {
                 self.sync_preferences(cx);
             }
+            self.resume_workbench(cx);
         } else {
             self.sync_generation = self.sync_generation.wrapping_add(1);
             self.cancel_read();
@@ -578,6 +587,14 @@ impl GitHubView {
             .pr
             .recently_merged_days
             .clamp(1.0, 3650.0) as u32;
+        if route == Route::Organization {
+            // The quota is read beside the overview, never as part of it.
+            if !more {
+                self.begin_overview(&ticket, force, cx);
+            }
+        } else {
+            self.overview.reset(None);
+        }
         let (abort, registration) = AbortHandle::new_pair();
         self.read_abort = Some(abort);
         self.loading = true;
@@ -589,7 +606,7 @@ impl GitHubView {
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(result)) = rx.await {
                 this.update(cx, |this, cx| {
-                    this.receive_load(
+                    let shown = this.receive_load(
                         LoadContext {
                             ticket,
                             force,
@@ -599,6 +616,10 @@ impl GitHubView {
                         },
                         result,
                     );
+                    // The workbench ranks activity against the shown list.
+                    if let Some(repositories) = shown {
+                        this.load_workbench(repositories, force, cx);
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -608,14 +629,24 @@ impl GitHubView {
         cx.notify();
     }
 
-    fn receive_load(&mut self, request: LoadContext, result: Result<PageData, GitHubError>) {
+    /// Apply a page read. An organization overview returns its repositories
+    /// for the workbench, which is read after the list is shown.
+    fn receive_load(
+        &mut self,
+        request: LoadContext,
+        result: Result<PageData, GitHubError>,
+    ) -> Option<Vec<github::RepositorySummary>> {
         if !self.selection.accepts(&request.ticket) {
-            return;
+            return None;
         }
         self.loading = false;
         self.read_abort = None;
+        let mut shown = None;
         match result {
             Ok(mut data) => {
+                if self.route == Route::Organization && !request.more {
+                    shown = Some(std::mem::take(&mut data.repositories));
+                }
                 if request.more
                     && let Some(previous) = &mut self.data
                 {
@@ -643,6 +674,7 @@ impl GitHubView {
             }
             Err(error) => self.error = Some(error.to_string()),
         }
+        shown
     }
 
     fn choose_view(&mut self, view: ViewMode, cx: &mut Context<Self>) {
@@ -1052,10 +1084,19 @@ impl Render for GitHubView {
             );
         }
         if let Some(data) = &self.data {
+            let mut heading = h_flex()
+                .flex_wrap()
+                .justify_between()
+                .items_start()
+                .gap_3()
+                .child(div().text_size(zpx(20.0)).child(data.title.clone()));
+            if let Some(limit) = self.shown_rate_limit() {
+                heading = heading.child(self.rate_limit_gauge(limit, cx));
+            }
             let mut body = v_flex()
                 .id(format!("github-page-{}", self.route.key()))
                 .gap_3()
-                .child(div().text_size(zpx(20.0)).child(data.title.clone()));
+                .child(heading);
             for warning in &data.warnings {
                 body = body.child(div().child(warning.clone()));
             }
@@ -1063,6 +1104,9 @@ impl Render for GitHubView {
                 body = body.child(div().whitespace_normal().child(description.clone()));
             }
             body = body.child(self.actions(cx));
+            if let Some(workbench) = self.workbench(cx) {
+                body = body.child(workbench);
+            }
             if !data.contribution_days.is_empty() {
                 body = body.child(self.contributions(&data.contribution_days, cx));
             }

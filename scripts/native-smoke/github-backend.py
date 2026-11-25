@@ -4,12 +4,18 @@ from http.server import BaseHTTPRequestHandler
 import json
 import re
 import threading
+import time
 from urllib.parse import urlparse, parse_qs
 from loopback_http import LoopbackHTTPServer
 
 NOW = "2026-10-15T12:00:00Z"
 SHA = "a" * 40
 REPO = "fixture-org/native-demo"
+# A personal (User) namespace: its overview shows Electron's current workbench.
+PERSON = "fixture-person"
+PERSONAL_REPO = PERSON + "/workbench-demo"
+WORKBENCH_ISSUE = "Fixture workbench issue"
+WORKBENCH_PULL = "Fixture workbench pull request"
 
 
 def connection(nodes, more=False):
@@ -31,6 +37,16 @@ def repository(name="native-demo"):
         language="Rust", default_branch="main", visibility="private", private=True, archived=False, fork=False,
         stargazers_count=12, forks_count=2, subscribers_count=3, open_issues_count=4, size=128,
         updated_at=NOW, pushed_at=NOW, homepage=None, license=dict(name="MIT"), topics=["fixture"])
+
+
+def activity(number, title, pull_request=False):
+    """One `/search/issues` item in the personal namespace."""
+    item = dict(number=number, title=title, state="open", updated_at=NOW, draft=False,
+        repository_url="https://api.github.com/repos/" + PERSONAL_REPO,
+        html_url="https://github.com/" + PERSONAL_REPO + ("/pull/" if pull_request else "/issues/") + str(number))
+    if pull_request:
+        item["pull_request"] = dict(merged_at=None)
+    return item
 
 
 def pull(account, number=7, approved=False, merged=False):
@@ -175,8 +191,23 @@ class GitHubBackend:
             if "NativePull(" in query:
                 return ok(dict(data=dict(repository=dict(pullRequest=pull(account, variables["number"])))))
             return 422, dict(message="Unimplemented fixture GraphQL operation"), {}
+        if route == "/rate_limit":
+            # The organization overview's gauge: a partly used quota resetting in 12 minutes.
+            core = dict(limit=5000, remaining=4321, used=679, reset=int(time.time()) + 720)
+            return ok(dict(resources=dict(core=core)))
         if route == "/users/fixture-org":
             return ok(dict(login="fixture-org", type="Organization"))
+        if route == "/users/" + PERSON:
+            return ok(dict(user(PERSON), name="Fixture Person"))
+        if route == "/user/repos":
+            # The selected account's repositories; the native overview keeps the namespace's own.
+            return ok([dict(repository("workbench-demo"), full_name=PERSONAL_REPO), repository()])
+        if route == "/search/issues":
+            search = params.get("q", [""])[0]
+            items = []
+            if "user:" + PERSON in search:
+                items = [activity(21, WORKBENCH_PULL, True)] if "is:pr" in search else [activity(12, WORKBENCH_ISSUE)]
+            return ok(dict(total_count=len(items), incomplete_results=False, items=items))
         if route.startswith("/users/") and route.endswith("/events"):
             return ok([dict(id="1",type="PullRequestEvent",repo=dict(name=REPO),created_at=NOW,payload=dict(action="opened",pull_request=dict(title="Fixture PR",html_url="https://github.com/"+REPO+"/pull/7")))])
         if route.startswith("/users/"):

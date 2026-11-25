@@ -105,6 +105,9 @@ pub struct PageData {
     pub contribution_days: Vec<ContributionDay>,
     /// An issue's title and body, for starting a Ralph loop on it.
     pub issue: Option<(String, String)>,
+    /// The organization overview's repositories, which its workbench ranks
+    /// recent activity against once the list is shown.
+    pub repositories: Vec<RepositorySummary>,
 }
 impl PageData {
     fn paged<T>(&mut self, page: Page<T>, map: impl Fn(T) -> Row) {
@@ -259,7 +262,15 @@ pub async fn load(
                 org.open_items,
                 org.last_push.as_deref().unwrap_or("unknown")
             ));
-            data.rows = org.repositories.into_iter().map(repository_row).collect();
+            // The quota gauge and workbench are read on their own, so they
+            // can never delay or fail the repository list.
+            data.rows = org
+                .repositories
+                .iter()
+                .cloned()
+                .map(repository_row)
+                .collect();
+            data.repositories = org.repositories;
             if org.partial {
                 data.warnings.push(
                     "Repository totals are partial. Open GitHub for the complete organization."

@@ -1,5 +1,6 @@
 //! Account-scoped GitHub browsing and confirmed writes, independent of the UI.
 
+mod activity;
 pub mod backend;
 mod browsing;
 mod cache;
@@ -14,6 +15,7 @@ mod pagination;
 mod profiles;
 mod pulls;
 mod qualification;
+mod rate_limit;
 mod review_monitor;
 mod session;
 mod threads;
@@ -22,6 +24,9 @@ mod transport;
 mod workflow_tests;
 mod writes;
 
+pub use activity::{
+    ActiveRepository, ActivityItem, ActivityState, RepositoryActivity, all_activity_url,
+};
 pub use browsing::{CommitDetail, RepositorySummary, TeamSummary, UserSummary};
 pub use cache::{GitHubClient, GitHubClients, Loaded};
 pub use checks::{Check, CheckRollup, HistoryEntry};
@@ -32,6 +37,7 @@ pub use overview::{Contributor, OrganizationOverview, RepositoryDetail, Workflow
 pub use pagination::{Page, PageCursor};
 pub use profiles::{ContributionDay, UserContributions, UserEvent, UserProfile};
 pub use pulls::{PullSearchResult, PullSummary};
+pub use rate_limit::RateLimit;
 pub use review_monitor::{ReviewKind, ReviewProgress, ReviewWatch};
 pub use session::{RequestTicket, SelectionState};
 pub use threads::{ReviewThread, ThreadRef};
@@ -71,6 +77,8 @@ pub enum GitHubError {
     Network,
     #[error("The GitHub request timed out. Retry when the connection is available.")]
     Timeout,
+    #[error("GitHub's search timed out before it finished. Refresh to search again.")]
+    IncompleteSearch,
     #[error("GitHub returned an unsupported response. Reload or open the item on GitHub.")]
     InvalidData,
     #[error("This response is too large to display. Open the item on GitHub.")]

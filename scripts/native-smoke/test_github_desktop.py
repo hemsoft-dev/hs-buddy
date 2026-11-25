@@ -192,6 +192,118 @@ class InstalledEvidence(unittest.TestCase):
                 self.assertEqual(checked[-1], 'restored-sidebar-list-dark.png')
                 self.assertEqual(driver.drive.call_count, 2)
 
+    def test_the_workbench_opens_a_personal_namespace_and_removes_it_again(self):
+        for failure in (None, RuntimeError("drive failed")):
+            with self.subTest(failure=failure), TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                config = output / 'config.json'
+                accounts = [dict(username='fixture-one', org='fixture-org')]
+                config.write_text(json.dumps(dict(github=dict(accounts=accounts), native={})))
+                driver = Mock()
+                def drive(name, actions):
+                    # The scene sees the personal account in its configuration.
+                    self.assertIn(dict(username='fixture-one', org='fixture-person'),
+                        json.loads(config.read_text())['github']['accounts'])
+                    if failure:
+                        raise failure
+                    return output
+                driver.drive.side_effect = drive
+                with patch.object(desktop, 'mutate', return_value='account-id') as mutate, \
+                        patch.object(desktop, 'check') as check:
+                    if failure:
+                        with self.assertRaises(RuntimeError):
+                            desktop.qualify_workbench(driver, config, Mock())
+                    else:
+                        desktop.qualify_workbench(driver, config, Mock())
+                self.assertEqual([call.args[1] for call in mutate.call_args_list],
+                    ['githubAccounts:create', 'githubAccounts:remove'])
+                self.assertEqual(mutate.call_args_list[1].args[2], dict(id='account-id'))
+                self.assertEqual(json.loads(config.read_text())['github']['accounts'], accounts)
+                actions = driver.drive.call_args.args[1]
+                self.assertIn(('content', 'fixture-person / fixture-one'), actions)
+                self.assertIn(('wait_scroll_text', 'Fixture workbench issue', 'Current workbench'), actions)
+                if failure:
+                    check.assert_not_called()
+                else:
+                    check.assert_called_once_with(output / 'workbench-dark.png', 'Current workbench',
+                        'workbench-demo', 'Fixture workbench issue')
+
+    def run_workbench_cleanup(self, create=None, remove=None, drive=None, restore=None, checked=None):
+        """Run qualify_workbench with the given failures; return the raised
+        error, the configured accounts afterwards, and the mutations made."""
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            config = output / 'config.json'
+            accounts = [dict(username='fixture-one', org='fixture-org')]
+            config.write_text(json.dumps(dict(github=dict(accounts=accounts), native={})))
+            driver = Mock()
+            driver.drive.side_effect = drive or (lambda name, actions: output)
+            def mutate(backend, name, args):
+                failure = create if name == 'githubAccounts:create' else remove
+                if failure:
+                    raise failure
+                return 'account-id'
+            write_text = Path.write_text
+            def restoring(path, text, *args, **kwargs):
+                # The first write adds the account; the second is the restore.
+                if restore and 'fixture-person' not in text:
+                    raise restore
+                return write_text(path, text, *args, **kwargs)
+            raised = None
+            with patch.object(desktop, 'mutate', side_effect=mutate) as mutated, \
+                    patch.object(desktop, 'check', side_effect=checked), \
+                    patch.object(Path, 'write_text', restoring):
+                try:
+                    desktop.qualify_workbench(driver, config, Mock())
+                except Exception as error:
+                    raised = error
+            saved = json.loads(config.read_text())['github']['accounts']
+            return raised, saved, [call.args[1] for call in mutated.call_args_list]
+
+    def test_a_failed_account_create_still_restores_the_configuration(self):
+        failure = RuntimeError("create failed")
+        raised, saved, mutations = self.run_workbench_cleanup(create=failure)
+        self.assertIs(raised, failure)
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+        # No account was created, so none is removed.
+        self.assertEqual(mutations, ['githubAccounts:create'])
+
+    def test_a_failed_account_removal_is_a_note_on_the_scenes_own_error(self):
+        failure = RuntimeError("drive failed")
+        def drive(name, actions):
+            raise failure
+        raised, saved, mutations = self.run_workbench_cleanup(
+            drive=drive, remove=ConnectionError("remove failed"))
+        self.assertIs(raised, failure)
+        self.assertEqual(raised.__notes__, ['Fixture account removal failed: ConnectionError'])
+        # The configuration was repaired before the removal was attempted.
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+        self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
+
+    def test_a_failed_cleanup_after_a_passing_scene_fails_the_scene(self):
+        removal = ConnectionError("remove failed")
+        raised, saved, _ = self.run_workbench_cleanup(remove=removal)
+        self.assertIs(raised, removal)
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+
+    def test_a_failed_screenshot_check_is_raised_with_cleanup_failures_as_notes(self):
+        failure = RuntimeError("Current workbench is missing")
+        raised, saved, mutations = self.run_workbench_cleanup(
+            checked=failure, remove=ConnectionError("remove failed"))
+        self.assertIs(raised, failure)
+        self.assertEqual(raised.__notes__, ['Fixture account removal failed: ConnectionError'])
+        # Cleanup still ran after the failed check.
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+        self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
+
+    def test_a_failed_configuration_restore_still_removes_the_account(self):
+        restore = OSError("disk full")
+        removal = ConnectionError("remove failed")
+        raised, _, mutations = self.run_workbench_cleanup(restore=restore, remove=removal)
+        self.assertIs(raised, restore)
+        self.assertEqual(raised.__notes__, ['Fixture account removal also failed: ConnectionError'])
+        self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
+
     def test_activity_requires_exact_deltas_and_does_not_reset_existing_totals(self):
         before = dict(tabsOpened=12, prsViewed=30, prsReviewed=4)
         backend = Mock()

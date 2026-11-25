@@ -124,6 +124,29 @@ impl GitHubClients {
         cache.entries.clear();
         cache.pending.clear();
     }
+
+    /// Every cached and in-flight request, as `cached account path` and
+    /// `pending account path`, sorted.
+    #[cfg(test)]
+    pub(crate) fn cache_contents(&self) -> Vec<String> {
+        let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+        let name = |kind: &str, key: &CacheKey| {
+            format!(
+                "{kind} {}/{} {}",
+                key.account.username(),
+                key.account.organization(),
+                key.request
+            )
+        };
+        let mut contents: Vec<String> = cache
+            .entries
+            .keys()
+            .map(|key| name("cached", key))
+            .chain(cache.pending.keys().map(|key| name("pending", key)))
+            .collect();
+        contents.sort();
+        contents
+    }
 }
 
 #[derive(Clone)]
@@ -136,6 +159,8 @@ pub struct Loaded<T> {
     pub value: T,
     /// A cached snapshot cannot acknowledge a possibly committed write.
     pub from_cache: bool,
+    /// How long ago GitHub returned this response; zero when just read.
+    pub age: Duration,
 }
 
 impl GitHubClient {
@@ -167,11 +192,12 @@ impl GitHubClient {
                 .entries
                 .get(&key)
                 .filter(|entry| entry.inserted.elapsed() < CACHE_LIFETIME)
-                .map(|entry| entry.response.clone());
-            if let Some(response) = cached {
+                .map(|entry| (entry.response.clone(), entry.inserted.elapsed()));
+            if let Some((response, age)) = cached {
                 return Ok(Loaded {
                     value: response,
                     from_cache: true,
+                    age,
                 });
             }
         }
@@ -187,15 +213,7 @@ impl GitHubClient {
         } else {
             None
         };
-        let result = self
-            .shared
-            .transport
-            .request(&self.account, request)
-            .await
-            .and_then(|mut response| {
-                response.body = response.clone().checked(is_write)?;
-                Ok(response)
-            });
+        let result = self.send(request).await;
         if is_write {
             // Reads begun during the write may also predate its commit.
             self.invalidate();
@@ -209,7 +227,31 @@ impl GitHubClient {
         Ok(Loaded {
             value: result?,
             from_cache: false,
+            age: Duration::ZERO,
         })
+    }
+
+    /// A read that never touches the shared response cache: nothing is
+    /// looked up, stored, invalidated or displaced. For responses another
+    /// store owns, such as the per-login quota.
+    pub(crate) async fn request_uncached(
+        &self,
+        request: ApiRequest,
+    ) -> Result<ApiResponse, GitHubError> {
+        debug_assert!(!request.is_write, "writes always invalidate the cache");
+        self.send(request).await
+    }
+
+    async fn send(&self, request: ApiRequest) -> Result<ApiResponse, GitHubError> {
+        let is_write = request.is_write;
+        self.shared
+            .transport
+            .request(&self.account, request)
+            .await
+            .and_then(|mut response| {
+                response.body = response.clone().checked(is_write)?;
+                Ok(response)
+            })
     }
 }
 
