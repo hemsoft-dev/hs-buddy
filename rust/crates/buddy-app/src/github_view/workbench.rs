@@ -5,6 +5,7 @@ use buddy_core::github::{
     ActivityItem, GitHubError, RateLimit, RepositoryActivity, RepositorySummary, RequestTicket,
 };
 use jiff::Timestamp;
+use std::collections::HashMap;
 
 /// Electron's gauge re-reads the quota every 60 seconds.
 pub(super) const RATE_LIMIT_REFRESH: Duration = Duration::from_secs(60);
@@ -39,9 +40,10 @@ pub(super) struct OverviewExtras {
     pub(super) rate_limit: Section<RateLimit>,
     /// When GitHub reported the shown quota, or when the last read failed.
     pub(super) rate_limit_read_at: Option<Instant>,
-    /// GitHub asked this account for no quota read before then. It outlives
-    /// leaving the overview, so reopening it does not read sooner.
-    pub(super) rate_limit_retry: Option<(AccountScope, Instant)>,
+    /// Per account, like the quota cache: GitHub asked that account for no
+    /// quota read before then. It outlives leaving the overview and reading
+    /// another account, so reopening it does not read sooner.
+    pub(super) rate_limit_retry: HashMap<AccountScope, Instant>,
     pub(super) rate_limit_loading: bool,
     rate_limit_request: u64,
     pub(super) workbench: Section<RepositoryActivity>,
@@ -53,7 +55,7 @@ impl OverviewExtras {
     pub(super) fn reset(&mut self, account: Option<AccountScope>) {
         *self = Self {
             account,
-            rate_limit_retry: self.rate_limit_retry.take(),
+            rate_limit_retry: std::mem::take(&mut self.rate_limit_retry),
             rate_limit_request: self.rate_limit_request.wrapping_add(1),
             workbench_request: self.workbench_request.wrapping_add(1),
             ..Self::default()
@@ -428,8 +430,8 @@ impl GitHubView {
         if self
             .overview
             .rate_limit_retry
-            .as_ref()
-            .is_some_and(|(throttled, at)| *throttled == account && Instant::now() < *at)
+            .get(&account)
+            .is_some_and(|at| Instant::now() < *at)
         {
             return;
         }
@@ -444,6 +446,32 @@ impl GitHubView {
         cx.spawn(async move |this, cx| {
             let result = rx.await;
             this.update(cx, |this, cx| {
+                let now = Instant::now();
+                // The account's own retry window is kept even when its reply
+                // arrives after the overview moved on; only its own success
+                // clears it.
+                this.overview.rate_limit_retry.retain(|_, at| now < *at);
+                match &result {
+                    Ok(Ok(_)) => {
+                        this.overview.rate_limit_retry.remove(&account);
+                    }
+                    Ok(Err(error)) => {
+                        let last = (this.overview.account.as_ref() == Some(&account))
+                            .then(|| this.overview.rate_limit.ready())
+                            .flatten();
+                        match quota_retry_delay(error, last, Timestamp::now().as_second()) {
+                            Some(delay) => {
+                                this.overview
+                                    .rate_limit_retry
+                                    .insert(account.clone(), now + delay);
+                            }
+                            None => {
+                                this.overview.rate_limit_retry.remove(&account);
+                            }
+                        }
+                    }
+                    Err(_) => {}
+                }
                 if this.overview.rate_limit_request != request {
                     return;
                 }
@@ -451,26 +479,13 @@ impl GitHubView {
                 if !this.accepts_overview(&account) {
                     return;
                 }
-                let now = Instant::now();
                 match result {
                     Ok(Ok(loaded)) => {
                         this.overview.rate_limit = Section::Ready(loaded.value);
                         this.overview.rate_limit_read_at =
                             Some(now.checked_sub(loaded.age).unwrap_or(now));
-                        this.overview.rate_limit_retry = None;
                     }
-                    Ok(Err(error)) => {
-                        let delay = quota_retry_delay(
-                            &error,
-                            this.overview.rate_limit.ready(),
-                            Timestamp::now().as_second(),
-                        );
-                        this.overview.rate_limit = Section::Failed;
-                        this.overview.rate_limit_read_at = Some(now);
-                        this.overview.rate_limit_retry =
-                            delay.map(|delay| (account.clone(), now + delay));
-                    }
-                    Err(_) => {
+                    Ok(Err(_)) | Err(_) => {
                         this.overview.rate_limit = Section::Failed;
                         this.overview.rate_limit_read_at = Some(now);
                     }

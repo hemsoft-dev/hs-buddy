@@ -9,11 +9,15 @@ const FAIL: u64 = u64::MAX;
 struct OverviewFixture {
     personal: bool,
     remaining: Mutex<u64>,
-    /// The quota read is throttled with this `Retry-After`.
+    /// The quota read is throttled with this `Retry-After`, for this user
+    /// only when one is named.
     throttled: Mutex<Option<u64>>,
+    throttled_user: Mutex<Option<&'static str>>,
     /// The quota read and searches never answer.
     stalled: bool,
     paths: Mutex<Vec<String>>,
+    /// Each request's username and path.
+    requests: Mutex<Vec<(String, String)>>,
 }
 
 impl OverviewFixture {
@@ -22,8 +26,10 @@ impl OverviewFixture {
             personal,
             remaining: Mutex::new(remaining),
             throttled: Mutex::new(None),
+            throttled_user: Mutex::new(None),
             stalled: false,
             paths: Mutex::new(Vec::new()),
+            requests: Mutex::new(Vec::new()),
         })
     }
 
@@ -38,6 +44,14 @@ impl OverviewFixture {
         let paths = self.paths.lock().unwrap();
         paths.iter().filter(|path| path.starts_with(prefix)).count()
     }
+
+    fn reads_by(&self, username: &str, prefix: &str) -> usize {
+        let requests = self.requests.lock().unwrap();
+        requests
+            .iter()
+            .filter(|(user, path)| user == username && path.starts_with(prefix))
+            .count()
+    }
 }
 
 fn search_item(number: u64) -> Value {
@@ -48,7 +62,7 @@ fn search_item(number: u64) -> Value {
 impl Transport for OverviewFixture {
     fn request<'a>(
         &'a self,
-        _: &'a AccountScope,
+        account: &'a AccountScope,
         request: ApiRequest,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<ApiResponse, GitHubError>> + Send + 'a>,
@@ -56,12 +70,21 @@ impl Transport for OverviewFixture {
         Box::pin(async move {
             let path = request.path.clone();
             self.paths.lock().unwrap().push(path.clone());
+            self.requests
+                .lock()
+                .unwrap()
+                .push((account.username().to_string(), path.clone()));
             if self.stalled && (path == "/rate_limit" || path.starts_with("/search/")) {
                 std::future::pending::<()>().await;
             }
             let remaining = *self.remaining.lock().unwrap();
             let mut headers = BTreeMap::from([("x-ratelimit-remaining".into(), "0".into())]);
-            let throttled = *self.throttled.lock().unwrap();
+            let throttled = (*self.throttled.lock().unwrap()).filter(|_| {
+                self.throttled_user
+                    .lock()
+                    .unwrap()
+                    .is_none_or(|user| user == account.username())
+            });
             let (status, body) = if path == "/users/team" {
                 let kind = if self.personal {
                     "User"
@@ -294,9 +317,8 @@ fn a_throttled_quota_read_waits_for_githubs_retry_window(cx: &mut gpui_kit::Test
     tick(cx, &view, |_, _| {});
     assert_eq!(fixture.reads("/rate_limit"), 2);
     assert_eq!(remaining(cx, &view), None);
-    let (account, retry_at) =
-        cx.update(|cx| view.read(cx).overview.rate_limit_retry.clone().unwrap());
-    assert_eq!(account.organization(), "team");
+    let first = AccountScope::new("First", "team").unwrap();
+    let retry_at = cx.update(|cx| view.read(cx).overview.rate_limit_retry[&first]);
     assert!(retry_at >= Instant::now() + Duration::from_secs(290));
 
     // The minute has passed, but GitHub's window has not.
@@ -315,14 +337,56 @@ fn a_throttled_quota_read_waits_for_githubs_retry_window(cx: &mut gpui_kit::Test
     // Once the window has passed, the next poll reads the quota again.
     *fixture.throttled.lock().unwrap() = None;
     tick(cx, &view, |view, cx| {
-        if let Some((_, at)) = &mut view.overview.rate_limit_retry {
+        for at in view.overview.rate_limit_retry.values_mut() {
             *at = Instant::now();
         }
         view.poll_rate_limit(cx);
     });
     assert_eq!(fixture.reads("/rate_limit"), 3);
     assert_eq!(remaining(cx, &view), Some(4321));
-    assert!(cx.update(|cx| view.read(cx).overview.rate_limit_retry.is_none()));
+    assert!(cx.update(|cx| view.read(cx).overview.rate_limit_retry.is_empty()));
+}
+
+#[gpui_kit::test]
+fn another_accounts_quota_read_keeps_a_throttled_accounts_retry_window(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let fixture = OverviewFixture::new(false, 4321);
+    let view = overview(cx, fixture.clone());
+    let first = AccountScope::new("First", "team").unwrap();
+    let second = AccountScope::new("Second", "team").unwrap();
+    *fixture.throttled.lock().unwrap() = Some(300);
+    *fixture.throttled_user.lock().unwrap() = Some("First");
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads_by("First", "/rate_limit"), 2);
+    assert_eq!(remaining(cx, &view), None);
+
+    // Another account's overview reads its own quota successfully.
+    let open = |cx: &mut gpui_kit::TestAppContext, account: &AccountScope| {
+        let account = account.clone();
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                view.change_account(Some(account), cx);
+                view.navigate(Route::Organization, cx);
+            })
+        });
+        cx.run_until_parked();
+    };
+    open(cx, &second);
+    assert_eq!(fixture.reads_by("Second", "/rate_limit"), 1);
+    assert_eq!(remaining(cx, &view), Some(4321));
+    cx.update(|cx| {
+        let retry = &view.read(cx).overview.rate_limit_retry;
+        assert!(retry[&first] >= Instant::now() + Duration::from_secs(290));
+        assert!(!retry.contains_key(&second));
+    });
+
+    // Reopening the throttled account inside its window, and its next poll,
+    // send it no quota read.
+    open(cx, &first);
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads_by("First", "/rate_limit"), 2);
+    assert_eq!(remaining(cx, &view), None);
 }
 
 #[test]

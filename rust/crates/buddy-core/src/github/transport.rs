@@ -208,12 +208,17 @@ pub(crate) fn fixture_transport(
     impl Credentials for FixtureCredentials {
         fn token<'a>(&'a self, account: &'a AccountScope) -> CredentialFuture<'a> {
             Box::pin(async move {
-                if account.organization() != "fixture-org"
-                    || !matches!(
+                // The organization fixture, and the one personal namespace
+                // the installed workbench scene opens with `fixture-one`.
+                let allowed = match account.organization() {
+                    "fixture-org" => matches!(
                         account.username(),
                         "fixture-one" | "fixture-two" | "synthetic-account"
-                    )
-                {
+                    ),
+                    "fixture-person" => account.username() == "fixture-one",
+                    _ => false,
+                };
+                if !allowed {
                     return Err(GitHubError::Authentication);
                 }
                 Ok(format!("native-fixture-{}", account.username()))
@@ -429,23 +434,33 @@ mod tests {
         let (base, worker) = server(
             b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}"
                 .to_vec(),
-            3,
+            7,
         );
         let transport = fixture_transport(base).unwrap();
-        let usernames = ["fixture-one", "fixture-two", "synthetic-account"];
-        for username in usernames {
-            let scope = AccountScope::new(username, "fixture-org").unwrap();
+        let scopes = [
+            ("fixture-one", "fixture-org", "/user"),
+            ("fixture-two", "fixture-org", "/user"),
+            ("synthetic-account", "fixture-org", "/user"),
+            // The installed workbench scene's personal namespace reaches the
+            // fixture for each of the overview's reads.
+            ("fixture-one", "fixture-person", "/users/fixture-person"),
+            ("fixture-one", "fixture-person", "/user/repos"),
+            ("fixture-one", "fixture-person", "/search/issues"),
+            ("fixture-one", "fixture-person", "/rate_limit"),
+        ];
+        for (username, organization, path) in scopes {
+            let scope = AccountScope::new(username, organization).unwrap();
             transport
-                .request(&scope, ApiRequest::get("/user"))
+                .request(&scope, ApiRequest::get(path))
                 .await
                 .unwrap()
                 .checked(false)
                 .unwrap();
         }
         let requests = worker.join().unwrap();
-        assert_eq!(requests.len(), 3);
-        for (request, username) in requests.iter().zip(usernames) {
-            assert!(request.starts_with("GET /user HTTP/1.1"));
+        assert_eq!(requests.len(), scopes.len());
+        for (request, (username, _, path)) in requests.iter().zip(scopes) {
+            assert!(request.starts_with(&format!("GET {path} HTTP/1.1")));
             assert!(request.contains(&format!(
                 "authorization: Bearer native-fixture-{username}\r\n"
             )));
@@ -455,6 +470,10 @@ mod tests {
             ("HemSoft", "fixture-org"),
             ("synthetic-other", "fixture-org"),
             ("synthetic-account", "other-org"),
+            ("fixture-two", "fixture-person"),
+            ("synthetic-account", "fixture-person"),
+            ("HemSoft", "fixture-person"),
+            ("fixture-one", "fixture-other"),
         ] {
             let scope = AccountScope::new(username, organization).unwrap();
             assert!(matches!(
