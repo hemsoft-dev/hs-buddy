@@ -157,6 +157,26 @@ class OwnedMacInput:
         """Right-click the owned app, the gesture that opens its context menus."""
         self.press(x, y, (5, 3, 4), RIGHT_BUTTON)  # mouse moved, right down, right up
 
+    def drag(self, x1, y, x2, steps=8):
+        """Press at (x1, y), drag along the row and release at (x2, y)."""
+        self.release_modifiers()
+        # kCGEventLeftMouseDragged (6) carries the held left button.
+        moves = [(6, x1 + (x2 - x1) * step / steps) for step in range(1, steps + 1)]
+        self.post_mouse(5, x1, y)
+        self.post_mouse(1, x1, y)
+        try:
+            for kind, x in moves:
+                self.post_mouse(kind, x, y)
+        finally:
+            self.post_mouse(2, x2, y)
+
+    def post_mouse(self, kind, x, y):
+        event = self.graphics.CGEventCreateMouseEvent(None, kind, Point(x, y), LEFT_BUTTON)
+        if event and kind in (1, 2):
+            self.graphics.CGEventSetIntegerValueField(event, 1, 1)
+        self.post(event)
+        time.sleep(0.05)
+
     def press(self, x, y, kinds, button):
         self.last_click_trace = []
         self.release_modifiers()

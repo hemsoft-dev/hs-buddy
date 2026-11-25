@@ -154,6 +154,17 @@ COLD_START_WAITS = ("wait_models", "wait_cold_start")
 SECONDARY_WORKSPACE = "workspace_menu"
 
 
+# Pointer moves between a drag's press and release, as a hand would make.
+DRAG_STEPS = 8
+
+
+def drag_values(values):
+    """A drag's whole capture-pixel start, row and end."""
+    if len(values) != 3 or any(type(value) is not int or value < 0 for value in values):
+        raise RuntimeError("A drag needs whole capture-pixel start, row and end points")
+    return tuple(values)
+
+
 def wait_visible(window, directory, text, timeout=15, scroll=None, content=False):
     """Read an owned window until one OCR layout has the exact visible status.
 
@@ -300,6 +311,8 @@ class Driver:
                     commands.append("sleep:" + str(int(values[0] * 1000)))
                 elif kind == "wheel":
                     commands.append("wheel:" + str(values[0]))
+                elif kind == "drag":
+                    commands.append("drag:" + ":".join(map(str, drag_values(values))))
                 else:
                     raise RuntimeError("Unknown settings action")
             if record:
@@ -404,6 +417,8 @@ class Driver:
                             time.sleep(values[0])
                         elif kind == "wheel":
                             self.scroll(window, values[0])
+                        elif kind == "drag":
+                            self.drag(window, directory, values)
                         else:
                             self.interact(window, directory, kind, values)
                 if companion is not None:
@@ -520,6 +535,38 @@ class Driver:
                     self.scroll(window, 1200 if up else -1200, point, precise=False)
 
         wait_visible(window, directory, text, scroll=move)
+
+    def drag(self, window, directory, values):
+        """Press at a capture-pixel point, move along its row and release.
+
+        The points come from an earlier capture of the same window size, as
+        OCR targets do; Windows maps them to client points the same way.
+        """
+        start, row, end = drag_values(values)
+        if self.session == "macos":
+            image = directory / "drag-locator.png"
+            window.screenshot(image)
+            metadata = json.loads(image.with_suffix(".window.json").read_text())
+            bounds, scale = metadata["kCGWindowBounds"], metadata["capturePixelsPerWindowPoint"]
+            run("osascript", "-e", window.apple("set frontmost to true"))
+            helper = OwnedMacInput(window.process)
+            with mac_input_guard(window):
+                helper.drag(bounds["X"] + start / scale, bounds["Y"] + row / scale, bounds["X"] + end / scale)
+        elif self.session == "x11":
+            run("xdotool", "windowactivate", "--sync", window.window)
+            run("xdotool", "mousemove", "--window", window.window, start, row)
+            time.sleep(0.2)
+            run("xdotool", "mousedown", 1)
+            try:
+                for step in range(1, DRAG_STEPS + 1):
+                    x = round(start + (end - start) * step / DRAG_STEPS)
+                    run("xdotool", "mousemove", "--window", window.window, x, row)
+                    time.sleep(0.05)
+            finally:
+                run("xdotool", "mouseup", 1)
+        else:
+            raise RuntimeError("This session has no owned drag input")
+        time.sleep(0.7)
 
     def scroll(self, window, delta, point=None, *, precise=None):
         if self.session == "x11":

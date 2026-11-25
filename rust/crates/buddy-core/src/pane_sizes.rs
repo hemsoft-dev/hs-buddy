@@ -166,17 +166,37 @@ impl AssistantLimits {
     }
 }
 
+/// The three entries the layout reads from saved `sizes`: the sidebar and
+/// content from [`normalize`] (its defaults when they are unreadable), and
+/// the assistant as it paints, [`assistant_entry`].
+pub fn entries(sizes: &[f64]) -> [f64; 3] {
+    let normalized = normalize(sizes);
+    [normalized[0], normalized[1], assistant_entry(sizes)]
+}
+
+/// The assistant's width as it paints: the saved third entry when it is a
+/// positive number, its default otherwise, held within Electron's 280-600.
+pub fn assistant_entry(sizes: &[f64]) -> f64 {
+    sizes
+        .get(2)
+        .copied()
+        .filter(|width| width.is_finite() && *width > 0.0)
+        .unwrap_or(DEFAULT_ASSISTANT_PANE_SIZE)
+        .clamp(ASSISTANT_MIN_WIDTH, ASSISTANT_MAX_WIDTH)
+}
+
 /// The sidebar width for a row `available` pixels wide. Allotment shares
 /// the row in proportion to the saved sizes of the panes on screen
-/// (sidebar and content, plus the assistant while it is open), then holds
-/// the sidebar within `limits`.
+/// (sidebar and content, plus the assistant as it paints while it is
+/// open), then holds the sidebar within `limits`. Nothing else goes in:
+/// the same file, row, zoom and assistant state always lay out the same.
 pub fn sidebar_width(
     sizes: &[f64],
     assistant_open: bool,
     available: f64,
     limits: SidebarLimits,
 ) -> f64 {
-    let sizes = normalize(sizes);
+    let sizes = entries(sizes);
     let panes = if assistant_open { 3 } else { 2 };
     let total: f64 = sizes.iter().take(panes).sum();
     let share = sizes[0] / total * available;
@@ -189,9 +209,9 @@ pub fn sidebar_width(
 /// Electron's content pane is the workspace without the assistant; beside
 /// an assistant it is at least the main pane's minimum, which the nested
 /// split holds it to. The sidebar and content replace the first two
-/// entries of the loaded (normalized) sizes and the assistant entry is
-/// kept. A width that is not positive (the split was never laid out)
-/// changes nothing.
+/// entries and the assistant entry is the one that paints
+/// ([`assistant_entry`]), so the drag never moves the assistant. A width
+/// that is not positive (the split was never laid out) changes nothing.
 pub fn after_sidebar_drag(
     sizes: &[f64],
     sidebar: f64,
@@ -206,7 +226,39 @@ pub fn after_sidebar_drag(
         Some(assistant) => (workspace - assistant).max(MAIN_BESIDE_ASSISTANT_MIN_WIDTH),
         None => workspace,
     };
-    Some(vec![sidebar, content, normalize(sizes)[2]])
+    Some(vec![sidebar, content, assistant_entry(sizes)])
+}
+
+/// The save for a drag of the assistant's divider that left GPUI Kit's
+/// resize state at `assistant` pixels (at 100%). The panel paints no
+/// wider than Electron's 600 or narrower than its 280, so the width saved
+/// is the one held within them. The content (the main pane) gives up or
+/// takes the difference, as Allotment's content pane does, so the
+/// sidebar's share of the row holds; it keeps at least the main pane's
+/// minimum. A width that is not positive changes nothing.
+pub fn after_assistant_drag(sizes: &[f64], assistant: f64) -> Option<Vec<f64>> {
+    if !(assistant.is_finite() && assistant > 0.0) {
+        return None;
+    }
+    let [sidebar, content, painted] = entries(sizes);
+    let assistant = assistant.clamp(ASSISTANT_MIN_WIDTH, ASSISTANT_MAX_WIDTH);
+    let content = (content + painted - assistant).max(MAIN_BESIDE_ASSISTANT_MIN_WIDTH);
+    Some(vec![sidebar, content, assistant])
+}
+
+/// The save for opening (`open`) or closing the assistant: the content
+/// gives up or takes back the assistant's width, as Allotment's content
+/// pane does when Electron adds or removes the assistant pane, so the
+/// sidebar keeps its share of the row. Beside the open assistant the
+/// content keeps at least the main pane's minimum.
+pub fn after_assistant_toggle(sizes: &[f64], open: bool) -> Vec<f64> {
+    let [sidebar, content, assistant] = entries(sizes);
+    let content = if open {
+        (content - assistant).max(MAIN_BESIDE_ASSISTANT_MIN_WIDTH)
+    } else {
+        content + assistant
+    };
+    vec![sidebar, content, assistant]
 }
 
 #[cfg(test)]
@@ -406,5 +458,83 @@ mod tests {
             after_sidebar_drag(&[300.0, 900.0, 420.0], 300.0, 900.0, Some(350.0)),
             Some(vec![300.0, 550.0, 420.0])
         );
+    }
+
+    #[test]
+    fn the_layout_reads_the_assistant_as_it_paints() {
+        // An unreadable sidebar falls back, a readable assistant is kept.
+        assert_eq!(entries(&[0.0, 900.0, 600.0]), [300.0, 900.0, 600.0]);
+        assert_eq!(entries(&[400.0, 800.0]), [400.0, 800.0, 350.0]);
+        // The panel paints within 280-600, and so does its share.
+        assert_eq!(entries(&[400.0, 800.0, 1040.0]), [400.0, 800.0, 600.0]);
+        assert_eq!(entries(&[400.0, 800.0, 100.0]), [400.0, 800.0, 280.0]);
+        assert_eq!(assistant_entry(&[400.0, 800.0, f64::NAN]), 350.0);
+        assert_eq!(
+            sidebar_width(&[300.0, 900.0, 1040.0], true, 1600.0, WIDE),
+            sidebar_width(&[300.0, 900.0, 600.0], true, 1600.0, WIDE)
+        );
+    }
+
+    #[test]
+    fn a_sidebar_drag_keeps_the_assistant_that_painted_during_a_fallback() {
+        // `[0, 900, 600]` paints a 600 px assistant beside the default
+        // sidebar share; the drag keeps it at 600, not the default 350.
+        assert_eq!(
+            after_sidebar_drag(&[0.0, 900.0, 600.0], 300.0, 900.0, Some(600.0)),
+            Some(vec![300.0, 300.0, 600.0])
+        );
+        assert_eq!(
+            after_sidebar_drag(&[0.0, 900.0, 600.0], 300.0, 900.0, None),
+            Some(vec![300.0, 900.0, 600.0])
+        );
+    }
+
+    #[test]
+    fn an_assistant_drag_saves_the_width_it_shows_and_keeps_the_sidebar() {
+        // GPUI Kit's state can hold 1,040 px for a panel that paints 600.
+        let before = [300.0, 900.0, 350.0];
+        let saved = after_assistant_drag(&before, 1040.0).unwrap();
+        assert_eq!(saved, vec![300.0, 650.0, 600.0]);
+        let limits = SidebarLimits::new(1600.0, Some(600.0));
+        let shown = sidebar_width(
+            &before,
+            true,
+            1600.0,
+            SidebarLimits::new(1600.0, Some(350.0)),
+        );
+        let restarted = sidebar_width(&saved, true, 1600.0, limits);
+        assert!((shown - restarted).abs() < 1e-9, "{shown} then {restarted}");
+        assert!((restarted - 300.0 / 1550.0 * 1600.0).abs() < 1e-9);
+        // Narrower than 280 saves 280; the main pane keeps its minimum.
+        assert_eq!(
+            after_assistant_drag(&before, 100.0),
+            Some(vec![300.0, 970.0, 280.0])
+        );
+        assert_eq!(
+            after_assistant_drag(&[300.0, 400.0, 280.0], 600.0),
+            Some(vec![300.0, 250.0, 600.0])
+        );
+        for width in [0.0, -5.0, f64::NAN] {
+            assert_eq!(after_assistant_drag(&before, width), None, "{width}");
+        }
+    }
+
+    #[test]
+    fn toggling_the_assistant_keeps_the_sidebar_share() {
+        let open = [400.0, 800.0, 600.0];
+        let closed = after_assistant_toggle(&open, false);
+        assert_eq!(closed, vec![400.0, 1400.0, 600.0]);
+        assert_eq!(
+            sidebar_width(&open, true, 1200.0, WIDE),
+            sidebar_width(&closed, false, 1200.0, WIDE)
+        );
+        assert_eq!(after_assistant_toggle(&closed, true), open.to_vec());
+        // A content narrower than the assistant keeps the main pane's 250.
+        assert_eq!(
+            after_assistant_toggle(&[300.0, 400.0, 350.0], true),
+            vec![300.0, 250.0, 350.0]
+        );
+        // Unreadable sizes start from the defaults.
+        assert_eq!(after_assistant_toggle(&[], true), vec![300.0, 550.0, 350.0]);
     }
 }

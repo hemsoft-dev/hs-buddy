@@ -192,69 +192,45 @@ pub struct BuddyApp {
 }
 
 /// The sidebar split's state, owned here rather than retained under the
-/// split's element id, so a `ui.paneSizes` that changed underneath it
-/// (Reload, or a file Electron wrote that a save reloaded) lays the split
-/// out again from the new sizes. Its own drags do not. The assistant split
-/// inside the workspace is owned the same way.
+/// split's element id. The layout is a function of the saved sizes, the
+/// row, the zoom and whether the assistant is open: when any of them
+/// changes, the split starts from a new state laid out from them, so it
+/// never depends on an earlier window width or the state GPUI Kit kept.
+/// The retained state only matters during a drag; once the drag is saved
+/// the split lays out again from the file. The assistant split inside the
+/// workspace is owned the same way.
 struct SidebarSplit {
     state: Entity<ResizableState>,
-    /// What `state` was laid out from; `None` while the split is off
-    /// screen or a drag's save failed, so it starts from the saved sizes
-    /// on the next frame it shows.
+    /// What `state` was laid out from; `None` once a drag ended or while
+    /// the split is off screen, so the next frame starts from the file.
     applied: Rc<Cell<Option<SidebarLayout>>>,
     /// The open assistant's width as last painted in window pixels, `None`
     /// while it is closed: a drag measures the workspace beside it.
     assistant: Rc<Cell<Option<gpui_kit::Pixels>>>,
     assistant_state: Entity<ResizableState>,
-    /// What `assistant_state` was laid out from; `None` while the
-    /// assistant is closed or a drag's save failed.
+    /// What `assistant_state` was laid out from; `None` once a drag ended
+    /// or while the assistant is closed.
     assistant_applied: Rc<Cell<Option<AssistantLayout>>>,
 }
 
-/// What the sidebar split lays out from: the saved sizes (normalized),
-/// whether the assistant is open, the zoom they were scaled by, and
-/// whether the row was too narrow for the minimums, which pins the sidebar
-/// at its shrunk minimum instead of its share.
+/// What the sidebar split lays out from: the saved sizes as the layout
+/// reads them, whether the assistant is open, the zoom, and the row width
+/// at 100%.
 #[derive(Clone, Copy, PartialEq)]
 struct SidebarLayout {
     sizes: [f64; 3],
     assistant_open: bool,
     unit: f32,
-    shrunk: bool,
+    available: f64,
 }
 
-impl SidebarLayout {
-    fn of(sizes: &[f64], assistant_open: bool, unit: f32, shrunk: bool) -> Self {
-        let sizes = buddy_core::pane_sizes::normalize(sizes);
-        Self {
-            sizes: [sizes[0], sizes[1], sizes[2]],
-            assistant_open,
-            unit,
-            shrunk,
-        }
-    }
-
-    /// Whether a split laid out from `self` lays out again for `next`. The
-    /// assistant's entry joins the sidebar's share while it is open, so it
-    /// counts while the assistant was and is open. Opening or closing the
-    /// assistant keeps the divider where it is, as Allotment keeps the
-    /// sidebar when Electron adds or removes the assistant pane.
-    fn lays_out_again_for(&self, next: &Self) -> bool {
-        self.sizes[..2] != next.sizes[..2]
-            || self.unit != next.unit
-            || self.shrunk != next.shrunk
-            || (self.assistant_open && next.assistant_open && self.sizes[2] != next.sizes[2])
-    }
-}
-
-/// What the assistant split lays out from: the saved assistant width
-/// (clamped), the zoom, and whether the row shrank the minimums, which
-/// holds the assistant at its shrunk width.
+/// What the assistant split lays out from: its limits (the saved width
+/// and how far the row shrank them), the zoom, and the row width at 100%.
 #[derive(Clone, Copy, PartialEq)]
 struct AssistantLayout {
-    width: f64,
+    limits: buddy_core::pane_sizes::AssistantLimits,
     unit: f32,
-    shrunk: bool,
+    available: f64,
 }
 
 impl SidebarSplit {
@@ -280,7 +256,16 @@ impl BuddyApp {
 
     pub(crate) fn toggle_assistant(cx: &mut App) {
         let open = !Settings::global(cx).config.ui.assistant_open;
-        Settings::update(cx, move |config| config.ui.assistant_open = open);
+        // The content gives up or takes back the assistant's width, so the
+        // sidebar keeps its place as it does in Electron. A file Electron
+        // already toggled the same way keeps its sizes.
+        Settings::update(cx, move |config| {
+            if config.ui.assistant_open != open {
+                config.ui.assistant_open = open;
+                config.ui.pane_sizes =
+                    buddy_core::pane_sizes::after_assistant_toggle(&config.ui.pane_sizes, open);
+            }
+        });
         cx.refresh_windows();
     }
     pub(crate) fn toggle_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1091,7 +1076,7 @@ impl BuddyApp {
         let ui = &Settings::global(cx).config.ui;
         let pane_sizes = ui.pane_sizes.clone();
         let assistant_open = ui.assistant_open;
-        let assistant = assistant_open.then(|| assistant_width(ui));
+        let assistant = assistant_open.then(|| pane_sizes::assistant_entry(&pane_sizes));
         let limits = navigation
             .is_some()
             .then(|| SidebarLimits::new(available, assistant));
@@ -1107,23 +1092,23 @@ impl BuddyApp {
             .min_w_0()
             .min_h_0()
             .h_full()
-            .child(self.render_workspace(scale, cx));
+            .child(self.render_workspace(scale, available, cx));
         let (Some(navigation), Some(limits)) = (navigation, limits) else {
             self.sidebar_split.applied.set(None);
             return h_flex().size_full().child(workspace).into_any_element();
         };
-        let shrunk = limits.shrunk();
-        let layout = SidebarLayout::of(&pane_sizes, assistant_open, unit, shrunk);
-        let width = pane_sizes::sidebar_width(&pane_sizes, assistant_open, available, limits);
-        match self.sidebar_split.applied.get() {
-            Some(applied) if !applied.lays_out_again_for(&layout) => {
-                self.sidebar_split.applied.set(Some(layout));
-            }
-            _ => {
-                self.sidebar_split.state = cx.new(|_| ResizableState::default());
-                self.sidebar_split.applied.set(Some(layout));
-            }
+        let layout = SidebarLayout {
+            sizes: pane_sizes::entries(&pane_sizes),
+            assistant_open,
+            unit,
+            available,
+        };
+        if self.sidebar_split.applied.get() != Some(layout) {
+            self.sidebar_split.state = cx.new(|_| ResizableState::default());
+            self.sidebar_split.applied.set(Some(layout));
         }
+        let width = pane_sizes::sidebar_width(&pane_sizes, assistant_open, available, limits);
+        let shrunk = limits.shrunk();
         let scaled = |width: f64| zoom::scaled(cx, width as f32);
         let applied = self.sidebar_split.applied.clone();
         let painted_assistant = self.sidebar_split.assistant.clone();
@@ -1141,6 +1126,10 @@ impl BuddyApp {
                     .child(workspace),
             )
             .on_resize(move |state, _, cx| {
+                // Whatever the drag saved, the next frame lays the split out
+                // from the file, as a restart would.
+                applied.set(None);
+                cx.refresh_windows();
                 // The shrunk minimums pin the divider: a drag moved nothing
                 // the user chose, so it saves nothing.
                 if shrunk {
@@ -1159,7 +1148,9 @@ impl BuddyApp {
                 let assistant = painted_assistant
                     .get()
                     .map(|width| f64::from(f32::from(width) / unit));
-                let saved = Settings::update(cx, move |config| {
+                // A failed save keeps its error on screen, and the divider
+                // returns to the saved sizes.
+                Settings::update(cx, move |config| {
                     if let Some(sizes) = pane_sizes::after_sidebar_drag(
                         &config.ui.pane_sizes,
                         sidebar,
@@ -1169,28 +1160,19 @@ impl BuddyApp {
                         config.ui.pane_sizes = sizes;
                     }
                 });
-                if saved {
-                    // The split already shows what it saved.
-                    let ui = &Settings::global(cx).config.ui;
-                    applied.set(Some(SidebarLayout::of(
-                        &ui.pane_sizes,
-                        ui.assistant_open,
-                        unit,
-                        shrunk,
-                    )));
-                } else {
-                    // The divider returns to the saved sizes; the save's
-                    // error stays on screen.
-                    applied.set(None);
-                    cx.refresh_windows();
-                }
             })
             .into_any_element()
     }
 
     /// The workspace, with the open assistant beside the main pane. `scale`
-    /// is how far the row shrank the workspace's minimums.
-    fn render_workspace(&mut self, scale: f64, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    /// is how far the row (`available` pixels wide at 100%) shrank the
+    /// workspace's minimums.
+    fn render_workspace(
+        &mut self,
+        scale: f64,
+        available: f64,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
         use buddy_core::pane_sizes::{self, AssistantLimits};
         use gpui_kit::component::resizable::{h_resizable, resizable_panel};
         let ui = &Settings::global(cx).config.ui;
@@ -1199,22 +1181,19 @@ impl BuddyApp {
             self.sidebar_split.assistant_applied.set(None);
             return self.render_terminal_split(cx);
         }
-        let width = assistant_width(ui);
-        let unit = f32::from(zoom::scaled(cx, 1.0));
-        let limits = AssistantLimits::new(scale, width);
-        let shrunk = limits.shrunk();
+        let limits = AssistantLimits::new(scale, pane_sizes::assistant_entry(&ui.pane_sizes));
         let layout = AssistantLayout {
-            width,
-            unit,
-            shrunk,
+            limits,
+            unit: f32::from(zoom::scaled(cx, 1.0)),
+            available,
         };
         if self.sidebar_split.assistant_applied.get() != Some(layout) {
             self.sidebar_split.assistant_state = cx.new(|_| ResizableState::default());
             self.sidebar_split.assistant_applied.set(Some(layout));
         }
+        let shrunk = limits.shrunk();
         let scaled = |width: f64| zoom::scaled(cx, width as f32);
         let painted = self.sidebar_split.assistant.clone();
-        let applied = self.sidebar_split.applied.clone();
         let assistant_applied = self.sidebar_split.assistant_applied.clone();
         h_resizable("workspace-assistant-split")
             .with_state(&self.sidebar_split.assistant_state)
@@ -1246,6 +1225,11 @@ impl BuddyApp {
                     ),
             )
             .on_resize(move |state, _, cx| {
+                // The next frame lays both splits out from the file. GPUI
+                // Kit's state can hold more than the panel paints (a drag
+                // past 600 px), so it is never kept.
+                assistant_applied.set(None);
+                cx.refresh_windows();
                 // Held at its shrunk width, the assistant did not move.
                 if shrunk {
                     return;
@@ -1254,33 +1238,13 @@ impl BuddyApp {
                     return;
                 };
                 let width = f64::from(f32::from(width) / f32::from(zoom::scaled(cx, 1.0)));
-                let saved = Settings::update(cx, move |config| {
-                    while config.ui.pane_sizes.len() < 3 {
-                        config
-                            .ui
-                            .pane_sizes
-                            .push(pane_sizes::DEFAULT_ASSISTANT_PANE_SIZE);
+                Settings::update(cx, move |config| {
+                    if let Some(sizes) =
+                        pane_sizes::after_assistant_drag(&config.ui.pane_sizes, width)
+                    {
+                        config.ui.pane_sizes = sizes;
                     }
-                    config.ui.pane_sizes[2] = width;
                 });
-                if saved {
-                    // Both splits already show the width it saved.
-                    let ui = &Settings::global(cx).config.ui;
-                    let width = assistant_width(ui);
-                    let entry = pane_sizes::normalize(&ui.pane_sizes)[2];
-                    assistant_applied.set(
-                        assistant_applied
-                            .get()
-                            .map(|layout| AssistantLayout { width, ..layout }),
-                    );
-                    applied.set(applied.get().map(|mut layout| {
-                        layout.sizes[2] = entry;
-                        layout
-                    }));
-                } else {
-                    assistant_applied.set(None);
-                    cx.refresh_windows();
-                }
             })
             .into_any_element()
     }
@@ -1357,18 +1321,6 @@ impl BuddyApp {
 
 /// The assistant pane's width at 100%: the third `ui.paneSizes` entry,
 /// within the pane's 280-600 limits.
-fn assistant_width(ui: &buddy_core::config::UiConfig) -> f64 {
-    use buddy_core::pane_sizes::{
-        ASSISTANT_MAX_WIDTH, ASSISTANT_MIN_WIDTH, DEFAULT_ASSISTANT_PANE_SIZE,
-    };
-    ui.pane_sizes
-        .get(2)
-        .copied()
-        .filter(|width| width.is_finite() && *width > 0.0)
-        .unwrap_or(DEFAULT_ASSISTANT_PANE_SIZE)
-        .clamp(ASSISTANT_MIN_WIDTH, ASSISTANT_MAX_WIDTH)
-}
-
 impl Render for BuddyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let terminal_open = Settings::global(cx).config.ui.terminal_open;
@@ -1607,12 +1559,27 @@ mod tests {
         padding: f32,
         to: gpui_kit::Pixels,
     ) {
+        let boundary = item.right() + gpui_kit::px(padding);
+        drag_divider(visual, boundary, item.center().y, to);
+    }
+
+    /// Drag the divider of the open assistant, at its left edge, to `to`.
+    fn drag_assistant_divider(visual: &mut gpui_kit::VisualTestContext, to: gpui_kit::Pixels) {
+        let assistant = element_bounds(visual, "assistant-panel");
+        drag_divider(visual, assistant.left(), assistant.center().y, to);
+    }
+
+    /// Drag the divider at `boundary` (its handle straddles it) to `to`.
+    fn drag_divider(
+        visual: &mut gpui_kit::VisualTestContext,
+        boundary: gpui_kit::Pixels,
+        y: gpui_kit::Pixels,
+        to: gpui_kit::Pixels,
+    ) {
         use gpui_kit::test::TestWindowExt as _;
         use gpui_kit::{
             MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput, point, px,
         };
-        let boundary = item.right() + px(padding);
-        let y = item.center().y;
         visual.update(|window, cx| {
             window.dispatch_event(
                 PlatformInput::MouseDown(MouseDownEvent {
@@ -1811,9 +1778,11 @@ mod tests {
         // The whole 900px workspace, not 900 less the assistant's 350.
         assert!((saved[1] - 900.0).abs() <= 1.0, "{saved:?}");
         assert_eq!(saved[2], 350.0);
-        // The save shows the assistant without moving the divider.
+        // The split now lays out from the file, with Electron's open
+        // assistant, as a restart would: 300 of 1,550 of the row.
         let after = sidebar_width(&mut visual, 8.0);
-        assert!((after - 300.0).abs() <= 1.0, "after the save: {after}");
+        let restart = 300.0 / 1550.0 * 1200.0;
+        assert!((after - restart).abs() <= 1.0, "after the save: {after}");
     }
 
     /// Reload Configuration as the Reload action does.
@@ -1901,10 +1870,131 @@ mod tests {
             "{assistant:?}"
         );
         assert!(f32::from(assistant.right()) <= 1248.5, "{assistant:?}");
-        // Closing the assistant keeps the divider where it is.
+        // Closing the assistant keeps the divider where it is: the content
+        // takes back the assistant's width in the file, so a restart does
+        // too, and opening it again restores the sizes.
         visual.update(|_, cx| BuddyApp::toggle_assistant(cx));
         let closed = sidebar_width(&mut visual, 8.0);
         assert!((closed - reloaded).abs() <= 1.0, "closed: {closed}");
+        assert_eq!(saved_pane_sizes(&mut visual), vec![400.0, 1400.0, 600.0]);
+        visual.update(|_, cx| BuddyApp::toggle_assistant(cx));
+        let reopened = sidebar_width(&mut visual, 8.0);
+        assert!((reopened - reloaded).abs() <= 1.0, "reopened: {reopened}");
+        assert_eq!(saved_pane_sizes(&mut visual), vec![400.0, 800.0, 600.0]);
+    }
+
+    #[gpui_kit::test]
+    fn widening_the_window_lays_out_the_saved_share_not_the_earlier_clamp(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        if status_click_child(
+            "app::tests::widening_the_window_lays_out_the_saved_share_not_the_earlier_clamp",
+        ) {
+            return;
+        }
+        let mut config = buddy_core::config::AppConfig::default();
+        config.ui.pane_sizes = vec![450.0, 450.0, 600.0];
+        config.ui.assistant_open = true;
+        // A 1,100px row keeps 850 for the assistant and the main pane, so
+        // the sidebar's 30% (330) is held at 250.
+        let mut visual = sidebar_shell(cx, config, 1148.0);
+        let narrow = sidebar_width(&mut visual, 8.0);
+        assert!((narrow - 250.0).abs() <= 1.0, "narrow: {narrow}");
+        // A 1,600px row holds the saved 30%: 480, as a launch at that
+        // width lays out, not the earlier 250/1,100 share (364).
+        visual.simulate_resize(gpui_kit::size(gpui_kit::px(1648.0), gpui_kit::px(800.0)));
+        element_bounds(&mut visual, "shell-workspace");
+        let wide = sidebar_width(&mut visual, 8.0);
+        assert!((wide - 480.0).abs() <= 1.0, "after widening: {wide}");
+        let assistant = element_bounds(&mut visual, "assistant-panel");
+        assert!(
+            (f32::from(assistant.size.width) - 600.0).abs() <= 1.0,
+            "{assistant:?}"
+        );
+        assert!(f32::from(assistant.right()) <= 1648.5, "{assistant:?}");
+        // Back to the narrow row, and the clamp returns.
+        visual.simulate_resize(gpui_kit::size(gpui_kit::px(1148.0), gpui_kit::px(800.0)));
+        element_bounds(&mut visual, "shell-workspace");
+        let again = sidebar_width(&mut visual, 8.0);
+        assert!((again - 250.0).abs() <= 1.0, "narrow again: {again}");
+    }
+
+    #[gpui_kit::test]
+    fn an_assistant_drag_past_its_cap_saves_the_width_it_shows(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child("app::tests::an_assistant_drag_past_its_cap_saves_the_width_it_shows")
+        {
+            return;
+        }
+        let mut config = buddy_core::config::AppConfig::default();
+        config.ui.pane_sizes = vec![300.0, 900.0, 350.0];
+        config.ui.assistant_open = true;
+        // 300 of 1,550 of the 1,600px row.
+        let mut visual = sidebar_shell(cx, config, 1648.0);
+        let share = 300.0 / 1550.0 * 1600.0;
+        let initial = sidebar_width(&mut visual, 8.0);
+        assert!((initial - share).abs() <= 1.0, "initial: {initial}");
+        // Far left: GPUI Kit's state gives the assistant about 1,040px,
+        // and the panel paints its 600 maximum.
+        let item = sidebar_item(&mut visual);
+        drag_assistant_divider(&mut visual, item.right() + gpui_kit::px(100.0));
+        let assistant = element_bounds(&mut visual, "assistant-panel");
+        assert!(
+            (f32::from(assistant.size.width) - 600.0).abs() <= 1.0,
+            "{assistant:?}"
+        );
+        // The file holds what is shown, and the main pane gave up the
+        // difference, so the sidebar keeps its share.
+        let saved = saved_pane_sizes(&mut visual);
+        assert_eq!(saved, vec![300.0, 650.0, 600.0]);
+        let after = sidebar_width(&mut visual, 8.0);
+        assert!((after - share).abs() <= 1.0, "after the drag: {after}");
+        // A restart (Reload from the file) lays out the same.
+        reload_configuration(&mut visual);
+        let restarted = sidebar_width(&mut visual, 8.0);
+        let assistant = element_bounds(&mut visual, "assistant-panel");
+        assert!((restarted - share).abs() <= 1.0, "restarted: {restarted}");
+        assert!(
+            (f32::from(assistant.size.width) - 600.0).abs() <= 1.0,
+            "{assistant:?}"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_sidebar_drag_keeps_the_assistant_that_painted_during_a_fallback(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        if status_click_child(
+            "app::tests::a_sidebar_drag_keeps_the_assistant_that_painted_during_a_fallback",
+        ) {
+            return;
+        }
+        let mut config = buddy_core::config::AppConfig::default();
+        // The zero falls back to the default sidebar and content, but the
+        // third entry is a valid 600px assistant.
+        config.ui.pane_sizes = vec![0.0, 900.0, 600.0];
+        config.ui.assistant_open = true;
+        let mut visual = sidebar_shell(cx, config, 1248.0);
+        let before = sidebar_item(&mut visual);
+        let initial = f32::from(before.size.width) + 16.0;
+        assert!((initial - 200.0).abs() <= 1.0, "initial: {initial}");
+        let assistant = element_bounds(&mut visual, "assistant-panel");
+        assert!(
+            (f32::from(assistant.size.width) - 600.0).abs() <= 1.0,
+            "{assistant:?}"
+        );
+        drag_sidebar_divider(&mut visual, before, 8.0, gpui_kit::px(48.0 + 300.0));
+        let saved = saved_pane_sizes(&mut visual);
+        assert_eq!(saved.len(), 3, "{saved:?}");
+        assert!((saved[0] - 300.0).abs() <= 1.0, "{saved:?}");
+        assert!((saved[1] - 300.0).abs() <= 1.0, "{saved:?}");
+        assert_eq!(saved[2], 600.0);
+        let after = sidebar_width(&mut visual, 8.0);
+        let assistant = element_bounds(&mut visual, "assistant-panel");
+        assert!((after - 300.0).abs() <= 1.0, "after the drag: {after}");
+        assert!(
+            (f32::from(assistant.size.width) - 600.0).abs() <= 1.0,
+            "{assistant:?}"
+        );
     }
 
     #[gpui_kit::test]
