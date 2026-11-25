@@ -247,18 +247,48 @@ def qualify_review_sound(driver, config, output, api):
         config.write_text(json.dumps(current), encoding="utf-8")
 
 
+def remove_personal_account(config, backend, identity, primary):
+    """Undo qualify_workbench's fixture changes: the local configuration
+    first, then the Convex account if it was created. Every step runs. A
+    cleanup failure is raised when the scene passed, and is otherwise a note
+    on the scene's own error, which still propagates."""
+    failures = []
+    try:
+        value = json.loads(config.read_text(encoding="utf-8-sig"))
+        value["github"]["accounts"] = [account for account in value["github"]["accounts"]
+            if account.get("org") != github_backend.PERSON]
+        config.write_text(json.dumps(value), encoding="utf-8")
+    except Exception as error:
+        failures.append(("Fixture configuration restore", error))
+    if identity is not None:
+        try:
+            mutate(backend, "githubAccounts:remove", dict(id=identity))
+        except Exception as error:
+            failures.append(("Fixture account removal", error))
+    if not failures:
+        return
+    if primary is None:
+        _, error = failures[0]
+        for label, other in failures[1:]:
+            error.add_note(f"{label} also failed: {type(other).__name__}")
+        raise error
+    for label, error in failures:
+        primary.add_note(f"{label} failed: {type(error).__name__}")
+
+
 def qualify_workbench(driver, config, backend):
     """ActiveRepositoriesSection.tsx: a personal namespace's overview ranks
     its recent issues and PRs. The organization fixture never shows it, so a
     third account opens the synthetic User namespace, then is removed again."""
     personal = dict(username="fixture-one", org=github_backend.PERSON)
-    value = json.loads(config.read_text(encoding="utf-8-sig"))
-    value["github"]["accounts"].append(personal)
-    value["native"]["activeSection"] = "github"
-    config.write_text(json.dumps(value), encoding="utf-8")
-    # Native mirrors Convex's accounts at launch, so the account is created there too.
-    identity = mutate(backend, "githubAccounts:create", personal)
+    identity = None
     try:
+        value = json.loads(config.read_text(encoding="utf-8-sig"))
+        value["github"]["accounts"].append(personal)
+        value["native"]["activeSection"] = "github"
+        config.write_text(json.dumps(value), encoding="utf-8")
+        # Native mirrors Convex's accounts at launch, so the account is created there too.
+        identity = mutate(backend, "githubAccounts:create", personal)
         workbench = driver.drive("workbench-dark", [
             ("content", github_backend.PERSON + " / fixture-one"), ("content", "Organization"),
             ("wait_content", "Current workbench"),
@@ -269,11 +299,7 @@ def qualify_workbench(driver, config, backend):
             ("content", "fixture-org / fixture-one"), ("sleep", 1),
         ])
     finally:
-        mutate(backend, "githubAccounts:remove", dict(id=identity))
-        value = json.loads(config.read_text(encoding="utf-8-sig"))
-        value["github"]["accounts"] = [account for account in value["github"]["accounts"]
-            if account.get("org") != github_backend.PERSON]
-        config.write_text(json.dumps(value), encoding="utf-8")
+        remove_personal_account(config, backend, identity, sys.exc_info()[1])
     check(workbench / "workbench-dark.png", "Current workbench", "workbench-demo", github_backend.WORKBENCH_ISSUE)
 
 

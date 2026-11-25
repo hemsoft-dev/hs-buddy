@@ -1,14 +1,11 @@
 //! The organization overview's rate-limit gauge (Electron's `RateLimitGauge`)
 //! and its "Current workbench" (Electron's `ActiveRepositoriesSection`).
+use super::quota::QuotaReply;
 use super::*;
 use buddy_core::github::{
     ActivityItem, GitHubError, RateLimit, RepositoryActivity, RepositorySummary, RequestTicket,
 };
 use jiff::Timestamp;
-use std::collections::HashMap;
-
-/// Electron's gauge re-reads the quota every 60 seconds.
-pub(super) const RATE_LIMIT_REFRESH: Duration = Duration::from_secs(60);
 
 /// An optional overview section. It is read on its own, after or beside the
 /// overview, so it can never delay or fail the repository list.
@@ -31,58 +28,31 @@ impl<T> Section<T> {
     }
 }
 
-/// The overview's quota gauge and workbench for one account. Each read has a
-/// request number: a reply is applied only while it is the newest read, for
-/// the same account, on the overview.
+/// The overview's workbench for one account. Each read has a request number:
+/// a reply is applied only while it is the newest read, for the same account,
+/// on the overview. The quota gauge is kept per login, for longer than the
+/// overview, in [`QuotaTracker`](super::quota::QuotaTracker).
 #[derive(Default)]
 pub(super) struct OverviewExtras {
     account: Option<AccountScope>,
-    pub(super) rate_limit: Section<RateLimit>,
-    /// When GitHub reported the shown quota, or when the last read failed.
-    pub(super) rate_limit_read_at: Option<Instant>,
-    /// Per account, like the quota cache: GitHub asked that account for no
-    /// quota read before then. It outlives leaving the overview and reading
-    /// another account, so reopening it does not read sooner.
-    pub(super) rate_limit_retry: HashMap<AccountScope, Instant>,
-    pub(super) rate_limit_loading: bool,
-    rate_limit_request: u64,
     pub(super) workbench: Section<RepositoryActivity>,
     pub(super) workbench_request: u64,
+    /// The namespace lookup finished while the GitHub section was hidden.
+    /// Its searches start only when the section is shown again.
+    deferred: Option<(Vec<RepositorySummary>, bool)>,
 }
 
 impl OverviewExtras {
-    /// Forget the sections; replies to earlier reads are dropped.
+    /// Forget the workbench; replies to earlier reads are dropped.
     pub(super) fn reset(&mut self, account: Option<AccountScope>) {
         *self = Self {
             account,
-            rate_limit_retry: std::mem::take(&mut self.rate_limit_retry),
-            rate_limit_request: self.rate_limit_request.wrapping_add(1),
             workbench_request: self.workbench_request.wrapping_add(1),
             ..Self::default()
         };
     }
 }
 
-/// How long a throttled quota read must wait: GitHub's retry window, or the
-/// reset of a quota last seen exhausted if later, and never less than
-/// Electron's minute. Other failures retry on the ordinary minute.
-pub(super) fn quota_retry_delay(
-    error: &GitHubError,
-    last: Option<&RateLimit>,
-    now_seconds: i64,
-) -> Option<Duration> {
-    let GitHubError::RateLimited {
-        retry_after_seconds,
-    } = error
-    else {
-        return None;
-    };
-    let mut seconds = RATE_LIMIT_REFRESH.as_secs().max(*retry_after_seconds);
-    if let Some(last) = last.filter(|last| last.remaining == 0) {
-        seconds = seconds.max(last.reset.saturating_sub(now_seconds).max(0) as u64);
-    }
-    Some(Duration::from_secs(seconds))
-}
 const HEALTHY_THRESHOLD: f32 = 0.6;
 const WARNING_THRESHOLD: f32 = 0.3;
 
@@ -405,96 +375,74 @@ impl GitHubView {
             && self.account.as_ref() == Some(account)
     }
 
+    /// The quota the gauge shows: the selected login's, on the overview.
+    pub(super) fn shown_rate_limit(&self) -> Option<&RateLimit> {
+        if self.route != Route::Organization {
+            return None;
+        }
+        self.quota.shown(self.account.as_ref()?)
+    }
+
     /// Re-read the quota on Electron's 60-second interval while the overview
     /// is shown, and not before a throttled read's retry window.
     pub(super) fn poll_rate_limit(&mut self, cx: &mut Context<Self>) {
-        if self.route != Route::Organization
-            || self.overview.rate_limit_loading
-            || self.data.is_none()
-            || self
-                .overview
-                .rate_limit_read_at
-                .is_some_and(|at| at.elapsed() < RATE_LIMIT_REFRESH)
-        {
+        if self.route != Route::Organization || self.data.is_none() {
             return;
         }
         let Some(account) = self.overview.account.clone() else {
             return;
         };
-        self.read_rate_limit(account, true, cx);
+        if self.quota.due(&account, Instant::now()) {
+            self.read_rate_limit(account, true, cx);
+        }
     }
 
-    /// A failed read hides the gauge rather than showing an empty quota; a
-    /// cached reading keeps the time GitHub reported it.
+    /// Read the quota if the login may send now. The reply is recorded for
+    /// the login even if the overview was left meanwhile.
     fn read_rate_limit(&mut self, account: AccountScope, force: bool, cx: &mut Context<Self>) {
-        if self
-            .overview
-            .rate_limit_retry
-            .get(&account)
-            .is_some_and(|at| Instant::now() < *at)
-        {
+        let Some(request) = self.quota.begin(&account, Instant::now()) else {
             return;
-        }
-        self.overview.rate_limit_request = self.overview.rate_limit_request.wrapping_add(1);
-        let request = self.overview.rate_limit_request;
-        self.overview.rate_limit_loading = true;
-        if self.overview.rate_limit.ready().is_none() {
-            self.overview.rate_limit = Section::Loading;
-        }
-        let client = self.clients.for_account(account.clone());
+        };
+        let client = self.clients.for_account(account);
         let rx = Runtime::global(cx).spawn(async move { client.rate_limit(force).await });
         cx.spawn(async move |this, cx| {
-            let result = rx.await;
+            let reply = match rx.await {
+                Ok(Ok(loaded)) => QuotaReply::Read(loaded.value, loaded.age),
+                Ok(Err(GitHubError::RateLimited {
+                    retry_after_seconds,
+                })) => QuotaReply::Throttled {
+                    retry_after_seconds,
+                },
+                Ok(Err(_)) | Err(_) => QuotaReply::Failed,
+            };
             this.update(cx, |this, cx| {
-                let now = Instant::now();
-                // The account's own retry window is kept even when its reply
-                // arrives after the overview moved on; only its own success
-                // clears it.
-                this.overview.rate_limit_retry.retain(|_, at| now < *at);
-                match &result {
-                    Ok(Ok(_)) => {
-                        this.overview.rate_limit_retry.remove(&account);
-                    }
-                    Ok(Err(error)) => {
-                        let last = (this.overview.account.as_ref() == Some(&account))
-                            .then(|| this.overview.rate_limit.ready())
-                            .flatten();
-                        match quota_retry_delay(error, last, Timestamp::now().as_second()) {
-                            Some(delay) => {
-                                this.overview
-                                    .rate_limit_retry
-                                    .insert(account.clone(), now + delay);
-                            }
-                            None => {
-                                this.overview.rate_limit_retry.remove(&account);
-                            }
-                        }
-                    }
-                    Err(_) => {}
+                let now_seconds = Timestamp::now().as_second();
+                if this
+                    .quota
+                    .finish(&request, reply, Instant::now(), now_seconds)
+                {
+                    cx.notify();
                 }
-                if this.overview.rate_limit_request != request {
-                    return;
-                }
-                this.overview.rate_limit_loading = false;
-                if !this.accepts_overview(&account) {
-                    return;
-                }
-                match result {
-                    Ok(Ok(loaded)) => {
-                        this.overview.rate_limit = Section::Ready(loaded.value);
-                        this.overview.rate_limit_read_at =
-                            Some(now.checked_sub(loaded.age).unwrap_or(now));
-                    }
-                    Ok(Err(_)) | Err(_) => {
-                        this.overview.rate_limit = Section::Failed;
-                        this.overview.rate_limit_read_at = Some(now);
-                    }
-                }
-                cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Start a workbench whose namespace lookup finished while the GitHub
+    /// section was hidden, unless a reload is already reading it again.
+    pub(super) fn resume_workbench(&mut self, cx: &mut Context<Self>) {
+        let Some((repositories, force)) = self.overview.deferred.take() else {
+            return;
+        };
+        let current = self
+            .overview
+            .account
+            .as_ref()
+            .is_some_and(|account| self.accepts_overview(account));
+        if self.active && !self.loading && current {
+            self.load_workbench(repositories, force, cx);
+        }
     }
 
     /// Rank recent activity once the repository list is shown. Electron does
@@ -509,6 +457,7 @@ impl GitHubView {
         let Some(account) = self.overview.account.clone() else {
             return;
         };
+        self.overview.deferred = None;
         self.overview.workbench_request = self.overview.workbench_request.wrapping_add(1);
         let request = self.overview.workbench_request;
         let client = self.clients.for_account(account.clone());
@@ -525,6 +474,10 @@ impl GitHubView {
                     return;
                 }
                 match personal {
+                    // No search starts for a hidden GitHub section.
+                    Ok(Some(_)) if !this.active => {
+                        this.overview.deferred = Some((repositories, force));
+                    }
                     Ok(Some(client)) => {
                         this.read_activity(client, request, repositories, force, cx)
                     }

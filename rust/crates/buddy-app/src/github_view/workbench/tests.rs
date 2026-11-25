@@ -160,14 +160,26 @@ fn overview(
     entity.unwrap()
 }
 
+fn first() -> AccountScope {
+    AccountScope::new("First", "team").unwrap()
+}
+
+/// The quota the gauge shows.
 fn remaining(cx: &mut gpui_kit::TestAppContext, view: &Entity<GitHubView>) -> Option<u64> {
     cx.update(|cx| {
         view.read(cx)
-            .overview
-            .rate_limit
-            .ready()
+            .shown_rate_limit()
             .map(|limit| limit.remaining)
     })
+}
+
+/// When the login may next read its quota, if GitHub asked it to wait.
+fn not_before(
+    cx: &mut gpui_kit::TestAppContext,
+    view: &Entity<GitHubView>,
+    account: &AccountScope,
+) -> Option<Instant> {
+    cx.update(|cx| view.read(cx).quota.not_before(account))
 }
 
 /// Make the next 5-second tick due for a quota read, then run that tick.
@@ -178,7 +190,7 @@ fn tick(
 ) {
     cx.update(|cx| {
         view.update(cx, |view, cx| {
-            view.overview.rate_limit_read_at = Instant::now().checked_sub(RATE_LIMIT_REFRESH);
+            view.quota.age_for_test(false);
             view.poll_rate_limit(cx);
             before_reply(view, cx);
         })
@@ -242,7 +254,7 @@ fn an_organization_overview_has_no_workbench_and_an_unread_quota_has_no_gauge(
             "a quota failure does not fail the overview"
         );
         let data = view.data.as_ref().unwrap();
-        assert!(matches!(view.overview.rate_limit, Section::Failed));
+        assert!(view.quota.failed(&first()) && view.shown_rate_limit().is_none());
         assert!(matches!(view.overview.workbench, Section::Hidden));
         assert_eq!(data.rows.len(), 1);
     });
@@ -272,17 +284,20 @@ fn the_quota_is_re_read_each_minute_for_the_shown_overview_only(cx: &mut gpui_ki
     tick(cx, &view, |view, cx| view.load(false, false, cx));
     assert_eq!(fixture.reads("/rate_limit"), 3);
     assert_eq!(remaining(cx, &view), Some(1200));
-    assert!(cx.update(|cx| !view.read(cx).overview.rate_limit_loading));
+    assert!(cx.update(|cx| !view.read(cx).quota.pending(&first())));
 
     // A failed re-read hides the gauge instead of keeping an old quota.
     *fixture.remaining.lock().unwrap() = FAIL;
     tick(cx, &view, |_, _| {});
     assert_eq!(remaining(cx, &view), None);
 
-    // A reading for a page left before it arrived is dropped.
+    // A reading for a page left before it arrived is recorded for the
+    // login, but no other page shows a gauge.
     *fixture.remaining.lock().unwrap() = 800;
     tick(cx, &view, |view, cx| view.navigate(Route::Members, cx));
     assert_eq!(remaining(cx, &view), None);
+    let recorded = cx.update(|cx| view.read(cx).quota.shown(&first()).map(|l| l.remaining));
+    assert_eq!(recorded, Some(800));
 
     // Another page never polls the quota.
     let before = fixture.reads("/rate_limit");
@@ -300,7 +315,7 @@ fn the_overview_shows_its_repositories_while_the_quota_and_workbench_are_still_r
         let view = view.read(cx);
         assert!(view.error.is_none() && !view.loading);
         assert_eq!(view.data.as_ref().unwrap().rows[0].title, "team/Alpha");
-        assert!(matches!(view.overview.rate_limit, Section::Loading));
+        assert!(view.quota.pending(&first()) && view.shown_rate_limit().is_none());
         assert!(matches!(view.overview.workbench, Section::Loading));
     });
     assert_eq!(fixture.reads("/search/issues"), 2);
@@ -317,8 +332,7 @@ fn a_throttled_quota_read_waits_for_githubs_retry_window(cx: &mut gpui_kit::Test
     tick(cx, &view, |_, _| {});
     assert_eq!(fixture.reads("/rate_limit"), 2);
     assert_eq!(remaining(cx, &view), None);
-    let first = AccountScope::new("First", "team").unwrap();
-    let retry_at = cx.update(|cx| view.read(cx).overview.rate_limit_retry[&first]);
+    let retry_at = not_before(cx, &view, &first()).unwrap();
     assert!(retry_at >= Instant::now() + Duration::from_secs(290));
 
     // The minute has passed, but GitHub's window has not.
@@ -337,14 +351,12 @@ fn a_throttled_quota_read_waits_for_githubs_retry_window(cx: &mut gpui_kit::Test
     // Once the window has passed, the next poll reads the quota again.
     *fixture.throttled.lock().unwrap() = None;
     tick(cx, &view, |view, cx| {
-        for at in view.overview.rate_limit_retry.values_mut() {
-            *at = Instant::now();
-        }
+        view.quota.age_for_test(true);
         view.poll_rate_limit(cx);
     });
     assert_eq!(fixture.reads("/rate_limit"), 3);
     assert_eq!(remaining(cx, &view), Some(4321));
-    assert!(cx.update(|cx| view.read(cx).overview.rate_limit_retry.is_empty()));
+    assert_eq!(not_before(cx, &view, &first()), None);
 }
 
 #[gpui_kit::test]
@@ -375,11 +387,8 @@ fn another_accounts_quota_read_keeps_a_throttled_accounts_retry_window(
     open(cx, &second);
     assert_eq!(fixture.reads_by("Second", "/rate_limit"), 1);
     assert_eq!(remaining(cx, &view), Some(4321));
-    cx.update(|cx| {
-        let retry = &view.read(cx).overview.rate_limit_retry;
-        assert!(retry[&first] >= Instant::now() + Duration::from_secs(290));
-        assert!(!retry.contains_key(&second));
-    });
+    assert!(not_before(cx, &view, &first).unwrap() >= Instant::now() + Duration::from_secs(290));
+    assert_eq!(not_before(cx, &view, &second), None);
 
     // Reopening the throttled account inside its window, and its next poll,
     // send it no quota read.
@@ -389,45 +398,11 @@ fn another_accounts_quota_read_keeps_a_throttled_accounts_retry_window(
     assert_eq!(remaining(cx, &view), None);
 }
 
-#[test]
-fn a_throttled_quota_read_waits_at_least_a_minute_and_until_an_exhausted_reset() {
-    let limited = |retry_after_seconds| GitHubError::RateLimited {
-        retry_after_seconds,
-    };
-    let reading = |remaining| RateLimit {
-        limit: 5000,
-        remaining,
-        used: 5000 - remaining,
-        reset: 1_900,
-    };
-    let secs = Duration::from_secs;
-    assert_eq!(quota_retry_delay(&limited(5), None, 1_000), Some(secs(60)));
-    assert_eq!(
-        quota_retry_delay(&limited(300), None, 1_000),
-        Some(secs(300))
-    );
-    // A quota last seen exhausted is not read again before it resets.
-    assert_eq!(
-        quota_retry_delay(&limited(30), Some(&reading(0)), 1_000),
-        Some(secs(900))
-    );
-    assert_eq!(
-        quota_retry_delay(&limited(30), Some(&reading(10)), 1_000),
-        Some(secs(60))
-    );
-    assert_eq!(
-        quota_retry_delay(&limited(30), Some(&reading(0)), 5_000),
-        Some(secs(60))
-    );
-    // Other failures retry on the ordinary minute.
-    assert_eq!(quota_retry_delay(&GitHubError::Network, None, 1_000), None);
-}
-
 #[gpui_kit::test]
 fn reopening_the_overview_keeps_a_cached_quotas_read_time(cx: &mut gpui_kit::TestAppContext) {
     let fixture = OverviewFixture::new(false, 4321);
     let view = overview(cx, fixture.clone());
-    let first = cx.update(|cx| view.read(cx).overview.rate_limit_read_at.unwrap());
+    let opened = cx.update(|cx| view.read(cx).quota.read_at(&first()).unwrap());
     std::thread::sleep(Duration::from_millis(300));
     cx.update(|cx| {
         view.update(cx, |view, cx| {
@@ -439,8 +414,94 @@ fn reopening_the_overview_keeps_a_cached_quotas_read_time(cx: &mut gpui_kit::Tes
     // The cached reading is reused and keeps its age.
     assert_eq!(fixture.reads("/rate_limit"), 1);
     assert_eq!(remaining(cx, &view), Some(4321));
-    let reopened = cx.update(|cx| view.read(cx).overview.rate_limit_read_at.unwrap());
-    assert!(reopened < first + Duration::from_millis(150));
+    let reopened = cx.update(|cx| view.read(cx).quota.read_at(&first()).unwrap());
+    assert!(reopened < opened + Duration::from_millis(150));
+}
+
+#[gpui_kit::test]
+fn a_throttle_that_arrives_after_leaving_the_overview_keeps_an_exhausted_reset(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // The gauge shows an exhausted quota that resets in ten minutes.
+    let fixture = OverviewFixture::new(false, 0);
+    let view = overview(cx, fixture.clone());
+    assert_eq!(remaining(cx, &view), Some(0));
+    // The next read is throttled for only five seconds, and its reply
+    // arrives after the overview was left.
+    *fixture.throttled.lock().unwrap() = Some(5);
+    tick(cx, &view, |view, cx| view.navigate(Route::Members, cx));
+    assert_eq!(fixture.reads("/rate_limit"), 2);
+    let retry_at = not_before(cx, &view, &first()).unwrap();
+    assert!(retry_at >= Instant::now() + Duration::from_secs(590));
+
+    // Reopening the overview does not read the quota before it resets.
+    *fixture.throttled.lock().unwrap() = None;
+    cx.update(|cx| view.update(cx, |view, cx| view.navigate(Route::Organization, cx)));
+    cx.run_until_parked();
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads("/rate_limit"), 2);
+}
+
+#[gpui_kit::test]
+fn one_login_in_another_namespace_keeps_its_retry_window(cx: &mut gpui_kit::TestAppContext) {
+    let fixture = OverviewFixture::new(false, 4321);
+    let view = overview(cx, fixture.clone());
+    *fixture.throttled.lock().unwrap() = Some(300);
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads_by("First", "/rate_limit"), 2);
+
+    // The same login's overview in another namespace uses the same
+    // credential, so it sends no quota read inside the window either.
+    *fixture.throttled.lock().unwrap() = None;
+    let elsewhere = AccountScope::new("first", "solo").unwrap();
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.change_account(Some(elsewhere.clone()), cx);
+            view.navigate(Route::Organization, cx);
+        })
+    });
+    cx.run_until_parked();
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads("/rate_limit"), 2);
+    assert_eq!(
+        not_before(cx, &view, &elsewhere),
+        not_before(cx, &view, &first())
+    );
+}
+
+#[gpui_kit::test]
+fn a_hidden_github_section_starts_no_workbench_search_until_it_is_shown(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let fixture = OverviewFixture::new(true, 4321);
+    let view = overview(cx, fixture.clone());
+    assert_eq!(fixture.reads("/search/issues"), 2);
+    // The namespace lookup finishes after another app section was opened.
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.load_workbench(Vec::new(), true, cx);
+            view.set_active(false, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(fixture.reads("/search/issues"), 2);
+
+    // Returning to GitHub starts the deferred searches once. `set_active`
+    // resumes them after its settings sync, which needs the real backend.
+    let show = |cx: &mut gpui_kit::TestAppContext| {
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                view.active = true;
+                view.resume_workbench(cx);
+            })
+        });
+        cx.run_until_parked();
+    };
+    show(cx);
+    assert_eq!(fixture.reads("/search/issues"), 4);
+    show(cx);
+    assert_eq!(fixture.reads("/search/issues"), 4);
+    cx.update(|cx| assert!(view.read(cx).overview.workbench.ready().is_some()));
 }
 
 #[gpui_kit::test]

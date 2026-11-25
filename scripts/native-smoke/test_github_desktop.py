@@ -228,6 +228,71 @@ class InstalledEvidence(unittest.TestCase):
                     check.assert_called_once_with(output / 'workbench-dark.png', 'Current workbench',
                         'workbench-demo', 'Fixture workbench issue')
 
+    def run_workbench_cleanup(self, create=None, remove=None, drive=None, restore=None):
+        """Run qualify_workbench with the given failures; return the raised
+        error, the configured accounts afterwards, and the mutations made."""
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            config = output / 'config.json'
+            accounts = [dict(username='fixture-one', org='fixture-org')]
+            config.write_text(json.dumps(dict(github=dict(accounts=accounts), native={})))
+            driver = Mock()
+            driver.drive.side_effect = drive or (lambda name, actions: output)
+            def mutate(backend, name, args):
+                failure = create if name == 'githubAccounts:create' else remove
+                if failure:
+                    raise failure
+                return 'account-id'
+            write_text = Path.write_text
+            def restoring(path, text, *args, **kwargs):
+                # The first write adds the account; the second is the restore.
+                if restore and 'fixture-person' not in text:
+                    raise restore
+                return write_text(path, text, *args, **kwargs)
+            raised = None
+            with patch.object(desktop, 'mutate', side_effect=mutate) as mutated, \
+                    patch.object(desktop, 'check'), patch.object(Path, 'write_text', restoring):
+                try:
+                    desktop.qualify_workbench(driver, config, Mock())
+                except Exception as error:
+                    raised = error
+            saved = json.loads(config.read_text())['github']['accounts']
+            return raised, saved, [call.args[1] for call in mutated.call_args_list]
+
+    def test_a_failed_account_create_still_restores_the_configuration(self):
+        failure = RuntimeError("create failed")
+        raised, saved, mutations = self.run_workbench_cleanup(create=failure)
+        self.assertIs(raised, failure)
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+        # No account was created, so none is removed.
+        self.assertEqual(mutations, ['githubAccounts:create'])
+
+    def test_a_failed_account_removal_is_a_note_on_the_scenes_own_error(self):
+        failure = RuntimeError("drive failed")
+        def drive(name, actions):
+            raise failure
+        raised, saved, mutations = self.run_workbench_cleanup(
+            drive=drive, remove=ConnectionError("remove failed"))
+        self.assertIs(raised, failure)
+        self.assertEqual(raised.__notes__, ['Fixture account removal failed: ConnectionError'])
+        # The configuration was repaired before the removal was attempted.
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+        self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
+
+    def test_a_failed_cleanup_after_a_passing_scene_fails_the_scene(self):
+        removal = ConnectionError("remove failed")
+        raised, saved, _ = self.run_workbench_cleanup(remove=removal)
+        self.assertIs(raised, removal)
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+
+    def test_a_failed_configuration_restore_still_removes_the_account(self):
+        restore = OSError("disk full")
+        removal = ConnectionError("remove failed")
+        raised, _, mutations = self.run_workbench_cleanup(restore=restore, remove=removal)
+        self.assertIs(raised, restore)
+        self.assertEqual(raised.__notes__, ['Fixture account removal also failed: ConnectionError'])
+        self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
+
     def test_activity_requires_exact_deltas_and_does_not_reset_existing_totals(self):
         before = dict(tabsOpened=12, prsViewed=30, prsReviewed=4)
         backend = Mock()

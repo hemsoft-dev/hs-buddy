@@ -2,6 +2,7 @@
 mod controls;
 mod data;
 mod nudges;
+mod quota;
 mod reviews;
 #[cfg(test)]
 mod tests;
@@ -181,6 +182,8 @@ pub struct GitHubView {
     review_loading: bool,
     review_sound: crate::notification_audio::SoundPreview,
     overview: workbench::OverviewExtras,
+    /// Per GitHub login, for the life of the view: see [`quota`].
+    quota: quota::QuotaTracker,
 }
 
 struct LoadContext {
@@ -290,6 +293,7 @@ impl GitHubView {
             review_loading: false,
             review_sound: Default::default(),
             overview: Default::default(),
+            quota: Default::default(),
         }
     }
 
@@ -304,6 +308,7 @@ impl GitHubView {
             if entering {
                 self.sync_preferences(cx);
             }
+            self.resume_workbench(cx);
         } else {
             self.sync_generation = self.sync_generation.wrapping_add(1);
             self.cancel_read();
@@ -1085,7 +1090,7 @@ impl Render for GitHubView {
                 .items_start()
                 .gap_3()
                 .child(div().text_size(zpx(20.0)).child(data.title.clone()));
-            if let Some(limit) = self.overview.rate_limit.ready() {
+            if let Some(limit) = self.shown_rate_limit() {
                 heading = heading.child(self.rate_limit_gauge(limit, cx));
             }
             let mut body = v_flex()
