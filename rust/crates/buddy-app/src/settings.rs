@@ -181,9 +181,12 @@ impl Settings {
     /// The lock for a save. When another process holds it, nothing is
     /// written, but the in-memory copy still follows the file as that
     /// process last saved it, so the UI does not keep showing values the
-    /// disk no longer holds. Both writers replace the file through a
-    /// temporary file and a rename, so a read without the lock sees one
-    /// whole version; a read that fails leaves the copy as it was.
+    /// disk no longer holds. Both writers normally replace the file through
+    /// a temporary file and a rename, so a read without the lock sees one
+    /// whole version. Electron's `conf` writes in place instead under Snap
+    /// or after its atomic write fails with `EXDEV`; a read during such a
+    /// write can see partial JSON, fails to parse, and leaves the copy as it
+    /// was until a later read succeeds.
     fn lock_or_resync(cx: &mut App, path: &std::path::Path) -> Result<ConfigLock, SettingsError> {
         acquire_lock(path).inspect_err(|_| Self::resync(cx, path))
     }

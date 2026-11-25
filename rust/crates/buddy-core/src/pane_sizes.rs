@@ -285,10 +285,19 @@ pub struct Layout {
 /// [`AssistantLimits`].
 pub fn layout(sizes: &[f64], assistant_open: bool, row: Row) -> Layout {
     let available = finite_width(row.available);
-    // Shares of the largest weight, so a sum of huge weights cannot
-    // overflow.
+    // Shares of the largest weight on screen, so a sum of huge weights
+    // cannot overflow, and a hidden pane's weight (the closed assistant, or
+    // the sidebar in a row without one) cannot shrink the shown ones to
+    // zero and leave 0 / 0.
     let weights = entries(sizes);
-    let largest = weights.iter().copied().fold(f64::MIN_POSITIVE, f64::max);
+    let [raw_sidebar, raw_content, raw_assistant] = weights;
+    let largest = [
+        raw_content,
+        if row.sidebar { raw_sidebar } else { 0.0 },
+        if assistant_open { raw_assistant } else { 0.0 },
+    ]
+    .into_iter()
+    .fold(f64::MIN_POSITIVE, f64::max);
     let [sidebar, content, assistant] = weights.map(|weight| weight / largest);
     let workspace_weight = if assistant_open {
         content + assistant
@@ -429,7 +438,21 @@ pub fn after_assistant_toggle(sizes: &[f64], open: bool, row: Option<Row>) -> Ve
                     limits.assistant
                 }
             });
-        vec![sidebar, content + assistant, painted]
+        // The workspace takes the assistant's weight back. Two finite
+        // weights can still add to infinity, which JSON would save as null
+        // and neither app could read; then all three keep their proportions
+        // as shares of the largest.
+        let merged = content + assistant;
+        if merged.is_finite() {
+            vec![sidebar, merged, painted]
+        } else {
+            let largest = sidebar.max(content).max(assistant);
+            vec![
+                sidebar / largest,
+                content / largest + assistant / largest,
+                painted,
+            ]
+        }
     }
 }
 
@@ -512,6 +535,51 @@ mod tests {
         assert!(
             saved.iter().all(|size| size.is_finite() && *size > 0.0),
             "{saved:?}"
+        );
+    }
+
+    #[test]
+    fn closing_the_assistant_never_adds_two_huge_weights_to_infinity() {
+        let saved = after_assistant_toggle(&[300.0, 1e308, 1e308], false, None);
+        assert_saved(&saved);
+        // The sidebar keeps its tiny share of the merged workspace.
+        assert!(saved[0] / saved[1] < 1e-300, "{saved:?}");
+        let json = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<Vec<f64>>(&json).unwrap(), saved);
+        // Ordinary weights still just add.
+        assert_eq!(
+            after_assistant_toggle(&[300.0, 900.0, 350.0], false, None)[..2],
+            [300.0, 1250.0]
+        );
+    }
+
+    #[test]
+    fn a_hidden_pane_weight_never_leaves_the_shown_widths_undefined() {
+        let closed = layout(&[1e-200, 1e-200, 1e200], false, row(1200.0));
+        let sidebar = closed.sidebar.expect("sidebar").width;
+        assert!(
+            sidebar.is_finite() && closed.workspace.is_finite(),
+            "{closed:?}"
+        );
+        // The two shown weights are equal, so the sidebar takes half the
+        // row, within its limits.
+        let limits = closed.sidebar.unwrap().limits;
+        assert_close(
+            sidebar,
+            600.0_f64.clamp(limits.sidebar_min, limits.sidebar_max),
+        );
+        let no_sidebar = layout(
+            &[1e300, 1e-200, 1e-200],
+            true,
+            Row {
+                available: 1200.0,
+                sidebar: false,
+            },
+        );
+        let assistant = no_sidebar.assistant.expect("assistant").assistant;
+        assert!(
+            assistant.is_finite() && no_sidebar.workspace.is_finite(),
+            "{no_sidebar:?}"
         );
     }
 
