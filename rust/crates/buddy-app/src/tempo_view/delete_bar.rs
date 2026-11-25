@@ -3,7 +3,9 @@
 //! scrolling page, so it stays in view however far the page is scrolled. It
 //! belongs to this view alone: it leaves with the view, and nothing outside
 //! the view keeps track of it.
-use super::render::{delete_prompt, duration, status_block};
+use super::render::{
+    RecoveryIds, delete_prompt, discard_prompt, duration, recovery_line, status_block,
+};
 use super::*;
 use crate::zoom::zpx;
 use gpui_kit::base::Disableable;
@@ -47,13 +49,19 @@ impl TempoView {
 
     /// The pinned bar for `delete_target`, if any. Its buttons follow the
     /// view's busy and write state, and a failed delete shows its error here.
-    /// The title and buttons share a fixed first row, so no text can push
+    /// The title and buttons share the bar's first row, so no text can push
     /// them out of view: the description is one truncated line with the
     /// rest in its tooltip, and the messages scroll within a capped height.
+    /// In a pane too short for the whole bar, the messages shrink first and
+    /// the bar clips below its buttons. A captured change of this worklog,
+    /// such as a delete whose preflight failed, brings the page's recovery
+    /// buttons into the row, since the bar can cover the page entirely.
     pub(super) fn render_delete_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let target = self.delete_target.as_ref()?;
         let sending = self.delete_in_flight();
         let unconfirmed = self.delete_unconfirmed;
+        let recovery = self.target_recovery();
+        let discarding = recovery.is_some() && self.discard_confirm;
         let mut lines = vec![if unconfirmed {
             (
                 Tone::Warning,
@@ -65,36 +73,46 @@ impl TempoView {
         if let Some(error) = &self.error {
             lines.push((Tone::Error, error.clone()));
         }
-        let dismiss = |id: &'static str, label: &'static str| {
+        if let Some(phase) = recovery {
+            lines.push(recovery_line(phase));
+            if discarding {
+                lines.push(discard_prompt(phase == WritePhase::Ready));
+            }
+        }
+        // The row wraps rather than clip a button in a narrow pane.
+        let mut actions = h_flex()
+            .id("tempo-delete-actions")
+            .test_support()
+            .flex_wrap()
+            .justify_end()
+            .gap_2();
+        if discarding {
+            actions = actions.children(self.discard_buttons(&BAR_RECOVERY, cx));
+        } else if let Some(phase) = recovery {
+            // The captured change is retried or discarded, not prepared again.
+            actions = actions.children(self.recovery_buttons(phase, &BAR_RECOVERY, cx));
+        } else if !unconfirmed {
+            actions = actions.child(
+                Button::new("tempo-confirm-delete")
+                    .label("Confirm deletion")
+                    .danger()
+                    .disabled(!self.can_submit())
+                    .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
+            );
+        }
+        // An unconfirmed delete may already have removed the worklog, so the
+        // bar neither offers it again nor claims it is kept.
+        let (id, label) = if unconfirmed {
+            ("tempo-close-unconfirmed-delete", "Close")
+        } else {
+            ("tempo-keep-worklog", "Keep worklog")
+        };
+        actions = actions.child(
             Button::new(id)
                 .label(label)
                 .disabled(sending)
-                .on_click(cx.listener(|this, _, _, cx| this.dismiss_delete(cx)))
-        };
-        // An unconfirmed delete may already have removed the worklog, so the
-        // bar neither offers it again nor claims it is kept.
-        let actions = if unconfirmed {
-            h_flex()
-                .id("tempo-delete-actions")
-                .test_support()
-                .flex_shrink_0()
-                .gap_2()
-                .child(dismiss("tempo-close-unconfirmed-delete", "Close"))
-        } else {
-            h_flex()
-                .id("tempo-delete-actions")
-                .test_support()
-                .flex_shrink_0()
-                .gap_2()
-                .child(
-                    Button::new("tempo-confirm-delete")
-                        .label("Confirm deletion")
-                        .danger()
-                        .disabled(!self.can_submit())
-                        .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
-                )
-                .child(dismiss("tempo-keep-worklog", "Keep worklog"))
-        };
+                .on_click(cx.listener(|this, _, _, cx| this.dismiss_delete(cx))),
+        );
         let description = target
             .description
             .as_deref()
@@ -113,6 +131,7 @@ impl TempoView {
                     .test_support()
                     .w_full()
                     .min_w_0()
+                    .flex_shrink_0()
                     .truncate()
                     .text_color(theme.muted_foreground)
                     .child(line)
@@ -121,6 +140,7 @@ impl TempoView {
         let body = div()
             .id("tempo-delete-messages")
             .test_support()
+            .min_h_0()
             .max_h(zpx(160.))
             .overflow_y_scroll()
             .child(status_block(lines, Vec::new(), cx));
@@ -148,7 +168,8 @@ impl TempoView {
                         this.dismiss_delete(cx);
                     }
                 }))
-                .flex_shrink_0()
+                .min_h_0()
+                .overflow_hidden()
                 .gap_2()
                 .px(zpx(16.))
                 .py(zpx(12.))
@@ -157,6 +178,7 @@ impl TempoView {
                 .border_color(theme.danger)
                 .child(
                     h_flex()
+                        .flex_shrink_0()
                         .gap_3()
                         .items_center()
                         .child(
@@ -181,6 +203,15 @@ impl TempoView {
     }
 }
 
+/// The bar's copy of the page's recovery controls.
+const BAR_RECOVERY: RecoveryIds = RecoveryIds {
+    retry: "tempo-delete-retry-captured-change",
+    cleanup: "tempo-delete-recovery-cleanup",
+    discard: "tempo-delete-recovery-discard",
+    confirm_discard: "tempo-delete-confirm-discard",
+    keep_recovery: "tempo-delete-keep-recovery",
+};
+
 /// Characters of the description the bar's single line shows.
 const DESCRIPTION_LINE: usize = 240;
 /// Characters of the description its tooltip shows.
@@ -188,11 +219,13 @@ const DESCRIPTION_TOOLTIP: usize = 1000;
 
 /// The description on one line: runs of whitespace, line breaks included,
 /// become one space, and text past `limit` characters ends in an ellipsis.
-/// Tempo allows 128 KiB, which the bar must not lay out in full.
+/// Tempo allows 128 KiB, which the bar must not lay out in full. Words are
+/// joined until the line passes `limit`, so any text left out, even a word
+/// after a line of exactly `limit` characters, leaves the line to `clip`.
 pub(super) fn description_line(text: &str, limit: usize) -> String {
     let mut line = String::new();
     for (count, word) in text.split_whitespace().enumerate() {
-        if line.chars().count() >= limit {
+        if line.chars().count() > limit {
             break;
         }
         if count > 0 {

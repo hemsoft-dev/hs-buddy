@@ -102,6 +102,13 @@ pub struct TempoView {
     /// tests cannot build.
     #[cfg(test)]
     test_days: Option<Vec<buddy_core::tempo::SummaryDay>>,
+    /// The phase and worklog of the session's captured delete, standing in
+    /// for a live session's.
+    #[cfg(test)]
+    test_pending: Option<(WritePhase, buddy_core::tempo::WorklogId)>,
+    /// The last operation a control asked for, sent or not.
+    #[cfg(test)]
+    test_operation: Option<std::mem::Discriminant<Operation>>,
 }
 impl TempoView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -152,6 +159,10 @@ impl TempoView {
             test_can_submit: false,
             #[cfg(test)]
             test_days: None,
+            #[cfg(test)]
+            test_pending: None,
+            #[cfg(test)]
+            test_operation: None,
         }
     }
     fn set_notice(&mut self, tone: Tone, message: impl Into<String>) {

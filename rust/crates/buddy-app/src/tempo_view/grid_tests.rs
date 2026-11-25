@@ -105,6 +105,30 @@ impl Render for Sections {
     }
 }
 
+/// The Tempo pane above the terminal, as the shell's splitter sizes it.
+struct Split {
+    view: Entity<TempoView>,
+    pane: f32,
+}
+impl Render for Split {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        gpui_kit::div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(
+                gpui_kit::div()
+                    .id("synthetic-tempo-pane")
+                    .test_support()
+                    .flex_shrink_0()
+                    .h(gpui_kit::px(self.pane))
+                    .overflow_hidden()
+                    .child(self.view.clone()),
+            )
+            .child(gpui_kit::div().flex_1().child("Terminal"))
+    }
+}
+
 fn setup(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<TempoView>) {
     let (handle, view, _) = setup_with(cx, 1600., Plain);
     (handle, view)
@@ -577,6 +601,123 @@ fn a_long_multiline_description_keeps_the_bar_buttons_in_view(cx: &mut TestAppCo
     .unwrap();
 }
 
+/// Every `ids` element is drawn and lies wholly inside the Tempo pane.
+fn assert_in_pane(window: &Window, ids: &[&'static str]) {
+    let pane = window.find("synthetic-tempo-pane").bounds();
+    for id in ids {
+        let element = window.find(*id);
+        assert!(element.visible(), "{id} must be visible");
+        assert!(
+            pane.intersect(&element.bounds()) == element.bounds(),
+            "{id} {:?} must lie inside the pane {pane:?}",
+            element.bounds()
+        );
+    }
+}
+
+/// The terminal splitter leaves the Tempo pane as little as 100 px, which
+/// the bar can fill. A delete whose preflight failed leaves its change
+/// captured, so the bar carries the page's Retry captured change and
+/// Discard local recovery, and its messages give way to its buttons.
+#[gpui_kit::test]
+fn a_100px_pane_keeps_the_bar_and_its_recovery_buttons_usable(cx: &mut TestAppContext) {
+    let (handle, view, split) = setup_with(cx, 900., |view| Split { view, pane: 1600. });
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.test_can_submit = true);
+        window.render_frame(cx);
+        window.right_click("tempo-cell-19-2026-10-14", cx);
+        split.update(cx, |split, cx| {
+            split.pane = 100.;
+            cx.notify();
+        });
+        let target = view.read(cx).delete_target.as_ref().unwrap().id;
+        // A captured change of another worklog stays on the page.
+        let other = worklog(2101, 21, day(13)).id;
+        view.update(cx, |view, cx| {
+            view.test_pending = Some((WritePhase::Ready, other));
+            view.error = Some(format!(
+                "Synthetic preflight failure. {}",
+                "x ".repeat(4000)
+            ));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find("tempo-delete-retry-captured-change")
+                .is_none()
+        );
+        assert_in_pane(window, &["tempo-confirm-delete", "tempo-keep-worklog"]);
+        // The delete's own preflight failed: its change waits, captured.
+        view.update(cx, |view, cx| {
+            view.test_pending = Some((WritePhase::Ready, target));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert_in_pane(
+            window,
+            &[
+                "tempo-delete-title",
+                "tempo-delete-retry-captured-change",
+                "tempo-delete-recovery-discard",
+                "tempo-keep-worklog",
+            ],
+        );
+        // The capture cannot be prepared again, only retried or discarded.
+        assert!(window.try_find("tempo-confirm-delete").is_none());
+        let bar = window.find("tempo-delete-bar").bounds();
+        let pane = window.find("synthetic-tempo-pane").bounds();
+        assert!(bar.size.height <= pane.size.height, "{bar:?} vs {pane:?}");
+        let messages = window.find("tempo-delete-messages").bounds();
+        assert!(messages.size.height < gpui_kit::px(160.), "{messages:?}");
+        window.click("tempo-delete-retry-captured-change", cx);
+        assert!(
+            view.read(cx).test_operation == Some(std::mem::discriminant(&Operation::RetryPrepared))
+        );
+        window.click("tempo-delete-recovery-discard", cx);
+        assert!(view.read(cx).discard_confirm);
+        window.render_frame(cx);
+        assert_in_pane(
+            window,
+            &[
+                "tempo-delete-confirm-discard",
+                "tempo-delete-keep-recovery",
+                "tempo-keep-worklog",
+            ],
+        );
+        window.click("tempo-delete-keep-recovery", cx);
+        assert!(!view.read(cx).discard_confirm);
+        window.click("tempo-delete-recovery-discard", cx);
+        window.click("tempo-delete-confirm-discard", cx);
+        assert!(view.read(cx).test_operation == Some(std::mem::discriminant(&Operation::Discard)));
+        // Once the delete may have reached Tempo, only discard and Close.
+        view.update(cx, |view, cx| {
+            view.discard_confirm = false;
+            view.delete_unconfirmed = true;
+            view.test_pending = Some((WritePhase::Unconfirmed, target));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find("tempo-delete-retry-captured-change")
+                .is_none()
+        );
+        assert_in_pane(
+            window,
+            &[
+                "tempo-delete-recovery-discard",
+                "tempo-close-unconfirmed-delete",
+            ],
+        );
+        window.click("tempo-delete-recovery-discard", cx);
+        assert!(view.read(cx).discard_confirm);
+        window.click("tempo-close-unconfirmed-delete", cx);
+        assert!(view.read(cx).delete_target.is_none());
+    })
+    .unwrap();
+}
+
 #[test]
 fn the_description_line_folds_whitespace_and_clips() {
     use crate::tempo_view::delete_bar::description_line;
@@ -587,4 +728,17 @@ fn the_description_line_folds_whitespace_and_clips() {
     assert_eq!(description_line("abcdef ghi", 5), "abcde…");
     assert_eq!(description_line(&"é".repeat(300), 3), "ééé…");
     assert_eq!(description_line(" \n ", 240), "");
+    // A line of exactly the limit, ending on a word, with more words after.
+    assert_eq!(description_line("abcde fgh", 5), "abcde…");
+    let exact = format!("{} more words", "w".repeat(240));
+    assert_eq!(
+        description_line(&exact, 240),
+        format!("{}…", "w".repeat(240))
+    );
+    let words = format!("{} tail", "word ".repeat(48).trim_end());
+    assert_eq!(words.split(' ').next_back(), Some("tail"));
+    assert_eq!("word ".repeat(48).trim_end().chars().count(), 239);
+    assert!(description_line(&words, 239).ends_with('…'));
+    // Text that fits is left whole.
+    assert_eq!(description_line("abcde", 5), "abcde");
 }

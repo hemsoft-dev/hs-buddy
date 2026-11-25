@@ -962,8 +962,49 @@ class GridMarks(unittest.TestCase):
     def test_headings_that_are_not_adjacent_columns_are_refused(self):
         grid = SyntheticGrid()
         anchors = dict(grid.anchors, **{'15 Oct': dict(grid.anchors['14 Oct'], left=grid.anchors['14 Oct']['left'] + 5)})
-        with self.assertRaisesRegex(RuntimeError, 'not adjacent grid columns'):
+        with self.assertRaisesRegex(desktop.MissingGridMarks, 'not adjacent grid columns') as raised:
             desktop.grid_marks(grid.frame(), anchors, 'dark')
+        self.assertFalse(raised.exception.measurements['passed'])
+
+    def test_boxes_that_reach_outside_the_capture_are_missing_marks(self):
+        grid = SyntheticGrid()
+        anchors = dict(grid.anchors, **{'FIX-17': dict(grid.anchors['FIX-17'], top=grid.height * 4)})
+        with self.assertRaisesRegex(desktop.MissingGridMarks, 'outside the screenshot'):
+            desktop.grid_marks(grid.frame(), anchors, 'dark')
+
+    def test_a_layout_with_misplaced_date_boxes_falls_through_to_the_next_layout(self):
+        grid = SyntheticGrid('dark')
+        # The first layout reads every label, but its '15 Oct' sits on top of
+        # '14 Oct'; the second reads the real boxes.
+        plain = grid.anchors['14 Oct']
+        words = grid.words()
+        holiday = [word for word in words if word['line'] == '1/1/1']
+        misplaced = [dict(word, left=plain['left'] + 5 + holiday.index(word) * 20) if word in holiday else word
+            for word in words]
+        anchors = {label: desktop.settings.ocr.find_label(misplaced, label) for label in ('14 Oct', '15 Oct')}
+        self.assertLess(anchors['15 Oct']['left'] - anchors['14 Oct']['left'], 3 * plain['height'])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'tempo-holiday-capex-dark.png'
+            path.write_bytes(png(grid.width, grid.height, bytes(grid.pixels)))
+            def run(*args):
+                Path(args[-1]).write_bytes(bytes(grid.pixels))
+            modes = []
+            def recognize(image, mode):
+                modes.append(mode)
+                return misplaced if len(modes) == 1 else grid.words()
+            with patch.object(desktop.settings.ocr, 'analysis_images', return_value=iter((path,))), \
+                    patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                result = desktop.check_grid_marks(path, 'dark', run=run)
+            self.assertTrue(result['passed'])
+            self.assertEqual(modes, [11, 3])
+            # Misplaced boxes in every layout fail only after all of them.
+            modes.clear()
+            with patch.object(desktop.settings.ocr, 'analysis_images', return_value=iter((path,))), \
+                    patch.object(desktop.settings.ocr, 'recognize', side_effect=lambda image, mode: modes.append(mode) or misplaced):
+                with self.assertRaisesRegex(RuntimeError, 'holiday column and CapEx marks') as raised:
+                    desktop.check_grid_marks(path, 'dark', run=run)
+            self.assertEqual(modes, [11, 3, 6])
+            self.assertIsInstance(raised.exception.__cause__, desktop.MissingGridMarks)
 
     def test_the_capture_check_scales_ocr_boxes_and_records_its_measurements(self):
         grid = SyntheticGrid('dark', 2)

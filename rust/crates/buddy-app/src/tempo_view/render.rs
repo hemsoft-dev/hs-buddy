@@ -850,74 +850,26 @@ impl Render for TempoView {
         }
         lines.extend(problems.into_iter().map(|text| (Tone::Warning, text)));
         let mut actions = Vec::new();
-        if let Some(connection) = &self.connection
-            && let Some(phase) = connection.session.pending_phase()
+        if let Some(phase) = self
+            .connection
+            .as_ref()
+            .and_then(|connection| connection.session.pending_phase())
         {
-            let policy = recovery_policy(phase);
-            let acknowledged = policy.acknowledged;
-            lines.push(if policy.retry {
-                (Tone::Warning, "This captured change has not been sent. Retry this captured worklog or discard it to keep editing.".to_owned())
-            } else if acknowledged {
-                (Tone::Info, "The service outcome is known. Finish local recovery cleanup before preparing another worklog change.".to_owned())
-            } else {
-                (Tone::Warning, "A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery.".to_owned())
-            });
-            let mut row = h_flex().flex_wrap().gap_2();
-            if policy.retry {
-                row =
-                    row.child(
-                        Button::new("tempo-retry-captured-change")
-                            .label("Retry captured change")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.operate(Operation::RetryPrepared, cx)
-                            })),
-                    );
-            }
-            // Cleanup only applies once the outcome is known; it is not offered before.
-            if acknowledged {
-                row = row.child(
-                    Button::new("tempo-recovery-cleanup")
-                        .label("Retry cleanup")
-                        .disabled(self.busy)
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.operate(Operation::Cleanup, cx)),
-                        ),
-                );
-            }
-            row = row.child(
-                Button::new("tempo-recovery-discard")
-                    .label("Discard local recovery")
-                    .disabled(self.busy || (acknowledged && !policy.retry))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.discard_confirm = true;
-                        cx.notify();
-                    })),
+            lines.push(recovery_line(phase));
+            actions.push(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .children(self.recovery_buttons(phase, &PAGE_RECOVERY, cx))
+                    .into_any_element(),
             );
-            actions.push(row.into_any_element());
         }
         if self.discard_confirm {
             lines.push(discard_prompt(ready));
             actions.push(
                 h_flex()
                     .gap_2()
-                    .child(
-                        Button::new("tempo-confirm-discard")
-                            .label("Confirm discard")
-                            .danger()
-                            .disabled(self.busy)
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.operate(Operation::Discard, cx)),
-                            ),
-                    )
-                    .child(
-                        Button::new("tempo-keep-recovery")
-                            .label("Keep recovery")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.discard_confirm = false;
-                                cx.notify();
-                            })),
-                    )
+                    .children(self.discard_buttons(&PAGE_RECOVERY, cx))
                     .into_any_element(),
             );
         }
@@ -1114,8 +1066,99 @@ pub(super) fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone
     )
 }
 
+/// Element IDs for one copy of the recovery controls. The page shows them
+/// under its status, and the delete bar repeats them for its own worklog's
+/// captured change, since the bar can fill a pane too short for the page.
+pub(super) struct RecoveryIds {
+    pub(super) retry: &'static str,
+    pub(super) cleanup: &'static str,
+    pub(super) discard: &'static str,
+    pub(super) confirm_discard: &'static str,
+    pub(super) keep_recovery: &'static str,
+}
+pub(super) const PAGE_RECOVERY: RecoveryIds = RecoveryIds {
+    retry: "tempo-retry-captured-change",
+    cleanup: "tempo-recovery-cleanup",
+    discard: "tempo-recovery-discard",
+    confirm_discard: "tempo-confirm-discard",
+    keep_recovery: "tempo-keep-recovery",
+};
+
+impl TempoView {
+    /// Retry captured change, Retry cleanup and Discard local recovery, as
+    /// `phase` allows them. Every copy sends the same operations.
+    pub(super) fn recovery_buttons(
+        &self,
+        phase: WritePhase,
+        ids: &RecoveryIds,
+        cx: &mut Context<Self>,
+    ) -> Vec<Button> {
+        let policy = recovery_policy(phase);
+        let acknowledged = policy.acknowledged;
+        let mut buttons = Vec::new();
+        if policy.retry {
+            buttons.push(
+                Button::new(ids.retry)
+                    .label("Retry captured change")
+                    .disabled(self.busy)
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.operate(Operation::RetryPrepared, cx)),
+                    ),
+            );
+        }
+        // Cleanup only applies once the outcome is known; it is not offered before.
+        if acknowledged {
+            buttons.push(
+                Button::new(ids.cleanup)
+                    .label("Retry cleanup")
+                    .disabled(self.busy)
+                    .on_click(cx.listener(|this, _, _, cx| this.operate(Operation::Cleanup, cx))),
+            );
+        }
+        buttons.push(
+            Button::new(ids.discard)
+                .label("Discard local recovery")
+                .disabled(self.busy || (acknowledged && !policy.retry))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.discard_confirm = true;
+                    cx.notify();
+                })),
+        );
+        buttons
+    }
+
+    /// Confirm discard and Keep recovery, once Discard local recovery asks.
+    pub(super) fn discard_buttons(&self, ids: &RecoveryIds, cx: &mut Context<Self>) -> Vec<Button> {
+        vec![
+            Button::new(ids.confirm_discard)
+                .label("Confirm discard")
+                .danger()
+                .disabled(self.busy)
+                .on_click(cx.listener(|this, _, _, cx| this.operate(Operation::Discard, cx))),
+            Button::new(ids.keep_recovery)
+                .label("Keep recovery")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.discard_confirm = false;
+                    cx.notify();
+                })),
+        ]
+    }
+}
+
+/// What a captured change in `phase` still needs from the user.
+pub(super) fn recovery_line(phase: WritePhase) -> (Tone, String) {
+    let policy = recovery_policy(phase);
+    if policy.retry {
+        (Tone::Warning, "This captured change has not been sent. Retry this captured worklog or discard it to keep editing.".to_owned())
+    } else if policy.acknowledged {
+        (Tone::Info, "The service outcome is known. Finish local recovery cleanup before preparing another worklog change.".to_owned())
+    } else {
+        (Tone::Warning, "A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery.".to_owned())
+    }
+}
+
 /// The recovery discard prompt; it sits beside the danger "Confirm discard" button.
-fn discard_prompt(ready: bool) -> (Tone, String) {
+pub(super) fn discard_prompt(ready: bool) -> (Tone, String) {
     let text = if ready {
         "Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."
     } else {

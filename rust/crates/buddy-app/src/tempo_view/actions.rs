@@ -126,6 +126,10 @@ impl TempoView {
         self.page = 0;
     }
     pub(super) fn operate(&mut self, operation: Operation, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        {
+            self.test_operation = Some(std::mem::discriminant(&operation));
+        }
         if self.copy_plan.is_some() && !matches!(operation, Operation::ExecuteCopy(_)) {
             self.error = Some("Create or cancel the pending copies before another action.".into());
             cx.notify();
@@ -226,6 +230,20 @@ impl TempoView {
     pub(super) fn delete_in_flight(&self) -> bool {
         self.deleting
             .is_some_and(|id| self.delete_target.as_ref().is_some_and(|row| row.id == id))
+    }
+    /// The phase of a captured change that deletes the open prompt's
+    /// worklog, for example one whose preflight failed. Its recovery
+    /// controls then belong in the prompt as well as on the page.
+    pub(super) fn target_recovery(&self) -> Option<WritePhase> {
+        let target = self.delete_target.as_ref()?.id;
+        #[cfg(test)]
+        if let Some((phase, id)) = self.test_pending {
+            return (id == target).then_some(phase);
+        }
+        let session = &self.connection.as_ref()?.session;
+        (deletes(&Operation::RetryPrepared, session.pending_draft()) == Some(target))
+            .then(|| session.pending_phase())
+            .flatten()
     }
 }
 

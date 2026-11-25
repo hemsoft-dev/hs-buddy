@@ -233,6 +233,10 @@ MARK_CHROMA = 40
 MARK_HUE_TOLERANCE = 30
 
 
+class MarkRegionError(RuntimeError):
+    """A mark region derived from OCR boxes misses the screenshot."""
+
+
 class Frame:
     """One screenshot as packed RGB rows."""
 
@@ -245,7 +249,7 @@ class Frame:
         left, top = max(0, int(left)), max(0, int(top))
         right, bottom = min(self.width, int(right)), min(self.height, int(bottom))
         if left >= right or top >= bottom:
-            raise RuntimeError('A grid mark region lies outside the screenshot')
+            raise MarkRegionError('A grid mark region lies outside the screenshot')
         for y in range(top, bottom):
             row = self.pixels[(y * self.width + left) * 3:(y * self.width + right) * 3]
             for x in range(0, len(row), 3):
@@ -288,7 +292,7 @@ def background(frame, box):
     """The fill a region mostly shows: its most common colour."""
     buckets = Counter((r >> 2, g >> 2, b >> 2) for r, g, b in frame.region(*box))
     if not buckets:
-        raise RuntimeError('A grid mark region is empty')
+        raise MarkRegionError('A grid mark region is empty')
     (r, g, b), _ = buckets.most_common(1)[0]
     return (r << 2) + 2, (g << 2) + 2, (b << 2) + 2
 
@@ -306,12 +310,23 @@ def grid_marks(frame, anchors, theme):
     column apart, which scales every region without a known zoom or DPI.
     The tint is measured twice per column: behind the heading, and in the
     grid body below the pill's row.
+
+    Boxes that do not fit a grid raise MissingGridMarks like absent marks,
+    so the caller tries its next OCR layout of the same capture.
     """
+    try:
+        return measure_grid_marks(frame, anchors, theme)
+    except MarkRegionError as error:
+        raise MissingGridMarks('Grid marks missing: ' + str(error),
+            dict(theme=theme, anchors=anchors, problem=str(error), passed=False)) from error
+
+
+def measure_grid_marks(frame, anchors, theme):
     plain, holiday, pill = anchors['14 Oct'], anchors['15 Oct'], anchors['FIX-17']
     column = holiday['left'] - plain['left']
     height = max(plain['height'], holiday['height'])
     if column < 3 * height or abs(holiday['top'] - plain['top']) > height:
-        raise RuntimeError('The day headings are not adjacent grid columns')
+        raise MarkRegionError('The day headings are not adjacent grid columns')
     def span(label):
         return label['left'] - column * 0.02, label['left'] + column * 0.9
     def heading(label):
