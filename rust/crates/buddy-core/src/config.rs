@@ -861,7 +861,8 @@ mod tests {
         .unwrap();
         let (mut config, stamp) = AppConfig::load_with_stamp_from(&path).unwrap();
         config.ui.pane_sizes =
-            crate::pane_sizes::after_sidebar_drag(&config.ui.pane_sizes, 320.0, 880.0).unwrap();
+            crate::pane_sizes::after_sidebar_drag(&config.ui.pane_sizes, 320.0, 880.0, None)
+                .unwrap();
         let saved = config.save_if_unchanged_at(&path, &stamp).unwrap();
         let reloaded = AppConfig::load_from(&path).unwrap();
         let body: serde_json::Value =
