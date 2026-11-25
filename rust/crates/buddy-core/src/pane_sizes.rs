@@ -2,29 +2,32 @@
 //! as Electron's `useAppLayout` keeps them (`src/appUtils.ts`,
 //! `src/hooks/useAppLayout.ts`).
 //!
-//! # Weights
+//! # Weights and widths
 //!
 //! Electron hands the saved sizes to Allotment as `defaultSizes`, which
 //! shares the row among the panes on screen in proportion to them (the
-//! sidebar and the content, and the assistant while it is open), so the
-//! entries are weights, not widths. Electron writes the pixel widths of the
-//! row it saved from; native writes the widths it shows converted into the
-//! file's own weights, so the two agree on a row of the same width. While
-//! the assistant is closed its entry is the width it opens at (Allotment's
-//! `preferredSize`).
+//! sidebar and the content, and the assistant while it is open), so a file
+//! from another row width, or edited by hand, holds weights. Both apps
+//! write the pixel widths a drag left on screen, as Allotment's `onChange`
+//! reports them, so a saved file is laid out at exactly those widths in a
+//! row of the same width. While the assistant is closed its entry is the
+//! width it opens at (Allotment's `preferredSize`).
 //!
 //! # Invariants
 //!
 //! - **I1** Clamping and minimums apply only to what is displayed
-//!   ([`layout`]), never to the values written to `ui.paneSizes`.
-//! - **I2** Dragging a divider changes only the two entries on either side
-//!   of it and keeps their sum, so the other divider keeps its share of the
-//!   row. The sidebar divider changes the sidebar and the content (the
-//!   workspace beside it is the content plus the open assistant, whose
-//!   entry is kept); the assistant divider changes the content and the
-//!   assistant. The value written is the dragged visible width converted
-//!   back into the file's weights ([`after_sidebar_drag`],
-//!   [`after_assistant_drag`]).
+//!   ([`layout`]). A save writes them only as the displayed result: the
+//!   widths the clamped panes showed.
+//! - **I2** Releasing a divider saves the displayed widths of the panes on
+//!   screen, in pixels at 100% (the unit [`layout`] reads):
+//!   the sidebar, the main pane beside the open assistant, and the
+//!   assistant ([`after_drag`]). When the file Electron may have changed
+//!   since says the assistant is closed, the sidebar and the workspace
+//!   beside it are written and the assistant entry is kept, and a drag of
+//!   the assistant's own divider saves nothing. A row without a sidebar
+//!   keeps the sidebar entry and shares the content and assistant entries'
+//!   sum as they were displayed, so the hidden sidebar keeps its share.
+//!   A value that is not a positive finite number is never written.
 //! - **I3** Opening or closing the assistant keeps the sidebar's saved
 //!   share: opening splits the content's weight between the content and
 //!   the assistant, closing gives both back to the content
@@ -36,9 +39,15 @@
 //!   Allotment gives the assistant's width to the content.
 //! - **I4** After any save attempt, successful or not, the layout is rebuilt
 //!   from what is on disk: the file the save read or wrote. When the file
-//!   could not be read at all, the dragged layout stays until a later read
-//!   (`buddy-app`'s `app.rs`); it is never rebuilt from in-memory sizes the
-//!   file may no longer hold.
+//!   could not be read at all, the split lays out from the widths the drag
+//!   showed, as I2 would have saved them, until a later read (`buddy-app`'s
+//!   `app.rs`); it is never rebuilt from in-memory sizes the file may no
+//!   longer hold.
+//! - **I5** A save never moves a divider: for every row, zoom and
+//!   assistant state in which the app saves a drag (the minimums fit the
+//!   row), [`layout`] of the saved widths in the same row shows exactly the
+//!   widths that were displayed. [`layout`] is the identity for entries
+//!   that already hold the minimums and sum to the row.
 
 /// `DEFAULT_PANE_SIZES`: the sidebar and content defaults.
 pub const DEFAULT_PANE_SIZES: [f64; 2] = [300.0, 900.0];
@@ -276,7 +285,11 @@ pub struct Layout {
 /// [`AssistantLimits`].
 pub fn layout(sizes: &[f64], assistant_open: bool, row: Row) -> Layout {
     let available = finite_width(row.available);
-    let [sidebar, content, assistant] = entries(sizes);
+    // Shares of the largest weight, so a sum of huge weights cannot
+    // overflow.
+    let weights = entries(sizes);
+    let largest = weights.iter().copied().fold(f64::MIN_POSITIVE, f64::max);
+    let [sidebar, content, assistant] = weights.map(|weight| weight / largest);
     let workspace_weight = if assistant_open {
         content + assistant
     } else {
@@ -317,67 +330,75 @@ pub fn layout(sizes: &[f64], assistant_open: bool, row: Row) -> Layout {
     }
 }
 
-/// The save for a drag of the sidebar divider (I2), from the widths the
-/// drag left: the sidebar, the workspace beside it, and the assistant
-/// painted inside the workspace (`None` while it was closed). The sidebar
-/// takes the share of the file's weights that its visible width is of the
-/// row, and the content the rest of the workspace's weight; the assistant
-/// entry is kept, so its divider keeps its share of the row. Whether the
-/// assistant was open is what the drag measured: Electron may have toggled
-/// it in the file since.
-///
-/// A file whose assistant weight is wider than the workspace the drag left
-/// cannot keep it: that only happens while the assistant paints held at
-/// its 600 maximum (a window widened since the save), and the workspace's
-/// weight is then shared as the assistant and the main pane were painted.
-/// A width that is not positive (the split was never laid out) changes
-/// nothing.
-pub fn after_sidebar_drag(
-    sizes: &[f64],
-    sidebar: f64,
-    workspace: f64,
-    assistant: Option<f64>,
-) -> Option<Vec<f64>> {
-    let measured = |width: f64| width.is_finite() && width > 0.0;
-    if !(measured(sidebar) && measured(workspace)) {
-        return None;
-    }
-    let [weight, content, kept] = entries(sizes);
-    let painted = assistant.filter(|width| measured(*width));
-    let beside = if painted.is_some() { kept } else { 0.0 };
-    let total = weight + content + beside;
-    let sidebar = sidebar * total / (sidebar + workspace);
-    let workspace_weight = total - sidebar;
-    let content = workspace_weight - beside;
-    if content > 0.0 {
-        return Some(vec![sidebar, content, kept]);
-    }
-    let share = painted? / workspace;
-    (share > 0.0 && share < 1.0).then(|| {
-        vec![
-            sidebar,
-            workspace_weight * (1.0 - share),
-            workspace_weight * share,
-        ]
-    })
+/// The divider a drag moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Divider {
+    /// Between the sidebar and the workspace.
+    Sidebar,
+    /// Between the main pane and the open assistant.
+    Assistant,
 }
 
-/// The save for a drag of the assistant's divider (I2) that left the
-/// assistant painted `assistant` pixels wide (read through
-/// [`AssistantLimits::painted`]) in a workspace `workspace` wide: the
-/// content and the assistant share their weights as the drag shows them,
-/// and the sidebar entry is kept, so the sidebar keeps its share of the
-/// row. A width that is not positive, or an assistant no narrower than
-/// the workspace, changes nothing.
-pub fn after_assistant_drag(sizes: &[f64], assistant: f64, workspace: f64) -> Option<Vec<f64>> {
+/// What a drag left on screen, in pixels at 100%.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shown {
+    /// The sidebar; `None` in a row without one.
+    pub sidebar: Option<f64>,
+    /// The workspace beside the sidebar (the whole row without one).
+    pub workspace: f64,
+    /// The open assistant painted inside the workspace; `None` while it
+    /// was closed.
+    pub assistant: Option<f64>,
+}
+
+/// The save for a drag of `divider` that left `shown` on screen (I2), into
+/// a file whose `sizes` and assistant state (`open`) were read at save
+/// time: Electron may have changed either since the drag began.
+///
+/// The displayed widths are written as they are, so [`layout`] of the save
+/// in the same row shows them again (I5):
+///
+/// - the open assistant, shown and open in the file: the sidebar, the main
+///   pane (the workspace less the assistant) and the assistant;
+/// - otherwise a sidebar drag writes the sidebar and the workspace beside
+///   it, which the closed layout gives the content, and keeps the
+///   assistant entry, the width it opens at;
+/// - an assistant drag into a file that is closed now saves nothing: the
+///   sidebar did not move and the closed layout shows no assistant;
+/// - in a row without a sidebar the sidebar entry is kept, and the content
+///   and the assistant share their entries' sum as they were shown.
+///
+/// Nothing is saved for a width that is not positive (the split was never
+/// laid out), or when any value written would not be a positive finite
+/// number.
+pub fn after_drag(sizes: &[f64], divider: Divider, shown: Shown, open: bool) -> Option<Vec<f64>> {
     let measured = |width: f64| width.is_finite() && width > 0.0;
-    if !(measured(assistant) && measured(workspace) && assistant < workspace) {
+    if !measured(shown.workspace) || shown.sidebar.is_some_and(|width| !measured(width)) {
         return None;
     }
-    let [sidebar, content, weight] = entries(sizes);
-    let pair = content + weight;
-    let assistant = assistant * pair / workspace;
-    Some(vec![sidebar, pair - assistant, assistant])
+    let assistant = shown
+        .assistant
+        .filter(|width| open && measured(*width) && *width < shown.workspace);
+    let [kept_sidebar, content, kept_assistant] = entries(sizes);
+    let saved = match (divider, shown.sidebar, assistant) {
+        (Divider::Sidebar, Some(sidebar), Some(assistant)) => {
+            [sidebar, shown.workspace - assistant, assistant]
+        }
+        (Divider::Sidebar, Some(sidebar), None) => [sidebar, shown.workspace, kept_assistant],
+        (Divider::Sidebar, None, _) | (Divider::Assistant, _, None) => return None,
+        (Divider::Assistant, Some(sidebar), Some(assistant)) => {
+            [sidebar, shown.workspace - assistant, assistant]
+        }
+        (Divider::Assistant, None, Some(assistant)) => {
+            let pair = content + kept_assistant;
+            let share = assistant / shown.workspace;
+            [kept_sidebar, pair * (1.0 - share), pair * share]
+        }
+    };
+    saved
+        .iter()
+        .all(|width| measured(*width))
+        .then(|| saved.to_vec())
 }
 
 /// The save for opening (`open`) or closing the assistant in `row` (I3;
@@ -475,6 +496,9 @@ mod tests {
         &[30.0, 40.0, 28.0],
         &[300.0, 900.0, 1040.0],
         &[0.0, 900.0, 600.0],
+        &[900.0, 300.0, 600.0],
+        &[100.0, 600.0, 300.0],
+        &[3e306, 9e306, 3e306],
     ];
     /// Rows from a narrow window at 150% to a wide one.
     const ROWS: &[f64] = &[552.0, 900.0, 1100.0, 1200.0, 1600.0, 2400.0, 3200.0];
@@ -676,36 +700,24 @@ mod tests {
     #[test]
     fn an_assistant_drag_keeps_the_sidebar_where_it_was() {
         let before = [300.0, 400.0, 280.0];
-        let shown = layout(&before, true, row(1600.0));
+        let at = row(1600.0);
+        let shown = layout(&before, true, at);
         let sidebar = shown.sidebar.unwrap().width;
         assert_close(sidebar, 300.0 / 980.0 * 1600.0);
         // The workspace has room for a 600 px assistant.
-        let dragged = shown.assistant.unwrap().painted(600.0, shown.workspace);
-        assert_eq!(dragged, 600.0);
-        let saved = after_assistant_drag(&before, dragged, shown.workspace).unwrap();
-        assert_eq!(saved[0], 300.0);
-        assert_close(saved[1] + saved[2], 680.0);
-        let after = layout(&saved, true, row(1600.0));
+        let dragged = drag(&shown, at, Divider::Assistant, 600.0);
+        assert_eq!(dragged.assistant, Some(600.0));
+        let saved = after_drag(&before, Divider::Assistant, dragged, true).unwrap();
+        assert_all_close(&saved, &[sidebar, 1600.0 - sidebar - 600.0, 600.0]);
+        let after = layout(&saved, true, at);
         assert_close(after.sidebar.unwrap().width, sidebar);
         assert_close(after.assistant.unwrap().assistant, 600.0);
         // Past the cap: GPUI Kit's 1,040 paints 600 and saves the same.
-        let past = shown.assistant.unwrap().painted(1040.0, shown.workspace);
+        let past = drag(&shown, at, Divider::Assistant, 1040.0);
         assert_eq!(
-            after_assistant_drag(&before, past, shown.workspace),
+            after_drag(&before, Divider::Assistant, past, true),
             Some(saved)
         );
-        for (width, workspace) in [
-            (0.0, 900.0),
-            (-5.0, 900.0),
-            (f64::NAN, 900.0),
-            (900.0, 900.0),
-        ] {
-            assert_eq!(
-                after_assistant_drag(&before, width, workspace),
-                None,
-                "{width} in {workspace}"
-            );
-        }
     }
 
     /// Review round 4, finding 2: `[300, 400, 350]` in a 1,600 px row. The
@@ -744,114 +756,242 @@ mod tests {
         );
     }
 
-    /// I1: the minimums hold what is shown, never what is saved.
+    /// I1: the minimums hold what is shown, and a save writes them only as
+    /// the widths the clamped panes showed.
     #[test]
-    fn the_minimums_hold_the_layout_not_the_file() {
+    fn the_minimums_hold_the_layout_and_a_save_writes_what_they_showed() {
         // [300, 400] is 700 of weight in a 1,600 px row: a drag to the
-        // sidebar's 200 minimum saves 87.5, which lays out at exactly 200.
-        let saved = after_sidebar_drag(&[300.0, 400.0], 200.0, 1400.0, None).unwrap();
-        assert_close(saved[0], 87.5);
-        assert_close(saved[1], 612.5);
+        // sidebar's 200 minimum saves the 200 and the 1,400 beside it.
+        let at = row(1600.0);
+        let shown = layout(&[300.0, 400.0], false, at);
+        let dragged = drag(&shown, at, Divider::Sidebar, 200.0);
+        let saved = after_drag(&[300.0, 400.0], Divider::Sidebar, dragged, false).unwrap();
+        assert_all_close(&saved, &[200.0, 1400.0, 350.0]);
         assert_close(sidebar_px(&saved, false, 1600.0), 200.0);
-        // An assistant drag that leaves the main pane its 250 px saves a
-        // content weight below 250.
-        let before = [300.0, 200.0, 280.0];
-        let shown = layout(&before, true, row(1600.0));
-        let saved = after_assistant_drag(&before, 600.0, shown.workspace).unwrap();
-        assert!(saved[1] < MAIN_BESIDE_ASSISTANT_MIN_WIDTH, "{saved:?}");
-        assert_close(assistant_px(&saved, 1600.0), 600.0);
-        // A weight wider than the 600 the assistant paints is kept as saved.
-        assert_eq!(
-            after_sidebar_drag(&[300.0, 900.0, 1040.0], 400.0, 2000.0, None),
-            Some(vec![200.0, 1000.0, 1040.0])
-        );
+        // A weight wider than the 600 the assistant paints is saved as the
+        // 600 it showed.
+        let file = [300.0, 900.0, 1040.0];
+        let shown = layout(&file, true, at);
+        assert_close(shown.assistant.unwrap().assistant, 600.0);
+        let dragged = drag(&shown, at, Divider::Sidebar, 400.0);
+        let saved = after_drag(&file, Divider::Sidebar, dragged, true).unwrap();
+        assert_all_close(&saved, &[400.0, 600.0, 600.0]);
     }
 
-    /// I2 for the sidebar divider, over every file, row and target the
-    /// limits allow, with the assistant open and closed.
+    /// Review round 5, finding 2: `[900, 300, 600]` in a 1,200 px row holds
+    /// the sidebar at its 550 maximum beside a 400 px assistant. Saving the
+    /// assistant's weight let the release lay the sidebar out at 600 and
+    /// snap the assistant to 280.
     #[test]
-    fn a_sidebar_drag_changes_only_the_sidebar_and_the_content() {
+    fn an_assistant_drag_beside_a_sidebar_at_its_maximum_keeps_both() {
+        let file = [900.0, 300.0, 600.0];
+        let at = row(1200.0);
+        let shown = layout(&file, true, at);
+        assert_close(shown.sidebar.unwrap().width, 550.0);
+        assert_close(shown.assistant.unwrap().assistant, 400.0);
+        let dragged = drag(&shown, at, Divider::Assistant, 300.0);
+        let saved = after_drag(&file, Divider::Assistant, dragged, true).unwrap();
+        assert_all_close(&saved, &[550.0, 350.0, 300.0]);
+        let after = layout(&saved, true, at);
+        assert_close(after.sidebar.unwrap().width, 550.0);
+        assert_close(after.assistant.unwrap().assistant, 300.0);
+    }
+
+    /// Review round 5, finding 3: `[100, 600, 300]` in a 1,200 px row holds
+    /// the sidebar at its 200 minimum beside a 333 px assistant. Keeping the
+    /// assistant's weight laid it out at 360 after a sidebar drag to 300.
+    #[test]
+    fn a_sidebar_drag_off_its_minimum_keeps_the_assistant() {
+        let file = [100.0, 600.0, 300.0];
+        let at = row(1200.0);
+        let shown = layout(&file, true, at);
+        assert_close(shown.sidebar.unwrap().width, 200.0);
+        let assistant = shown.assistant.unwrap().assistant;
+        assert_close(assistant, 1000.0 / 3.0);
+        let dragged = drag(&shown, at, Divider::Sidebar, 300.0);
+        assert_eq!(dragged.assistant, Some(assistant));
+        let saved = after_drag(&file, Divider::Sidebar, dragged, true).unwrap();
+        assert_all_close(&saved, &[300.0, 900.0 - assistant, assistant]);
+        let after = layout(&saved, true, at);
+        assert_close(after.sidebar.unwrap().width, 300.0);
+        assert_close(after.assistant.unwrap().assistant, assistant);
+    }
+
+    /// Review round 5, finding 1: Electron closes the assistant while
+    /// native drags it. `[300, 400, 280]` in a 1,600 px row and a drag to
+    /// 600 wrote `[300, 312.5, 367.5]`, which the closed layout showed with
+    /// the sidebar at 784 px instead of 686.
+    #[test]
+    fn an_assistant_drag_into_a_file_closed_since_saves_nothing() {
+        let file = [300.0, 400.0, 280.0];
+        let at = row(1600.0);
+        let shown = layout(&file, true, at);
+        let dragged = drag(&shown, at, Divider::Assistant, 600.0);
+        assert_eq!(after_drag(&file, Divider::Assistant, dragged, false), None);
+        assert_close(sidebar_px(&file, false, 1600.0), 300.0 / 700.0 * 1600.0);
+        // A sidebar drag into a file closed since writes the sidebar and the
+        // workspace the closed content takes, so the sidebar stays put.
+        let dragged = drag(&shown, at, Divider::Sidebar, 450.0);
+        let saved = after_drag(&file, Divider::Sidebar, dragged, false).unwrap();
+        assert_all_close(&saved, &[450.0, 1150.0, 280.0]);
+        assert_close(sidebar_px(&saved, false, 1600.0), 450.0);
+    }
+
+    /// Review round 5, finding 5: finite weights near `f64::MAX` must not
+    /// overflow into a save that serializes as `null`.
+    #[test]
+    fn huge_weights_never_save_a_value_that_is_not_finite() {
+        let file = [3e306, 9e306, 3e306];
+        let at = row(1200.0);
+        let shown = layout(&file, true, at);
+        let dragged = drag(&shown, at, Divider::Assistant, 400.0);
+        let saved = after_drag(&file, Divider::Assistant, dragged, true).unwrap();
+        assert_saved(&saved);
+        assert!(!serde_json::to_string(&saved).unwrap().contains("null"));
+        assert_close(saved[2], 400.0);
+        assert_close(layout(&saved, true, at).assistant.unwrap().assistant, 400.0);
+        // Weights whose sum overflows still lay out.
+        let huge = [f64::MAX, f64::MAX, f64::MAX];
+        let shown = layout(&huge, true, at);
+        assert!(shown.sidebar.unwrap().width.is_finite(), "{shown:?}");
+        assert!(shown.assistant.unwrap().assistant.is_finite(), "{shown:?}");
+        // Without a sidebar the content and assistant entries keep their
+        // sum, which overflows here: nothing is saved and the file stays.
+        let alone = Row {
+            available: 1200.0,
+            sidebar: false,
+        };
+        let shown = layout(&huge, true, alone);
+        let dragged = drag(&shown, alone, Divider::Assistant, 400.0);
+        assert_eq!(after_drag(&huge, Divider::Assistant, dragged, true), None);
+    }
+
+    /// I5: entries that hold every minimum and sum to the row lay out as
+    /// themselves.
+    #[test]
+    fn layout_is_the_identity_for_widths_that_fit_the_row() {
+        for &available in ROWS {
+            if available < SIDEBAR_MIN_WIDTH + CONTENT_MIN_WIDTH {
+                continue;
+            }
+            let at = row(available);
+            for sidebar in targets(SIDEBAR_MIN_WIDTH, available - CONTENT_MIN_WIDTH) {
+                let content = available - sidebar;
+                let shown = layout(&[sidebar, content], false, at);
+                assert!(close(shown.sidebar.unwrap().width, sidebar), "{shown:?}");
+                for assistant in targets(ASSISTANT_MIN_WIDTH, ASSISTANT_MAX_WIDTH) {
+                    let main = content - assistant;
+                    if main < MAIN_BESIDE_ASSISTANT_MIN_WIDTH {
+                        continue;
+                    }
+                    let case = format!("[{sidebar}, {main}, {assistant}] in {available}");
+                    let shown = layout(&[sidebar, main, assistant], true, at);
+                    assert!(close(shown.sidebar.unwrap().width, sidebar), "{case}");
+                    assert!(close(shown.workspace, content), "{case}");
+                    assert!(
+                        close(shown.assistant.unwrap().assistant, assistant),
+                        "{case}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// What the app shows when a drag of `divider` ends at `target` from
+    /// `shown` in `row`: the sidebar divider moves the sidebar and the
+    /// workspace while GPUI Kit's fixed assistant panel keeps the width it
+    /// painted, within its limits; the assistant divider moves the
+    /// assistant within the workspace.
+    fn drag(shown: &Layout, row: Row, divider: Divider, target: f64) -> Shown {
+        match divider {
+            Divider::Sidebar => {
+                let workspace = row.available - target;
+                Shown {
+                    sidebar: Some(target),
+                    workspace,
+                    assistant: shown
+                        .assistant
+                        .map(|limits| limits.painted(limits.assistant, workspace)),
+                }
+            }
+            Divider::Assistant => Shown {
+                sidebar: shown.sidebar.map(|pane| pane.width),
+                workspace: shown.workspace,
+                assistant: shown
+                    .assistant
+                    .map(|limits| limits.painted(target, shown.workspace)),
+            },
+        }
+    }
+
+    /// I5 for one drag: the save lays out in the same row at exactly the
+    /// widths the drag showed, so no divider moves on release.
+    #[track_caller]
+    fn assert_lays_out_as_shown(sizes: &[f64], open: bool, at: Row, divider: Divider, to: f64) {
+        let case = format!("{sizes:?} open={open} in {at:?}, {divider:?} to {to}");
+        let shown = layout(sizes, open, at);
+        let dragged = drag(&shown, at, divider, to);
+        let saved = after_drag(sizes, divider, dragged, open).unwrap();
+        assert_saved(&saved);
+        let after = layout(&saved, open, at);
+        let near = |a: f64, b: f64| (a - b).abs() <= 1e-6 * b.abs().max(1.0);
+        if let Some(sidebar) = dragged.sidebar {
+            let width = after.sidebar.unwrap().width;
+            assert!(near(width, sidebar), "{case}: {saved:?} shows {after:?}");
+        } else {
+            let [sidebar, content, assistant] = entries(sizes);
+            assert_eq!(saved[0], sidebar, "{case}");
+            assert!(close(saved[1] + saved[2], content + assistant), "{case}");
+        }
+        assert!(
+            near(after.workspace, dragged.workspace),
+            "{case}: {saved:?} shows {after:?}"
+        );
+        if let Some(assistant) = dragged.assistant {
+            let width = after.assistant.unwrap().assistant;
+            assert!(near(width, assistant), "{case}: {saved:?} shows {after:?}");
+        }
+    }
+
+    /// I5 for the sidebar divider, over every file, row and target the
+    /// limits allow, with the assistant open and closed, from any start,
+    /// including a sidebar held at a limit.
+    #[test]
+    fn a_sidebar_drag_lays_out_as_it_was_shown() {
         for sizes in FILES {
             for &available in ROWS {
                 for open in [false, true] {
-                    let shown = layout(sizes, open, row(available));
-                    let pane = shown.sidebar.unwrap();
-                    if pane.limits.shrunk() {
+                    let at = row(available);
+                    let limits = layout(sizes, open, at).sidebar.unwrap().limits;
+                    if limits.shrunk() {
                         // The shrunk minimums pin the divider; app.rs saves
                         // nothing.
                         continue;
                     }
-                    let [sidebar, content, assistant] = entries(sizes);
-                    let beside = if open { assistant } else { 0.0 };
-                    let total = sidebar + content + beside;
-                    let painted = shown.assistant.map(|limits| limits.assistant);
-                    for target in targets(pane.limits.sidebar_min, pane.limits.sidebar_max) {
-                        let case = format!("{sizes:?} open={open} in {available} to {target}");
-                        let saved =
-                            after_sidebar_drag(sizes, target, available - target, painted).unwrap();
-                        assert_saved(&saved);
-                        assert!(
-                            close(
-                                saved[0] + saved[1] + if open { saved[2] } else { 0.0 },
-                                total
-                            ),
-                            "{case}: {saved:?}"
-                        );
-                        let after = layout(&saved, open, row(available));
-                        assert!(
-                            close(after.sidebar.unwrap().width, target),
-                            "{case}: {saved:?} shows {after:?}"
-                        );
-                        if saved[2] == assistant {
-                            continue;
-                        }
-                        // Only an assistant weight wider than the workspace
-                        // the drag left is shared out instead.
-                        assert!(open, "{case}: {saved:?}");
-                        assert!(
-                            assistant / total * available >= available - target,
-                            "{case}: {saved:?}"
-                        );
-                        assert!(
-                            close(after.assistant.unwrap().assistant, painted.unwrap()),
-                            "{case}: {saved:?} shows {after:?}"
-                        );
+                    for target in targets(limits.sidebar_min, limits.sidebar_max) {
+                        assert_lays_out_as_shown(sizes, open, at, Divider::Sidebar, target);
                     }
                 }
             }
         }
     }
 
-    /// I2 for the assistant divider: the sidebar entry and the sum of the
-    /// other two are kept, and a restart shows what the drag showed.
+    /// I5 for the assistant divider, with and without a sidebar beside the
+    /// workspace, from any start, including a sidebar held at a limit.
     #[test]
-    fn an_assistant_drag_changes_only_the_content_and_the_assistant() {
+    fn an_assistant_drag_lays_out_as_it_was_shown() {
         for sizes in FILES {
             for &available in ROWS {
-                let shown = layout(sizes, true, row(available));
-                let limits = shown.assistant.unwrap();
-                if limits.shrunk() {
-                    continue;
-                }
-                let [sidebar, content, assistant] = entries(sizes);
-                let most = limits.painted(f64::MAX, shown.workspace);
-                for target in targets(limits.assistant_min, most) {
-                    let case = format!("{sizes:?} in {available} to {target}");
-                    let width = limits.painted(target, shown.workspace);
-                    let saved = after_assistant_drag(sizes, width, shown.workspace).unwrap();
-                    assert_saved(&saved);
-                    assert_eq!(saved[0], sidebar, "{case}");
-                    assert!(close(saved[1] + saved[2], content + assistant), "{case}");
-                    let after = layout(&saved, true, row(available));
-                    if at_share(sizes, true, available) {
-                        assert!(
-                            close(after.sidebar.unwrap().width, shown.sidebar.unwrap().width),
-                            "{case}: {saved:?} shows {after:?}"
-                        );
-                        assert!(
-                            close(after.assistant.unwrap().assistant, width),
-                            "{case}: {saved:?} shows {after:?}"
-                        );
+                for sidebar in [true, false] {
+                    let at = Row { available, sidebar };
+                    let shown = layout(sizes, true, at);
+                    let limits = shown.assistant.unwrap();
+                    if limits.shrunk() {
+                        continue;
+                    }
+                    let most = limits.painted(f64::MAX, shown.workspace);
+                    for target in targets(limits.assistant_min, most) {
+                        assert_lays_out_as_shown(sizes, true, at, Divider::Assistant, target);
                     }
                 }
             }
@@ -911,20 +1051,59 @@ mod tests {
 
     #[test]
     fn a_drag_that_was_never_laid_out_saves_nothing() {
-        assert_eq!(after_sidebar_drag(&[300.0, 900.0], 0.0, 950.0, None), None);
-        assert_eq!(after_sidebar_drag(&[300.0, 900.0], 250.0, -1.0, None), None);
+        let shown = |sidebar, workspace| Shown {
+            sidebar: Some(sidebar),
+            workspace,
+            assistant: None,
+        };
+        for (sidebar, workspace) in [(0.0, 950.0), (250.0, -1.0), (f64::NAN, 950.0)] {
+            assert_eq!(
+                after_drag(
+                    &[300.0, 900.0],
+                    Divider::Sidebar,
+                    shown(sidebar, workspace),
+                    false
+                ),
+                None,
+                "{sidebar} beside {workspace}"
+            );
+        }
+        // An assistant no narrower than the workspace was never laid out.
+        let wide = Shown {
+            assistant: Some(950.0),
+            ..shown(250.0, 950.0)
+        };
         assert_eq!(
-            after_sidebar_drag(&[300.0, 900.0], f64::NAN, 950.0, None),
+            after_drag(&[300.0, 900.0], Divider::Assistant, wide, true),
+            None
+        );
+        // No sidebar, no sidebar drag.
+        let alone = Shown {
+            sidebar: None,
+            ..shown(250.0, 950.0)
+        };
+        assert_eq!(
+            after_drag(&[300.0, 900.0], Divider::Sidebar, alone, false),
             None
         );
         // Extra entries are dropped; an unreadable assistant saves its
         // default.
         assert_eq!(
-            after_sidebar_drag(&[300.0, 900.0, 420.0, 5.0], 250.0, 950.0, None),
+            after_drag(
+                &[300.0, 900.0, 420.0, 5.0],
+                Divider::Sidebar,
+                shown(250.0, 950.0),
+                false
+            ),
             Some(vec![250.0, 950.0, 420.0])
         );
         assert_eq!(
-            after_sidebar_drag(&[300.0, 900.0, 0.0], 250.0, 950.0, None),
+            after_drag(
+                &[300.0, 900.0, 0.0],
+                Divider::Sidebar,
+                shown(250.0, 950.0),
+                false
+            ),
             Some(vec![250.0, 950.0, 350.0])
         );
     }
