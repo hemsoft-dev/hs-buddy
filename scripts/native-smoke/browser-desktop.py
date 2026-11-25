@@ -13,9 +13,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import struct
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
+import zlib
 
 from desktop import fixture, require_closed_sessions
 
@@ -43,6 +45,24 @@ THEMES = ("dark", "light")
 # Kinds every engine must refuse and record; the others depend on what each engine
 # lets an app intercept, and are reported rather than required.
 REQUIRED_REFUSALS = {"internal", "download"}
+# The Fixture page bookmark's favicon: one solid colour no theme or globe icon uses.
+FAVICON_RGB = (255, 0, 255)
+# A 20 px card icon is 400 pixels at 100%; corners and scaling take a few.
+FAVICON_MIN_PIXELS = 150
+# The toolbar's page zoom before and after one Alt+= (the 10% button step).
+ZOOM_BEFORE, ZOOM_AFTER = "100%", "110%"
+
+
+def solid_png(width, height, rgb):
+    """An opaque single-colour PNG, built without an imaging library."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\0" + bytes(rgb) * width for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+FAVICON = solid_png(32, 32, FAVICON_RGB)
 
 PROBE = """<!doctype html><html><head><title>Buddy Probe</title></head>
 <body style="font:40px sans-serif;margin:32px"><p>PROBE PAGE</p><p id="state">running</p>
@@ -76,6 +96,7 @@ class Site:
     def __init__(self):
         self.beacons = {}
         self.downloads = 0
+        self.favicons = 0
         self.lock = threading.Lock()
         self.server = None
 
@@ -90,7 +111,7 @@ class Site:
                 pass
 
             def send(self, status, body, content_type="text/html; charset=utf-8", headers=()):
-                data = body.encode("utf-8")
+                data = body if isinstance(body, bytes) else body.encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(data)))
@@ -113,6 +134,10 @@ class Site:
                     with site.lock:
                         site.beacons[query.get("name", [""])[0]] = query.get("value", [""])[0]
                     self.send(204, "")
+                elif url.path == "/favicon.png":
+                    with site.lock:
+                        site.favicons += 1
+                    self.send(200, FAVICON, "image/png")
                 elif url.path == "/download":
                     with site.lock:
                         site.downloads += 1
@@ -148,7 +173,7 @@ class Site:
 def bookmarks(origin):
     return [
         dict(url=origin + "probe", title="Probe page", category="Fixture"),
-        dict(url=origin + "ok", title="Fixture page", category="Fixture"),
+        dict(url=origin + "ok", title="Fixture page", category="Fixture", faviconUrl=origin + "favicon.png"),
     ]
 
 
@@ -201,13 +226,56 @@ def evaluate(records, beacons, downloads, frame):
     return dict(refusals=sorted(set(kinds)), beacons=beacons)
 
 
+def favicon_pixels(image):
+    """How many pixels of the capture are the fixture favicon's colour, and their bounds."""
+    width, height = struct.unpack(">II", image.read_bytes()[16:24])
+    raw = image.with_suffix(".favicon.rgb")
+    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", image,
+        "-vf", "format=rgb24", "-f", "rawvideo", "-frames:v", "1", raw)
+    data = raw.read_bytes()
+    if len(data) != width * height * 3:
+        raise RuntimeError("The favicon analysis read an incomplete capture")
+    return matching_pixels(data, width)
+
+
+def matching_pixels(data, width):
+    count, left, top, right, bottom = 0, None, None, None, None
+    for index in range(0, len(data), 3):
+        red, green, blue = data[index:index + 3]
+        if red >= 220 and green <= 40 and blue >= 220:
+            x, y = (index // 3) % width, (index // 3) // width
+            count += 1
+            left, right = min(x, left if left is not None else x), max(x, right if right is not None else x)
+            top, bottom = min(y, top if top is not None else y), max(y, bottom if bottom is not None else y)
+    bounds = None if count == 0 else dict(left=left, top=top, width=right - left + 1, height=bottom - top + 1)
+    return count, bounds
+
+
+def require_favicon(image):
+    """The Fixture page card shows the served favicon, not the globe: a block of
+    its colour about icon-sized, which nothing else in Buddy paints."""
+    count, bounds = favicon_pixels(image)
+    image.with_suffix(".favicon.json").write_text(json.dumps(dict(pixels=count, bounds=bounds)), encoding="utf-8")
+    if count < FAVICON_MIN_PIXELS:
+        raise RuntimeError(f"The bookmark card shows no favicon ({count} favicon-coloured pixels)")
+    # Two icons at most (the card and an expanded tree row), each under 64 px a side.
+    if bounds["width"] > 160 or bounds["height"] > 160:
+        raise RuntimeError(f"The favicon colour covers more than an icon: {bounds}")
+    return dict(pixels=count, bounds=bounds)
+
+
 def first_pass(driver, theme):
-    """A fresh session: the probe's refusals, then a page, at both sizes."""
+    """A fresh session: the probe's refusals, then a page, at both sizes. The
+    Fixture page card shows its favicon, and Alt+= zooms the page one step
+    (Alt+- takes it back, so later passes see the saved zoom unchanged)."""
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
         ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
+        ("capture", f"bookmark-favicons-{theme}"),
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
+        ("altkey", "="), ("wait_text", ZOOM_AFTER), ("capture", f"browser-page-zoom-{theme}"),
+        ("altkey", "-"), ("wait_text", ZOOM_BEFORE),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
         # Repeat after the title-qualified captures: reusing a URL selects
@@ -217,10 +285,31 @@ def first_pass(driver, theme):
     ], record=True)
     github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
     github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe", browser=True)
+    github.check(flow / f"bookmark-favicons-{theme}.png", "Fixture page", "Probe page", browser=True)
+    favicon = require_favicon(flow / f"bookmark-favicons-{theme}.png")
     # The page's own text and its tab title prove which page is shown. The
     # address field's dim text read in no OCR layout on Windows (run 40647223188).
     github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
     github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
+    github.check(flow / f"browser-page-zoom-{theme}.png", PAGE_TEXT, ZOOM_AFTER, browser=True)
+    return dict(favicon=favicon)
+
+
+def saved_zoom(config):
+    """The page zoom saved in `native.browser`, or None when none is saved."""
+    return json.loads(config.read_text(encoding="utf-8-sig"))["native"].get("browser", {}).get("zoom")
+
+
+def restore_zoom(config, zoom):
+    def change(value):
+        browser = value["native"].get("browser")
+        if browser is None:
+            return
+        if zoom is None:
+            browser.pop("zoom", None)
+        else:
+            browser["zoom"] = zoom
+    terminal.write_config(config, change)
 
 
 def restart_pass(driver, theme, visit):
@@ -316,7 +405,16 @@ def qualify(executable, output, session, version, backend, site):
     # WebView2 can't create pages on the driver's hidden Windows desktop.
     driver.input_desktop = True
     activity_before = backend.query("buddyStats:get")
-    first_pass(driver, "dark")
+    zoom = saved_zoom(config)
+    try:
+        first = first_pass(driver, "dark")
+    finally:
+        # Alt+- already took the page back; a failed drive may not have.
+        restore_zoom(config, zoom)
+    with site.lock:
+        if site.favicons < 1:
+            raise RuntimeError("Buddy never asked the fixture site for the bookmark's favicon")
+        first["favicon"]["requests"] = site.favicons
     activity_opened = require_bookmark_activity(backend, activity_before, 3, 1)
     restart_pass(driver, "dark", 2)
     activity_restored = require_bookmark_activity(backend, activity_before, 3, 2)
@@ -345,9 +443,10 @@ def qualify(executable, output, session, version, backend, site):
         checks = ["Buddy's shortcuts with the pointer over a page"]
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True, engine=dict(windows="WebView2", macos="WKWebView",
-        x11="WebKitGTK")[session], **result,
+        x11="WebKitGTK")[session], **result, **first,
         dataSource="Installed app; loopback fixture site admitted by exact origin; bookmarks in an isolated anonymous Convex deployment",
-        checks=["bookmark opens in a tab", "page renders inside the window", "private address refused",
+        checks=["bookmark opens in a tab", "page renders inside the window", "bookmark card favicon",
+            "Alt+= and Alt+- zoom the page", "private address refused",
             "download refused", "private iframe refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
             "compact window", "light/dark", *checks]), indent=2), encoding="utf-8")
 

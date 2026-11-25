@@ -147,6 +147,16 @@ fn page_titles_are_extracted_and_decoded() {
 
 /// A loopback server answering each path with a canned response.
 async fn serve(routes: Vec<(&'static str, String)>) -> u16 {
+    serve_bytes(
+        routes
+            .into_iter()
+            .map(|(path, response)| (path, response.into_bytes()))
+            .collect(),
+    )
+    .await
+}
+
+async fn serve_bytes(routes: Vec<(&'static str, Vec<u8>)>) -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let routes = Arc::new(routes);
@@ -163,9 +173,9 @@ async fn serve(routes: Vec<(&'static str, String)>) -> u16 {
                     .find(|(route, _)| *route == path)
                     .map(|(_, response)| response.clone())
                     .unwrap_or_else(|| {
-                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".into()
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec()
                     });
-                let _ = stream.write_all(response.as_bytes()).await;
+                let _ = stream.write_all(&response).await;
                 let _ = stream.shutdown().await;
             });
         }
@@ -555,4 +565,191 @@ fn the_ai_prompt_matches_electron_and_replies_parse_safely() {
             .join(",")
     );
     assert_eq!(suggest::parse(&many).tags.unwrap().len(), MAX_TAGS);
+}
+
+/// A PNG's signature and IHDR, enough to be recognised and sized.
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+    bytes.extend_from_slice(&width.to_be_bytes());
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes.extend_from_slice(&[8, 6, 0, 0, 0, 0, 0, 0, 0]);
+    bytes
+}
+
+fn image_response(content_type: &str, body: &[u8]) -> Vec<u8> {
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(body);
+    response
+}
+
+#[test]
+fn favicon_formats_are_recognised_by_signature_and_sized_from_their_headers() {
+    use super::favicon::{Format, dimensions, sniff};
+    assert_eq!(sniff(&png(16, 16)), Some(Format::Png));
+    assert_eq!(dimensions(Format::Png, &png(32, 48)), Some((32, 48)));
+    let gif = b"GIF89a\x20\x00\x10\x00rest".to_vec();
+    assert_eq!(sniff(&gif), Some(Format::Gif));
+    assert_eq!(dimensions(Format::Gif, &gif), Some((32, 16)));
+    // SOI, an APP0 segment, then a baseline frame of 64 x 40.
+    let jpeg = [
+        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x28,
+        0x00, 0x40, 0x03,
+    ];
+    assert_eq!(sniff(&jpeg), Some(Format::Jpeg));
+    assert_eq!(dimensions(Format::Jpeg, &jpeg), Some((64, 40)));
+    let mut bmp = b"BM".to_vec();
+    bmp.resize(18, 0);
+    bmp.extend_from_slice(&24i32.to_le_bytes());
+    bmp.extend_from_slice(&(-24i32).to_le_bytes());
+    assert_eq!(sniff(&bmp), Some(Format::Bmp));
+    assert_eq!(dimensions(Format::Bmp, &bmp), Some((24, 24)));
+    let mut webp = b"RIFF\0\0\0\0WEBPVP8X\0\0\0\0\0\0\0\0".to_vec();
+    webp.extend_from_slice(&[31, 0, 0, 15, 0, 0]);
+    assert_eq!(sniff(&webp), Some(Format::Webp));
+    assert_eq!(dimensions(Format::Webp, &webp), Some((32, 16)));
+    // An icon whose one entry is a 2048 x 2048 PNG, though the directory says 256.
+    let mut ico = vec![0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 32, 0];
+    ico.extend_from_slice(&(png(2048, 2048).len() as u32).to_le_bytes());
+    ico.extend_from_slice(&22u32.to_le_bytes());
+    ico.extend_from_slice(&png(2048, 2048));
+    assert_eq!(sniff(&ico), Some(Format::Ico));
+    assert_eq!(dimensions(Format::Ico, &ico), Some((2048, 2048)));
+    for other in [
+        b"<svg xmlns='http://www.w3.org/2000/svg'/>".as_slice(),
+        b"<!doctype html>",
+        b"",
+        b"\x89PN",
+    ] {
+        assert_eq!(sniff(other), None);
+    }
+}
+
+#[test]
+fn favicon_images_must_be_small_and_readable() {
+    use super::favicon::{FaviconError, Format, MAX_SIDE, check_image};
+    assert_eq!(
+        check_image(png(16, 16)).map(|icon| icon.format),
+        Ok(Format::Png)
+    );
+    assert_eq!(
+        check_image(png(MAX_SIDE, 1)).map(|icon| icon.format),
+        Ok(Format::Png)
+    );
+    assert_eq!(
+        check_image(png(MAX_SIDE + 1, 16)),
+        Err(FaviconError::TooLarge)
+    );
+    assert_eq!(check_image(png(0, 16)), Err(FaviconError::NotAnImage));
+    // Recognised, but too short to say its size.
+    assert_eq!(
+        check_image(b"\x89PNG\r\n\x1a\n".to_vec()),
+        Err(FaviconError::NotAnImage)
+    );
+    assert_eq!(
+        check_image(b"<svg width='99999'/>".to_vec()),
+        Err(FaviconError::NotAnImage)
+    );
+}
+
+#[test]
+fn only_public_http_favicons_are_loaded_unless_the_fixture_serves_them() {
+    use super::favicon::target;
+    assert!(target("https://example.com/favicon.ico", None).is_some());
+    assert!(target(" http://example.com/icon.png ", None).is_some());
+    for refused in [
+        "javascript:alert(1)",
+        "data:image/png;base64,AAAA",
+        "file:///etc/passwd",
+        "ftp://example.com/icon.png",
+        "http://localhost/icon.png",
+        "http://127.0.0.1:8080/icon.png",
+        "http://192.168.1.1/icon.png",
+        "http://router.local/icon.png",
+        "not a url",
+        "",
+    ] {
+        assert!(target(refused, None).is_none(), "{refused}");
+    }
+    let fixture = crate::browser::FixtureOrigin::parse(Some("http://127.0.0.1:4321/"), true);
+    let fixture = fixture.as_ref();
+    assert!(target("http://127.0.0.1:4321/favicon.png", fixture).is_some());
+    assert!(target("http://127.0.0.1:4322/favicon.png", fixture).is_none());
+    assert!(target("http://127.0.0.2:4321/favicon.png", fixture).is_none());
+}
+
+#[tokio::test]
+async fn the_favicon_fetch_checks_redirects_and_refuses_large_or_foreign_bodies() {
+    use super::favicon::{FaviconError, Format, MAX_BYTES, fetch_favicon_with};
+    let huge_declared = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        MAX_BYTES + 1
+    )
+    .into_bytes();
+    // No length: the body itself runs past the limit.
+    let mut huge_streamed =
+        b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nConnection: close\r\n\r\n".to_vec();
+    huge_streamed.extend_from_slice(&png(16, 16));
+    huge_streamed.resize(huge_streamed.len() + MAX_BYTES, 0);
+    let port = serve_bytes(vec![
+        // A server that names the wrong type still serves an image.
+        ("/icon.png", image_response("text/plain", &png(16, 16))),
+        ("/moved", redirect("/icon.png").into_bytes()),
+        (
+            "/internal",
+            redirect("http://127.0.0.1/icon.png").into_bytes(),
+        ),
+        ("/script", redirect("javascript:alert(1)").into_bytes()),
+        ("/loop", redirect("/loop").into_bytes()),
+        ("/huge-declared", huge_declared),
+        ("/huge-streamed", huge_streamed),
+        ("/page", html("<title>Not an icon</title>").into_bytes()),
+        ("/large", image_response("image/png", &png(4096, 4096))),
+    ])
+    .await;
+    let resolver = fixture_resolver(port);
+    let fetch = |path: &str| {
+        let (url, resolver) = (
+            format!("http://fixture.test:{port}{path}"),
+            resolver.clone(),
+        );
+        async move { fetch_favicon_with(&url, None, &resolver).await }
+    };
+    let icon = fetch("/icon.png").await.unwrap();
+    assert_eq!((icon.format, icon.bytes), (Format::Png, png(16, 16)));
+    assert_eq!(
+        fetch("/moved").await.map(|icon| icon.format),
+        Ok(Format::Png)
+    );
+    assert_eq!(
+        fetch("/internal").await,
+        Err(FaviconError::Url(UrlError::Internal))
+    );
+    assert_eq!(
+        fetch("/script").await,
+        Err(FaviconError::Url(UrlError::Protocol))
+    );
+    assert_eq!(fetch("/loop").await, Err(FaviconError::TooManyRedirects));
+    assert_eq!(fetch("/huge-declared").await, Err(FaviconError::TooLarge));
+    assert_eq!(fetch("/huge-streamed").await, Err(FaviconError::TooLarge));
+    assert_eq!(fetch("/page").await, Err(FaviconError::NotAnImage));
+    assert_eq!(fetch("/large").await, Err(FaviconError::TooLarge));
+    assert_eq!(fetch("/missing").await, Err(FaviconError::Status(404)));
+    // The loopback address itself is refused, unless it is the fixture's origin.
+    let direct = format!("http://127.0.0.1:{port}/icon.png");
+    assert_eq!(
+        fetch_favicon_with(&direct, None, &resolver).await,
+        Err(FaviconError::Url(UrlError::Internal))
+    );
+    let fixture =
+        crate::browser::FixtureOrigin::parse(Some(&format!("http://127.0.0.1:{port}/")), true);
+    assert_eq!(
+        fetch_favicon_with(&direct, fixture.as_ref(), &resolver)
+            .await
+            .map(|icon| icon.format),
+        Ok(Format::Png)
+    );
 }

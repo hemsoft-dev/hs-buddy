@@ -10,8 +10,8 @@ use gpui_kit::component::{ActiveTheme, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    StyledImage as _, Window, div, img,
 };
 
 use super::editor::Editor;
@@ -239,7 +239,7 @@ impl BookmarksView {
             .rounded_md()
             .cursor_pointer()
             .hover(|style| style.bg(accent))
-            .child(Icon::new(IconName::Globe).size(zpx(12.)))
+            .child(self.favicon(bookmark, 12.))
             .child(
                 div()
                     .flex_1()
@@ -436,6 +436,39 @@ impl BookmarksView {
             .into_any_element()
     }
 
+    /// The bookmark's favicon once it has loaded, else the globe, which also
+    /// stands in while GPUI decodes the image and if decoding fails.
+    fn favicon(&self, bookmark: &Bookmark, size: f32) -> AnyElement {
+        let globe = move || {
+            Icon::new(IconName::Globe)
+                .size(zpx(size))
+                .into_any_element()
+        };
+        let Some(image) = bookmark
+            .favicon_url
+            .as_deref()
+            .and_then(|url| self.favicons.image(url))
+        else {
+            return div()
+                .flex_shrink_0()
+                .debug_selector({
+                    let id = bookmark.id.clone();
+                    move || format!("bookmark-globe-{id}")
+                })
+                .child(globe())
+                .into_any_element();
+        };
+        let id = bookmark.id.clone();
+        img(image)
+            .flex_shrink_0()
+            .size(zpx(size))
+            .rounded(zpx(2.))
+            .debug_selector(move || format!("bookmark-favicon-{id}"))
+            .with_loading(globe)
+            .with_fallback(globe)
+            .into_any_element()
+    }
+
     pub(super) fn render_card(
         &self,
         index: usize,
@@ -480,6 +513,8 @@ impl BookmarksView {
                     .flex_wrap()
                     .gap_2()
                     .items_start()
+                    // Electron's card icon: the favicon, else the globe.
+                    .child(self.favicon(bookmark, 20.))
                     .child(
                         v_flex()
                             .id(("bookmark-open", index))

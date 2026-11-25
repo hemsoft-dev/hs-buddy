@@ -147,9 +147,11 @@ class BrowserDesktopTests(unittest.TestCase):
                 return Path('flow')
 
         driver = Driver()
-        with patch.object(desktop.github, 'check') as check:
+        with patch.object(desktop.github, 'check') as check, \
+                patch.object(desktop, 'require_favicon', return_value={}) as favicon:
             desktop.first_pass(driver, 'dark')
-        self.assertEqual(len(check.call_args_list), 4)
+        favicon.assert_called_once_with(Path('flow') / 'bookmark-favicons-dark.png')
+        self.assertEqual(len(check.call_args_list), 6)
         self.assertTrue(all(call.kwargs.get('browser') for call in check.call_args_list))
         self.assertEqual(driver.target, dict(left=182, top=44, width=78, height=9))
 
@@ -230,6 +232,85 @@ class BrowserDesktopTests(unittest.TestCase):
         items = desktop.bookmarks("http://127.0.0.1:9/")
         self.assertEqual([item["url"] for item in items], ["http://127.0.0.1:9/probe", "http://127.0.0.1:9/ok"])
         self.assertEqual({item["category"] for item in items}, {"Fixture"})
+        # Only the page bookmark has a favicon, served by the fixture site itself.
+        self.assertEqual([item.get("faviconUrl") for item in items], [None, "http://127.0.0.1:9/favicon.png"])
+
+    def test_the_site_serves_a_solid_favicon_and_counts_requests(self):
+        with desktop.Site() as site:
+            request = urllib.request.Request(site.origin + "favicon.png")
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.headers["Content-Type"], "image/png")
+                body = response.read()
+            self.assertEqual(body, desktop.FAVICON)
+            self.assertEqual(site.favicons, 1)
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(struct.unpack(">II", body[16:24]), (32, 32))
+        # The image data decodes to the one colour.
+        import zlib
+        data = zlib.decompress(body[body.index(b"IDAT") + 4:body.index(b"IEND") - 8])
+        rows = [data[y * (1 + 32 * 3):(y + 1) * (1 + 32 * 3)] for y in range(32)]
+        self.assertTrue(all(row == b"\0" + bytes(desktop.FAVICON_RGB) * 32 for row in rows))
+
+    def test_favicon_pixels_are_counted_and_bounded(self):
+        background, icon = bytes((30, 30, 30)), bytes(desktop.FAVICON_RGB)
+        width = 40
+        data = bytearray(background * width * 30)
+        for y in range(5, 25):
+            for x in range(10, 30):
+                data[(y * width + x) * 3:(y * width + x) * 3 + 3] = icon
+        self.assertEqual(desktop.matching_pixels(bytes(data), width),
+            (400, dict(left=10, top=5, width=20, height=20)))
+        # A globe (or any theme colour) is never counted.
+        self.assertEqual(desktop.matching_pixels(bytes((120, 130, 140)) * 100, 10), (0, None))
+
+    def test_the_favicon_check_needs_an_icon_sized_block(self):
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "capture.png"
+            for result, error in (((400, dict(left=1, top=1, width=20, height=20)), None),
+                    ((40, dict(left=1, top=1, width=6, height=6)), "no favicon"),
+                    ((0, None), "no favicon"),
+                    ((90000, dict(left=0, top=0, width=300, height=300)), "more than an icon")):
+                with self.subTest(result=result), patch.object(desktop, "favicon_pixels", return_value=result):
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_favicon(image)
+                    else:
+                        self.assertEqual(desktop.require_favicon(image)["pixels"], 400)
+                        self.assertEqual(json.loads(image.with_suffix(".favicon.json").read_text())["pixels"], 400)
+
+    def test_alt_zoom_changes_the_toolbar_level_then_takes_it_back(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions = actions
+                return Path("flow")
+        driver = Driver()
+        with patch.object(desktop.github, "check") as check, patch.object(desktop, "require_favicon", return_value={}):
+            desktop.first_pass(driver, "dark")
+        actions = driver.actions
+        zoom_in = actions.index(("altkey", "="))
+        # The page is open first; then the level changes, is captured, and is taken back.
+        self.assertLess(actions.index(("wait_text", "Visit 1")), zoom_in)
+        self.assertEqual(actions[zoom_in:zoom_in + 5], [("altkey", "="), ("wait_text", "110%"),
+            ("capture", "browser-page-zoom-dark"), ("altkey", "-"), ("wait_text", "100%")])
+        self.assertLess(actions.index(("capture", "bookmark-favicons-dark")), actions.index(("content", "Fixture page")))
+        checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
+        self.assertEqual(checked["browser-page-zoom-dark.png"], (desktop.PAGE_TEXT, "110%"))
+
+    def test_the_saved_page_zoom_is_restored(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "config.json"
+            config.write_text(json.dumps(dict(native=dict(browser=dict(tabs=[], zoom=1.0)))), encoding="utf-8")
+            self.assertEqual(desktop.saved_zoom(config), 1.0)
+            desktop.terminal.write_config(config, lambda value: value["native"]["browser"].update(zoom=1.1))
+            desktop.restore_zoom(config, 1.0)
+            self.assertEqual(desktop.saved_zoom(config), 1.0)
+            # Nothing was saved before: the key goes again, and the tabs stay.
+            desktop.restore_zoom(config, None)
+            self.assertEqual(json.loads(config.read_text())["native"]["browser"], dict(tabs=[]))
+            config.write_text(json.dumps(dict(native={})), encoding="utf-8")
+            self.assertIsNone(desktop.saved_zoom(config))
+            desktop.restore_zoom(config, None)
+            self.assertEqual(json.loads(config.read_text()), dict(native={}))
 
     def test_audit_records_keep_only_the_origin(self):
         with tempfile.TemporaryDirectory() as directory:

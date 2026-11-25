@@ -24,6 +24,8 @@ from receipt_clock import stamp
 
 
 HERE = Path(__file__).resolve().parent
+# Alt (Option) chords the drivers send: macOS key codes, X11 keysyms, Windows VKs.
+ALT_KEYS = {"=": dict(mac=24, x11="equal", windows=0xBB), "-": dict(mac=27, x11="minus", windows=0xBD)}
 
 
 def run(*args, **kwargs):
@@ -349,6 +351,23 @@ class UnixWindow:
         else:
             run("swaymsg", f"[con_id={self.window}] focus")
             run("wtype", *( ["-M", "ctrl", "-k", key, "-m", "ctrl"] if control else ["-k", key]))
+        time.sleep(0.7)
+
+    def alt_key(self, key):
+        """Alt (Option on macOS) with `=` or `-`, delivered to Buddy itself. On
+        X11 the pointer first rests on the title bar: a key goes to the window
+        under the pointer, and a page keeps Alt keys, as an Electron webview does."""
+        if key not in ALT_KEYS:
+            raise RuntimeError(f"Unsupported Alt key: {key}")
+        if self.session == "macos":
+            run("osascript", "-e", self.apple(f"set frontmost to true\nkey code {ALT_KEYS[key]['mac']} using option down"))
+        elif self.session == "x11":
+            self.hover("title")
+            run("xdotool", "windowactivate", "--sync", self.window)
+            run("xdotool", "key", "--clearmodifiers", f"alt+{ALT_KEYS[key]['x11']}")
+        else:
+            run("swaymsg", f"[con_id={self.window}] focus")
+            run("wtype", "-M", "alt", "-k", ALT_KEYS[key]["x11"], "-m", "alt")
         time.sleep(0.7)
 
     def keyboard_menu(self, path):

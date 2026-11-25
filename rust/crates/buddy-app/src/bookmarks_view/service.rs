@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use buddy_core::bookmarks::client::{self, BackendError, Snapshot};
+use buddy_core::bookmarks::favicon::{self, Favicon};
 use buddy_core::bookmarks::{Draft, title};
+use buddy_core::browser::FixtureOrigin;
 use buddy_core::copilot_assistant::{self, RunOptions};
 use buddy_core::copilot_runs::{Context as RunContext, Phase};
 use futures::future::BoxFuture;
@@ -35,20 +37,25 @@ pub(super) trait Service: Send + Sync {
     fn record_tab_open(&self) -> BoxFuture<'static, ()>;
     /// The page's title, or nothing; failures are quiet, as in Electron.
     fn page_title(&self, url: String) -> BoxFuture<'static, Option<String>>;
+    /// A bookmark's favicon, or nothing when it may not be loaded or fails.
+    fn favicon(&self, url: String) -> BoxFuture<'static, Option<Favicon>>;
     /// The model's raw reply, or nothing when Copilot is unavailable or fails.
     fn suggest(&self, request: SuggestRequest) -> BoxFuture<'static, Option<String>>;
 }
 
-/// Convex at the app's deployment URL, the guarded title fetch, and Chat's tool-less
-/// assistant.
+/// Convex at the app's deployment URL, the guarded title and favicon fetches, and
+/// Chat's tool-less assistant.
 pub(super) struct Live {
     url: String,
+    /// The qualification fixture's origin, which may serve favicons too.
+    fixture: Option<FixtureOrigin>,
 }
 
 impl Live {
     pub fn service() -> Arc<dyn Service> {
         Arc::new(Self {
             url: buddy_core::convex_data::convex_url(),
+            fixture: FixtureOrigin::from_env(),
         })
     }
 }
@@ -86,6 +93,15 @@ impl Service for Live {
     }
     fn page_title(&self, url: String) -> BoxFuture<'static, Option<String>> {
         Box::pin(async move { title::fetch_page_title(&url).await.ok() })
+    }
+    fn favicon(&self, url: String) -> BoxFuture<'static, Option<Favicon>> {
+        let fixture = self.fixture.clone();
+        Box::pin(async move {
+            favicon::fetch_favicon(&url, fixture.as_ref())
+                .await
+                .inspect_err(|error| log::debug!("favicon not loaded: {error}"))
+                .ok()
+        })
     }
     fn suggest(&self, request: SuggestRequest) -> BoxFuture<'static, Option<String>> {
         Box::pin(suggest(request))

@@ -67,8 +67,23 @@ IPv6 addresses and IPv4 addresses mapped into IPv6; Electron checks only the tex
 Open externally doesn't open a refused bookmark, and the section says why. Both checks
 share one rule for private address ranges.
 
-Favicons are not loaded: showing them would fetch a remote image for every bookmark.
-Each bookmark shows a globe icon instead.
+## Favicons
+
+A bookmark with a `faviconUrl` shows that image on its card (20 px) and its tree row,
+as Electron does; a bookmark without one, or whose image hasn't arrived or failed,
+shows the globe. The list never waits for an image. Each address is fetched once per
+session, up to four at a time, and kept in memory only; Electron keeps no favicon
+store either. The fetch follows Electron's sidebar rule (`isSafeImageUrl`) for cards
+and rows alike: `http` or `https` only, and no internal host. It then works like the
+page-title fetch: the host is resolved and checked, every redirect is checked again,
+and each request times out after 5 seconds. The image must be at most 256 KiB and
+1024 px a side, and a PNG, JPEG, GIF, WebP, ICO or BMP file, recognized from its
+first bytes. An SVG favicon shows the globe: GPUI draws an SVG at its declared size,
+so a small file could ask for a very large bitmap. Electron's cards, unlike its
+sidebar, load any `faviconUrl`, including internal hosts.
+
+The qualification origin (`BUDDY_BROWSER_TEST_ORIGIN`, see
+[the embedded browser](NATIVE-BROWSER.md)) may serve favicons too.
 
 ## Adding and editing
 

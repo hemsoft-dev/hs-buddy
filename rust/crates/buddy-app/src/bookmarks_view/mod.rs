@@ -7,6 +7,7 @@
 //! Cmd+V on the list, or Paste link): the editor opens with the URL, fetches the page
 //! title and asks Copilot for a description and tags, as Electron does for a drop.
 mod editor;
+mod favicons;
 mod render;
 mod service;
 #[cfg(test)]
@@ -23,6 +24,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{App, AppContext as _, Context, Entity, FocusHandle, Window};
 
 use self::editor::{Editor, Field};
+use self::favicons::Favicons;
 use self::service::{Service, SuggestRequest};
 use crate::runtime::Runtime;
 use crate::settings::Settings;
@@ -97,6 +99,8 @@ pub struct BookmarksView {
     /// Focus the list at the next render, so Ctrl+V works as soon as the section opens.
     focus_next: bool,
     next_request: u64,
+    /// Loaded favicons, by `faviconUrl`, for this session.
+    favicons: Favicons,
 }
 
 impl BookmarksView {
@@ -154,6 +158,7 @@ impl BookmarksView {
             focus: cx.focus_handle(),
             focus_next: false,
             next_request: 0,
+            favicons: Favicons::default(),
         }
     }
 
@@ -235,6 +240,7 @@ impl BookmarksView {
                         this.load_error = None;
                         this.timed_out = false;
                         this.forget_missing();
+                        this.load_favicons(cx);
                     }
                     Ok(Err(error)) => this.load_error = Some(error.to_string()),
                     Err(_) => this.load_error = Some(LOAD_FAILED.into()),
@@ -247,6 +253,33 @@ impl BookmarksView {
         })
         .detach();
         cx.notify();
+    }
+
+    /// Starts loading the favicons of bookmarks not seen before. Rendering never
+    /// waits for one: the globe shows until it arrives.
+    fn load_favicons(&mut self, cx: &mut Context<Self>) {
+        let urls: Vec<String> = self
+            .bookmarks()
+            .iter()
+            .filter_map(|bookmark| bookmark.favicon_url.clone())
+            .collect();
+        for url in self.favicons.want(urls.iter().map(String::as_str)) {
+            self.fetch_favicon(url, cx);
+        }
+    }
+
+    fn fetch_favicon(&mut self, url: String, cx: &mut Context<Self>) {
+        let rx = Runtime::global(cx).spawn(self.service.favicon(url.clone()));
+        cx.spawn(async move |this, cx| {
+            let favicon = rx.await.ok().flatten();
+            let _ = this.update(cx, |this, cx| {
+                for next in this.favicons.finished(&url, favicon) {
+                    this.fetch_favicon(next, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Retry from the failure state: a fresh load, whatever an abandoned one does.

@@ -610,6 +610,31 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[4], "waittext64:" + desktop.b64("NATIVEREADY"))
             self.assertEqual(execute.call_args.kwargs["timeout"], 180)
 
+    def test_alt_keys_are_windows_virtual_keys_and_unix_window_calls(self):
+        with tempfile.TemporaryDirectory() as root:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(root)
+            driver.config = Path(root) / "config.json"
+            driver.executable = Path(root) / "owned-app.exe"
+            driver.checkout = Path(root)
+            driver.session = "windows"
+            driver.large_size = (1200, 820)
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            with patch.object(desktop, "run") as execute:
+                driver.drive("alt", [("altkey", "="), ("altkey", "-")])
+            args = execute.call_args.args
+            commands = args[args.index("-Actions") + 1].split(",")
+            # VK_OEM_PLUS and VK_OEM_MINUS, then the usual Ctrl+Q.
+            self.assertEqual(commands[1:], ["altkey:187", "altkey:189", "ctrlkey:81"])
+        lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
+        start = next(index for index, line in enumerate(lines) if line.strip() == "'altkey' {")
+        block = "\n".join(lines[start:start + 16])
+        # WM_SYSKEYDOWN for Alt and the key, WM_SYSKEYUP for both, the Alt state released.
+        for fragment in ("0x104, [IntPtr]0x12", "0x104, [IntPtr]$vk", "0x105, [IntPtr]$vk", "0x105, [IntPtr]0x12",
+                "[Drive]::Alt($true)", "[Drive]::Alt($false)", "0x20000000L"):
+            self.assertIn(fragment, block)
+        self.assertIn("public static void Alt(bool down)", "\n".join(lines))
+
     def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
         def word(text, left, top, line, width=40):
             return dict(text=text, left=left, top=top, line=line, width=width, height=12)

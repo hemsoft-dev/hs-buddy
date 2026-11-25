@@ -109,7 +109,10 @@ async fn fetch_html(url: &str, resolver: &Resolver) -> Result<String, TitleError
 
 /// A client that connects only to the checked addresses of `url`'s host, through no
 /// proxy (a proxy would resolve the name itself) and without following redirects.
-async fn pinned_client(url: &Url, resolver: &Resolver) -> Result<reqwest::Client, TitleError> {
+pub(super) async fn pinned_client(
+    url: &Url,
+    resolver: &Resolver,
+) -> Result<reqwest::Client, TitleError> {
     let host = url.host_str().ok_or(UrlError::Invalid)?.to_string();
     let port = url.port_or_known_default().ok_or(UrlError::Invalid)?;
     let builder = reqwest::Client::builder()

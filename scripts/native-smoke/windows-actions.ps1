@@ -1,7 +1,7 @@
 #requires -Version 7
 # Runs ON the hidden desktop. Drives one window with posted messages and a
 # thread-attached key state (never SendInput), and captures it with PrintWindow.
-# Actions (comma separated): ctrlkey:<vk>  wheel:<delta>  ctrlwheel:<delta>
+# Actions (comma separated): ctrlkey:<vk>  altkey:<vk>  wheel:<delta>  ctrlwheel:<delta>
 #   click:<x>:<y> (client px)  capture:<file.png>  sleep:<ms>  close
 param([Parameter(Mandatory)] [long] $Hwnd, [Parameter(Mandatory)] [string] $Actions,
     [Parameter(Mandatory)] [string] $Log, [Parameter(Mandatory)] [string] $ExpectedIconPath)
@@ -47,6 +47,10 @@ public static class Drive {
     public static void Ctrl(bool down) {
         var s = new byte[256]; GetKeyboardState(s);
         byte v = (byte)(down ? 0x80 : 0); s[0x11] = v; s[0xA2] = v; SetKeyboardState(s);
+    }
+    public static void Alt(bool down) {
+        var s = new byte[256]; GetKeyboardState(s);
+        byte v = (byte)(down ? 0x80 : 0); s[0x12] = v; s[0xA4] = v; SetKeyboardState(s);
     }
     public static void Shift(bool down) {
         var s = new byte[256]; GetKeyboardState(s);
@@ -287,6 +291,21 @@ try {
                 Start-Sleep -Milliseconds 100
                 [Drive]::Ctrl($false)
                 [Drive]::PostMessageW($h, 0x101, [IntPtr]0x11, [IntPtr]0xC01D0001) | Out-Null
+                Start-Sleep -Milliseconds 400
+            }
+            'altkey' {
+                # Alt chords arrive as WM_SYSKEYDOWN/WM_SYSKEYUP with the context bit
+                # (29) set; GPUI handles both, so the release opens no window menu.
+                $vk = [int]$parts[1]
+                $keyBits = ([long][Drive]::MapVirtualKeyW($vk, 0) -shl 16) -bor 1 -bor 0x20000000L
+                [Drive]::Alt($true)
+                [Drive]::PostMessageW($h, 0x104, [IntPtr]0x12, [IntPtr]0x20380001) | Out-Null
+                [Drive]::PostMessageW($h, 0x104, [IntPtr]$vk, [IntPtr]$keyBits) | Out-Null
+                Start-Sleep -Milliseconds 400
+                [Drive]::PostMessageW($h, 0x105, [IntPtr]$vk, [IntPtr]($keyBits -bor 0xC0000000L)) | Out-Null
+                Start-Sleep -Milliseconds 100
+                [Drive]::Alt($false)
+                [Drive]::PostMessageW($h, 0x105, [IntPtr]0x12, [IntPtr]0xE0380001L) | Out-Null
                 Start-Sleep -Milliseconds 400
             }
             'ctrlshiftkey' {

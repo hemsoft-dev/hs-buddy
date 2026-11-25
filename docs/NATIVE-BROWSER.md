@@ -29,6 +29,15 @@ once the browser has the keyboard: clicking a tab gives it to the browser, as do
 reaching a tab with Tab. Clicking into a page gives the page the keyboard until you
 click Buddy again.
 
+Alt+= or Alt++ zooms the shown page in and Alt+- zooms it out, the same 10% step as
+the toolbar buttons; on macOS the keys are Option+= and Option+-. As in Electron,
+which listens on its window while a page tab is mounted, the keys work wherever
+Buddy has the keyboard while a page tab is shown, except in the terminal, whose
+shell keeps Alt keys. A page that has the keyboard keeps them, as an Electron
+webview does, and with the bookmark list or another section shown they reach the
+focused field (Option+= still types ≠). Electron has no reset key, and neither
+does Buddy.
+
 ## What a page may do
 
 The rules are stricter than Electron's embedded tab and match its in-app browser

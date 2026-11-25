@@ -84,7 +84,7 @@ impl FixtureOrigin {
         )
     }
 
-    fn parse(value: Option<&str>, isolated_config: bool) -> Option<Self> {
+    pub(crate) fn parse(value: Option<&str>, isolated_config: bool) -> Option<Self> {
         if !isolated_config {
             return None;
         }
@@ -99,7 +99,8 @@ impl FixtureOrigin {
         .then_some(Self(url))
     }
 
-    fn admits(&self, url: &Url) -> bool {
+    /// Whether `url` is on exactly this origin.
+    pub fn admits(&self, url: &Url) -> bool {
         url.scheme() == self.0.scheme()
             && url.host() == self.0.host()
             && url.port_or_known_default() == self.0.port_or_known_default()
