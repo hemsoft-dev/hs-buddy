@@ -183,7 +183,8 @@ fn the_poll_waits_for_the_minute_and_for_an_unanswered_read() {
     assert!(!quota.due(&first, now + secs(59)));
     assert!(quota.due(&first, now + RATE_LIMIT_REFRESH));
 
-    // A cached reading keeps the time GitHub reported it.
+    // A reading keeps the time GitHub reported it, not when it arrived.
+    let mut quota = QuotaTracker::default();
     let request = quota.begin(&first, now).unwrap();
     quota.finish(
         &request,
@@ -193,4 +194,56 @@ fn the_poll_waits_for_the_minute_and_for_an_unanswered_read() {
     );
     assert_eq!(quota.read_at(&first), Some(now - secs(40)));
     assert!(quota.due(&first, now + secs(20)));
+}
+
+#[test]
+fn a_reading_older_than_the_held_one_is_never_applied() {
+    // Namespace A reads a nonzero quota, then namespace B reads the same
+    // login's quota exhausted half a minute later.
+    let team = account("First", "team");
+    let solo = account("first", "solo");
+    let mut quota = QuotaTracker::default();
+    let now = Instant::now();
+    let a = quota.begin(&team, now).unwrap();
+    assert!(quota.finish(&a, read(4321), now, NOW_SECONDS));
+    let later = now + secs(30);
+    let b = quota.begin(&solo, later).unwrap();
+    let exhausted = reading(0, NOW_SECONDS + 900);
+    assert!(quota.finish(
+        &b,
+        QuotaReply::Read(exhausted, Duration::ZERO),
+        later,
+        NOW_SECONDS
+    ));
+    // Reopening A gets a reading GitHub reported before B's, as a cached
+    // reply would be. It is the newest request, but not the newest reading.
+    let reopened = quota.begin(&team, later).unwrap();
+    assert!(!quota.finish(
+        &reopened,
+        QuotaReply::Read(reading(4321, NOW_SECONDS + 600), secs(30)),
+        later,
+        NOW_SECONDS
+    ));
+    assert_eq!(quota.shown(&team), Some(&exhausted));
+    assert_eq!(quota.read_at(&team), Some(later));
+    assert!(!quota.pending(&team));
+
+    // A short Retry-After after it still waits for the exhausted reset.
+    let throttled_read = quota.begin(&team, later).unwrap();
+    quota.finish(&throttled_read, throttled(5), later, NOW_SECONDS);
+    assert_eq!(quota.not_before(&team), Some(later + secs(900)));
+    assert!(quota.begin(&solo, later + secs(899)).is_none());
+}
+
+#[test]
+fn a_reading_under_a_minute_old_is_reused_in_every_namespace_of_its_login() {
+    let team = account("First", "team");
+    let solo = account("first", "solo");
+    let mut quota = QuotaTracker::default();
+    let now = Instant::now();
+    let request = quota.begin(&team, now).unwrap();
+    quota.finish(&request, read(4321), now, NOW_SECONDS);
+    assert!(!quota.due(&solo, now + secs(59)));
+    assert_eq!(quota.shown(&solo).map(|limit| limit.remaining), Some(4321));
+    assert!(quota.due(&solo, now + RATE_LIMIT_REFRESH));
 }

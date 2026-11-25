@@ -52,10 +52,12 @@ impl RateLimit {
 
 impl GitHubClient {
     /// Reading `/rate_limit` does not count against the quota it reports.
-    /// A cached reading keeps its age, so the next poll is due by when
-    /// GitHub reported it rather than by when it was reused.
-    pub async fn rate_limit(&self, force: bool) -> Result<Loaded<RateLimit>, GitHubError> {
-        let loaded = self.request(ApiRequest::get("/rate_limit"), force).await?;
+    /// It is always read from GitHub: the response cache is kept per
+    /// namespace, while the quota belongs to the login, so a cached reading
+    /// from one namespace could be older than one read in another. The app's
+    /// per-login tracker decides when a reading is fresh enough to reuse.
+    pub async fn rate_limit(&self) -> Result<Loaded<RateLimit>, GitHubError> {
+        let loaded = self.request(ApiRequest::get("/rate_limit"), true).await?;
         Ok(Loaded {
             value: RateLimit::parse(&loaded.value.body)?,
             from_cache: loaded.from_cache,
@@ -105,7 +107,10 @@ mod tests {
         );
     }
 
-    struct Quota;
+    #[derive(Default)]
+    struct Quota {
+        reads: std::sync::atomic::AtomicU64,
+    }
 
     impl crate::github::Transport for Quota {
         fn request<'a>(
@@ -113,29 +118,33 @@ mod tests {
             _: &'a crate::github::AccountScope,
             _: ApiRequest,
         ) -> crate::github::transport::ApiFuture<'a> {
-            Box::pin(async {
+            let reads = self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move {
                 Ok(crate::github::ApiResponse {
                     status: 200,
                     headers: Default::default(),
-                    body: body(json!(5000), json!(4000)),
+                    body: body(json!(5000), json!(4000 - reads)),
                 })
             })
         }
     }
 
     #[tokio::test]
-    async fn a_cached_quota_keeps_the_age_of_its_reading() {
-        use std::time::Duration;
-        let client = crate::github::GitHubClients::with_transport(std::sync::Arc::new(Quota))
-            .for_account(crate::github::AccountScope::new("first", "team").unwrap());
-        let read = client.rate_limit(false).await.unwrap();
-        assert!(!read.from_cache && read.age.is_zero());
-        std::thread::sleep(Duration::from_millis(20));
-        let cached = client.rate_limit(false).await.unwrap();
-        assert!(cached.from_cache && cached.age >= Duration::from_millis(20));
-        assert_eq!(cached.value, read.value);
-        let forced = client.rate_limit(true).await.unwrap();
-        assert!(!forced.from_cache && forced.age.is_zero());
+    async fn the_quota_is_always_read_from_github_never_from_the_namespace_cache() {
+        let quota = std::sync::Arc::new(Quota::default());
+        let clients = crate::github::GitHubClients::with_transport(quota.clone());
+        let team = clients.for_account(crate::github::AccountScope::new("first", "team").unwrap());
+        let solo = clients.for_account(crate::github::AccountScope::new("first", "solo").unwrap());
+        let first = team.rate_limit().await.unwrap();
+        assert!(!first.from_cache && first.age.is_zero());
+        assert_eq!(first.value.remaining, 4000);
+        // Another namespace spends quota; re-reading the first namespace
+        // inside the cache's lifetime still asks GitHub for the newest value.
+        assert_eq!(solo.rate_limit().await.unwrap().value.remaining, 3999);
+        let again = team.rate_limit().await.unwrap();
+        assert!(!again.from_cache && again.age.is_zero());
+        assert_eq!(again.value.remaining, 3998);
+        assert_eq!(quota.reads.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 
     #[test]

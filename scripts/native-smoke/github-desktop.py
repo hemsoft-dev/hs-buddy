@@ -298,9 +298,11 @@ def qualify_workbench(driver, config, backend):
             # Later scenes start from the organization namespace.
             ("content", "fixture-org / fixture-one"), ("sleep", 1),
         ])
+        # Checked before cleanup, so a failed cleanup is a note on this error
+        # rather than hiding it.
+        check(workbench / "workbench-dark.png", "Current workbench", "workbench-demo", github_backend.WORKBENCH_ISSUE)
     finally:
         remove_personal_account(config, backend, identity, sys.exc_info()[1])
-    check(workbench / "workbench-dark.png", "Current workbench", "workbench-demo", github_backend.WORKBENCH_ISSUE)
 
 
 def qualify(executable, output, session, version, backend, api):

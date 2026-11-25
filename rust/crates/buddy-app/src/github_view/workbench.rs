@@ -97,8 +97,9 @@ fn ago(at: Timestamp, now: Timestamp) -> String {
 /// total: Electron's "0 repositories" would claim there was no activity.
 pub(super) fn header_meta(activity: &RepositoryActivity, now: Timestamp) -> Vec<String> {
     let mut meta = Vec::new();
-    // An empty list from an unread or unfinished search is not "0 repositories".
-    if !activity.repositories.is_empty() || !activity.uncertain() {
+    // An empty list from an unread or unfinished search, or from a sample
+    // GitHub says has more results, is not "0 repositories".
+    if !activity.repositories.is_empty() || !(activity.uncertain() || activity.has_more) {
         let count = activity.repositories.len();
         meta.push(format!(
             "{count} {}",
@@ -138,10 +139,15 @@ pub(super) fn status(activity: &RepositoryActivity) -> Option<String> {
                 .into(),
         );
     }
-    activity
-        .repositories
-        .is_empty()
-        .then(|| "No recent issue or pull-request activity found.".into())
+    if !activity.repositories.is_empty() {
+        return None;
+    }
+    // Everything sampled was filtered out, but GitHub reported more results.
+    Some(if activity.has_more {
+        "No activity in the first results GitHub returned; more may exist. All activity shows the rest on GitHub.".into()
+    } else {
+        "No recent issue or pull-request activity found.".into()
+    })
 }
 
 /// A lane's heading count, and the note under its items: an unread lane
@@ -392,19 +398,23 @@ impl GitHubView {
         let Some(account) = self.overview.account.clone() else {
             return;
         };
-        if self.quota.due(&account, Instant::now()) {
-            self.read_rate_limit(account, true, cx);
-        }
+        self.read_rate_limit(account, false, cx);
     }
 
-    /// Read the quota if the login may send now. The reply is recorded for
+    /// Read the quota if the login may send now. Unless forced, the login's
+    /// reading is reused while it is under a minute old or a read is in
+    /// flight, in whichever namespace it was read. The reply is recorded for
     /// the login even if the overview was left meanwhile.
     fn read_rate_limit(&mut self, account: AccountScope, force: bool, cx: &mut Context<Self>) {
-        let Some(request) = self.quota.begin(&account, Instant::now()) else {
+        let now = Instant::now();
+        if !force && !self.quota.due(&account, now) {
+            return;
+        }
+        let Some(request) = self.quota.begin(&account, now) else {
             return;
         };
         let client = self.clients.for_account(account);
-        let rx = Runtime::global(cx).spawn(async move { client.rate_limit(force).await });
+        let rx = Runtime::global(cx).spawn(async move { client.rate_limit().await });
         cx.spawn(async move |this, cx| {
             let reply = match rx.await {
                 Ok(Ok(loaded)) => QuotaReply::Read(loaded.value, loaded.age),

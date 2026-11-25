@@ -228,7 +228,7 @@ class InstalledEvidence(unittest.TestCase):
                     check.assert_called_once_with(output / 'workbench-dark.png', 'Current workbench',
                         'workbench-demo', 'Fixture workbench issue')
 
-    def run_workbench_cleanup(self, create=None, remove=None, drive=None, restore=None):
+    def run_workbench_cleanup(self, create=None, remove=None, drive=None, restore=None, checked=None):
         """Run qualify_workbench with the given failures; return the raised
         error, the configured accounts afterwards, and the mutations made."""
         with TemporaryDirectory() as temporary:
@@ -251,7 +251,8 @@ class InstalledEvidence(unittest.TestCase):
                 return write_text(path, text, *args, **kwargs)
             raised = None
             with patch.object(desktop, 'mutate', side_effect=mutate) as mutated, \
-                    patch.object(desktop, 'check'), patch.object(Path, 'write_text', restoring):
+                    patch.object(desktop, 'check', side_effect=checked), \
+                    patch.object(Path, 'write_text', restoring):
                 try:
                     desktop.qualify_workbench(driver, config, Mock())
                 except Exception as error:
@@ -284,6 +285,16 @@ class InstalledEvidence(unittest.TestCase):
         raised, saved, _ = self.run_workbench_cleanup(remove=removal)
         self.assertIs(raised, removal)
         self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+
+    def test_a_failed_screenshot_check_is_raised_with_cleanup_failures_as_notes(self):
+        failure = RuntimeError("Current workbench is missing")
+        raised, saved, mutations = self.run_workbench_cleanup(
+            checked=failure, remove=ConnectionError("remove failed"))
+        self.assertIs(raised, failure)
+        self.assertEqual(raised.__notes__, ['Fixture account removal failed: ConnectionError'])
+        # Cleanup still ran after the failed check.
+        self.assertEqual(saved, [dict(username='fixture-one', org='fixture-org')])
+        self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
 
     def test_a_failed_configuration_restore_still_removes_the_account(self):
         restore = OSError("disk full")

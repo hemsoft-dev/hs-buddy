@@ -85,14 +85,17 @@ impl Transport for OverviewFixture {
                     .unwrap()
                     .is_none_or(|user| user == account.username())
             });
-            let (status, body) = if path == "/users/team" {
+            let (status, body) = if path == "/users/team" || path == "/users/solo" {
                 let kind = if self.personal {
                     "User"
                 } else {
                     "Organization"
                 };
                 (200, json!({"login":"team","type":kind}))
-            } else if path.starts_with("/user/repos") || path.starts_with("/orgs/team/repos") {
+            } else if path.starts_with("/user/repos")
+                || path.starts_with("/orgs/team/repos")
+                || path.starts_with("/orgs/solo/repos")
+            {
                 (
                     200,
                     json!([{"full_name":"team/Alpha","private":true,"archived":false,"fork":false,
@@ -278,12 +281,12 @@ fn the_quota_is_re_read_each_minute_for_the_shown_overview_only(cx: &mut gpui_ki
     assert_eq!(fixture.reads("/rate_limit"), 2);
     assert_eq!(remaining(cx, &view), Some(1200));
 
-    // A reading requested before a reload is dropped; the reload's own
-    // read reuses the cached 1,200.
+    // A reload while a read is in flight reuses that read instead of
+    // sending another, and its reading is shown.
     *fixture.remaining.lock().unwrap() = 900;
     tick(cx, &view, |view, cx| view.load(false, false, cx));
     assert_eq!(fixture.reads("/rate_limit"), 3);
-    assert_eq!(remaining(cx, &view), Some(1200));
+    assert_eq!(remaining(cx, &view), Some(900));
     assert!(cx.update(|cx| !view.read(cx).quota.pending(&first())));
 
     // A failed re-read hides the gauge instead of keeping an old quota.
@@ -411,7 +414,7 @@ fn reopening_the_overview_keeps_a_cached_quotas_read_time(cx: &mut gpui_kit::Tes
         })
     });
     cx.run_until_parked();
-    // The cached reading is reused and keeps its age.
+    // The login's reading is under a minute old, so it is reused as read.
     assert_eq!(fixture.reads("/rate_limit"), 1);
     assert_eq!(remaining(cx, &view), Some(4321));
     let reopened = cx.update(|cx| view.read(cx).quota.read_at(&first()).unwrap());
@@ -596,6 +599,20 @@ fn an_unfinished_search_never_claims_there_was_no_recent_activity() {
         has_more: false,
         fetched_at: now,
     };
+    // Every sampled result was filtered out, but GitHub's total says more
+    // exist beyond the sample.
+    let sampled = RepositoryActivity {
+        has_more: true,
+        ..activity(None, false, Vec::new())
+    };
+    assert_eq!(
+        status(&sampled).as_deref(),
+        Some(
+            "No activity in the first results GitHub returned; more may exist. All activity shows the rest on GitHub."
+        )
+    );
+    assert_eq!(header_meta(&sampled, now), ["Updated just now"]);
+
     let complete = activity(None, false, Vec::new());
     assert_eq!(
         status(&complete).as_deref(),
@@ -632,4 +649,50 @@ fn an_unfinished_search_never_claims_there_was_no_recent_activity() {
         header_meta(&partial, now),
         ["1 repository", "Updated just now"]
     );
+}
+
+#[gpui_kit::test]
+fn another_namespaces_newer_reading_is_kept_when_reopening_the_first(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // Namespace A shows 4,321; namespace B, same login, then reads the
+    // quota exhausted.
+    let fixture = OverviewFixture::new(false, 4321);
+    let view = overview(cx, fixture.clone());
+    assert_eq!(remaining(cx, &view), Some(4321));
+    let open = |cx: &mut gpui_kit::TestAppContext, account: AccountScope| {
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                view.change_account(Some(account), cx);
+                view.navigate(Route::Organization, cx);
+            })
+        });
+        cx.run_until_parked();
+    };
+    let solo = AccountScope::new("first", "solo").unwrap();
+    open(cx, solo.clone());
+    // The login's reading is under a minute old in B too.
+    assert_eq!(fixture.reads("/rate_limit"), 1);
+    assert!(cx.update(|cx| view.read(cx).data.is_some()));
+    *fixture.remaining.lock().unwrap() = 0;
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads_by("first", "/rate_limit"), 1);
+    assert_eq!(remaining(cx, &view), Some(0));
+
+    // Reopening A inside the minute shows B's exhausted reading, not A's
+    // older one, and asks GitHub for nothing.
+    open(cx, first());
+    assert_eq!(fixture.reads("/rate_limit"), 2);
+    assert_eq!(remaining(cx, &view), Some(0));
+
+    // A short Retry-After after it still waits for the exhausted reset.
+    *fixture.throttled.lock().unwrap() = Some(5);
+    tick(cx, &view, |_, _| {});
+    assert_eq!(fixture.reads("/rate_limit"), 3);
+    let retry_at = not_before(cx, &view, &first()).unwrap();
+    assert!(retry_at >= Instant::now() + Duration::from_secs(590));
+    *fixture.throttled.lock().unwrap() = None;
+    tick(cx, &view, |_, _| {});
+    open(cx, solo);
+    assert_eq!(fixture.reads("/rate_limit"), 3);
 }

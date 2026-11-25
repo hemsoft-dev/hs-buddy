@@ -5,6 +5,11 @@
 //! entry. The tracker lives as long as the GitHub view, not the overview: a
 //! reply that arrives after the overview is left is still recorded, and a
 //! retry window GitHub asked for is honoured when the overview is reopened.
+//!
+//! The tracker is the only store of the reading: `/rate_limit` is never
+//! served from the per-namespace response cache, a reading reported before
+//! the one held is never applied, and a reading under a minute old is reused
+//! instead of read again.
 use buddy_core::github::{AccountScope, RateLimit};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -36,6 +41,9 @@ struct LoginQuota {
     /// The newest successful reading. A failure hides it from the gauge but
     /// keeps it, so a later throttle still knows an exhausted quota's reset.
     reading: Option<RateLimit>,
+    /// When GitHub reported `reading`. A reading reported earlier than this
+    /// is older than the one held, and is never applied.
+    reported_at: Option<Instant>,
     /// The newest reply failed, so the gauge shows nothing.
     failed: bool,
     /// When GitHub reported the shown reading, or when the newest read failed.
@@ -104,7 +112,8 @@ impl QuotaTracker {
 
     /// Record a reply. A throttle always holds the login back, even when the
     /// request was superseded; anything else is applied only for the login's
-    /// newest request. Returns whether the shown quota changed.
+    /// newest request, and a reading only if GitHub reported it no earlier
+    /// than the one held. Returns whether the shown quota changed.
     pub(super) fn finish(
         &mut self,
         request: &QuotaRequest,
@@ -132,12 +141,19 @@ impl QuotaTracker {
         quota.pending = false;
         match reply {
             QuotaReply::Read(limit, age) => {
+                let reported = now.checked_sub(age).unwrap_or(now);
+                if quota.reported_at.is_some_and(|held| reported < held) {
+                    // An older reading says nothing about the quota now, nor
+                    // about a retry window, so the held one stays.
+                    return false;
+                }
                 if quota.deadline_epoch < request.id {
                     quota.not_before = None;
                 }
                 quota.reading = Some(limit);
+                quota.reported_at = Some(reported);
                 quota.failed = false;
-                quota.read_at = Some(now.checked_sub(age).unwrap_or(now));
+                quota.read_at = Some(reported);
             }
             QuotaReply::Throttled { .. } | QuotaReply::Failed => {
                 quota.failed = true;
@@ -184,6 +200,9 @@ impl QuotaTracker {
         for quota in self.logins.values_mut() {
             quota.read_at = quota
                 .read_at
+                .and_then(|at| at.checked_sub(RATE_LIMIT_REFRESH));
+            quota.reported_at = quota
+                .reported_at
                 .and_then(|at| at.checked_sub(RATE_LIMIT_REFRESH));
             if expire_deadlines {
                 quota.not_before = quota.not_before.map(|_| Instant::now());
