@@ -237,7 +237,9 @@ impl Host for WryHost {
             Unavailable("The web engine couldn't start.".into())
         })?;
         let page = WryPage(webview);
-        page.zoom(zoom);
+        if let Err(err) = page.zoom(zoom) {
+            log::warn!("browser: zoom failed: {err}");
+        }
         Ok(Rc::new(page))
     }
 
@@ -338,8 +340,8 @@ impl Page for WryPage {
         logged("focus", self.0.focus_parent());
     }
 
-    fn zoom(&self, zoom: f64) {
-        logged("zoom", self.0.zoom(zoom));
+    fn zoom(&self, zoom: f64) -> Result<(), String> {
+        self.0.zoom(zoom).map_err(|err| err.to_string())
     }
 
     fn url(&self) -> Option<String> {

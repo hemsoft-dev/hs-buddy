@@ -2,7 +2,7 @@ use super::service::{Reply, SuggestRequest};
 use super::*;
 use buddy_core::bookmarks::Draft;
 use buddy_core::bookmarks::client::BackendError;
-use buddy_core::bookmarks::favicon::{Favicon, Format};
+use buddy_core::bookmarks::favicon::Favicon;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use gpui_kit::{AnyWindowHandle, ClipboardItem, VisualTestContext, px};
@@ -977,10 +977,7 @@ fn with_favicons() -> Arc<Fake> {
     let fake = Fake::with(books);
     fake.favicons.lock().unwrap().insert(
         "https://example.com/rust.png".into(),
-        Favicon {
-            format: Format::Png,
-            bytes: PNG.to_vec(),
-        },
+        buddy_core::bookmarks::favicon::sanitize(&PNG).unwrap(),
     );
     fake
 }
@@ -1029,6 +1026,43 @@ fn cards_and_tree_rows_show_loaded_favicons_and_the_globe_otherwise(
     view.update(&mut visual, |view, cx| view.refresh(cx));
     visual.run_until_parked();
     assert_eq!(fake.favicon_requests.lock().unwrap().len(), 2);
+}
+
+#[gpui_kit::test]
+fn a_favicon_no_bookmark_uses_any_more_is_forgotten(cx: &mut gpui_kit::TestAppContext) {
+    const RUST: &str = "https://example.com/rust.png";
+    const MOVED: &str = "https://example.com/moved.png";
+    let fake = with_favicons();
+    let (mut visual, view) = open(cx, &fake);
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |view, _| view.favicons.image(RUST).is_some()));
+    // One bookmark using the address is deleted and the other's favicon changes.
+    {
+        let mut books = fake.bookmarks.lock().unwrap();
+        books.retain(|bookmark| bookmark.id != "rust");
+        for bookmark in books.iter_mut() {
+            if bookmark.favicon_url.as_deref() == Some(RUST) {
+                bookmark.favicon_url = Some(MOVED.into());
+            }
+        }
+    }
+    view.update(&mut visual, |view, cx| view.refresh(cx));
+    visual.run_until_parked();
+    view.read_with(&visual, |view, _| {
+        assert!(view.favicons.image(RUST).is_none());
+        assert!(view.favicons.failed(MOVED));
+        // Only the two addresses bookmarks still use are kept.
+        assert_eq!(view.favicons.known(), 2);
+    });
+    assert!(
+        fake.favicon_requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|url| url == MOVED)
+    );
+    assert!(visual.debug_bounds("bookmark-favicon-news").is_none());
+    assert!(visual.debug_bounds("bookmark-globe-news").is_some());
 }
 
 #[gpui_kit::test]

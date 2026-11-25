@@ -19,6 +19,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 import zlib
 
+import colour_blocks
 from desktop import fixture, require_closed_sessions
 
 HERE = Path(__file__).resolve().parent
@@ -51,6 +52,11 @@ FAVICON_RGB = (255, 0, 255)
 FAVICON_MIN_PIXELS = 150
 # The toolbar's page zoom before and after one Alt+= (the 10% button step).
 ZOOM_BEFORE, ZOOM_AFTER = "100%", "110%"
+# A lime block of fixed CSS size on the Fixture page: one Alt+= must widen it
+# by the step, so a zoom the engine refused fails even if the toolbar moved.
+PAGE_BLOCK = "lime"
+PAGE_BLOCK_CSS = "width:160px;height:80px;background:#00ff00"
+ZOOM_RATIO = (1.05, 1.15)
 
 
 def solid_png(width, height, rgb):
@@ -103,7 +109,7 @@ class Site:
     def page(self, visits):
         return (f"<!doctype html><html><head><title>Buddy Fixture OK</title></head>"
                 f"<body style=\"font:48px sans-serif;margin:32px\"><p>{PAGE_TEXT}</p>"
-                f"<p>Visit {visits}</p></body></html>")
+                f"<p>Visit {visits}</p><div style=\"{PAGE_BLOCK_CSS}\"></div></body></html>")
 
     def handler(self, site):
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -228,27 +234,7 @@ def evaluate(records, beacons, downloads, frame):
 
 def favicon_pixels(image):
     """How many pixels of the capture are the fixture favicon's colour, and their bounds."""
-    width, height = struct.unpack(">II", image.read_bytes()[16:24])
-    raw = image.with_suffix(".favicon.rgb")
-    settings.run("ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", image,
-        "-vf", "format=rgb24", "-f", "rawvideo", "-frames:v", "1", raw)
-    data = raw.read_bytes()
-    if len(data) != width * height * 3:
-        raise RuntimeError("The favicon analysis read an incomplete capture")
-    return matching_pixels(data, width)
-
-
-def matching_pixels(data, width):
-    count, left, top, right, bottom = 0, None, None, None, None
-    for index in range(0, len(data), 3):
-        red, green, blue = data[index:index + 3]
-        if red >= 220 and green <= 40 and blue >= 220:
-            x, y = (index // 3) % width, (index // 3) // width
-            count += 1
-            left, right = min(x, left if left is not None else x), max(x, right if right is not None else x)
-            top, bottom = min(y, top if top is not None else y), max(y, bottom if bottom is not None else y)
-    bounds = None if count == 0 else dict(left=left, top=top, width=right - left + 1, height=bottom - top + 1)
-    return count, bounds
+    return colour_blocks.measure(image, "magenta")
 
 
 def require_favicon(image):
@@ -264,6 +250,23 @@ def require_favicon(image):
     return dict(pixels=count, bounds=bounds)
 
 
+def require_zoomed(before, after):
+    """The page's content grew by one zoom step between the two captures: its
+    fixed-size block is wider and taller by about 10%, not just relabelled."""
+    sizes = []
+    for image in (before, after):
+        count, bounds = colour_blocks.measure(image, PAGE_BLOCK)
+        if bounds is None or count < 1000:
+            raise RuntimeError(f"The Fixture page's block is not shown in {image.name} ({count} pixels)")
+        sizes.append(bounds)
+    ratios = [sizes[1][side] / sizes[0][side] for side in ("width", "height")]
+    evidence = dict(before=sizes[0], after=sizes[1], ratios=ratios)
+    after.with_suffix(".zoom.json").write_text(json.dumps(evidence), encoding="utf-8")
+    if not all(ZOOM_RATIO[0] <= ratio <= ZOOM_RATIO[1] for ratio in ratios):
+        raise RuntimeError(f"The page did not scale by one zoom step: {evidence}")
+    return evidence
+
+
 def first_pass(driver, theme):
     """A fresh session: the probe's refusals, then a page, at both sizes. The
     Fixture page card shows its favicon, and Alt+= zooms the page one step
@@ -272,9 +275,11 @@ def first_pass(driver, theme):
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
         ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
-        ("capture", f"bookmark-favicons-{theme}"),
+        # The favicon arrives after the list: wait for its colour, then capture.
+        ("wait_colour", "magenta", FAVICON_MIN_PIXELS), ("capture", f"bookmark-favicons-{theme}"),
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
-        ("altkey", "="), ("wait_text", ZOOM_AFTER), ("capture", f"browser-page-zoom-{theme}"),
+        # The engine repaints the page a frame after it takes the zoom.
+        ("altkey", "="), ("wait_text", ZOOM_AFTER), ("sleep", 1), ("capture", f"browser-page-zoom-{theme}"),
         ("altkey", "-"), ("wait_text", ZOOM_BEFORE),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
@@ -292,7 +297,8 @@ def first_pass(driver, theme):
     github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
     github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
     github.check(flow / f"browser-page-zoom-{theme}.png", PAGE_TEXT, ZOOM_AFTER, browser=True)
-    return dict(favicon=favicon)
+    zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
+    return dict(favicon=favicon, zoom=zoom)
 
 
 def saved_zoom(config):

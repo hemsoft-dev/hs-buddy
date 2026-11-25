@@ -5,9 +5,17 @@
 //! every redirect is checked again, and each request has a 5 second timeout.
 //!
 //! The body is capped at [`MAX_BYTES`] and must be a PNG, JPEG, GIF, WebP, ICO
-//! or BMP image, recognised from its first bytes, whose declared size is at most
-//! [`MAX_SIDE`] pixels a side. SVG is refused: GPUI draws an SVG at its declared
-//! size, so a tiny file could ask for an enormous bitmap.
+//! or BMP image, recognised from its first bytes. It is decoded here, never by
+//! GPUI: the decoder refuses an image over [`MAX_SIDE`] pixels a side or one
+//! that needs more than [`MAX_DECODE_BYTES`], takes only the first frame of an
+//! animation, and the result is scaled down to at most [`ICON_SIDE`] a side.
+//! GPUI is handed those few pixels, so a favicon holds at most 16 KiB however
+//! its file is built. SVG is refused: it isn't pixels, and drawing one would
+//! need a renderer outside these limits.
+use std::io::Cursor;
+
+use image::imageops::FilterType;
+use image::{ImageError, ImageFormat, ImageReader, Limits, RgbaImage};
 use reqwest::Url;
 use reqwest::header::{ACCEPT, CONTENT_LENGTH, LOCATION};
 
@@ -17,8 +25,13 @@ use crate::browser::FixtureOrigin;
 
 /// A favicon larger than this is refused, unread past the limit.
 pub const MAX_BYTES: usize = 256 * 1024;
-/// The widest or tallest image accepted, so decoding stays small.
-pub const MAX_SIDE: u32 = 1024;
+/// The widest or tallest image the decoder accepts.
+pub const MAX_SIDE: u32 = 512;
+/// What one decode may allocate, its output included: a 512 px RGBA image at
+/// 16 bits a channel is 2 MiB, which leaves the decoder room for its own buffers.
+pub const MAX_DECODE_BYTES: u64 = 4 * 1024 * 1024;
+/// The largest favicon kept: a 20 px card icon at 3x, with room to spare.
+pub const ICON_SIDE: u32 = 64;
 const MAX_REDIRECTS: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -49,7 +62,7 @@ impl From<TitleError> for FaviconError {
     }
 }
 
-/// The image formats a favicon may be, all of which GPUI decodes.
+/// The image formats a favicon may be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Png,
@@ -60,11 +73,24 @@ pub enum Format {
     Bmp,
 }
 
-/// A downloaded favicon, checked but not decoded.
+impl Format {
+    fn decoder(self) -> ImageFormat {
+        match self {
+            Self::Png => ImageFormat::Png,
+            Self::Jpeg => ImageFormat::Jpeg,
+            Self::Gif => ImageFormat::Gif,
+            Self::Webp => ImageFormat::WebP,
+            Self::Ico => ImageFormat::Ico,
+            Self::Bmp => ImageFormat::Bmp,
+        }
+    }
+}
+
+/// A decoded favicon: one frame of RGBA pixels, at most [`ICON_SIDE`] a side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Favicon {
     pub format: Format,
-    pub bytes: Vec<u8>,
+    pub image: RgbaImage,
 }
 
 /// The address to load, or `None` when the bookmark's `faviconUrl` may not be
@@ -120,21 +146,42 @@ pub async fn fetch_favicon_with(
             return Err(FaviconError::Status(status.as_u16()));
         }
         let bytes = read_capped(response).await?;
-        return check_image(bytes);
+        return sanitize(&bytes);
     }
     Err(FaviconError::TooManyRedirects)
 }
 
-/// A body that is a supported image no larger than [`MAX_SIDE`] a side.
-pub fn check_image(bytes: Vec<u8>) -> Result<Favicon, FaviconError> {
-    let format = sniff(&bytes).ok_or(FaviconError::NotAnImage)?;
-    match dimensions(format, &bytes) {
-        Some((width, height)) if width > MAX_SIDE || height > MAX_SIDE => {
-            Err(FaviconError::TooLarge)
-        }
-        Some((width, height)) if width > 0 && height > 0 => Ok(Favicon { format, bytes }),
-        _ => Err(FaviconError::NotAnImage),
+/// The first frame of a supported image no larger than [`MAX_SIDE`] a side,
+/// decoded within [`MAX_DECODE_BYTES`] and scaled to fit [`ICON_SIDE`].
+///
+/// The decoder checks the size it is about to produce before it allocates, so
+/// the limits hold for every format: an ICO is decoded from the entry the
+/// decoder picks, whatever its directory says, and a GIF from its first frame.
+pub fn sanitize(bytes: &[u8]) -> Result<Favicon, FaviconError> {
+    let format = sniff(bytes).ok_or(FaviconError::NotAnImage)?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format.decoder());
+    reader.limits(limits);
+    let decoded = reader.decode().map_err(|error| match error {
+        ImageError::Limits(_) => FaviconError::TooLarge,
+        _ => FaviconError::NotAnImage,
+    })?;
+    if decoded.width() == 0 || decoded.height() == 0 {
+        return Err(FaviconError::NotAnImage);
     }
+    let fitted = if decoded.width() > ICON_SIDE || decoded.height() > ICON_SIDE {
+        // Keeps the aspect ratio; the result fits inside ICON_SIDE a side.
+        decoded.resize(ICON_SIDE, ICON_SIDE, FilterType::Triangle)
+    } else {
+        decoded
+    };
+    Ok(Favicon {
+        format,
+        image: fitted.into_rgba8(),
+    })
 }
 
 /// The whole body, refused once it passes [`MAX_BYTES`].
@@ -175,80 +222,4 @@ pub fn sniff(bytes: &[u8]) -> Option<Format> {
     } else {
         None
     }
-}
-
-/// The declared width and height, or `None` when the header can't be read.
-pub fn dimensions(format: Format, bytes: &[u8]) -> Option<(u32, u32)> {
-    let le16 = |at: usize| {
-        Some(u32::from(u16::from_le_bytes(
-            bytes.get(at..at + 2)?.try_into().ok()?,
-        )))
-    };
-    let be32 = |at: usize| Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
-    let le32 = |at: usize| Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
-    // BMP stores a negative height for top-down rows.
-    let signed = |at: usize| {
-        Some(i32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?).unsigned_abs())
-    };
-    let le24 = |at: usize| {
-        let b = bytes.get(at..at + 3)?;
-        Some(u32::from(b[0]) | u32::from(b[1]) << 8 | u32::from(b[2]) << 16)
-    };
-    match format {
-        // IHDR is always the first chunk.
-        Format::Png => Some((be32(16)?, be32(20)?)),
-        Format::Gif => Some((le16(6)?, le16(8)?)),
-        Format::Bmp => Some((signed(18)?, signed(22)?)),
-        Format::Jpeg => jpeg_dimensions(bytes),
-        Format::Webp => match bytes.get(12..16)? {
-            b"VP8X" => Some((le24(24)? + 1, le24(27)? + 1)),
-            b"VP8L" => {
-                let bits = le32(21)?;
-                Some(((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1))
-            }
-            b"VP8 " => Some((le16(26)? & 0x3FFF, le16(28)? & 0x3FFF)),
-            _ => None,
-        },
-        // The largest entry; an entry may hold a PNG of any size.
-        Format::Ico => {
-            let count = le16(4)? as usize;
-            let mut largest = (0, 0);
-            for entry in 0..count.min(64) {
-                let at = 6 + entry * 16;
-                let side = |byte: u8| if byte == 0 { 256 } else { u32::from(byte) };
-                let mut size = (side(*bytes.get(at)?), side(*bytes.get(at + 1)?));
-                let image = bytes.get(usize::try_from(le32(at + 12)?).ok()?..)?;
-                if sniff(image) == Some(Format::Png) {
-                    size = dimensions(Format::Png, image)?;
-                }
-                largest = (largest.0.max(size.0), largest.1.max(size.1));
-            }
-            (count > 0).then_some(largest)
-        }
-    }
-}
-
-/// The first start-of-frame marker's height and width.
-fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
-    let mut at = 2;
-    while at + 4 <= bytes.len() {
-        if bytes[at] != 0xFF {
-            return None;
-        }
-        let marker = bytes[at + 1];
-        if marker == 0xFF {
-            at += 1;
-            continue;
-        }
-        let length = u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]) as usize;
-        let frame = matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC);
-        if frame {
-            let header = bytes.get(at + 5..at + 9)?;
-            let height = u16::from_be_bytes([header[0], header[1]]) as u32;
-            let width = u16::from_be_bytes([header[2], header[3]]) as u32;
-            return Some((width, height));
-        }
-        at += 2 + length;
-    }
-    None
 }

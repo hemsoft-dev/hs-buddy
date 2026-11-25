@@ -567,12 +567,35 @@ fn the_ai_prompt_matches_electron_and_replies_parse_safely() {
     assert_eq!(suggest::parse(&many).tags.unwrap().len(), MAX_TAGS);
 }
 
-/// A PNG's signature and IHDR, enough to be recognised and sized.
+/// A PNG whose header claims `width` x `height`, followed by a stub of image
+/// data: decoders read its size, and fail if asked for its pixels.
 fn png(width: u32, height: u32) -> Vec<u8> {
-    let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
-    bytes.extend_from_slice(&width.to_be_bytes());
-    bytes.extend_from_slice(&height.to_be_bytes());
-    bytes.extend_from_slice(&[8, 6, 0, 0, 0, 0, 0, 0, 0]);
+    fn chunk(bytes: &mut Vec<u8>, kind: &[u8], data: &[u8]) {
+        bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let start = bytes.len();
+        bytes.extend_from_slice(kind);
+        bytes.extend_from_slice(data);
+        // CRC-32 of the type and data, which decoders check.
+        let mut crc = !0u32;
+        for byte in &bytes[start..] {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    0xEDB8_8320 ^ (crc >> 1)
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        bytes.extend_from_slice(&(!crc).to_be_bytes());
+    }
+    let mut header = width.to_be_bytes().to_vec();
+    header.extend_from_slice(&height.to_be_bytes());
+    header.extend_from_slice(&[8, 6, 0, 0, 0]);
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    chunk(&mut bytes, b"IHDR", &header);
+    chunk(&mut bytes, b"IDAT", &[0x78, 0x9c]);
+    chunk(&mut bytes, b"IEND", &[]);
     bytes
 }
 
@@ -586,38 +609,56 @@ fn image_response(content_type: &str, body: &[u8]) -> Vec<u8> {
     response
 }
 
+/// A real image of one colour, encoded in `format`.
+fn encoded(format: image::ImageFormat, width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(width, height, image::Rgba(rgba));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    match format {
+        // JPEG and BMP here take no alpha.
+        image::ImageFormat::Jpeg | image::ImageFormat::Bmp => image::DynamicImage::from(image)
+            .into_rgb8()
+            .write_to(&mut bytes, format)
+            .unwrap(),
+        _ => image.write_to(&mut bytes, format).unwrap(),
+    }
+    bytes.into_inner()
+}
+
+/// An icon directory with one 32-bit entry per `(side, image)`; a side of 0
+/// declares 256 px, as the format does.
+fn icon(entries: &[(u8, Vec<u8>)]) -> Vec<u8> {
+    let mut bytes = vec![0, 0, 1, 0];
+    bytes.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    let mut offset = 6 + entries.len() * 16;
+    for (side, image) in entries {
+        bytes.extend_from_slice(&[*side, *side, 0, 0, 1, 0, 32, 0]);
+        bytes.extend_from_slice(&(image.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += image.len();
+    }
+    for (_, image) in entries {
+        bytes.extend_from_slice(image);
+    }
+    bytes
+}
+
 #[test]
-fn favicon_formats_are_recognised_by_signature_and_sized_from_their_headers() {
-    use super::favicon::{Format, dimensions, sniff};
-    assert_eq!(sniff(&png(16, 16)), Some(Format::Png));
-    assert_eq!(dimensions(Format::Png, &png(32, 48)), Some((32, 48)));
-    let gif = b"GIF89a\x20\x00\x10\x00rest".to_vec();
-    assert_eq!(sniff(&gif), Some(Format::Gif));
-    assert_eq!(dimensions(Format::Gif, &gif), Some((32, 16)));
-    // SOI, an APP0 segment, then a baseline frame of 64 x 40.
-    let jpeg = [
-        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x28,
-        0x00, 0x40, 0x03,
-    ];
-    assert_eq!(sniff(&jpeg), Some(Format::Jpeg));
-    assert_eq!(dimensions(Format::Jpeg, &jpeg), Some((64, 40)));
-    let mut bmp = b"BM".to_vec();
-    bmp.resize(18, 0);
-    bmp.extend_from_slice(&24i32.to_le_bytes());
-    bmp.extend_from_slice(&(-24i32).to_le_bytes());
-    assert_eq!(sniff(&bmp), Some(Format::Bmp));
-    assert_eq!(dimensions(Format::Bmp, &bmp), Some((24, 24)));
-    let mut webp = b"RIFF\0\0\0\0WEBPVP8X\0\0\0\0\0\0\0\0".to_vec();
-    webp.extend_from_slice(&[31, 0, 0, 15, 0, 0]);
-    assert_eq!(sniff(&webp), Some(Format::Webp));
-    assert_eq!(dimensions(Format::Webp, &webp), Some((32, 16)));
-    // An icon whose one entry is a 2048 x 2048 PNG, though the directory says 256.
-    let mut ico = vec![0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 32, 0];
-    ico.extend_from_slice(&(png(2048, 2048).len() as u32).to_le_bytes());
-    ico.extend_from_slice(&22u32.to_le_bytes());
-    ico.extend_from_slice(&png(2048, 2048));
-    assert_eq!(sniff(&ico), Some(Format::Ico));
-    assert_eq!(dimensions(Format::Ico, &ico), Some((2048, 2048)));
+fn favicon_formats_are_recognised_by_their_signature() {
+    use super::favicon::{Format, sniff};
+    use image::ImageFormat;
+    for (format, expected) in [
+        (ImageFormat::Png, Format::Png),
+        (ImageFormat::Jpeg, Format::Jpeg),
+        (ImageFormat::Gif, Format::Gif),
+        (ImageFormat::WebP, Format::Webp),
+        (ImageFormat::Ico, Format::Ico),
+        (ImageFormat::Bmp, Format::Bmp),
+    ] {
+        assert_eq!(
+            sniff(&encoded(format, 4, 4, [1, 2, 3, 255])),
+            Some(expected)
+        );
+    }
     for other in [
         b"<svg xmlns='http://www.w3.org/2000/svg'/>".as_slice(),
         b"<!doctype html>",
@@ -629,28 +670,132 @@ fn favicon_formats_are_recognised_by_signature_and_sized_from_their_headers() {
 }
 
 #[test]
-fn favicon_images_must_be_small_and_readable() {
-    use super::favicon::{FaviconError, Format, MAX_SIDE, check_image};
+fn favicons_are_decoded_here_to_one_small_frame() {
+    use super::favicon::{Format, ICON_SIDE, MAX_SIDE, sanitize};
+    use image::ImageFormat;
+    for (format, expected) in [
+        (ImageFormat::Png, Format::Png),
+        (ImageFormat::Jpeg, Format::Jpeg),
+        (ImageFormat::Gif, Format::Gif),
+        (ImageFormat::WebP, Format::Webp),
+        (ImageFormat::Ico, Format::Ico),
+        (ImageFormat::Bmp, Format::Bmp),
+    ] {
+        let icon = sanitize(&encoded(format, 32, 32, [255, 0, 255, 255])).unwrap();
+        assert_eq!(icon.format, expected, "{format:?}");
+        assert_eq!(icon.image.dimensions(), (32, 32), "{format:?}");
+        let pixel = icon.image.get_pixel(16, 16).0;
+        assert!(
+            pixel[0] > 220 && pixel[1] < 40 && pixel[2] > 220,
+            "{format:?} {pixel:?}"
+        );
+    }
+    // Every result fits ICON_SIDE a side, keeping its shape.
+    for (width, height, fitted) in [
+        (16, 16, (16, 16)),
+        (64, 64, (64, 64)),
+        (300, 100, (64, 21)),
+        (100, 300, (21, 64)),
+        (MAX_SIDE, MAX_SIDE, (64, 64)),
+        (MAX_SIDE, 1, (64, 1)),
+    ] {
+        let icon = sanitize(&encoded(ImageFormat::Png, width, height, [9, 9, 9, 255])).unwrap();
+        assert_eq!(icon.image.dimensions(), fitted, "{width} x {height}");
+        assert!(icon.image.width() <= ICON_SIDE && icon.image.height() <= ICON_SIDE);
+    }
+}
+
+#[test]
+fn a_many_frame_gif_yields_only_its_first_frame() {
+    use super::favicon::{ICON_SIDE, MAX_BYTES, sanitize};
+    use image::codecs::gif::GifEncoder;
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = GifEncoder::new_with_speed(&mut bytes, 30);
+        let frames = (0..200).map(|n| {
+            let colour = if n == 0 {
+                [255, 0, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            };
+            image::Frame::new(image::RgbaImage::from_pixel(256, 256, image::Rgba(colour)))
+        });
+        encoder.encode_frames(frames).unwrap();
+    }
+    // Small enough to be fetched, and 200 full frames once decoded.
+    assert!(bytes.len() < MAX_BYTES, "{}", bytes.len());
+    let icon = sanitize(&bytes).unwrap();
+    assert_eq!(icon.image.dimensions(), (ICON_SIDE, ICON_SIDE));
+    assert_eq!(icon.image.get_pixel(32, 32).0, [255, 0, 0, 255]);
+}
+
+#[test]
+fn an_icon_is_decoded_within_the_limits_whatever_its_directory_says() {
+    use super::favicon::{FaviconError, MAX_BYTES, sanitize};
+    use image::ImageFormat;
+    let small = encoded(ImageFormat::Png, 16, 16, [0, 255, 0, 255]);
+    let mut entries: Vec<(u8, Vec<u8>)> = (0..70).map(|_| (16, small.clone())).collect();
+    // The 71st entry claims 256 px, so the decoder picks it, and holds a PNG
+    // of 60000 px a side: refused before anything that size is allocated.
+    entries.push((0, png(60_000, 60_000)));
+    let oversized = icon(&entries);
+    assert!(oversized.len() < MAX_BYTES);
+    assert_eq!(sanitize(&oversized), Err(FaviconError::TooLarge));
+    // A sound entry that far down the directory is decoded.
+    entries.pop();
+    entries.push((32, encoded(ImageFormat::Png, 32, 32, [0, 0, 255, 255])));
+    let icon = sanitize(&icon(&entries)).unwrap();
+    assert_eq!(icon.image.dimensions(), (32, 32));
+    assert_eq!(icon.image.get_pixel(8, 8).0, [0, 0, 255, 255]);
+}
+
+#[test]
+fn a_bitmap_with_a_core_header_is_decoded() {
+    use super::favicon::sanitize;
+    // BITMAPFILEHEADER, then the 12 byte BITMAPCOREHEADER: 16-bit width and
+    // height side by side, one plane, 24 bits a pixel; rows of 48 bytes.
+    let mut bmp = b"BM".to_vec();
+    bmp.extend_from_slice(&(26u32 + 16 * 48).to_le_bytes());
+    bmp.extend_from_slice(&[0; 4]);
+    bmp.extend_from_slice(&26u32.to_le_bytes());
+    bmp.extend_from_slice(&12u32.to_le_bytes());
+    bmp.extend_from_slice(&16u16.to_le_bytes());
+    bmp.extend_from_slice(&16u16.to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&24u16.to_le_bytes());
+    for _ in 0..16 * 16 {
+        // Blue, green, red.
+        bmp.extend_from_slice(&[0, 128, 255]);
+    }
+    let icon = sanitize(&bmp).unwrap();
+    assert_eq!(icon.image.dimensions(), (16, 16));
+    assert_eq!(icon.image.get_pixel(3, 3).0, [255, 128, 0, 255]);
+}
+
+#[test]
+fn oversized_or_unreadable_favicons_are_refused() {
+    use super::favicon::{FaviconError, MAX_SIDE, sanitize};
+    use image::ImageFormat;
+    for (width, height) in [(MAX_SIDE + 1, 1), (1, MAX_SIDE + 1)] {
+        assert_eq!(
+            sanitize(&encoded(ImageFormat::Png, width, height, [0, 0, 0, 255])),
+            Err(FaviconError::TooLarge)
+        );
+    }
     assert_eq!(
-        check_image(png(16, 16)).map(|icon| icon.format),
-        Ok(Format::Png)
-    );
-    assert_eq!(
-        check_image(png(MAX_SIDE, 1)).map(|icon| icon.format),
-        Ok(Format::Png)
-    );
-    assert_eq!(
-        check_image(png(MAX_SIDE + 1, 16)),
+        sanitize(&encoded(ImageFormat::Gif, MAX_SIDE + 1, 8, [0, 0, 0, 255])),
         Err(FaviconError::TooLarge)
     );
-    assert_eq!(check_image(png(0, 16)), Err(FaviconError::NotAnImage));
-    // Recognised, but too short to say its size.
+    // A header too large to decode, refused before its pixels are read.
+    assert_eq!(sanitize(&png(4096, 4096)), Err(FaviconError::TooLarge));
+    // A sound header, but no pixels to decode.
+    assert_eq!(sanitize(&png(16, 16)), Err(FaviconError::NotAnImage));
     assert_eq!(
-        check_image(b"\x89PNG\r\n\x1a\n".to_vec()),
+        sanitize(b"\x89PNG\r\n\x1a\n"),
         Err(FaviconError::NotAnImage)
     );
     assert_eq!(
-        check_image(b"<svg width='99999'/>".to_vec()),
+        sanitize(b"<svg width='99999'/>"),
         Err(FaviconError::NotAnImage)
     );
 }
@@ -684,6 +829,7 @@ fn only_public_http_favicons_are_loaded_unless_the_fixture_serves_them() {
 #[tokio::test]
 async fn the_favicon_fetch_checks_redirects_and_refuses_large_or_foreign_bodies() {
     use super::favicon::{FaviconError, Format, MAX_BYTES, fetch_favicon_with};
+    let served = encoded(image::ImageFormat::Png, 16, 16, [255, 0, 255, 255]);
     let huge_declared = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         MAX_BYTES + 1
@@ -692,11 +838,11 @@ async fn the_favicon_fetch_checks_redirects_and_refuses_large_or_foreign_bodies(
     // No length: the body itself runs past the limit.
     let mut huge_streamed =
         b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nConnection: close\r\n\r\n".to_vec();
-    huge_streamed.extend_from_slice(&png(16, 16));
+    huge_streamed.extend_from_slice(&served);
     huge_streamed.resize(huge_streamed.len() + MAX_BYTES, 0);
     let port = serve_bytes(vec![
         // A server that names the wrong type still serves an image.
-        ("/icon.png", image_response("text/plain", &png(16, 16))),
+        ("/icon.png", image_response("text/plain", &served)),
         ("/moved", redirect("/icon.png").into_bytes()),
         (
             "/internal",
@@ -719,7 +865,10 @@ async fn the_favicon_fetch_checks_redirects_and_refuses_large_or_foreign_bodies(
         async move { fetch_favicon_with(&url, None, &resolver).await }
     };
     let icon = fetch("/icon.png").await.unwrap();
-    assert_eq!((icon.format, icon.bytes), (Format::Png, png(16, 16)));
+    assert_eq!(
+        (icon.format, icon.image.dimensions()),
+        (Format::Png, (16, 16))
+    );
     assert_eq!(
         fetch("/moved").await.map(|icon| icon.format),
         Ok(Format::Png)

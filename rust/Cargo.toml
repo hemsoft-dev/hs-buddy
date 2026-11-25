@@ -22,6 +22,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 convex = { version = "0.10", default-features = false, features = ["rustls-tls-native-roots"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 futures = "0.3"
+# Already in the tree through GPUI. Only the favicon formats; GPUI's own
+# features still unify, so nothing new is built.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "ico", "bmp"] }
 
 [profile.dev]
 debug = "line-tables-only"

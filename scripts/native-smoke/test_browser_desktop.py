@@ -148,6 +148,7 @@ class BrowserDesktopTests(unittest.TestCase):
 
         driver = Driver()
         with patch.object(desktop.github, 'check') as check, \
+                patch.object(desktop, 'require_zoomed', return_value={}), \
                 patch.object(desktop, 'require_favicon', return_value={}) as favicon:
             desktop.first_pass(driver, 'dark')
         favicon.assert_called_once_with(Path('flow') / 'bookmark-favicons-dark.png')
@@ -251,17 +252,38 @@ class BrowserDesktopTests(unittest.TestCase):
         rows = [data[y * (1 + 32 * 3):(y + 1) * (1 + 32 * 3)] for y in range(32)]
         self.assertTrue(all(row == b"\0" + bytes(desktop.FAVICON_RGB) * 32 for row in rows))
 
-    def test_favicon_pixels_are_counted_and_bounded(self):
-        background, icon = bytes((30, 30, 30)), bytes(desktop.FAVICON_RGB)
-        width = 40
-        data = bytearray(background * width * 30)
-        for y in range(5, 25):
-            for x in range(10, 30):
-                data[(y * width + x) * 3:(y * width + x) * 3 + 3] = icon
-        self.assertEqual(desktop.matching_pixels(bytes(data), width),
-            (400, dict(left=10, top=5, width=20, height=20)))
-        # A globe (or any theme colour) is never counted.
-        self.assertEqual(desktop.matching_pixels(bytes((120, 130, 140)) * 100, 10), (0, None))
+    def test_favicon_pixels_are_the_magenta_block(self):
+        with patch.object(desktop.colour_blocks, "measure", return_value=(400, None)) as measure:
+            self.assertEqual(desktop.favicon_pixels(Path("capture.png")), (400, None))
+        measure.assert_called_once_with(Path("capture.png"), "magenta")
+
+    def test_the_fixture_page_paints_a_fixed_size_lime_block(self):
+        page = desktop.Site().page(1)
+        self.assertIn(desktop.PAGE_BLOCK_CSS, page)
+        self.assertIn("#00ff00", desktop.PAGE_BLOCK_CSS)
+        self.assertEqual(desktop.PAGE_BLOCK, "lime")
+
+    def test_the_zoom_check_needs_the_page_content_to_scale_one_step(self):
+        def block(width, height):
+            return (width * height, dict(left=40, top=300, width=width, height=height))
+        with tempfile.TemporaryDirectory() as root:
+            before, after = Path(root) / "page-dark.png", Path(root) / "browser-page-zoom-dark.png"
+            for sizes, error in (((block(160, 80), block(176, 88)), None),
+                    ((block(320, 160), block(352, 176)), None),
+                    # The toolbar said 110% but the engine kept the page at 100%.
+                    ((block(160, 80), block(160, 80)), "did not scale"),
+                    ((block(160, 80), block(192, 96)), "did not scale"),
+                    ((block(160, 80), (0, None)), "not shown in browser-page-zoom-dark.png"),
+                    (((0, None), block(176, 88)), "not shown in page-dark.png")):
+                with self.subTest(sizes=sizes), patch.object(desktop.colour_blocks, "measure", side_effect=sizes) as measure:
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_zoomed(before, after)
+                    else:
+                        evidence = desktop.require_zoomed(before, after)
+                        self.assertEqual(evidence["ratios"], [1.1, 1.1])
+                        self.assertEqual(json.loads(after.with_suffix(".zoom.json").read_text())["ratios"], [1.1, 1.1])
+                    self.assertEqual(measure.call_args_list[0].args, (before, "lime"))
 
     def test_the_favicon_check_needs_an_icon_sized_block(self):
         with tempfile.TemporaryDirectory() as root:
@@ -284,17 +306,23 @@ class BrowserDesktopTests(unittest.TestCase):
                 self.actions = actions
                 return Path("flow")
         driver = Driver()
-        with patch.object(desktop.github, "check") as check, patch.object(desktop, "require_favicon", return_value={}):
+        with patch.object(desktop.github, "check") as check, patch.object(desktop, "require_favicon", return_value={}), \
+                patch.object(desktop, "require_zoomed", return_value={}) as zoomed:
             desktop.first_pass(driver, "dark")
         actions = driver.actions
         zoom_in = actions.index(("altkey", "="))
         # The page is open first; then the level changes, is captured, and is taken back.
         self.assertLess(actions.index(("wait_text", "Visit 1")), zoom_in)
-        self.assertEqual(actions[zoom_in:zoom_in + 5], [("altkey", "="), ("wait_text", "110%"),
+        self.assertEqual(actions[zoom_in:zoom_in + 6], [("altkey", "="), ("wait_text", "110%"), ("sleep", 1),
             ("capture", "browser-page-zoom-dark"), ("altkey", "-"), ("wait_text", "100%")])
-        self.assertLess(actions.index(("capture", "bookmark-favicons-dark")), actions.index(("content", "Fixture page")))
+        # The favicon loads after the list: its colour is waited for before the capture.
+        favicon = actions.index(("capture", "bookmark-favicons-dark"))
+        self.assertEqual(actions[favicon - 1], ("wait_colour", "magenta", desktop.FAVICON_MIN_PIXELS))
+        self.assertLess(favicon, actions.index(("content", "Fixture page")))
         checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
         self.assertEqual(checked["browser-page-zoom-dark.png"], (desktop.PAGE_TEXT, "110%"))
+        # The page itself must have grown, not just the toolbar's number.
+        zoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-zoom-dark.png")
 
     def test_the_saved_page_zoom_is_restored(self):
         with tempfile.TemporaryDirectory() as root:

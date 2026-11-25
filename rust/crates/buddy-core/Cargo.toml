@@ -34,6 +34,7 @@ reqwest = { workspace = true, features = ["blocking"] }
 convex.workspace = true
 keyring.workspace = true
 futures.workspace = true
+image.workspace = true
 sha2 = "0.11"
 jiff = { version = "=0.2.43", default-features = false, features = ["std", "tzdb-bundle-always"] }
 sys-locale = "0.3"

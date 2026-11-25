@@ -16,6 +16,7 @@ import time
 import uuid
 from receipt_clock import stamp
 
+import colour_blocks
 from desktop import ALT_KEYS, UnixWindow, encode_recording, finish_cleanup, fixture, recording, run, mac_input_guard
 
 
@@ -191,6 +192,13 @@ def wait_visible(window, directory, text, timeout=15, scroll=None, content=False
         time.sleep(0.1)
 
 
+def colour_name(colour):
+    """A colour the block analysis knows; the name is passed to the Windows helper as is."""
+    if colour not in colour_blocks.COLOURS:
+        raise RuntimeError(f"Unknown block colour {colour!r}")
+    return colour
+
+
 def planned_large_size(width, height):
     size = (min(1200, int(width)), min(820, int(height)))
     if size[0] < 900 or size[1] < 650:
@@ -299,6 +307,8 @@ class Driver:
                     commands.append("key:" + str(dict(Tab=9, Return=13, Escape=27)[values[0]]))
                 elif kind == "altkey":
                     commands.append("altkey:" + str(ALT_KEYS[values[0]]["windows"]))
+                elif kind == "wait_colour":
+                    commands.append(f"waitcolour:{colour_name(values[0])}:{int(values[1])}")
                 elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
                     # Windows aims above-anchor waits at the window middle,
@@ -332,6 +342,7 @@ class Driver:
             # wait and around explicit sleeps for paced service work.
             extra = sum(MODEL_CATALOG_TIMEOUT - 15 for action in actions if action[0] in COLD_START_WAITS)
             extra += math.ceil(sum(action[1] for action in actions if action[0] == "sleep"))
+            extra += colour_blocks.WAIT_SECONDS * sum(action[0] == "wait_colour" for action in actions)
             run(*arguments, cwd=self.checkout, timeout=180 + extra)
         else:
             self.unix(directory, actions, concurrent, record)
@@ -406,6 +417,9 @@ class Driver:
                             window.key(values[0])
                         elif kind == "altkey":
                             window.alt_key(values[0])
+                        elif kind == "wait_colour":
+                            colour_blocks.wait_for(window.screenshot, directory / "colour-locator.png",
+                                colour_name(values[0]), int(values[1]))
                         elif kind == "hover":
                             window.hover(*values)
                         elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", *COLD_START_WAITS):

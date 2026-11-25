@@ -635,6 +635,32 @@ class LabeledInputs(unittest.TestCase):
             self.assertIn(fragment, block)
         self.assertIn("public static void Alt(bool down)", "\n".join(lines))
 
+    def test_colour_waits_run_on_both_drivers_within_a_bounded_time(self):
+        with tempfile.TemporaryDirectory() as root:
+            driver = desktop.Driver.__new__(desktop.Driver)
+            driver.profile = Path(root)
+            driver.config = Path(root) / "config.json"
+            driver.executable = Path(root) / "owned-app.exe"
+            driver.checkout = Path(root)
+            driver.session = "windows"
+            driver.large_size = (1200, 820)
+            driver.backend = Mock(url="http://127.0.0.1:12345")
+            with patch.object(desktop, "run") as execute:
+                driver.drive("colour", [("wait_colour", "magenta", 150), ("capture", "icon")])
+            args = execute.call_args.args
+            commands = args[args.index("-Actions") + 1].split(",")
+            self.assertEqual(commands[1], "waitcolour:magenta:150")
+            # The wait's own 15 s are added to the action budget.
+            self.assertEqual(execute.call_args.kwargs["timeout"], 195)
+            with self.assertRaisesRegex(RuntimeError, "Unknown block colour"):
+                driver.drive("unknown", [("wait_colour", "teal;rm", 1)])
+        lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
+        start = next(index for index, line in enumerate(lines) if line.strip() == "'waitcolour' {")
+        block = "\n".join(lines[start:start + 14])
+        for fragment in ("colour_blocks.py", "Save-OwnedImage", "$LASTEXITCODE -eq 0", "$started -ge 15",
+                "-notin 'magenta', 'lime'"):
+            self.assertIn(fragment, block)
+
     def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):
         def word(text, left, top, line, width=40):
             return dict(text=text, left=left, top=top, line=line, width=width, height=12)

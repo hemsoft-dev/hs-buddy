@@ -35,10 +35,17 @@ struct FakeHost {
     url: Rc<RefCell<Option<String>>>,
     /// Asks for pages created on screen, like WebKitGTK.
     shows_at_creation: bool,
+    /// The engine error every page's zoom fails with, while set.
+    zoom_error: Rc<RefCell<Option<String>>>,
 }
 
-/// Records calls; `url` is the address the page reports, shared with its host.
-struct FakePage(Rc<Log>, Rc<RefCell<Option<String>>>);
+/// Records calls; `url` is the address the page reports, shared with its host,
+/// as is the zoom error.
+struct FakePage(
+    Rc<Log>,
+    Rc<RefCell<Option<String>>>,
+    Rc<RefCell<Option<String>>>,
+);
 
 impl Page for FakePage {
     fn load(&self, url: &Url) {
@@ -66,8 +73,13 @@ impl Page for FakePage {
     fn focus_parent(&self) {
         self.0.push("focus parent".into());
     }
-    fn zoom(&self, zoom: f64) {
+    fn zoom(&self, zoom: f64) -> Result<(), String> {
+        if let Some(error) = self.2.borrow().clone() {
+            self.0.push(format!("zoom {zoom} refused"));
+            return Err(error);
+        }
         self.0.push(format!("zoom {zoom}"));
+        Ok(())
     }
     fn url(&self) -> Option<String> {
         self.1.borrow().clone()
@@ -89,7 +101,11 @@ impl Host for FakeHost {
         }
         self.events.borrow_mut().push(config.events);
         self.checkers.borrow_mut().push(config.checker);
-        Ok(Rc::new(FakePage(self.log.clone(), self.url.clone())))
+        Ok(Rc::new(FakePage(
+            self.log.clone(),
+            self.url.clone(),
+            self.zoom_error.clone(),
+        )))
     }
 
     fn pump(&self) {
@@ -1009,6 +1025,37 @@ fn global_destination_restores_its_page_and_close_disposes_it(cx: &mut gpui_kit:
     assert_eq!(h.read(|view| view.tabs.len()), 1);
     assert_eq!(h.saved().tabs.len(), 1);
     assert!(host.log.has("visible false"));
+}
+
+#[gpui_kit::test]
+fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1);
+    host.log.take();
+
+    *host.zoom_error.borrow_mut() = Some("engine said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(
+        harness.read(|view| view.zoom),
+        1.1,
+        "the toolbar keeps 110%"
+    );
+    assert_eq!(harness.saved().zoom, 1.1, "the refused zoom isn't saved");
+    assert!(host.log.has("zoom 1.2 refused"), "{:?}", host.log.take());
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(notice.text, format!("{ZOOM_FAILED} engine said no"));
+
+    // Once the engine takes a zoom again, the shown zoom moves and the notice goes.
+    *host.zoom_error.borrow_mut() = None;
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.saved().zoom, 1.2);
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
 }
 
 /// The app root's forwarding of Electron's Alt zoom keys (see `app.rs`).

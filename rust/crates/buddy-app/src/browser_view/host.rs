@@ -44,7 +44,9 @@ pub trait Page {
     fn set_bounds(&self, bounds: Bounds<Pixels>);
     fn set_visible(&self, visible: bool);
     fn focus_parent(&self);
-    fn zoom(&self, zoom: f64);
+    /// The engine's refusal is returned, so the toolbar never shows a zoom
+    /// the page doesn't have.
+    fn zoom(&self, zoom: f64) -> Result<(), String>;
     /// The address the page shows now, including same-document changes
     /// (`history.pushState`, fragments) that fire no load event.
     fn url(&self) -> Option<String>;

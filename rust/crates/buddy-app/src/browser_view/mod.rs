@@ -50,6 +50,8 @@ pub(super) const LOAD_LIMIT: Duration = Duration::from_secs(30);
 pub(super) const STALLED: &str =
     "The page didn't finish loading. Try again, or open it externally.";
 pub(super) const ZOOM_DELTA: f64 = 0.1;
+/// The notice a page tab shows when its engine refuses a zoom.
+pub(super) const ZOOM_FAILED: &str = "The page couldn't be zoomed.";
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
 actions!(
@@ -764,13 +766,55 @@ impl BrowserView {
         handled
     }
 
+    /// The toolbar shows and saves the new zoom only once every live page has
+    /// taken it. When an engine refuses, the old zoom stays and that tab says
+    /// so, as it says why a load failed.
     pub(super) fn zoom_by(&mut self, delta: f64, cx: &mut Context<Self>) {
-        self.zoom = browser::clamp_zoom(((self.zoom + delta) * 10.0).round() / 10.0);
-        for page in self.tabs.iter().filter_map(|tab| tab.page.as_ref()) {
-            page.zoom(self.zoom);
+        let zoom = browser::clamp_zoom(((self.zoom + delta) * 10.0).round() / 10.0);
+        match self.apply_zoom(zoom) {
+            Ok(()) => {
+                self.zoom = zoom;
+                for tab in &mut self.tabs {
+                    if tab
+                        .notice
+                        .as_ref()
+                        .is_some_and(|notice| notice.text.starts_with(ZOOM_FAILED))
+                    {
+                        tab.notice = None;
+                    }
+                }
+                self.save(cx);
+            }
+            Err((index, error)) => {
+                log::warn!("browser: zoom failed: {error}");
+                self.tabs[index].notice = Some(Notice {
+                    text: format!("{ZOOM_FAILED} {error}"),
+                    offer: None,
+                });
+            }
         }
-        self.save(cx);
         cx.notify();
+    }
+
+    /// Every live page takes `zoom`, or none keeps it: after a refusal the
+    /// pages that took it go back to the current zoom. The refusal comes back
+    /// with its tab's index.
+    fn apply_zoom(&self, zoom: f64) -> Result<(), (usize, String)> {
+        let pages: Vec<(usize, &Rc<dyn Page>)> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tab)| tab.page.as_ref().map(|page| (index, page)))
+            .collect();
+        for (done, (index, page)) in pages.iter().enumerate() {
+            if let Err(error) = page.zoom(zoom) {
+                for (_, page) in &pages[..done] {
+                    let _ = page.zoom(self.zoom);
+                }
+                return Err((*index, error));
+            }
+        }
+        Ok(())
     }
 
     /// The toolbar's Open externally: always the page the tab shows.

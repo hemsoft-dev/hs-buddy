@@ -255,14 +255,18 @@ impl BookmarksView {
         cx.notify();
     }
 
-    /// Starts loading the favicons of bookmarks not seen before. Rendering never
-    /// waits for one: the globe shows until it arrives.
+    /// Starts loading the favicons of bookmarks not seen before, and forgets
+    /// those no bookmark uses any more, releasing their images from GPUI.
+    /// Rendering never waits for one: the globe shows until it arrives.
     fn load_favicons(&mut self, cx: &mut Context<Self>) {
         let urls: Vec<String> = self
             .bookmarks()
             .iter()
             .filter_map(|bookmark| bookmark.favicon_url.clone())
             .collect();
+        for image in self.favicons.retain(urls.iter().map(String::as_str)) {
+            cx.drop_image(image, None);
+        }
         for url in self.favicons.want(urls.iter().map(String::as_str)) {
             self.fetch_favicon(url, cx);
         }

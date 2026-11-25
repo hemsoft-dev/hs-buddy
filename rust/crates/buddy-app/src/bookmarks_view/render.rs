@@ -10,8 +10,8 @@ use gpui_kit::component::{ActiveTheme, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    StyledImage as _, Window, div, img,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, img,
 };
 
 use super::editor::Editor;
@@ -436,14 +436,10 @@ impl BookmarksView {
             .into_any_element()
     }
 
-    /// The bookmark's favicon once it has loaded, else the globe, which also
-    /// stands in while GPUI decodes the image and if decoding fails.
+    /// The bookmark's favicon once it has loaded and been decoded, else the
+    /// globe. The image is already decoded pixels, so GPUI shows it at once:
+    /// there is no loading or failed state between the globe and the icon.
     fn favicon(&self, bookmark: &Bookmark, size: f32) -> AnyElement {
-        let globe = move || {
-            Icon::new(IconName::Globe)
-                .size(zpx(size))
-                .into_any_element()
-        };
         let Some(image) = bookmark
             .favicon_url
             .as_deref()
@@ -455,7 +451,7 @@ impl BookmarksView {
                     let id = bookmark.id.clone();
                     move || format!("bookmark-globe-{id}")
                 })
-                .child(globe())
+                .child(Icon::new(IconName::Globe).size(zpx(size)))
                 .into_any_element();
         };
         let id = bookmark.id.clone();
@@ -464,8 +460,6 @@ impl BookmarksView {
             .size(zpx(size))
             .rounded(zpx(2.))
             .debug_selector(move || format!("bookmark-favicon-{id}"))
-            .with_loading(globe)
-            .with_fallback(globe)
             .into_any_element()
     }
 
