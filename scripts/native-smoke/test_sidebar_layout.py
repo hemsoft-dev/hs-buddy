@@ -29,12 +29,17 @@ DARK = dict(bar=(51, 51, 51), background=(30, 30, 30), line=(60, 60, 60))
 LIGHT = dict(bar=(44, 44, 44), background=(255, 255, 255), line=(229, 229, 229))
 
 
-def row(width, bar, divider, colours=DARK, line_width=1, border=False):
+def row(width, bar, divider, colours=DARK, line_width=1, border=False, icon=None):
+    """One capture row; `icon` is (first, last) columns an activity bar glyph
+    paints in it."""
     pixels = [colours["bar"]] * bar + [colours["background"]] * (width - bar)
     for x in range(divider, divider + line_width):
         pixels[x] = colours["line"]
     if border:
         pixels[0] = (128, 128, 128)
+    if icon:
+        for x in range(icon[0], icon[1] + 1):
+            pixels[x] = (204, 204, 204)
     return pixels
 
 
@@ -78,6 +83,21 @@ class RowGeometry(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disagree"):
             layout.split_geometry([row(1200, 48, 480), row(1200, 48, 520)], 1200)
 
+    def test_an_activity_bar_icon_on_some_sampled_rows_is_not_the_bar_edge(self):
+        # The Ubuntu zoom-125-dark capture of run 45523868491: at 125% the
+        # bar is 60px and two sampled rows cross icons (glyphs at 26-33 and
+        # a stroke at 23-29 and 33-39), the third row does not.
+        rows = [row(1200, 60, 345, line_width=2, icon=(26, 33)), row(1200, 60, 345, line_width=2),
+            row(1200, 60, 345, line_width=2, icon=(23, 39))]
+        geometry = layout.split_geometry(rows, 1200)
+        self.assertEqual((geometry["bar"], geometry["divider"]), (60, 346))
+        # A stroke as thin as a line, on one row only, is left out too.
+        rows[0] = row(1200, 60, 345, line_width=2, icon=(30, 31))
+        self.assertEqual(layout.split_geometry(rows, 1200)["bar"], 60)
+        # A row that shows no divider at all still fails.
+        with self.assertRaisesRegex(RuntimeError, "no activity bar edge"):
+            layout.split_geometry([rows[1], [DARK["bar"]] * 60 + [DARK["background"]] * 1140], 1200)
+
     def test_the_share_must_be_within_the_slack(self):
         wide = dict(width=1200, bar=48)
         layout.require_share(dict(wide, share=0.42), 0.4, "launched")
@@ -94,6 +114,9 @@ class RowGeometry(unittest.TestCase):
         self.assertAlmostEqual(layout.expected_share(0.9, dict(width=1200, bar=48)), 752 / 1152)
         # A row too narrow for both minimums shares them in proportion.
         self.assertAlmostEqual(layout.expected_share(0.4, dict(width=1100, bar=96)), 1 / 3)
+        # 1,200 physical pixels at 175% DPI: an 84px bar and a 637.7px row,
+        # where a quarter (159) is held at the 200 minimum: about 31%.
+        self.assertAlmostEqual(layout.expected_share(0.25, dict(width=1200, bar=84)), 200 / (1116 / 1.75))
 
     def test_saved_sizes_must_be_positive_widths(self):
         self.assertEqual(layout.saved_share([300, 900, 350]), 0.25)
@@ -202,6 +225,20 @@ class Qualification(unittest.TestCase):
     def test_a_relaunch_that_lays_out_differently_fails(self):
         with self.assertRaisesRegex(RuntimeError, "second launch"):
             self.run_step(plan=dict(self.PLAN, **{"sidebar-drag-before-dark.png": (48, 520)}))
+
+    def test_a_drag_held_at_the_sidebar_minimum_saves_the_share_it_shows(self):
+        # 1,200 physical pixels at 175% DPI: an 84px bar, a 637.7px row at
+        # 100%. The 40% launch is held so the content keeps 400 (37.3%), the
+        # 25% drag target at the 200 minimum (31.4%), and the file holds what
+        # the divider shows, [376, 824] of the saved 1,200, not a quarter.
+        plan = {"sidebar-width-dark.png": (84, 500), "sidebar-drag-before-dark.png": (84, 500),
+            "sidebar-drag-dark.png": (84, 434), "zoom-125-dark.png": (105, 470)}
+        result, _, _ = self.run_step(plan=plan, drag_saves=(376.3, 823.7, 350))
+        self.assertAlmostEqual(result["dragged"]["share"], (434.5 - 84) / 1116)
+        self.assertEqual(result["savedSizes"], [376.3, 823.7, 350])
+        # A file at the unclamped quarter does not match what is shown.
+        with self.assertRaisesRegex(RuntimeError, "not a 0.314 share"):
+            self.run_step(plan=plan, drag_saves=(300, 900, 350))
 
     def test_an_unscaled_zoom_fails(self):
         with self.assertRaisesRegex(RuntimeError, "scaled the activity bar by 1.000"):

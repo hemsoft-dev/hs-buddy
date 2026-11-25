@@ -61,23 +61,47 @@ def lines(columns):
     return [tuple(group) for group in groups]
 
 
+def thin_lines(pixels):
+    """The painted lines in one row: edge groups no wider than a 2px HiDPI line.
+
+    A window border (inside the first 2% of the row; the 48px bar is wider
+    than that in any window) and the activity bar's icons, whose glyphs
+    paint blocks wider than a line, are left out.
+    """
+    width = len(pixels)
+    return [group for group in lines(edges(pixels))
+        if group[0] >= 0.02 * width and group[1] - group[0] <= LINE_GAP]
+
+
+def centre(group):
+    return (group[0] + group[1]) / 2
+
+
 def row_split(pixels):
     """The activity bar's edge and the divider's centre in one row."""
-    width = len(pixels)
-    # Skip a window border; the 48px bar is wider than 2% of any window.
-    features = [group for group in lines(edges(pixels)) if group[0] >= 0.02 * width]
+    features = thin_lines(pixels)
     if len(features) < 2:
         raise RuntimeError("The capture row shows no activity bar edge and sidebar divider")
     bar, divider = features[0], features[1]
-    return bar[0], (divider[0] + divider[1]) / 2
+    return bar[0], centre(divider)
 
 
 def split_geometry(rows, width):
-    """Agreeing measurements from every sampled row, and the sidebar's share."""
-    measured = [row_split(pixels) for pixels in rows]
-    bar, divider = measured[0]
-    if any(abs(other[0] - bar) > 1 or abs(other[1] - divider) > 1 for other in measured[1:]):
+    """The activity bar's edge and the divider: the first two lines that every
+    sampled row paints in the same place, and the sidebar's share.
+
+    A sampled row can cross an activity bar icon (the bar's icons move with
+    ui.zoomLevel), whose glyph strokes are edges in that row alone; the bar's
+    edge and the divider run the window's full height, so every row has them.
+    """
+    measured = [thin_lines(pixels) for pixels in rows]
+    if any(len(features) < 2 for features in measured):
+        raise RuntimeError("The capture row shows no activity bar edge and sidebar divider")
+    common = [group for group in measured[0]
+        if all(any(abs(centre(group) - centre(other)) <= 1 for other in features) for features in measured[1:])]
+    if len(common) < 2:
         raise RuntimeError("The sampled rows disagree on the sidebar divider")
+    bar, divider = common[0][0], centre(common[1])
     if not 0 < bar < divider < width:
         raise RuntimeError("The measured sidebar divider is outside the row")
     return dict(width=width, bar=bar, divider=divider, share=(divider - bar) / (width - bar))
@@ -174,8 +198,12 @@ def qualify(driver, config, check, run):
         after = measure(dragged / "sidebar-drag-dark.png", run)
         require_share(after, DRAG_SHARE, "dragged")
         sizes = json.loads(config.read_text(encoding="utf-8-sig"))["ui"].get("paneSizes")
-        if not math.isclose(saved_share(sizes), DRAG_SHARE, abs_tol=SHARE_SLACK):
-            raise RuntimeError(f"The divider drag saved ui.paneSizes {sizes}, not a {DRAG_SHARE} share")
+        # The file holds the share the divider shows, which the sidebar's
+        # minimum may hold above the drag's target (a narrow row at a high
+        # DPI), so it is held to the same clamp as the capture.
+        wanted = expected_share(DRAG_SHARE, after)
+        if not math.isclose(saved_share(sizes), wanted, abs_tol=SHARE_SLACK):
+            raise RuntimeError(f"The divider drag saved ui.paneSizes {sizes}, not a {wanted:.3f} share")
         if len(sizes) != 3 or sizes[2] != 350:
             raise RuntimeError(f"The divider drag changed the assistant entry: {sizes}")
 

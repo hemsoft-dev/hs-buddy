@@ -17,6 +17,9 @@ pub struct Settings {
     // A native navigation request whose persistence failed. Carry only this
     // UI intent into the next guarded edit, never a stale configuration copy.
     pending_native_section: Option<String>,
+    // Counts the times `config` was replaced from the file (a load, a save,
+    // or a resync), so a caller can tell whether a failed save read it.
+    generation: u64,
 }
 
 impl Global for Settings {}
@@ -27,7 +30,16 @@ impl Settings {
             config,
             save_error: None,
             pending_native_section: None,
+            generation: 0,
         }
+    }
+
+    /// Changes whenever the in-memory configuration is replaced from the
+    /// file: a successful save, the resync after a failed one, or Reload.
+    /// Unchanged across a save attempt, it means the attempt never read the
+    /// file, so the in-memory copy may differ from the disk.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn global(cx: &App) -> &Self {
@@ -101,7 +113,7 @@ impl Settings {
         edit: impl Fn(&mut AppConfig) -> Result<(), SettingsError>,
     ) -> Result<(), SettingsError> {
         const ATTEMPTS: usize = 3;
-        let mut lock = acquire_lock(path)?;
+        let mut lock = Self::lock_or_resync(cx, path)?;
         for attempt in 1..=ATTEMPTS {
             trace::attempt();
             let loaded = trace::measure(Stage::Load, || AppConfig::load_with_stamp_from(path));
@@ -128,7 +140,7 @@ impl Settings {
                 // Take the lock again (the old guard leaves theirs alone) and
                 // start over from a fresh read.
                 log::warn!("config lock was taken over while editing; re-acquiring");
-                lock = acquire_lock(path)?;
+                lock = Self::lock_or_resync(cx, path)?;
                 continue;
             }
             match trace::measure(Stage::Save, || fresh.save_if_unchanged_at(path, &stamp)) {
@@ -166,6 +178,16 @@ impl Settings {
         ))
     }
 
+    /// The lock for a save. When another process holds it, nothing is
+    /// written, but the in-memory copy still follows the file as that
+    /// process last saved it, so the UI does not keep showing values the
+    /// disk no longer holds. Both writers replace the file through a
+    /// temporary file and a rename, so a read without the lock sees one
+    /// whole version; a read that fails leaves the copy as it was.
+    fn lock_or_resync(cx: &mut App, path: &std::path::Path) -> Result<ConfigLock, SettingsError> {
+        acquire_lock(path).inspect_err(|_| Self::resync(cx, path))
+    }
+
     /// After a failed save the in-memory copy must reflect the disk, not the
     /// edit that never landed, so the UI does not show a state that a
     /// restart would undo. Pending UI navigation is retained independently.
@@ -190,7 +212,9 @@ impl Settings {
             None,
             None,
         );
-        cx.global_mut::<Self>().config = config;
+        let settings = cx.global_mut::<Self>();
+        settings.config = config;
+        settings.generation += 1;
         if appearance_changed {
             let config = cx.global::<Self>().config.clone();
             crate::theme::install(&config, cx);
@@ -209,6 +233,7 @@ impl Settings {
             None,
         );
         settings.config = config;
+        settings.generation += 1;
     }
 }
 
@@ -398,6 +423,10 @@ mod tests {
                     .contains("busy")
             );
             assert!(!Settings::global(cx).config.ui.terminal_open);
+            // Nothing was written, but the in-memory copy follows the file
+            // the other process saved.
+            assert_eq!(Settings::global(cx).config.ui.accent_color, "#123456");
+            assert_eq!(Settings::global(cx).config.extra["future"], 42);
         });
         assert!(lock.is_held());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
