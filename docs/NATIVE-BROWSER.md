@@ -35,7 +35,9 @@ which listens on its window while a page tab is mounted, the keys work wherever
 Buddy has the keyboard while a page tab is shown, except in the terminal, whose
 shell keeps Alt keys. A page that has the keyboard keeps them, as an Electron
 webview does, and with the bookmark list or another section shown they reach the
-focused field (Option+= still types ≠). Electron has no reset key, and neither
+focused field (Option+= still types ≠). So do they on a tab with no page to zoom (a
+refused address, or no engine on this system), whose zoom stays as it was and isn't
+saved. Electron has no reset key, and neither
 does Buddy. The toolbar shows a new zoom only once the page's engine has taken it;
 if the engine refuses, the old zoom stays and the tab says why.
 

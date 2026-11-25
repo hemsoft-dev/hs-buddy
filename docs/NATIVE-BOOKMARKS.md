@@ -71,25 +71,31 @@ share one rule for private address ranges.
 
 A bookmark with a `faviconUrl` shows that image on its card (20 px) and its tree row,
 as Electron does; a bookmark without one, or whose image hasn't arrived or failed,
-shows the globe. The list never waits for an image. Each address is fetched once per
-session, up to four at a time, and kept in memory only; Electron keeps no favicon
-store either. The fetch follows Electron's sidebar rule (`isSafeImageUrl`) for cards
-and rows alike: `http` or `https` only, and no internal host. It then works like the
-page-title fetch: the host is resolved and checked, every redirect is checked again,
-and each request times out after 5 seconds. The file must be at most 256 KiB and a
-PNG, JPEG, GIF, WebP, ICO or BMP image, recognized from its first bytes.
+shows the globe. That globe is a deliberate difference: Electron's card hides its
+globe as soon as it has a `faviconUrl` and brings it back only if the image fails,
+and its tree row has no fallback at all. The list never waits for an image. Each
+address is fetched once while a bookmark uses it, up to four at a time, and kept in
+memory only; Electron keeps no favicon store either. Once no bookmark uses an
+address, after a delete or an edit, it is forgotten and its image released, so a
+bookmark that uses it again later fetches it again. The fetch follows Electron's
+sidebar rule (`isSafeImageUrl`) for cards and rows alike: `http` or `https` only,
+and no internal host. It then works like the page-title fetch: the host is resolved
+and checked, every redirect is checked again, and each request times out after 5
+seconds. The file must be at most 256 KiB and a
+PNG, JPEG, GIF, ICO or BMP image, recognized from its first bytes.
 
 Buddy decodes the file itself, never GPUI. The decoder refuses an image over 512 px
 a side or one that needs more than 4 MiB to decode, and it checks before it
-allocates. It reads only the first frame of an animated GIF or WebP, and in an ICO
-the entry it picks, whatever the directory claims. The result is scaled to at most
-64 px a side, keeping its shape, and GPUI gets those pixels as one ready frame. So a
-favicon holds at most 16 KiB however its file is built, and the globe shows until
-that frame is ready. An address no bookmark uses any more, after a delete or an
-edit, is forgotten and its image released. An SVG favicon shows the globe: it isn't
-pixels, and drawing one would need a renderer outside these limits. Electron's
-cards, unlike its sidebar, load any `faviconUrl`, including internal hosts, and
-animate a GIF.
+allocates. It reads only the first frame of an animated GIF, and in an ICO the entry
+it picks, whatever the directory claims. The result is scaled to at most 64 px a
+side, keeping its shape, and GPUI gets those pixels as one ready frame. So a favicon
+holds at most 16 KiB however its file is built, and the globe shows until that frame
+is ready. An SVG favicon shows the globe: it isn't pixels, and drawing one would need
+a renderer outside these limits. A WebP favicon shows the globe too, refused by its
+signature before any decoding: the WebP decoder (`image-webp` 0.2) decodes a lossy
+frame larger than the canvas the file declares before it compares the two, so the
+limits above don't bound it. Electron draws both. Electron's cards, unlike its
+sidebar, load any `faviconUrl`, including internal hosts, and animate a GIF.
 
 The qualification origin (`BUDDY_BROWSER_TEST_ORIGIN`, see
 [the embedded browser](NATIVE-BROWSER.md)) may serve favicons too.
