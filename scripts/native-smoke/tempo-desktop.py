@@ -187,6 +187,27 @@ def assert_copy(api, original, expected_start):
     return state
 
 
+def single_cell_worklog(api, date, issue=tempo.ISSUE_ID):
+    """The one worklog in an issue's day cell, which a right-click deletes."""
+    records = api.snapshot()['records']
+    found = [identifier for identifier, row in records.items()
+        if row['startDate'] == date and row['issue']['id'] == issue]
+    if len(found) != 1:
+        raise RuntimeError('The right-click scene needs a grid cell holding exactly one worklog')
+    return found[0], records[found[0]]
+
+
+def assert_cell_delete(api, before, identifier, count):
+    """The right-click removed exactly its cell's worklog and nothing else."""
+    state = require_writes(api, count, rejected=1)
+    write = state['writes'][-1]
+    expected = {key: value for key, value in before.items() if key != identifier}
+    if (identifier not in before or write['method'] != 'DELETE' or write['worklogId'] != identifier
+            or state['records'] != expected):
+        raise RuntimeError('The right-click deletion did not remove exactly its single cell worklog')
+    return state
+
+
 class TempoDriver(settings.Driver):
     """Target the inner editor of every macOS Tempo input.
 
@@ -236,6 +257,7 @@ def evidence_inventory(output):
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
         'move-dark/exact-original-editor-dark.png', 'move-dark/moved-worklog-dark.png',
         'move-dark/delete-confirmation-dark.png',
+        'cell-delete-dark/tempo-holiday-capex-dark.png', 'cell-delete-dark/tempo-cell-delete-dark.png',
         'reauth-draft-dark/expired-open-draft-dark.png', 'reauth-draft-dark/draft-needs-fresh-lookup-dark.png',
         'reauth-draft-dark/retained-draft-after-lookup-dark.png',
         'reauth-draft-dark/retained-hours-after-lookup-dark.png',
@@ -519,6 +541,30 @@ def qualify(executable, output, session, version, source, backend):
                 github.check(rechecked / 'retained-hours-after-lookup-dark.png', 'Hours or H:MM:SS', '1:01:01')
                 github.check(rechecked / 'retained-draft-after-lookup-dark.png', 'Retained native draft', 'No billing account')
 
+                # The week shows Thursday's named holiday and the CapEx FIX-17
+                # row. Its 14 October cell holds only the template's worklog,
+                # which a right-click deletes after the shared confirmation.
+                target, removed = single_cell_worklog(api, '2026-10-14')
+                before_cell_delete = api.snapshot()['records']
+                try:
+                    marked = driver.drive('cell-delete-dark', week_actions() + [
+                        ('wait_scroll_text', 'FIX-17', 'Load date range'),
+                        ('capture', 'tempo-holiday-capex-dark'),
+                        ('cell_menu', 'FIX-17', '14 Oct'), ('wait_scroll_up', 'Confirm deletion'),
+                        ('capture', 'tempo-cell-delete-dark'), ('click', 'Confirm deletion'),
+                        ('wait_scroll_up', 'Tempo confirmed the worklog change'),
+                    ])
+                    assert_cell_delete(api, before_cell_delete, target, 4)
+                finally:
+                    # Later scenes read this week as it was before the deletion.
+                    with api.lock:
+                        api.records.setdefault(target, removed)
+                # The party marker replaces Thursday's weekday name; its
+                # neighbours keep theirs.
+                github.check(marked / 'tempo-holiday-capex-dark.png', 'FIX-17', '14 Oct', '15 Oct', 'Wed', 'Fri')
+                github.check(marked / 'tempo-cell-delete-dark.png', 'Delete the 1:00 worklog on 2026-10-14',
+                    'Confirm deletion', 'Keep worklog')
+
                 api.arm_lost_reply_after(1)
                 partial = driver.drive('partial-copy-dark', week_actions() + [
                     ('wait_scroll_text', 'Copy day to Today', 'Load date range'),
@@ -529,7 +575,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('sleep', 30), ('wait_scroll_up', '1 worklog copied to Today'),
                     ('capture', 'partial-copy-unconfirmed-dark'),
                 ])
-                state = require_writes(api, 5, rejected=1)
+                state = require_writes(api, 6, rejected=1)
                 bodies = [write_body(row) for row in state['writes'][-2:]]
                 for body, start in zip(bodies, ('09:48:01', '09:49:01')):
                     if body['startDate'] != '2026-10-16' or body['timeSpentSeconds'] != 60 or body['startTime'] != start:
@@ -551,7 +597,7 @@ def qualify(executable, output, session, version, source, backend):
                 ])
                 if pending_bytes(config) != original_recovery:
                     raise RuntimeError('Restart or refresh changed the immutable recovery record')
-                require_writes(api, 5, rejected=1)
+                require_writes(api, 6, rejected=1)
                 github.check(recovered / 'restarted-recovery-light.png', 'may already exist in Tempo', 'will not resend automatically')
                 driver.drive('discard-recovery-light', [
                     ('wait_text', 'will not resend automatically'), ('click', 'Discard local recovery'),
@@ -559,7 +605,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('click', 'Discard local recovery'), ('click', 'Confirm discard'),
                     ('wait_text', 'Local recovery discarded'), ('capture', 'discarded-local-only-light'),
                 ])
-                require_writes(api, 5, rejected=1)
+                require_writes(api, 6, rejected=1)
                 if list(config.parent.glob('native-tempo-change-*.json')):
                     raise RuntimeError('Explicit discard left a local Tempo recovery record')
                 # The same cancellation at the compact size in the light theme,
@@ -574,7 +620,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('key', 'Escape'), ('sleep', 3),
                     ('capture', 'escape-draft-cancelled-compact-light'),
                 ])
-                if require_writes(api, 5, rejected=1)['records'] != before_light_escape:
+                if require_writes(api, 6, rejected=1)['records'] != before_light_escape:
                     raise RuntimeError('Escape cancellation of an idle draft reached the service')
                 github.check(escaped_light / 'escape-draft-open-compact-light.png', 'Issue key or ID', 'Hours or H:MM:SS')
                 github.check(escaped_light / 'escape-draft-cancelled-compact-light.png', 'Tempo timesheet',
@@ -592,7 +638,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_scroll_text', 'No worklogs in this date range', 'Load date range'),
                     ('capture', 'deleted-empty-range-light'),
                 ])
-                state = require_writes(api, 6, rejected=1)
+                state = require_writes(api, 7, rejected=1)
                 if tempo.FIRST_ID in state['records'] or state['writes'][-1]['method'] != 'DELETE':
                     raise RuntimeError('The explicit deletion did not remove exactly its captured worklog')
                 github.check(deleted / 'deleted-empty-range-light.png', 'No worklogs in this date range')
@@ -611,7 +657,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_text', 'No connection is saved for this profile'),
                     ('capture', 'missing-after-restart-light'),
                 ])
-                state = require_writes(api, 6, rejected=1)
+                state = require_writes(api, 7, rejected=1)
                 if state['records'] != before_forget:
                     raise RuntimeError('Credential removal changed the remote worklogs')
                 for path in output.glob('*/app.log'):
@@ -622,7 +668,7 @@ def qualify(executable, output, session, version, source, backend):
                 inventory = evidence_inventory(output)
                 receipt = dict(result='passed', version=version, session=session, sourceSha=source, **binary,
                     largeWindow=driver.large_size, compactWindow=[900, 650], **inventory,
-                    mutationAttempts=7, serviceWrites=6, acknowledgedServiceWrites=5, deniedMutationAttempts=1,
+                    mutationAttempts=8, serviceWrites=7, acknowledgedServiceWrites=6, deniedMutationAttempts=1,
                     invalidDurationBlockedBeforeHttp=True, deniedCreateRetainedExactDraft=True,
                     completeMonthPagerVerified=True,
                     tempoApiOrigin=api.tempo_origin, regionalConnectionSurvivedRestart=True,
@@ -640,6 +686,7 @@ def qualify(executable, output, session, version, source, backend):
                     originalRecoverySha256=hashlib.sha256(original_recovery).hexdigest(),
                     restartAndRefreshNeverReplay=True, explicitDiscardChangesOnlyLocalRecovery=True,
                     explicitDeletionVerified=True, viewPreferenceAndUnknownConfigFieldsPreserved=True,
+                    holidayColumnAndCapexRowMarked=True, singleWorklogCellRightClickDeleteConfirmed=True,
                     realOsCredentialStore=True, secureConnectionSurvivesProcessRestart=True,
                     secureConnectionRemovalVerifiedAfterRestart=True,
                     dataSource='Owned numeric-loopback Tempo/Jira fixture and isolated anonymous Convex')

@@ -84,6 +84,10 @@ pub struct TempoView {
     grid_scroll: gpui_kit::ScrollHandle,
     today: Option<jiff::civil::Date>,
     scroll_to_today: bool,
+    /// GPUI tests have no live Tempo session; this stands in for one that
+    /// accepts writes.
+    #[cfg(test)]
+    test_can_submit: bool,
 }
 impl TempoView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -127,6 +131,8 @@ impl TempoView {
             grid_scroll: gpui_kit::ScrollHandle::new(),
             today: None,
             scroll_to_today: false,
+            #[cfg(test)]
+            test_can_submit: false,
         }
     }
     fn set_notice(&mut self, tone: Tone, message: impl Into<String>) {

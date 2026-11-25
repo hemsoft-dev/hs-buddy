@@ -287,6 +287,11 @@ try {{ SecondaryClick-OwnedPoint 88 302 }} catch {{ $errorMessage=$_.Exception.M
             "  $journal.Add('find:' + [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Encoded)) + ':' + $Mode)\n"
             "  return @{ X=88; Y=302 }\n"
             "}\n"
+            "function Find-OwnedCellPoint([string] $EncodedRow, [string] $EncodedDate) {\n"
+            "  $journal.Add('cell:' + [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedRow)) + ':'"
+            " + [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedDate)))\n"
+            "  return @{ X=88; Y=302 }\n"
+            "}\n"
             "function Click-OwnedPoint([int] $X, [int] $Y) { $journal.Add(\"left:$X,$Y\") }\n"
             "function SecondaryClick-OwnedPoint([int] $X, [int] $Y) { $journal.Add(\"right:$X,$Y\") }\n"
             "$parts = @(" + ",".join(f"'{part}'" for part in parts) + ")\n"
@@ -305,6 +310,18 @@ try {{ SecondaryClick-OwnedPoint 88 302 }} catch {{ $errorMessage=$_.Exception.M
             with self.subTest(parts=len(parts)):
                 self.assertEqual(self.run_case("'workspace_menu64' {", parts),
                     ["error:A tab menu needs one visible tab title"])
+
+
+    def test_the_cell_menu_case_locates_a_grid_cell_like_a_click_and_presses_the_right_button(self):
+        row, date = (base64.b64encode(text.encode()).decode() for text in ("FIX-17", "14 Oct"))
+        menu = self.run_case("'cell_menu64' {", ["cell_menu64", row, date])
+        self.assertEqual(menu, ["cell:FIX-17:14 Oct", "right:88,302"])
+        click = self.run_case("'cell64' {", ["cell64", row, date])
+        self.assertEqual(click, ["cell:FIX-17:14 Oct", "left:88,302"])
+        for parts in (["cell_menu64", row], ["cell_menu64", row, date, date]):
+            with self.subTest(parts=len(parts)):
+                self.assertEqual(self.run_case("'cell_menu64' {", parts),
+                    ["error:A grid cell needs one row and one date"])
 
 
 class WindowsCommandEncoding(unittest.TestCase):

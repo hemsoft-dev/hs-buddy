@@ -69,8 +69,33 @@ impl Metadata {
             None => "Issue unavailable".into(),
         }
     }
+    /// Electron's `capexMap[issueKey]`: only a confirmed CapEx flag marks the
+    /// grid. Non-CapEx, unclassified and failed lookups look the same there.
+    pub fn is_capex(&self, id: Option<IssueId>) -> bool {
+        id.and_then(|id| self.classifications.get(&id).copied().flatten()) == Some(true)
+    }
     pub fn summary(&self, id: Option<IssueId>) -> Option<&str> {
         id.and_then(|id| self.rows.get(&id))
             .and_then(|row| row.summary.as_deref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_confirmed_capex_flag_marks_the_grid() {
+        let id = |value| IssueId::parse(value).unwrap();
+        let mut metadata = Metadata::default();
+        metadata.classifications.insert(id(1), Some(true));
+        metadata.classifications.insert(id(2), Some(false));
+        // A failed or unresolved lookup is unclassified, not CapEx.
+        metadata.classifications.insert(id(3), None);
+        assert!(metadata.is_capex(Some(id(1))));
+        assert!(!metadata.is_capex(Some(id(2))));
+        assert!(!metadata.is_capex(Some(id(3))));
+        assert!(!metadata.is_capex(Some(id(4))));
+        assert!(!metadata.is_capex(None));
     }
 }

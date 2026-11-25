@@ -130,6 +130,44 @@ class FixtureScenarios(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
                 desktop.require_writes(api, 1)
 
+    def test_real_right_click_delete_must_remove_exactly_the_single_cell_worklog(self):
+        with desktop.ScenarioFixture() as api:
+            tempo_auth = 'Bearer ' + desktop.tempo.TEMPO_TOKEN
+            address = urlsplit(api.url)
+            def request(method, path, body=None):
+                connection = HTTPConnection(address.hostname, address.port, timeout=3)
+                try:
+                    connection.request(method, path, body=json.dumps(body) if body is not None else None,
+                        headers={'Authorization': tempo_auth})
+                    response = connection.getresponse()
+                    response.read()
+                    return response.status
+                finally:
+                    connection.close()
+            # The seed's 14 October cell is empty and 13 October holds three.
+            for date in ('2026-10-14', '2026-10-13'):
+                with self.assertRaisesRegex(RuntimeError, 'exactly one worklog'):
+                    desktop.single_cell_worklog(api, date)
+            self.assertEqual(desktop.single_cell_worklog(api, '2026-10-15')[0], desktop.tempo.FIRST_ID)
+            body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                startDate='2026-10-14', timeSpentSeconds=3600, attributes=[])
+            api.deny_next_create = True
+            self.assertEqual(request('POST', '/4/worklogs', body), 403)
+            self.assertEqual(request('POST', '/4/worklogs', body), 200)
+            target, removed = desktop.single_cell_worklog(api, '2026-10-14')
+            self.assertEqual(removed['timeSpentSeconds'], 3600)
+            before = api.snapshot()['records']
+            with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
+                desktop.assert_cell_delete(api, before, target, 2)
+            self.assertEqual(request('DELETE', f'/4/worklogs/{target}'), 204)
+            state = desktop.assert_cell_delete(api, before, target, 2)
+            self.assertNotIn(target, state['records'])
+            # Another worklog's deletion, or a stale "before", fails closed.
+            with self.assertRaisesRegex(RuntimeError, 'exactly its single cell worklog'):
+                desktop.assert_cell_delete(api, before, desktop.tempo.FIRST_ID, 2)
+            with self.assertRaisesRegex(RuntimeError, 'exactly its single cell worklog'):
+                desktop.assert_cell_delete(api, state['records'], target, 2)
+
     def test_public_entrypoint_refuses_home_before_parsing_or_launching_anything(self):
         with patch.dict(os.environ, {}, clear=True), \
                 patch.object(desktop.github, 'installed_binary') as installed, \
@@ -359,6 +397,39 @@ class CellInput(unittest.TestCase):
         return eval(compile(expression, str(desktop.__file__), 'eval'),
             dict(__builtins__={}, tempo=desktop.tempo, week_actions=desktop.week_actions, session=session))
 
+    def test_holiday_and_capex_capture_precedes_a_confirmed_right_click_delete(self):
+        for session in ('windows', 'macos', 'x11'):
+            with self.subTest(session=session):
+                actions = self.stage_actions('cell-delete-dark', session)
+                self.assertEqual(actions[:len(desktop.week_actions())], desktop.week_actions())
+                marks = actions.index(('capture', 'tempo-holiday-capex-dark'))
+                menu = actions.index(('cell_menu', 'FIX-17', '14 Oct'))
+                prompt = actions.index(('capture', 'tempo-cell-delete-dark'))
+                confirm = actions.index(('click', 'Confirm deletion'))
+                self.assertEqual(actions[marks - 1], ('wait_scroll_text', 'FIX-17', 'Load date range'))
+                self.assertLess(marks, menu)
+                self.assertEqual(actions[menu + 1], ('wait_scroll_up', 'Confirm deletion'))
+                self.assertEqual(prompt, menu + 2)
+                self.assertEqual(confirm, prompt + 1)
+                self.assertEqual(actions[-1], ('wait_scroll_up', 'Tempo confirmed the worklog change'))
+                # Only the secondary button reaches the cell, so no left click
+                # can open its editor or list instead.
+                self.assertFalse(any(action[0] == 'cell' for action in actions))
+                self.assertIn(('cell_menu', 'FIX-17', '14 Oct'), self.driven('cell-delete-dark', session))
+
+    def test_the_cell_delete_scene_sits_between_reauthentication_and_the_lost_reply(self):
+        source = Path(desktop.__file__).read_text(encoding='utf-8')
+        order = [source.index(f"driver.drive('{stage}'") for stage in
+            ('template-dark', 'reauth-draft-dark', 'cell-delete-dark', 'partial-copy-dark')]
+        self.assertEqual(order, sorted(order))
+        scene = source[order[2]:order[3]]
+        # The deleted worklog is put back even when the scene fails.
+        self.assertIn('finally:', scene)
+        self.assertIn('api.records.setdefault(target, removed)', scene)
+        self.assertIn('assert_cell_delete(api, before_cell_delete, target, 4)', scene)
+        for capture in ('tempo-holiday-capex-dark', 'tempo-cell-delete-dark'):
+            self.assertIn(f"'cell-delete-dark/{capture}.png'", source)
+
     def test_timeline_pager_gets_a_coarse_owned_scroll_before_expensive_ocr_waits(self):
         actions = self.stage_actions('grid-navigation-dark', 'windows')
         cleared = actions.index(('click', 'Show all worklogs'))
@@ -573,6 +644,56 @@ class CellInput(unittest.TestCase):
             command = arguments[arguments.index('-Actions') + 1]
             encoded = next(item for item in command.split(',') if item.startswith('cell64:'))
             self.assertEqual([base64.b64decode(item).decode() for item in encoded.split(':')[1:]], ['FIX-17', '14 Oct'])
+
+    def test_windows_cell_menu_is_its_own_command_with_the_same_two_labels(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session, driver.large_size = 'windows', (1200, 820)
+        driver.executable, driver.backend, driver.checkout = Path('installed'), Mock(url='loopback'), Path('repo')
+        with tempfile.TemporaryDirectory() as directory:
+            driver.profile, driver.config = Path(directory), Path(directory) / 'config.json'
+            with patch.object(desktop.settings, 'run') as run:
+                driver.drive('cell', [('cell', 'FIX-17', '15 Oct'), ('cell_menu', 'FIX-17', '14 Oct')])
+            arguments = run.call_args.args
+            commands = arguments[arguments.index('-Actions') + 1].split(',')
+        left, = [item for item in commands if item.startswith('cell64:')]
+        menu, = [item for item in commands if item.startswith('cell_menu64:')]
+        self.assertLess(commands.index(left), commands.index(menu))
+        self.assertEqual([base64.b64decode(item).decode() for item in menu.split(':')[1:]], ['FIX-17', '14 Oct'])
+        script = Path(desktop.__file__).with_name('windows-actions.ps1').read_text(encoding='utf-8')
+        self.assertIn("'cell_menu64' {", script)
+
+    def test_x11_cell_menu_presses_button_three_on_the_located_cell(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'x11'
+        window = Mock(window='owned-window')
+        grid = Mock(locate_image=Mock(return_value=dict(x=840.4, y=696.6)))
+        for kind, button in (('cell', 1), ('cell_menu', 3)):
+            with self.subTest(kind=kind), patch.object(desktop.settings, 'load', return_value=grid), \
+                    patch.object(desktop.settings, 'run') as run, patch.object(desktop.settings.time, 'sleep'):
+                driver.interact(window, Path('mocked-capture'), kind, ['FIX-17', '14 Oct'])
+                self.assertEqual(run.call_args.args,
+                    ('xdotool', 'mousemove', '--window', 'owned-window', 840, 696, 'click', button))
+
+    def test_mac_cell_menu_posts_only_the_secondary_click(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        driver.input_receipt = Mock()
+        point = dict(x=840, y=696, column={}, row={})
+        owned = Mock()
+        window = Mock(process='owned-pid')
+        with tempfile.TemporaryDirectory() as directory:
+            def screenshot(path):
+                path.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + struct.pack('>II', 2400, 1640))
+                path.with_suffix('.window.json').write_text(json.dumps(dict(
+                    capturePixelsPerWindowPoint=2, kCGWindowBounds=dict(X=80, Y=40, Width=1200, Height=820))))
+            window.screenshot.side_effect = screenshot
+            with patch.object(desktop.settings, 'load', return_value=Mock(locate_image=Mock(return_value=point))), \
+                    patch.object(desktop.settings, 'OwnedMacInput', return_value=owned), \
+                    patch.object(desktop.settings, 'run'), patch.object(desktop.settings.time, 'sleep'):
+                driver.interact(window, Path(directory), 'cell_menu', ['FIX-17', '14 Oct'])
+        owned.secondary_click.assert_called_once_with(500, 388)
+        owned.click.assert_not_called()
+        driver.input_receipt.assert_called_once()
 
     def test_retina_cell_uses_owned_origin_and_one_click_after_stable_measurements(self):
         driver = object.__new__(desktop.settings.Driver)

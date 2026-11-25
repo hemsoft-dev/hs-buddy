@@ -198,6 +198,12 @@ try {
                 $point = Find-OwnedCellPoint $parts[1] $parts[2]
                 Click-OwnedPoint $point.X $point.Y
             }
+            'cell_menu64' {
+                # The same located cell as cell64; only the button differs.
+                if ($parts.Length -ne 3) { throw 'A grid cell needs one row and one date' }
+                $point = Find-OwnedCellPoint $parts[1] $parts[2]
+                SecondaryClick-OwnedPoint $point.X $point.Y
+            }
             'record-start' {
                 if ($recorder) { throw 'A recording is already active' }
                 $recordDirectory = $parts[1..($parts.Length - 1)] -join ':'

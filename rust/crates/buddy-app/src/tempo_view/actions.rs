@@ -16,11 +16,23 @@ pub(super) enum Update {
 }
 impl TempoView {
     pub(super) fn can_submit(&self) -> bool {
+        #[cfg(test)]
+        if self.test_can_submit {
+            return !self.busy;
+        }
         !self.busy
             && self
                 .connection
                 .as_ref()
                 .is_some_and(|c| c.session.can_submit())
+    }
+    /// Timeline's Delete worklog and a grid right-click share this prompt.
+    pub(super) fn ask_delete(&mut self, row: Worklog, cx: &mut Context<Self>) {
+        // The confirmation replaces any stale status.
+        self.delete_target = Some(row);
+        self.error = None;
+        self.notice = None;
+        cx.notify();
     }
     pub(super) fn open_new_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_submit() || self.editor.is_some() || self.copy_plan.is_some() {
