@@ -17,6 +17,35 @@ pub const CONTENT_MIN_WIDTH: f64 = 400.0;
 /// The main pane's minimum beside the open assistant in native's nested
 /// split (the workspace holds both).
 pub const MAIN_BESIDE_ASSISTANT_MIN_WIDTH: f64 = 250.0;
+/// The assistant pane's `minSize` and `maxSize` in `App.tsx`.
+pub const ASSISTANT_MIN_WIDTH: f64 = 280.0;
+pub const ASSISTANT_MAX_WIDTH: f64 = 600.0;
+
+/// The share of the minimums `wanted` that a row `available` pixels wide
+/// can hold: 1 when it holds them all, less in proportion when it cannot.
+fn fit(available: f64, wanted: f64) -> f64 {
+    let available = if available.is_finite() {
+        available.max(0.0)
+    } else {
+        0.0
+    };
+    if wanted > available {
+        available / wanted
+    } else {
+        1.0
+    }
+}
+
+/// The workspace's minimum: the content's 400, or, beside the open
+/// assistant (its width, `None` while it is closed), room for it and the
+/// main pane.
+fn workspace_min(assistant: Option<f64>) -> f64 {
+    assistant
+        .filter(|width| width.is_finite() && *width > 0.0)
+        .map_or(CONTENT_MIN_WIDTH, |width| {
+            (width + MAIN_BESIDE_ASSISTANT_MIN_WIDTH).max(CONTENT_MIN_WIDTH)
+        })
+}
 
 /// `normalizePaneSizes`: fewer than two entries, or any entry that is not a
 /// positive number, gives the defaults; two entries gain the assistant
@@ -42,12 +71,15 @@ pub fn normalize(sizes: &[f64]) -> Vec<f64> {
 /// The workspace beside the sidebar keeps Electron's 400 for the content,
 /// or, while the assistant is open, room for it and the main pane's 250.
 /// A row too narrow for both minimums shrinks them in proportion, so the
-/// split never lays out wider than the row.
+/// split never lays out wider than the row; `scale` is that proportion (1
+/// when the row holds them), which the assistant split inside the
+/// workspace shrinks by too (see [`AssistantLimits`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SidebarLimits {
     pub sidebar_min: f64,
     pub sidebar_max: f64,
     pub workspace_min: f64,
+    pub scale: f64,
 }
 
 impl SidebarLimits {
@@ -57,17 +89,8 @@ impl SidebarLimits {
         } else {
             0.0
         };
-        let workspace_min = assistant
-            .filter(|width| width.is_finite() && *width > 0.0)
-            .map_or(CONTENT_MIN_WIDTH, |width| {
-                (width + MAIN_BESIDE_ASSISTANT_MIN_WIDTH).max(CONTENT_MIN_WIDTH)
-            });
-        let wanted = SIDEBAR_MIN_WIDTH + workspace_min;
-        let scale = if wanted > available {
-            available / wanted
-        } else {
-            1.0
-        };
+        let workspace_min = workspace_min(assistant);
+        let scale = fit(available, SIDEBAR_MIN_WIDTH + workspace_min);
         let sidebar_min = SIDEBAR_MIN_WIDTH * scale;
         let workspace_min = workspace_min * scale;
         Self {
@@ -75,7 +98,71 @@ impl SidebarLimits {
             // Never below the minimum, which a range needs.
             sidebar_max: (available - workspace_min).max(sidebar_min),
             workspace_min,
+            scale,
         }
+    }
+
+    /// Whether the row was too narrow for the minimums, which then pin the
+    /// sidebar at its shrunk minimum instead of its saved share.
+    pub fn shrunk(&self) -> bool {
+        self.scale < 1.0
+    }
+}
+
+/// The scale for a workspace that fills a row `available` pixels wide on
+/// its own (no sidebar beside it), with the open assistant's width.
+pub fn workspace_scale(available: f64, assistant: Option<f64>) -> f64 {
+    fit(available, workspace_min(assistant))
+}
+
+/// The limits of the split between the main pane and the open assistant,
+/// in a workspace whose minimums shrank by `scale` (from
+/// [`SidebarLimits::scale`] or [`workspace_scale`]), for an assistant
+/// `assistant` pixels wide.
+///
+/// The main pane keeps 250 and the assistant Electron's 280-600. When the
+/// row shrank the workspace's minimum, which was the assistant and the
+/// main pane's 250, both shrink by the same scale, and the assistant is
+/// held at its shrunk width, so the two fill no more than that minimum
+/// and never extend past the window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AssistantLimits {
+    pub main_min: f64,
+    pub assistant_min: f64,
+    pub assistant_max: f64,
+    /// The assistant's width on its first frame.
+    pub assistant: f64,
+}
+
+impl AssistantLimits {
+    pub fn new(scale: f64, assistant: f64) -> Self {
+        let scale = if scale.is_finite() {
+            scale.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let assistant = if assistant.is_finite() {
+            assistant.clamp(ASSISTANT_MIN_WIDTH, ASSISTANT_MAX_WIDTH)
+        } else {
+            DEFAULT_ASSISTANT_PANE_SIZE
+        };
+        let (assistant_min, assistant_max) = if scale < 1.0 {
+            (assistant * scale, assistant * scale)
+        } else {
+            (ASSISTANT_MIN_WIDTH, ASSISTANT_MAX_WIDTH)
+        };
+        Self {
+            main_min: MAIN_BESIDE_ASSISTANT_MIN_WIDTH * scale,
+            assistant_min,
+            assistant_max,
+            assistant: assistant * scale,
+        }
+    }
+
+    /// Whether the minimums shrank, which holds the assistant at its shrunk
+    /// width.
+    pub fn shrunk(&self) -> bool {
+        self.main_min < MAIN_BESIDE_ASSISTANT_MIN_WIDTH
     }
 }
 
@@ -151,6 +238,7 @@ mod tests {
         sidebar_min: 200.0,
         sidebar_max: f64::MAX,
         workspace_min: 400.0,
+        scale: 1.0,
     };
 
     #[test]
@@ -179,6 +267,7 @@ mod tests {
                 sidebar_min: 200.0,
                 sidebar_max: 600.0,
                 workspace_min: 400.0,
+                scale: 1.0,
             }
         );
         assert_eq!(sidebar_width(&[10.0, 990.0], false, 1000.0, limits), 200.0);
@@ -195,6 +284,7 @@ mod tests {
                 sidebar_min: 200.0,
                 sidebar_max: 350.0,
                 workspace_min: 850.0,
+                scale: 1.0,
             }
         );
         assert_eq!(
@@ -229,10 +319,51 @@ mod tests {
                     sidebar_min: 0.0,
                     sidebar_max: 0.0,
                     workspace_min: 0.0,
+                    scale: 0.0,
                 },
                 "{available}"
             );
         }
+    }
+
+    #[test]
+    fn the_assistant_split_shrinks_with_the_row_it_sits_in() {
+        // A row that holds every minimum leaves Electron's limits.
+        assert_eq!(
+            AssistantLimits::new(1.0, 350.0),
+            AssistantLimits {
+                main_min: 250.0,
+                assistant_min: 280.0,
+                assistant_max: 600.0,
+                assistant: 350.0,
+            }
+        );
+        assert!(!AssistantLimits::new(1.0, 350.0).shrunk());
+        // A 900 px window at 150% beside a 350 px assistant: the
+        // workspace's 600 shrank to 414, and the main pane and the
+        // assistant fill exactly that.
+        let row = SidebarLimits::new(552.0, Some(350.0));
+        assert!(row.shrunk(), "{row:?}");
+        let split = AssistantLimits::new(row.scale, 350.0);
+        assert!(split.shrunk(), "{split:?}");
+        assert!(
+            (split.main_min + split.assistant_max - row.workspace_min).abs() < 1e-9,
+            "{split:?} in {row:?}"
+        );
+        assert_eq!(split.assistant_min, split.assistant_max);
+        assert_eq!(split.assistant, split.assistant_max);
+        assert!((split.assistant - 350.0 * row.scale).abs() < 1e-9);
+        // Without a sidebar the workspace is the row.
+        let scale = workspace_scale(552.0, Some(350.0));
+        assert!((scale - 552.0 / 600.0).abs() < 1e-9, "{scale}");
+        let alone = AssistantLimits::new(scale, 350.0);
+        assert!((alone.main_min + alone.assistant_max - 552.0).abs() < 1e-9);
+        assert_eq!(workspace_scale(1200.0, Some(350.0)), 1.0);
+        assert_eq!(workspace_scale(300.0, None), 0.75);
+        // An unreadable width or scale stays inside the limits.
+        assert_eq!(AssistantLimits::new(1.0, f64::NAN).assistant, 350.0);
+        assert_eq!(AssistantLimits::new(1.0, 900.0).assistant, 600.0);
+        assert_eq!(AssistantLimits::new(f64::NAN, 350.0).assistant_max, 0.0);
     }
 
     #[test]

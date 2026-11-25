@@ -181,7 +181,11 @@ pub const ZOOM_LEVEL_RANGE: std::ops::RangeInclusive<f64> = 80.0..=150.0;
 impl UiConfig {
     /// `ui.zoomLevel` as the root font-size percentage Electron's
     /// `useAppAppearance` sets on `<html>`. Electron's store refuses to load
-    /// a value outside 80-150, so such a value (or a non-number) means 100.
+    /// a number outside 80-150, so such a number means 100. A value that is
+    /// not a number (a string, `null`) never gets here: the `f64` field
+    /// fails to deserialize, so the whole file fails to load, startup uses
+    /// the default configuration and Reload Configuration keeps the current
+    /// one.
     pub fn root_font_percent(&self) -> f64 {
         if ZOOM_LEVEL_RANGE.contains(&self.zoom_level) {
             self.zoom_level
