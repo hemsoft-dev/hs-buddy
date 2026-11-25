@@ -130,6 +130,52 @@ class FixtureScenarios(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
                 desktop.require_writes(api, 1)
 
+    def test_real_right_click_delete_must_remove_exactly_the_single_cell_worklog(self):
+        with desktop.ScenarioFixture() as api:
+            tempo_auth = 'Bearer ' + desktop.tempo.TEMPO_TOKEN
+            address = urlsplit(api.url)
+            def request(method, path, body=None):
+                connection = HTTPConnection(address.hostname, address.port, timeout=3)
+                try:
+                    connection.request(method, path, body=json.dumps(body) if body is not None else None,
+                        headers={'Authorization': tempo_auth})
+                    response = connection.getresponse()
+                    response.read()
+                    return response.status
+                finally:
+                    connection.close()
+            # The seed's 14 October cell is empty and 13 October holds three.
+            for date in ('2026-10-14', '2026-10-13'):
+                with self.assertRaisesRegex(RuntimeError, 'exactly one worklog'):
+                    desktop.single_cell_worklog(api, date)
+            self.assertEqual(desktop.single_cell_worklog(api, '2026-10-15')[0], desktop.tempo.FIRST_ID)
+            body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                startDate='2026-10-14', timeSpentSeconds=3600, attributes=[])
+            api.deny_next_create = True
+            self.assertEqual(request('POST', '/4/worklogs', body), 403)
+            self.assertEqual(request('POST', '/4/worklogs', body), 200)
+            target, removed = desktop.single_cell_worklog(api, '2026-10-14')
+            self.assertEqual(removed['timeSpentSeconds'], 3600)
+            before = api.snapshot()['records']
+            with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
+                desktop.assert_cell_delete(api, before, target, 2)
+            # The prompt alone sent nothing, so the fixture is unchanged.
+            self.assertEqual(desktop.assert_cell_kept(api, before, 1)['records'], before)
+            self.assertEqual(request('DELETE', f'/4/worklogs/{target}'), 204)
+            # A DELETE sent by the right-click itself fails the prompt check.
+            with self.assertRaisesRegex(RuntimeError, 'sent a write before its confirmation'):
+                desktop.assert_cell_kept(api, before, 1)
+            state = desktop.assert_cell_delete(api, before, target, 2)
+            self.assertNotIn(target, state['records'])
+            # Another worklog's deletion, or a stale "before", fails closed.
+            with self.assertRaisesRegex(RuntimeError, 'exactly its single cell worklog'):
+                desktop.assert_cell_delete(api, before, desktop.tempo.FIRST_ID, 2)
+            with self.assertRaisesRegex(RuntimeError, 'exactly its single cell worklog'):
+                desktop.assert_cell_delete(api, state['records'], target, 2)
+            # A changed record without a counted write fails it too.
+            with self.assertRaisesRegex(RuntimeError, 'changed worklogs before its confirmation'):
+                desktop.assert_cell_kept(api, before, 2)
+
     def test_public_entrypoint_refuses_home_before_parsing_or_launching_anything(self):
         with patch.dict(os.environ, {}, clear=True), \
                 patch.object(desktop.github, 'installed_binary') as installed, \
@@ -359,6 +405,51 @@ class CellInput(unittest.TestCase):
         return eval(compile(expression, str(desktop.__file__), 'eval'),
             dict(__builtins__={}, tempo=desktop.tempo, week_actions=desktop.week_actions, session=session))
 
+    def test_the_prompt_drive_stops_at_the_confirmation_and_another_confirms_it(self):
+        for session in ('windows', 'macos', 'x11'):
+            with self.subTest(session=session):
+                prompt = self.stage_actions('cell-delete-prompt-dark', session)
+                confirm = self.stage_actions('cell-delete-dark', session)
+                for actions in (prompt, confirm):
+                    self.assertEqual(actions[:len(desktop.week_actions())], desktop.week_actions())
+                    menu = actions.index(('cell_menu', 'FIX-17', '14 Oct'))
+                    # Pinned above the scrolled page, so no scroll finds it.
+                    self.assertEqual(actions[menu + 1], ('wait_text', 'Confirm deletion'))
+                    # Only the secondary button reaches the cell, so no left click
+                    # can open its editor or list instead.
+                    self.assertFalse(any(action[0] == 'cell' for action in actions))
+                    self.assertIn(('cell_menu', 'FIX-17', '14 Oct'), self.driven(
+                        'cell-delete-prompt-dark' if actions is prompt else 'cell-delete-dark', session))
+                marks = prompt.index(('capture', 'tempo-holiday-capex-dark'))
+                menu = prompt.index(('cell_menu', 'FIX-17', '14 Oct'))
+                self.assertEqual(prompt[marks - 1], ('wait_scroll_text', 'FIX-17', 'Load date range'))
+                self.assertLess(marks, menu)
+                # The prompt drive ends at the open confirmation, unanswered.
+                self.assertEqual(prompt[-1], ('capture', 'tempo-cell-delete-dark'))
+                self.assertEqual(len(prompt), menu + 3)
+                self.assertNotIn(('click', 'Confirm deletion'), prompt)
+                menu = confirm.index(('cell_menu', 'FIX-17', '14 Oct'))
+                self.assertEqual(confirm[menu + 2:], [('click', 'Confirm deletion'),
+                    ('wait_scroll_up', 'Tempo confirmed the worklog change')])
+
+    def test_the_cell_delete_scene_sits_between_reauthentication_and_the_lost_reply(self):
+        source = Path(desktop.__file__).read_text(encoding='utf-8')
+        order = [source.index(f"driver.drive('{stage}'") for stage in
+            ('template-dark', 'reauth-draft-dark', 'cell-delete-prompt-dark', 'cell-delete-dark', 'partial-copy-dark')]
+        self.assertEqual(order, sorted(order))
+        scene = source[order[2]:order[4]]
+        # The fixture is checked between the prompt and its confirmation:
+        # unchanged after the right-click, one DELETE after the confirmation.
+        between = source[order[2]:order[3]]
+        self.assertIn('assert_cell_kept(api, before_cell_delete, 3)', between)
+        self.assertNotIn('assert_cell_delete', between)
+        self.assertIn('assert_cell_delete(api, before_cell_delete, target, 4)', source[order[3]:order[4]])
+        # The deleted worklog is put back even when the scene fails.
+        self.assertIn('finally:', scene)
+        self.assertIn('api.records.setdefault(target, removed)', scene)
+        for capture in ('tempo-holiday-capex-dark', 'tempo-cell-delete-dark'):
+            self.assertIn(f"'cell-delete-prompt-dark/{capture}.png'", source)
+
     def test_timeline_pager_gets_a_coarse_owned_scroll_before_expensive_ocr_waits(self):
         actions = self.stage_actions('grid-navigation-dark', 'windows')
         cleared = actions.index(('click', 'Show all worklogs'))
@@ -574,6 +665,56 @@ class CellInput(unittest.TestCase):
             encoded = next(item for item in command.split(',') if item.startswith('cell64:'))
             self.assertEqual([base64.b64decode(item).decode() for item in encoded.split(':')[1:]], ['FIX-17', '14 Oct'])
 
+    def test_windows_cell_menu_is_its_own_command_with_the_same_two_labels(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session, driver.large_size = 'windows', (1200, 820)
+        driver.executable, driver.backend, driver.checkout = Path('installed'), Mock(url='loopback'), Path('repo')
+        with tempfile.TemporaryDirectory() as directory:
+            driver.profile, driver.config = Path(directory), Path(directory) / 'config.json'
+            with patch.object(desktop.settings, 'run') as run:
+                driver.drive('cell', [('cell', 'FIX-17', '15 Oct'), ('cell_menu', 'FIX-17', '14 Oct')])
+            arguments = run.call_args.args
+            commands = arguments[arguments.index('-Actions') + 1].split(',')
+        left, = [item for item in commands if item.startswith('cell64:')]
+        menu, = [item for item in commands if item.startswith('cell_menu64:')]
+        self.assertLess(commands.index(left), commands.index(menu))
+        self.assertEqual([base64.b64decode(item).decode() for item in menu.split(':')[1:]], ['FIX-17', '14 Oct'])
+        script = Path(desktop.__file__).with_name('windows-actions.ps1').read_text(encoding='utf-8')
+        self.assertIn("'cell_menu64' {", script)
+
+    def test_x11_cell_menu_presses_button_three_on_the_located_cell(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'x11'
+        window = Mock(window='owned-window')
+        grid = Mock(locate_image=Mock(return_value=dict(x=840.4, y=696.6)))
+        for kind, button in (('cell', 1), ('cell_menu', 3)):
+            with self.subTest(kind=kind), patch.object(desktop.settings, 'load', return_value=grid), \
+                    patch.object(desktop.settings, 'run') as run, patch.object(desktop.settings.time, 'sleep'):
+                driver.interact(window, Path('mocked-capture'), kind, ['FIX-17', '14 Oct'])
+                self.assertEqual(run.call_args.args,
+                    ('xdotool', 'mousemove', '--window', 'owned-window', 840, 696, 'click', button))
+
+    def test_mac_cell_menu_posts_only_the_secondary_click(self):
+        driver = object.__new__(desktop.settings.Driver)
+        driver.session = 'macos'
+        driver.input_receipt = Mock()
+        point = dict(x=840, y=696, column={}, row={})
+        owned = Mock()
+        window = Mock(process='owned-pid')
+        with tempfile.TemporaryDirectory() as directory:
+            def screenshot(path):
+                path.write_bytes(b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\rIHDR' + struct.pack('>II', 2400, 1640))
+                path.with_suffix('.window.json').write_text(json.dumps(dict(
+                    capturePixelsPerWindowPoint=2, kCGWindowBounds=dict(X=80, Y=40, Width=1200, Height=820))))
+            window.screenshot.side_effect = screenshot
+            with patch.object(desktop.settings, 'load', return_value=Mock(locate_image=Mock(return_value=point))), \
+                    patch.object(desktop.settings, 'OwnedMacInput', return_value=owned), \
+                    patch.object(desktop.settings, 'run'), patch.object(desktop.settings.time, 'sleep'):
+                driver.interact(window, Path(directory), 'cell_menu', ['FIX-17', '14 Oct'])
+        owned.secondary_click.assert_called_once_with(500, 388)
+        owned.click.assert_not_called()
+        driver.input_receipt.assert_called_once()
+
     def test_retina_cell_uses_owned_origin_and_one_click_after_stable_measurements(self):
         driver = object.__new__(desktop.settings.Driver)
         driver.session = 'macos'
@@ -625,6 +766,289 @@ class CellInput(unittest.TestCase):
         self.assertEqual(window.screenshot.call_count, 4)
         run.assert_not_called()
         owned.click.assert_not_called()
+
+
+def blend(color, page, alpha):
+    return tuple(round(alpha * c + (1 - alpha) * p) for c, p in zip(color, page))
+
+
+def png(width, height, pixels):
+    """A minimal RGB PNG, so ffmpeg decodes what the scene captures."""
+    import zlib
+    rows = b''.join(b'\x00' + pixels[y * width * 3:(y + 1) * width * 3] for y in range(height))
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+        + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+
+
+class SyntheticGrid:
+    """A drawn holiday/CapEx grid at a capture scale, with OCR anchor boxes."""
+    PAGE = dict(dark=(0x1e, 0x1e, 0x1e), light=(0xff, 0xff, 0xff))
+    TEXT = dict(dark=(0xcc, 0xcc, 0xcc), light=(0x1f, 0x1f, 0x1f))
+    # The cell buttons' opaque secondary fill.
+    BUTTON = dict(dark=(0x25, 0x25, 0x26), light=(0xf3, 0xf3, 0xf3))
+
+    def __init__(self, theme='dark', scale=1, tint=True, marker=True, pill='success', cell='success', fringe=False,
+            body_tint=None):
+        tokens = desktop.THEME_MARKS[theme]
+        self.theme, self.fringe = theme, fringe
+        self.scale = s = scale
+        self.width, self.height = 600 * s, 260 * s
+        page, text = self.PAGE[theme], self.TEXT[theme]
+        self.pixels = bytearray(bytes(page) * (self.width * self.height))
+        plain, holiday = 200 * s, 292 * s
+        # As render.rs lays it out: a 40-high issue row centred on the pill
+        # at 165, then the 28-high Day total and Required rows to 241.
+        tinted = blend(tokens['danger'], page, 0.08)
+        if tint:
+            self.fill(holiday, 100 * s, holiday + 92 * s, 145 * s, tinted)
+        if tint if body_tint is None else body_tint:
+            self.fill(holiday, 145 * s, holiday + 92 * s, 241 * s, tinted)
+        for left in (plain, holiday):
+            # The issue row's opaque Log and duration buttons cover its tint.
+            self.fill(left + 2 * s, 149 * s, left + 90 * s, 181 * s, self.BUTTON[theme])
+            for top in (192, 220):
+                self.glyphs(dict(left=left + 4 * s, top=top * s, width=24 * s, height=8 * s), text)
+        self.anchors = {}
+        for left, name, weekday in ((plain, '14 Oct', True), (holiday, '15 Oct', not marker)):
+            label = dict(left=left + 2 * s, top=125 * s, width=40 * s, height=10 * s)
+            self.anchors[name] = label
+            self.glyphs(label, text)
+            line = dict(left=label['left'], top=108 * s, width=26 * s, height=10 * s)
+            if weekday:
+                self.glyphs(line, text)
+            elif marker is not False:
+                self.glyphs(line, tokens['danger'])
+        pill_box = dict(left=40 * s, top=160 * s, width=50 * s, height=10 * s)
+        self.anchors['FIX-17'] = pill_box
+        pill_color = tokens[pill] if pill in tokens else text
+        self.fill(pill_box['left'] - 7 * s, pill_box['top'] - 3 * s, pill_box['left'] + pill_box['width'] + 7 * s,
+            pill_box['top'] + pill_box['height'] + 3 * s, blend(pill_color, page, 0.1))
+        self.glyphs(pill_box, pill_color)
+        cell_color = tokens[cell] if cell in tokens else text
+        self.glyphs(dict(left=plain + 34 * s, top=160 * s, width=24 * s, height=10 * s), cell_color)
+
+    def fill(self, left, top, right, bottom, color):
+        for y in range(top, bottom):
+            self.pixels[(y * self.width + left) * 3:(y * self.width + right) * 3] = bytes(color) * (right - left)
+
+    def glyphs(self, box, color):
+        # Vertical strokes two pixels wide every five, like text.
+        tokens, page = desktop.THEME_MARKS[self.theme], self.PAGE[self.theme]
+        family = next((name for name, token in tokens.items() if token == tuple(color)), None)
+        top, bottom = box['top'], box['top'] + box['height']
+        for x in range(box['left'], box['left'] + box['width'], 5 * self.scale):
+            right = x + 2 * self.scale
+            self.fill(x, top, right, bottom, color)
+            # Subpixel edges, as X11 and ClearType captures show them: grey
+            # text gets a danger-hued and an info-hued edge, green text an
+            # info-hued edge on every other row. The danger marker has none.
+            if self.fringe and family is None:
+                self.fill(x - 1, top, x, bottom, blend(tokens['danger'], page, 0.7))
+                self.fill(right, top, right + 1, bottom, blend(tokens['info'], page, 0.7))
+            elif self.fringe and family == 'success':
+                for y in range(top, bottom, 2):
+                    self.fill(right, y, right + 1, y + 1, blend(tokens['info'], page, 0.7))
+
+    def frame(self):
+        return desktop.Frame(self.width, self.height, bytes(self.pixels))
+
+    def words(self, scale=1):
+        found = []
+        for line, (name, box) in enumerate(self.anchors.items()):
+            parts = name.split()
+            step = box['width'] // len(parts)
+            for index, part in enumerate(parts):
+                found.append(dict(text=part, left=(box['left'] + index * step) // scale, top=box['top'] // scale,
+                    width=(step - 2) // scale, height=box['height'] // scale, line=f'1/1/{line}'))
+        return found
+
+
+class GridMarks(unittest.TestCase):
+    def test_holiday_and_capex_marks_pass_in_both_themes_at_each_capture_scale(self):
+        for theme in ('dark', 'light'):
+            for scale in (1, 2):
+                with self.subTest(theme=theme, scale=scale):
+                    grid = SyntheticGrid(theme, scale)
+                    result = desktop.grid_marks(grid.frame(), grid.anchors, theme)
+                    self.assertTrue(result['passed'])
+                    self.assertGreaterEqual(result['holidayRednessShift'], 8)
+                    self.assertGreaterEqual(result['holidayBodyRednessShift'], 8)
+                    # The body is read from its fill, not the opaque buttons.
+                    fill = result['bodyTints']['plain']
+                    self.assertLessEqual(max(abs(a - b) for a, b in zip(fill, SyntheticGrid.PAGE[theme])), 2)
+                    self.assertEqual(result['marker']['plain']['danger'], 0)
+                    self.assertEqual(result['pill']['info'], 0)
+
+    def test_fringed_text_passes_with_its_marks_and_fails_without_each(self):
+        cases = (
+            (dict(), None),
+            (dict(tint=False), 'the holiday column is not tinted toward danger'),
+            (dict(body_tint=False), 'the holiday column body is not tinted toward danger'),
+            (dict(marker=False), 'the holiday heading has no danger marker'),
+            (dict(pill='info'), 'the CapEx pill is not success green'),
+            (dict(pill='text'), 'the CapEx pill is not success green'),
+            (dict(cell='info'), 'the filled CapEx cell is not success green'),
+            (dict(cell='text'), 'the filled CapEx cell is not success green'),
+        )
+        for theme in ('dark', 'light'):
+            for scale in (1, 2):
+                for options, problem in cases:
+                    with self.subTest(theme=theme, scale=scale, options=options):
+                        grid = SyntheticGrid(theme, scale, fringe=True, **options)
+                        if problem is None:
+                            result = desktop.grid_marks(grid.frame(), grid.anchors, theme)
+                            self.assertTrue(result['passed'])
+                            # The plain weekday's fringes are danger-hued too.
+                            self.assertGreater(result['marker']['plain']['danger'], 0)
+                            self.assertGreater(result['pill']['info'], 0)
+                            continue
+                        with self.assertRaises(desktop.MissingGridMarks) as raised:
+                            desktop.grid_marks(grid.frame(), grid.anchors, theme)
+                        self.assertIn(problem, str(raised.exception))
+
+    def test_the_first_real_captures_pass_and_fringes_alone_do_not(self):
+        # Measured by run 45574727167 on ubuntu-24.04 (X11) and windows-2025.
+        def measured(plain, holiday, pill, cell):
+            def counts(values):
+                return dict(zip(('danger', 'success', 'info'), values))
+            return dict(holidayRednessShift=16, holidayBodyRednessShift=16,
+                marker=dict(plain=counts(plain), holiday=counts(holiday)), pill=counts(pill), capexCell=counts(cell))
+        ubuntu = measured((50, 1, 48), (88, 0, 0), (0, 97, 32), (0, 87, 26))
+        windows = measured((45, 10, 29), (85, 0, 0), (0, 78, 18), (0, 73, 16))
+        for name, result in (('ubuntu', ubuntu), ('windows', windows)):
+            with self.subTest(capture=name):
+                self.assertEqual(desktop.mark_problems(result, 14), [])
+                # The holiday heading showing a fringed weekday, as plain does.
+                fringed = dict(result, marker=dict(result['marker'], holiday=result['marker']['plain']))
+                self.assertEqual(desktop.mark_problems(fringed, 14), ['the holiday heading has no danger marker'])
+                # An info-blue pill and cell with green fringes.
+                blue = dict(result, pill=dict(danger=0, success=32, info=97), capexCell=dict(danger=0, success=26, info=87))
+                self.assertEqual(desktop.mark_problems(blue, 14),
+                    ['the CapEx pill is not success green', 'the filled CapEx cell is not success green'])
+                # The heading keeps its tint while the cells below lose it.
+                bare = dict(result, holidayBodyRednessShift=0)
+                self.assertEqual(desktop.mark_problems(bare, 14), ['the holiday column body is not tinted toward danger'])
+
+    def test_each_missing_mark_fails_while_the_text_would_still_read(self):
+        cases = (
+            (dict(tint=False), 'the holiday column is not tinted toward danger'),
+            (dict(body_tint=False), 'the holiday column body is not tinted toward danger'),
+            (dict(marker=False), 'the holiday heading has no danger marker'),
+            (dict(pill='info'), 'the CapEx pill is not success green'),
+            (dict(pill='text'), 'the CapEx pill is not success green'),
+            (dict(cell='info'), 'the filled CapEx cell is not success green'),
+            (dict(cell='text'), 'the filled CapEx cell is not success green'),
+        )
+        for theme in ('dark', 'light'):
+            for options, problem in cases:
+                with self.subTest(theme=theme, options=options):
+                    grid = SyntheticGrid(theme, **options)
+                    with self.assertRaises(desktop.MissingGridMarks) as raised:
+                        desktop.grid_marks(grid.frame(), grid.anchors, theme)
+                    self.assertIn(problem, str(raised.exception))
+                    self.assertFalse(raised.exception.measurements['passed'])
+
+    def test_hue_classes_follow_the_theme_tokens_not_absolute_rgb(self):
+        for theme, tokens in desktop.THEME_MARKS.items():
+            for name, color in tokens.items():
+                self.assertEqual(desktop.hue_family(color, theme), name)
+                # Antialiased against the page the hue holds.
+                self.assertEqual(desktop.hue_family(blend(color, SyntheticGrid.PAGE[theme], 0.7), theme), name)
+            for grey in ((0x1e, 0x1e, 0x1e), (0xcc, 0xcc, 0xcc), (0x85, 0x85, 0x85)):
+                self.assertIsNone(desktop.hue_family(grey, theme))
+
+    def test_headings_that_are_not_adjacent_columns_are_refused(self):
+        grid = SyntheticGrid()
+        anchors = dict(grid.anchors, **{'15 Oct': dict(grid.anchors['14 Oct'], left=grid.anchors['14 Oct']['left'] + 5)})
+        with self.assertRaisesRegex(desktop.MissingGridMarks, 'not adjacent grid columns') as raised:
+            desktop.grid_marks(grid.frame(), anchors, 'dark')
+        self.assertFalse(raised.exception.measurements['passed'])
+
+    def test_boxes_that_reach_outside_the_capture_are_missing_marks(self):
+        grid = SyntheticGrid()
+        anchors = dict(grid.anchors, **{'FIX-17': dict(grid.anchors['FIX-17'], top=grid.height * 4)})
+        with self.assertRaisesRegex(desktop.MissingGridMarks, 'outside the screenshot'):
+            desktop.grid_marks(grid.frame(), anchors, 'dark')
+
+    def test_a_layout_with_misplaced_date_boxes_falls_through_to_the_next_layout(self):
+        grid = SyntheticGrid('dark')
+        # The first layout reads every label, but its '15 Oct' sits on top of
+        # '14 Oct'; the second reads the real boxes.
+        plain = grid.anchors['14 Oct']
+        words = grid.words()
+        holiday = [word for word in words if word['line'] == '1/1/1']
+        misplaced = [dict(word, left=plain['left'] + 5 + holiday.index(word) * 20) if word in holiday else word
+            for word in words]
+        anchors = {label: desktop.settings.ocr.find_label(misplaced, label) for label in ('14 Oct', '15 Oct')}
+        self.assertLess(anchors['15 Oct']['left'] - anchors['14 Oct']['left'], 3 * plain['height'])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'tempo-holiday-capex-dark.png'
+            path.write_bytes(png(grid.width, grid.height, bytes(grid.pixels)))
+            def run(*args):
+                Path(args[-1]).write_bytes(bytes(grid.pixels))
+            modes = []
+            def recognize(image, mode):
+                modes.append(mode)
+                return misplaced if len(modes) == 1 else grid.words()
+            with patch.object(desktop.settings.ocr, 'analysis_images', return_value=iter((path,))), \
+                    patch.object(desktop.settings.ocr, 'recognize', side_effect=recognize):
+                result = desktop.check_grid_marks(path, 'dark', run=run)
+            self.assertTrue(result['passed'])
+            self.assertEqual(modes, [11, 3])
+            # Misplaced boxes in every layout fail only after all of them.
+            modes.clear()
+            with patch.object(desktop.settings.ocr, 'analysis_images', return_value=iter((path,))), \
+                    patch.object(desktop.settings.ocr, 'recognize', side_effect=lambda image, mode: modes.append(mode) or misplaced):
+                with self.assertRaisesRegex(RuntimeError, 'holiday column and CapEx marks') as raised:
+                    desktop.check_grid_marks(path, 'dark', run=run)
+            self.assertEqual(modes, [11, 3, 6])
+            self.assertIsInstance(raised.exception.__cause__, desktop.MissingGridMarks)
+
+    def test_the_capture_check_scales_ocr_boxes_and_records_its_measurements(self):
+        grid = SyntheticGrid('dark', 2)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'tempo-holiday-capex-dark.png'
+            path.write_bytes(png(grid.width, grid.height, bytes(grid.pixels)))
+            scaled = path.with_suffix('.ocr-scale3.png')
+            scaled.write_bytes(png(grid.width // 2, grid.height // 2, b'\0' * (grid.width // 2 * grid.height // 2 * 3)))
+            def run(*args):
+                Path(args[-1]).write_bytes(bytes(grid.pixels))
+            # The first layout misses a heading; the half-size one finds all.
+            layouts = {path: [], scaled: grid.words(scale=2)}
+            with patch.object(desktop.settings.ocr, 'analysis_images', return_value=iter((path, scaled))), \
+                    patch.object(desktop.settings.ocr, 'recognize', side_effect=lambda image, mode: layouts[image]):
+                result = desktop.check_grid_marks(path, 'dark', run=run)
+            self.assertTrue(result['passed'])
+            recorded = json.loads(path.with_suffix('.marks.json').read_text(encoding='utf-8'))
+            self.assertTrue(recorded['passed'])
+            self.assertEqual(recorded['anchors']['15 Oct']['left'], grid.anchors['15 Oct']['left'])
+
+    def test_a_capture_without_the_marks_fails_the_check(self):
+        grid = SyntheticGrid('dark', tint=False, pill='info')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'tempo-holiday-capex-dark.png'
+            path.write_bytes(png(grid.width, grid.height, bytes(grid.pixels)))
+            def run(*args):
+                Path(args[-1]).write_bytes(bytes(grid.pixels))
+            with patch.object(desktop.settings.ocr, 'analysis_images', return_value=iter((path,))), \
+                    patch.object(desktop.settings.ocr, 'recognize', return_value=grid.words()):
+                with self.assertRaisesRegex(RuntimeError, 'holiday column and CapEx marks') as raised:
+                    desktop.check_grid_marks(path, 'dark', run=run)
+            self.assertIsInstance(raised.exception.__cause__, desktop.MissingGridMarks)
+            self.assertFalse(json.loads(path.with_suffix('.marks.json').read_text(encoding='utf-8'))['passed'])
+
+    @unittest.skipUnless(__import__('shutil').which('ffmpeg'), 'Decoding a real PNG needs ffmpeg')
+    def test_ffmpeg_decodes_the_capture_into_the_pixels_it_shows(self):
+        grid = SyntheticGrid('light')
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'capture.png'
+            path.write_bytes(png(grid.width, grid.height, bytes(grid.pixels)))
+            frame = desktop.rgb_frame(path, desktop.settings.run)
+        self.assertEqual((frame.width, frame.height), (grid.width, grid.height))
+        self.assertEqual(frame.pixels, bytes(grid.pixels))
+        self.assertTrue(desktop.grid_marks(frame, grid.anchors, 'light')['passed'])
 
 
 if __name__ == '__main__':

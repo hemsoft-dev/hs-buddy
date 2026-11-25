@@ -9,6 +9,8 @@ pub(super) enum Update {
     Lookup(Box<(uuid::Uuid, String, EditorIssue)>),
     Wrote {
         confirmed: bool,
+        /// Sent without a reply: Tempo may have applied it.
+        unconfirmed: bool,
         tone: Tone,
         message: String,
         problem: Option<String>,
@@ -16,6 +18,10 @@ pub(super) enum Update {
 }
 impl TempoView {
     pub(super) fn can_submit(&self) -> bool {
+        #[cfg(test)]
+        if self.test_can_submit {
+            return !self.busy;
+        }
         !self.busy
             && self
                 .connection
@@ -93,7 +99,37 @@ impl TempoView {
             }
         }
     }
+    /// A write's outcome. A confirmed one closes its editor or delete
+    /// prompt; an unanswered delete of the prompt's worklog leaves the
+    /// prompt saying so, whichever control sent it.
+    pub(super) fn wrote(
+        &mut self,
+        confirmed: bool,
+        unconfirmed: bool,
+        tone: Tone,
+        message: String,
+        problem: Option<String>,
+    ) {
+        if confirmed {
+            self.editor = None;
+            self.editor_binding = None;
+            self.delete_target = None;
+        }
+        if unconfirmed && self.delete_in_flight() {
+            self.delete_unconfirmed = true;
+        }
+        self.set_notice(tone, message);
+        self.error = problem;
+        self.populate_range = true;
+        self.scroll_to_today = true;
+        self.cell_filter = None;
+        self.page = 0;
+    }
     pub(super) fn operate(&mut self, operation: Operation, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        {
+            self.test_operation = Some(std::mem::discriminant(&operation));
+        }
         if self.copy_plan.is_some() && !matches!(operation, Operation::ExecuteCopy(_)) {
             self.error = Some("Create or cancel the pending copies before another action.".into());
             cx.notify();
@@ -118,10 +154,7 @@ impl TempoView {
         let Some(mut connection) = self.connection.take() else {
             return;
         };
-        self.busy = true;
-        self.error = None;
-        self.set_notice(Tone::Info, "Working with Tempo…");
-        self.discard_confirm = false;
+        self.begin(&operation, connection.session.pending_draft());
         let generation = self.generation;
         let rx = Runtime::global(cx).spawn(async move {
             let result = io::apply(&mut connection, operation).await;
@@ -131,32 +164,97 @@ impl TempoView {
             let result=rx.await;
             this.update(cx,|this,cx| {
                 if this.generation!=generation {return;}
-                this.busy=false;this.notice=None;
-                match result {
+                let outcome=match result {
                     Ok((connection,outcome))=>{
                         this.data=Some(connection.session.snapshot().clone());this.metadata=connection.metadata.clone();this.templates=connection.templates.clone();this.connection=Some(connection);
-                        match outcome {
-                            Ok(Update::Message(tone,message))=>{this.set_notice(tone,message);this.populate_range=true;this.scroll_to_today=true;this.page=0;this.cell_filter=None;},
-                            Ok(Update::CopyReady(plan))=>{this.copy_plan=Some(plan);this.delete_target=None;},
-                            Ok(Update::TemplateEditor(value))=>this.pending_template=Some(*value),
-                            Ok(Update::Editor(value))=>this.pending_editor=Some(*value),
-                            Ok(Update::Lookup(value))=>{
-                                let (id,query,info)=*value;
-                                if let Some(editor)=&mut this.editor && editor.id==id
-                                    && let Err(error)=editor.accept_lookup(query,info,cx) {this.error=Some(error);}
-                            },
-                            Ok(Update::Wrote{confirmed,tone,message,problem})=>{
-                                if confirmed {this.editor=None;this.editor_binding=None;this.delete_target=None;}
-                                this.set_notice(tone,message);this.error=problem;this.populate_range=true;this.scroll_to_today=true;this.cell_filter=None;this.page=0;
-                            },
-                            Err(error)=>this.error=Some(error),
-                        }
+                        outcome
                     },
-                    Err(_)=>this.error=Some("The worker stopped. The displayed timesheet and draft were retained. Recheck the original connection and its recovery before continuing.".into()),
-                }
-                cx.notify();
+                    Err(_)=>Err("The worker stopped. The displayed timesheet and draft were retained. Recheck the original connection and its recovery before continuing.".into()),
+                };
+                this.settle(outcome,cx);
             }).ok();
         }).detach();
         cx.notify();
     }
+    /// Every operation starts here, whichever control sent it, so the view's
+    /// in-flight state is the operation's own. `pending` is the captured
+    /// change that `Operation::RetryPrepared` sends.
+    pub(super) fn begin(&mut self, operation: &Operation, pending: Option<&Draft>) {
+        self.busy = true;
+        self.deleting = deletes(operation, pending);
+        self.error = None;
+        self.set_notice(Tone::Info, "Working with Tempo…");
+        self.discard_confirm = false;
+    }
+    /// The end of the operation `begin` started.
+    pub(super) fn settle(&mut self, outcome: Result<Update, String>, cx: &mut Context<Self>) {
+        self.busy = false;
+        self.notice = None;
+        match outcome {
+            Ok(Update::Message(tone, message)) => {
+                self.set_notice(tone, message);
+                self.populate_range = true;
+                self.scroll_to_today = true;
+                self.page = 0;
+                self.cell_filter = None;
+            }
+            Ok(Update::CopyReady(plan)) => {
+                self.copy_plan = Some(plan);
+                self.delete_target = None;
+            }
+            Ok(Update::TemplateEditor(value)) => self.pending_template = Some(*value),
+            Ok(Update::Editor(value)) => self.pending_editor = Some(*value),
+            Ok(Update::Lookup(value)) => {
+                let (id, query, info) = *value;
+                if let Some(editor) = &mut self.editor
+                    && editor.id == id
+                    && let Err(error) = editor.accept_lookup(query, info, cx)
+                {
+                    self.error = Some(error);
+                }
+            }
+            Ok(Update::Wrote {
+                confirmed,
+                unconfirmed,
+                tone,
+                message,
+                problem,
+            }) => self.wrote(confirmed, unconfirmed, tone, message, problem),
+            Err(error) => self.error = Some(error),
+        }
+        self.deleting = None;
+        cx.notify();
+    }
+    /// The open prompt's worklog is being deleted, by Confirm deletion or by
+    /// Retry captured change.
+    pub(super) fn delete_in_flight(&self) -> bool {
+        self.deleting
+            .is_some_and(|id| self.delete_target.as_ref().is_some_and(|row| row.id == id))
+    }
+    /// The phase of a captured change that deletes the open prompt's
+    /// worklog, for example one whose preflight failed. Its recovery
+    /// controls then belong in the prompt as well as on the page.
+    pub(super) fn target_recovery(&self) -> Option<WritePhase> {
+        let target = self.delete_target.as_ref()?.id;
+        #[cfg(test)]
+        if let Some((phase, id)) = self.test_pending {
+            return (id == target).then_some(phase);
+        }
+        let session = &self.connection.as_ref()?.session;
+        (deletes(&Operation::RetryPrepared, session.pending_draft()) == Some(target))
+            .then(|| session.pending_phase())
+            .flatten()
+    }
+}
+
+/// The worklog `operation` deletes. Retry captured change sends `pending`.
+fn deletes(operation: &Operation, pending: Option<&Draft>) -> Option<WorklogId> {
+    let draft = match operation {
+        Operation::Submit(draft) => draft,
+        Operation::RetryPrepared => pending?,
+        _ => return None,
+    };
+    (draft.kind() == buddy_core::tempo::DraftKind::Delete)
+        .then(|| draft.worklog_id())
+        .flatten()
 }

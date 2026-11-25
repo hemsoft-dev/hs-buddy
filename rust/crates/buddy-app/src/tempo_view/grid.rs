@@ -1,6 +1,24 @@
 use super::*;
-use buddy_core::tempo::{IssueId, WorklogId};
+use buddy_core::tempo::{IssueId, SummaryDay, Worklog, WorklogId};
 use jiff::civil::Date;
+
+/// The worklog a right-click deletes. Electron acts only on a cell holding
+/// exactly one worklog; an empty or multi-worklog cell keeps its default.
+pub(super) fn single_cell_worklog(
+    days: &[SummaryDay],
+    date: Date,
+    issue: Option<IssueId>,
+) -> Option<&Worklog> {
+    let mut rows = days
+        .iter()
+        .filter(|day| day.logged.date == date)
+        .flat_map(|day| &day.logged.worklogs)
+        .filter(|row| row.issue == issue);
+    match (rows.next(), rows.next()) {
+        (Some(row), None) => Some(row),
+        _ => None,
+    }
+}
 
 impl TempoView {
     pub(super) fn open_dated_editor(
@@ -99,4 +117,23 @@ impl TempoView {
             }
         }
     }
+
+    /// Right-click on a grid cell holding `row`, its only worklog. Unlike
+    /// Electron, which deletes at once, this opens Timeline's confirmation:
+    /// worklogs are the user's billed time records.
+    pub(super) fn request_cell_delete(
+        &mut self,
+        row: Worklog,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.can_submit() || self.editor.is_some() || self.copy_plan.is_some() {
+            return;
+        }
+        self.ask_delete(row, window, cx);
+    }
 }
+
+#[cfg(test)]
+#[path = "grid_tests.rs"]
+mod tests;

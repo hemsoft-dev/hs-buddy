@@ -1,8 +1,10 @@
 use super::*;
 use crate::zoom::zpx;
+use buddy_core::tempo::{ScheduleKind, SummaryDay};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::scroll::{Scrollbar, ScrollbarAxis, ScrollbarMode};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{
     ActiveTheme, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -11,8 +13,9 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AnyElement, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, div, point, px,
+    AnyElement, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, TestSupportExt as _,
+    div, point, px,
 };
 use jiff::civil::{Date, Weekday};
 
@@ -21,20 +24,33 @@ fn connection_actions_enabled(saved: Option<bool>) -> bool {
     saved != Some(false)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum DayMarker {
     Today,
+    Holiday,
     Weekend,
     Plain,
 }
-fn day_marker(date: Date, today: Option<Date>) -> DayMarker {
-    if Some(date) == today {
+/// One tint per column. A holiday's tint wins over Today's and a weekend's,
+/// as in Electron, where `.holiday` keeps the background and `.today` only
+/// adds its accent; Today's heading bar and weight still mark the column.
+fn day_marker(date: Date, today: Option<Date>, holiday: bool) -> DayMarker {
+    if holiday {
+        DayMarker::Holiday
+    } else if Some(date) == today {
         DayMarker::Today
     } else if matches!(date.weekday(), Weekday::Saturday | Weekday::Sunday) {
         DayMarker::Weekend
     } else {
         DayMarker::Plain
     }
+}
+/// Electron marks a column only for a HOLIDAY day that names its holiday.
+fn holiday_name(day: &SummaryDay) -> Option<&str> {
+    day.schedule
+        .as_ref()
+        .filter(|schedule| schedule.kind == ScheduleKind::Holiday)
+        .and_then(|schedule| schedule.holiday_name.as_deref())
 }
 fn today_offset(days: &[Date], today: Option<Date>) -> Option<usize> {
     days.iter().position(|day| Some(*day) == today)
@@ -46,10 +62,47 @@ fn day_heading(date: Date) -> (String, String) {
         date.strftime("%d %b").to_string(),
     )
 }
-/// A pager only appears when there is another page to reach.
-/// Column tints for Today and weekends.
-fn day_tints(theme: &gpui_kit::component::theme::Theme) -> (Hsla, Hsla) {
-    (theme.primary.opacity(0.12), theme.muted.opacity(0.6))
+/// Column tints for Today, holidays and weekends. The holiday tint is
+/// Electron's faint red (`rgba(239, 154, 154, 0.06)`) from the danger token.
+struct DayTints {
+    today: Hsla,
+    holiday: Hsla,
+    weekend: Hsla,
+}
+fn day_tints(theme: &gpui_kit::component::theme::Theme) -> DayTints {
+    DayTints {
+        today: theme.primary.opacity(0.12),
+        holiday: theme.danger.opacity(0.08),
+        weekend: theme.muted.opacity(0.6),
+    }
+}
+impl DayTints {
+    fn of(&self, marker: DayMarker) -> Option<Hsla> {
+        match marker {
+            DayMarker::Today => Some(self.today),
+            DayMarker::Holiday => Some(self.holiday),
+            DayMarker::Weekend => Some(self.weekend),
+            DayMarker::Plain => None,
+        }
+    }
+}
+
+/// Issue key pill colors, Electron's `.tempo-issue-pill`: blue, or green for
+/// CapEx. Text uses the token itself on a faint tint so it keeps 4.5:1.
+fn pill_colors(capex: bool, theme: &gpui_kit::component::theme::Theme) -> (Hsla, Hsla) {
+    let color = if capex { theme.success } else { theme.info };
+    (color.opacity(0.1), color)
+}
+
+/// Filled CapEx cells show their duration in green (Electron's
+/// `.has-hours.capex`); other cells keep the button's own text color.
+fn filled_cell_color(
+    seconds: u64,
+    capex: bool,
+    disabled: bool,
+    theme: &gpui_kit::component::theme::Theme,
+) -> Option<Hsla> {
+    (seconds > 0 && capex && !disabled).then_some(theme.success)
 }
 
 /// Headings keep the ordinary foreground on every tint. Primary text on the
@@ -59,6 +112,16 @@ fn heading_color(_marker: DayMarker, theme: &gpui_kit::component::theme::Theme) 
     theme.foreground
 }
 
+/// The line above the grid; it stands in for Electron's per-cell tooltip.
+fn grid_instructions(macos: bool) -> &'static str {
+    if macos {
+        "Select a cell to log or edit time. Cells with multiple worklogs open their list. Command-click a filled cell to copy its worklogs to Today, or use Copy day. Right-click a cell with one worklog to delete it."
+    } else {
+        "Select a cell to log or edit time. Cells with multiple worklogs open their list. Ctrl-click a filled cell to copy its worklogs to Today, or use Copy day. Right-click a cell with one worklog to delete it."
+    }
+}
+
+/// A pager only appears when there is another page to reach.
 fn pager_needed(count: usize, size: usize) -> bool {
     count > size
 }
@@ -127,14 +190,21 @@ impl TempoView {
             .ok()
     }
     fn render_timesheet(&self, cx: &Context<Self>) -> AnyElement {
+        #[cfg(test)]
+        if let Some(days) = &self.test_days {
+            return self.render_grid(days, cx);
+        }
         let Some(data) = &self.data else {
             return div()
                 .child("Connect to load your timesheet.")
                 .into_any_element();
         };
-        let mut issues: Vec<_> = data
-            .summary
-            .days
+        self.render_grid(&data.summary.days, cx)
+    }
+    /// The grid for the displayed days, apart from the snapshot that holds
+    /// them so the GPUI tests can draw it.
+    pub(super) fn render_grid(&self, days: &[SummaryDay], cx: &Context<Self>) -> AnyElement {
+        let mut issues: Vec<_> = days
             .iter()
             .flat_map(|day| day.logged.worklogs.iter().map(|row| row.issue))
             .collect();
@@ -153,7 +223,12 @@ impl TempoView {
         }
         let today = self.today;
         let theme = cx.theme();
-        let (today_tint, weekend_tint) = day_tints(theme);
+        let tints = day_tints(theme);
+        let holidays: std::collections::HashMap<Date, &str> = days
+            .iter()
+            .filter_map(|day| holiday_name(day).map(|name| (day.logged.date, name)))
+            .collect();
+        let marker = |date: Date| day_marker(date, today, holidays.contains_key(&date));
         // The issue labels stay pinned while the day columns scroll beside
         // them; fixed row heights keep both halves aligned.
         let label = |text: String, height: f32| {
@@ -173,38 +248,80 @@ impl TempoView {
                 .flex_col()
                 .justify_center()
                 .px(zpx(2.));
-            match day_marker(date, today) {
-                DayMarker::Today => cell.bg(today_tint),
-                DayMarker::Weekend => cell.bg(weekend_tint),
-                DayMarker::Plain => cell,
+            match tints.of(marker(date)) {
+                Some(tint) => cell.bg(tint),
+                None => cell,
             }
         };
         let mut labels = v_flex()
             .flex_shrink_0()
             .child(label("Issue / day".into(), GRID_HEAD));
         let mut heading = h_flex();
-        for day in &data.summary.days {
+        for day in days {
             let date = day.logged.date;
             let (weekday, label) = day_heading(date);
-            let mut text = v_flex()
-                .child(div().text_xs().child(weekday))
-                .child(div().child(label));
-            let marker = day_marker(date, today);
+            let holiday = holidays.get(&date).copied();
+            let marker = marker(date);
+            // Electron shows a party marker in place of the weekday and
+            // names the holiday on hover.
+            let first_line = match holiday {
+                Some(_) => div().child(
+                    Icon::new(IconName::PartyPopper)
+                        .small()
+                        .text_color(theme.danger),
+                ),
+                None => div().text_xs().child(weekday),
+            };
+            let mut text = v_flex().child(first_line).child(div().child(label));
             text = text.text_color(heading_color(marker, theme));
             let mut head = cell(date, GRID_HEAD);
-            if marker == DayMarker::Today {
+            // Today keeps its bar under a holiday's tint, as Electron keeps
+            // its accent over the holiday background.
+            if Some(date) == today {
                 // A bar, not an underline: OCR reads these headings in the
                 // installed qualification.
                 text = text.font_weight(FontWeight::SEMIBOLD);
                 head = head.border_t(zpx(2.)).border_color(theme.primary);
             }
-            heading = heading.child(head.child(text));
+            let mut head = head.id(format!("tempo-day-{date}"));
+            if let Some(name) = holiday {
+                let name = SharedString::from(name.to_owned());
+                head = head
+                    .aria_description(name.clone())
+                    .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx));
+            }
+            heading = heading.child(head.child(text).test_support());
         }
         let mut columns = v_flex().child(heading);
         for issue in issues.iter().skip(self.page * 8).take(8) {
-            labels = labels.child(label(self.metadata.label(*issue), GRID_ROW));
+            let capex = self.metadata.is_capex(*issue);
+            let (pill_bg, pill_text) = pill_colors(capex, theme);
+            let pill = div()
+                .id(format!(
+                    "tempo-issue-{}",
+                    issue.map(|id| id.get()).unwrap_or(0)
+                ))
+                .px(zpx(7.))
+                .rounded(zpx(3.))
+                .bg(pill_bg)
+                .text_color(pill_text)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(self.metadata.label(*issue));
+            let pill = if capex {
+                pill.aria_description("CapEx")
+            } else {
+                pill
+            };
+            labels = labels.child(
+                div()
+                    .w(zpx(GRID_LABEL))
+                    .h(zpx(GRID_ROW))
+                    .flex()
+                    .items_center()
+                    .child(pill.test_support()),
+            );
             let mut row = h_flex();
-            for day in &data.summary.days {
+            for day in days {
                 let seconds: u64 = day
                     .logged
                     .worklogs
@@ -214,44 +331,55 @@ impl TempoView {
                     .sum();
                 let issue = *issue;
                 let date = day.logged.date;
-                row = row.child(
-                    cell(date, GRID_ROW).child(
-                        Button::new(format!(
-                            "tempo-cell-{}-{date}",
-                            issue.map(|id| id.get()).unwrap_or(0)
-                        ))
-                        .label(if seconds == 0 {
-                            "Log".into()
-                        } else {
-                            duration(seconds)
-                        })
-                        .disabled(
-                            self.busy
-                                || self.editor.is_some()
-                                || self.copy_plan.is_some()
-                                || (seconds == 0 && (!self.can_submit() || issue.is_none())),
-                        )
-                        .on_click(cx.listener(
-                            move |this, event: &gpui_kit::ClickEvent, window, cx| {
-                                let modifiers = event.modifiers();
-                                this.open_cell(
-                                    date,
-                                    issue,
-                                    modifiers.control || modifiers.platform,
-                                    window,
-                                    cx,
-                                );
-                            },
-                        )),
-                    ),
-                );
+                let disabled = self.busy
+                    || self.editor.is_some()
+                    || self.copy_plan.is_some()
+                    || (seconds == 0 && (!self.can_submit() || issue.is_none()));
+                let mut button = Button::new(format!(
+                    "tempo-cell-{}-{date}",
+                    issue.map(|id| id.get()).unwrap_or(0)
+                ))
+                .label(if seconds == 0 {
+                    "Log".into()
+                } else {
+                    duration(seconds)
+                })
+                .disabled(disabled)
+                .on_click(cx.listener(
+                    move |this, event: &gpui_kit::ClickEvent, window, cx| {
+                        let modifiers = event.modifiers();
+                        this.open_cell(
+                            date,
+                            issue,
+                            modifiers.control || modifiers.platform,
+                            window,
+                            cx,
+                        );
+                    },
+                ));
+                // Only a cell with exactly one worklog answers the secondary
+                // button, as in Electron. That button never reaches the click
+                // handler, so a right-click cannot also open the cell.
+                if let Some(row) = super::grid::single_cell_worklog(days, date, issue).cloned() {
+                    button = button.on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.request_cell_delete(row.clone(), window, cx);
+                        }),
+                    );
+                }
+                if let Some(color) = filled_cell_color(seconds, capex, disabled, theme) {
+                    button = button.text_color(color);
+                }
+                row = row.child(cell(date, GRID_ROW).child(button));
             }
             columns = columns.child(row);
         }
         let mut totals = h_flex();
         let mut schedule = h_flex();
         let mut copy = h_flex();
-        for day in &data.summary.days {
+        for day in days {
             let date = day.logged.date;
             totals = totals.child(cell(date, GRID_LINE).child(duration(day.logged.seconds)));
             schedule = schedule.child(
@@ -284,21 +412,23 @@ impl TempoView {
             .child(label("Required".into(), GRID_LINE))
             .child(label("Copy day to Today".into(), GRID_ROW));
         columns = columns.child(totals).child(schedule).child(copy);
-        let width = data.summary.days.len() as f32 * GRID_DAY;
+        let width = days.len() as f32 * GRID_DAY;
         let mut body = v_flex()
             .gap_3()
-            .child(div().whitespace_normal().text_color(theme.muted_foreground).child(
-                if cfg!(target_os = "macos") {
-                    "Select a cell to log or edit time. Cells with multiple worklogs open their list. Command-click a filled cell to copy its worklogs to Today, or use Copy day."
-                } else {
-                    "Select a cell to log or edit time. Cells with multiple worklogs open their list. Ctrl-click a filled cell to copy its worklogs to Today, or use Copy day."
-                }
-            ))
+            .child(
+                div()
+                    .whitespace_normal()
+                    .text_color(theme.muted_foreground)
+                    .child(grid_instructions(cfg!(target_os = "macos"))),
+            )
             .child(
                 h_flex()
                     .items_start()
                     .child(labels)
-                    .child(horizontal_scroll_area(&self.grid_scroll, columns.w(zpx(width)))),
+                    .child(horizontal_scroll_area(
+                        &self.grid_scroll,
+                        columns.w(zpx(width)),
+                    )),
             );
         if pager_needed(issues.len(), 8) {
             body = body.child(self.pagination(issues.len(), 8, cx));
@@ -426,12 +556,8 @@ impl TempoView {
                                             || self.editor.is_some()
                                             || self.copy_plan.is_some(),
                                     )
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        // The confirmation replaces any stale status.
-                                        this.delete_target = Some(target.clone());
-                                        this.error = None;
-                                        this.notice = None;
-                                        cx.notify();
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.ask_delete(target.clone(), window, cx)
                                     })),
                             ),
                     ),
@@ -718,107 +844,32 @@ impl Render for TempoView {
         if let Some(notice) = &self.notice {
             lines.push((self.notice_tone, notice.clone()));
         }
-        if let Some(error) = &self.error {
+        // While the delete bar is open it shows the error instead.
+        if let Some(error) = self.error.as_ref().filter(|_| self.delete_target.is_none()) {
             lines.push((Tone::Error, error.clone()));
         }
         lines.extend(problems.into_iter().map(|text| (Tone::Warning, text)));
         let mut actions = Vec::new();
-        if let Some(connection) = &self.connection
-            && let Some(phase) = connection.session.pending_phase()
+        if let Some(phase) = self
+            .connection
+            .as_ref()
+            .and_then(|connection| connection.session.pending_phase())
         {
-            let policy = recovery_policy(phase);
-            let acknowledged = policy.acknowledged;
-            lines.push(if policy.retry {
-                (Tone::Warning, "This captured change has not been sent. Retry this captured worklog or discard it to keep editing.".to_owned())
-            } else if acknowledged {
-                (Tone::Info, "The service outcome is known. Finish local recovery cleanup before preparing another worklog change.".to_owned())
-            } else {
-                (Tone::Warning, "A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery.".to_owned())
-            });
-            let mut row = h_flex().flex_wrap().gap_2();
-            if policy.retry {
-                row =
-                    row.child(
-                        Button::new("tempo-retry-captured-change")
-                            .label("Retry captured change")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.operate(Operation::RetryPrepared, cx)
-                            })),
-                    );
-            }
-            // Cleanup only applies once the outcome is known; it is not offered before.
-            if acknowledged {
-                row = row.child(
-                    Button::new("tempo-recovery-cleanup")
-                        .label("Retry cleanup")
-                        .disabled(self.busy)
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.operate(Operation::Cleanup, cx)),
-                        ),
-                );
-            }
-            row = row.child(
-                Button::new("tempo-recovery-discard")
-                    .label("Discard local recovery")
-                    .disabled(self.busy || (acknowledged && !policy.retry))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.discard_confirm = true;
-                        cx.notify();
-                    })),
+            lines.push(recovery_line(phase));
+            actions.push(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .children(self.recovery_buttons(phase, &PAGE_RECOVERY, cx))
+                    .into_any_element(),
             );
-            actions.push(row.into_any_element());
         }
         if self.discard_confirm {
             lines.push(discard_prompt(ready));
             actions.push(
                 h_flex()
                     .gap_2()
-                    .child(
-                        Button::new("tempo-confirm-discard")
-                            .label("Confirm discard")
-                            .danger()
-                            .disabled(self.busy)
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.operate(Operation::Discard, cx)),
-                            ),
-                    )
-                    .child(
-                        Button::new("tempo-keep-recovery")
-                            .label("Keep recovery")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.discard_confirm = false;
-                                cx.notify();
-                            })),
-                    )
-                    .into_any_element(),
-            );
-        }
-        // The delete confirmation shares the status region with discard.
-        if let Some(target) = &self.delete_target {
-            lines.push(delete_prompt(target.seconds, target.date));
-            if let Some(description) = target.description.clone().filter(|text| !text.is_empty()) {
-                lines.push((Tone::Info, description));
-            }
-            actions.push(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("tempo-confirm-delete")
-                            .label("Confirm deletion")
-                            .danger()
-                            .disabled(!self.can_submit())
-                            .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
-                    )
-                    .child(
-                        Button::new("tempo-keep-worklog")
-                            .label("Keep worklog")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.delete_target = None;
-                                cx.notify();
-                            })),
-                    )
+                    .children(self.discard_buttons(&PAGE_RECOVERY, cx))
                     .into_any_element(),
             );
         }
@@ -933,22 +984,32 @@ impl Render for TempoView {
                     Pane::Timeline => self.render_timeline(cx),
                 });
         }
-        div()
-            .id("tempo-page-scroll")
+        // The delete confirmation is pinned above the scrolling page, so it
+        // is in view however far the page is scrolled.
+        let delete_bar = self.render_delete_bar(cx);
+        v_flex()
             // Tabular numerals keep every time column aligned.
             .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
             .size_full()
-            .overflow_y_scroll()
-            .p(zpx(16.))
-            .child(body)
+            .children(delete_bar)
+            .child(
+                div()
+                    .id("tempo-page-scroll")
+                    .test_support()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p(zpx(16.))
+                    .child(body),
+            )
     }
 }
 
 /// One status region. Lines keep their order: the primary outcome first.
-fn status_block(
+pub(super) fn status_block(
     lines: Vec<(Tone, String)>,
     actions: Vec<AnyElement>,
-    cx: &Context<TempoView>,
+    cx: &gpui_kit::App,
 ) -> AnyElement {
     let theme = cx.theme();
     let color = |tone: Tone| -> Hsla {
@@ -995,7 +1056,7 @@ fn status_block(
 }
 
 /// The worklog deletion prompt; it sits beside the danger "Confirm deletion" button.
-fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone, String) {
+pub(super) fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone, String) {
     (
         Tone::Danger,
         format!(
@@ -1005,8 +1066,99 @@ fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone, String) {
     )
 }
 
+/// Element IDs for one copy of the recovery controls. The page shows them
+/// under its status, and the delete bar repeats them for its own worklog's
+/// captured change, since the bar can fill a pane too short for the page.
+pub(super) struct RecoveryIds {
+    pub(super) retry: &'static str,
+    pub(super) cleanup: &'static str,
+    pub(super) discard: &'static str,
+    pub(super) confirm_discard: &'static str,
+    pub(super) keep_recovery: &'static str,
+}
+pub(super) const PAGE_RECOVERY: RecoveryIds = RecoveryIds {
+    retry: "tempo-retry-captured-change",
+    cleanup: "tempo-recovery-cleanup",
+    discard: "tempo-recovery-discard",
+    confirm_discard: "tempo-confirm-discard",
+    keep_recovery: "tempo-keep-recovery",
+};
+
+impl TempoView {
+    /// Retry captured change, Retry cleanup and Discard local recovery, as
+    /// `phase` allows them. Every copy sends the same operations.
+    pub(super) fn recovery_buttons(
+        &self,
+        phase: WritePhase,
+        ids: &RecoveryIds,
+        cx: &mut Context<Self>,
+    ) -> Vec<Button> {
+        let policy = recovery_policy(phase);
+        let acknowledged = policy.acknowledged;
+        let mut buttons = Vec::new();
+        if policy.retry {
+            buttons.push(
+                Button::new(ids.retry)
+                    .label("Retry captured change")
+                    .disabled(self.busy)
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.operate(Operation::RetryPrepared, cx)),
+                    ),
+            );
+        }
+        // Cleanup only applies once the outcome is known; it is not offered before.
+        if acknowledged {
+            buttons.push(
+                Button::new(ids.cleanup)
+                    .label("Retry cleanup")
+                    .disabled(self.busy)
+                    .on_click(cx.listener(|this, _, _, cx| this.operate(Operation::Cleanup, cx))),
+            );
+        }
+        buttons.push(
+            Button::new(ids.discard)
+                .label("Discard local recovery")
+                .disabled(self.busy || (acknowledged && !policy.retry))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.discard_confirm = true;
+                    cx.notify();
+                })),
+        );
+        buttons
+    }
+
+    /// Confirm discard and Keep recovery, once Discard local recovery asks.
+    pub(super) fn discard_buttons(&self, ids: &RecoveryIds, cx: &mut Context<Self>) -> Vec<Button> {
+        vec![
+            Button::new(ids.confirm_discard)
+                .label("Confirm discard")
+                .danger()
+                .disabled(self.busy)
+                .on_click(cx.listener(|this, _, _, cx| this.operate(Operation::Discard, cx))),
+            Button::new(ids.keep_recovery)
+                .label("Keep recovery")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.discard_confirm = false;
+                    cx.notify();
+                })),
+        ]
+    }
+}
+
+/// What a captured change in `phase` still needs from the user.
+pub(super) fn recovery_line(phase: WritePhase) -> (Tone, String) {
+    let policy = recovery_policy(phase);
+    if policy.retry {
+        (Tone::Warning, "This captured change has not been sent. Retry this captured worklog or discard it to keep editing.".to_owned())
+    } else if policy.acknowledged {
+        (Tone::Info, "The service outcome is known. Finish local recovery cleanup before preparing another worklog change.".to_owned())
+    } else {
+        (Tone::Warning, "A saved worklog change may already exist in Tempo. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery.".to_owned())
+    }
+}
+
 /// The recovery discard prompt; it sits beside the danger "Confirm discard" button.
-fn discard_prompt(ready: bool) -> (Tone, String) {
+pub(super) fn discard_prompt(ready: bool) -> (Tone, String) {
     let text = if ready {
         "Discard this unsent captured change? Your editor inputs will remain. Refresh before preparing another change."
     } else {
@@ -1059,16 +1211,69 @@ mod recovery_policy_tests {
     fn finish_review_today_and_weekends_are_marked_in_the_grid() {
         let today = jiff::civil::date(2026, 10, 16);
         let day = |d| jiff::civil::date(2026, 10, d);
-        assert!(day_marker(day(16), Some(today)) == DayMarker::Today);
-        assert!(day_marker(day(17), Some(today)) == DayMarker::Weekend);
-        assert!(day_marker(day(18), Some(today)) == DayMarker::Weekend);
-        assert!(day_marker(day(15), Some(today)) == DayMarker::Plain);
-        assert!(day_marker(day(18), None) == DayMarker::Weekend);
+        assert!(day_marker(day(16), Some(today), false) == DayMarker::Today);
+        assert!(day_marker(day(17), Some(today), false) == DayMarker::Weekend);
+        assert!(day_marker(day(18), Some(today), false) == DayMarker::Weekend);
+        assert!(day_marker(day(15), Some(today), false) == DayMarker::Plain);
+        assert!(day_marker(day(18), None, false) == DayMarker::Weekend);
         assert_eq!(
             today_offset(&[day(1), day(2), day(16)], Some(today)),
             Some(2)
         );
         assert_eq!(today_offset(&[day(1), day(2)], Some(today)), None);
+    }
+    #[test]
+    fn a_holiday_column_keeps_its_tint_over_a_weekend_and_today() {
+        let today = jiff::civil::date(2026, 10, 16);
+        let day = |d| jiff::civil::date(2026, 10, d);
+        assert_eq!(day_marker(day(15), Some(today), true), DayMarker::Holiday);
+        assert_eq!(day_marker(day(17), Some(today), true), DayMarker::Holiday);
+        // Electron's `.holiday` background survives `.today`, which only
+        // adds its accent; here Today's heading bar is that accent.
+        assert_eq!(day_marker(day(16), Some(today), true), DayMarker::Holiday);
+        assert_eq!(day_marker(day(15), None, true), DayMarker::Holiday);
+    }
+    #[test]
+    fn only_a_named_holiday_schedule_marks_its_column_like_electron() {
+        use buddy_core::tempo::{DaySchedule, DayTotal};
+        let date = jiff::civil::date(2026, 10, 15);
+        let day = |kind, name: Option<&str>| SummaryDay {
+            logged: DayTotal {
+                date,
+                seconds: 0,
+                worklogs: Vec::new(),
+            },
+            schedule: Some(DaySchedule {
+                date,
+                required_seconds: 0,
+                kind,
+                holiday_name: name.map(str::to_owned),
+            }),
+        };
+        let named = day(ScheduleKind::Holiday, Some("Synthetic holiday"));
+        assert_eq!(holiday_name(&named), Some("Synthetic holiday"));
+        // Electron's buildHolidayMap needs both the HOLIDAY type and a name.
+        assert_eq!(holiday_name(&day(ScheduleKind::Holiday, None)), None);
+        assert_eq!(
+            holiday_name(&day(ScheduleKind::NonWorking, Some("Synthetic holiday"))),
+            None
+        );
+        let unavailable = SummaryDay {
+            schedule: None,
+            ..day(ScheduleKind::Holiday, None)
+        };
+        assert_eq!(holiday_name(&unavailable), None);
+    }
+    #[test]
+    fn the_grid_line_names_the_right_click_delete() {
+        for macos in [true, false] {
+            assert!(
+                grid_instructions(macos)
+                    .ends_with("Right-click a cell with one worklog to delete it.")
+            );
+        }
+        assert!(grid_instructions(true).contains("Command-click"));
+        assert!(grid_instructions(false).contains("Ctrl-click"));
     }
     #[test]
     fn documentation_review_headings_name_the_weekday_not_only_by_color() {
@@ -1190,11 +1395,62 @@ mod heading_contrast_tests {
                 LocalEdit::Theme(mode).apply(&mut config).unwrap();
                 crate::theme::install(&config, cx);
                 let theme = Theme::global(cx);
-                let (today, weekend) = day_tints(theme);
-                for (marker, tint) in [(DayMarker::Today, today), (DayMarker::Weekend, weekend)] {
+                let tints = day_tints(theme);
+                for marker in [DayMarker::Today, DayMarker::Holiday, DayMarker::Weekend] {
+                    let tint = tints.of(marker).unwrap();
                     let ratio =
                         contrast(heading_color(marker, theme), over(tint, theme.background));
-                    assert!(ratio >= 4.5, "{mode:?} heading contrast is {ratio:.2}:1");
+                    assert!(
+                        ratio >= 4.5,
+                        "{mode:?} {marker:?} heading contrast is {ratio:.2}:1"
+                    );
+                }
+            }
+        });
+    }
+
+    #[gpui_kit::test]
+    fn capex_pills_and_filled_cells_use_electrons_green_at_text_contrast(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            for mode in [ThemeName::Dark, ThemeName::Light] {
+                let mut config = AppConfig::default();
+                LocalEdit::Theme(mode).apply(&mut config).unwrap();
+                crate::theme::install(&config, cx);
+                let theme = Theme::global(cx);
+                let (capex_bg, capex_text) = pill_colors(true, theme);
+                let (plain_bg, plain_text) = pill_colors(false, theme);
+                assert_eq!(capex_text, theme.success);
+                assert_eq!(plain_text, theme.info);
+                for (text, background) in [(capex_text, capex_bg), (plain_text, plain_bg)] {
+                    let ratio = contrast(text, over(background, theme.background));
+                    assert!(ratio >= 4.5, "{mode:?} pill contrast is {ratio:.2}:1");
+                }
+                assert_eq!(
+                    filled_cell_color(3600, true, false, theme),
+                    Some(theme.success)
+                );
+                assert_eq!(filled_cell_color(0, true, false, theme), None);
+                assert_eq!(filled_cell_color(3600, false, false, theme), None);
+                // A disabled cell keeps the disabled text, CapEx or not.
+                assert_eq!(filled_cell_color(3600, true, true, theme), None);
+                let tints = day_tints(theme);
+                for marker in [
+                    DayMarker::Today,
+                    DayMarker::Holiday,
+                    DayMarker::Weekend,
+                    DayMarker::Plain,
+                ] {
+                    let column = tints
+                        .of(marker)
+                        .map_or(theme.background, |tint| over(tint, theme.background));
+                    let ratio = contrast(theme.success, over(theme.button, column));
+                    assert!(
+                        ratio >= 4.5,
+                        "{mode:?} {marker:?} CapEx cell contrast is {ratio:.2}:1"
+                    );
                 }
             }
         });

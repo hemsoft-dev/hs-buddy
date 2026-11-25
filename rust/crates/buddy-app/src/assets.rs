@@ -39,6 +39,7 @@ icon_assets!(
         LayoutDashboard,
         Leaf,
         MapPin,
+        PartyPopper,
         PanelBottom,
         Play,
         Plus,

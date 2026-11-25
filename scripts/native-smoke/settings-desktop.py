@@ -152,6 +152,8 @@ MODEL_CATALOG_TIMEOUT = 200
 COLD_START_WAITS = ("wait_models", "wait_cold_start")
 # Right-click one global workspace tab by its visible title, opening its menu.
 SECONDARY_WORKSPACE = "workspace_menu"
+# A Tempo grid cell located like "cell" and pressed with the secondary button.
+SECONDARY_CELL = "cell_menu"
 
 
 # Pointer moves between a drag's press and release, as a hand would make.
@@ -276,7 +278,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "content", "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell"):
+                if kind in ("nav", "tab", "click", "content", "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell", SECONDARY_CELL):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -691,7 +693,7 @@ class Driver:
                 value["soundEnabled"] = current.get("notifications", {}).get("playSoundOnReviewComplete")
             receipt.write(json.dumps(value) + "\n")
 
-    def interact_cell(self, window, directory, values):
+    def interact_cell(self, window, directory, values, secondary=False):
         if len(values) != 2 or not all(isinstance(value, str) and value for value in values):
             raise RuntimeError("A cell needs its visible row and date labels")
         grid = load("tempo-grid")
@@ -725,7 +727,10 @@ class Driver:
             helper = OwnedMacInput(window.process)
             try:
                 with mac_input_guard(window):
-                    helper.click(*target)
+                    if secondary:
+                        helper.secondary_click(*target)
+                    else:
+                        helper.click(*target)
             except Exception as failure:
                 try:
                     self.input_receipt(helper, directory, "failed-click", "cell", values, target)
@@ -736,12 +741,12 @@ class Driver:
             self.input_receipt(helper, directory, "after-click", "cell", values, target)
         else:
             run("xdotool", "windowactivate", "--sync", window.window)
-            run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 1)
+            run("xdotool", "mousemove", "--window", window.window, int(x), int(y), "click", 3 if secondary else 1)
         time.sleep(0.7)
 
     def interact(self, window, directory, kind, values):
-        if kind == "cell":
-            return self.interact_cell(window, directory, values)
+        if kind in ("cell", SECONDARY_CELL):
+            return self.interact_cell(window, directory, values, secondary=kind == SECONDARY_CELL)
         image = directory / "locator.png"
         # A tab's menu is addressed exactly like a click on that tab: the same
         # OCR scope and target point. Only the button differs.

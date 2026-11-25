@@ -1,6 +1,7 @@
 //! Tempo inputs and UI state perform I/O only through an explicit worker.
 mod actions;
 mod copy;
+mod delete_bar;
 mod editor;
 mod grid;
 mod io;
@@ -61,6 +62,15 @@ pub struct TempoView {
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
+    /// Takes keyboard focus when the delete confirmation bar opens.
+    delete_focus: gpui_kit::FocusHandle,
+    /// The worklog that the operation in flight deletes, whichever control
+    /// sent it: Confirm deletion, or Retry captured change on a captured
+    /// delete. Set and cleared with `busy`, so it cannot drift from the write.
+    deleting: Option<buddy_core::tempo::WorklogId>,
+    /// The confirmed deletion of `delete_target` got no reply, so Tempo may
+    /// already have removed it.
+    delete_unconfirmed: bool,
     copy_plan: Option<Box<buddy_core::tempo::CopyPlan>>,
     cell_filter: Option<(jiff::civil::Date, Option<buddy_core::tempo::IssueId>)>,
     credentials: [Entity<InputState>; 4],
@@ -84,6 +94,21 @@ pub struct TempoView {
     grid_scroll: gpui_kit::ScrollHandle,
     today: Option<jiff::civil::Date>,
     scroll_to_today: bool,
+    /// GPUI tests have no live Tempo session; this stands in for one that
+    /// accepts writes.
+    #[cfg(test)]
+    test_can_submit: bool,
+    /// Days the timesheet pane draws in place of a snapshot, which GPUI
+    /// tests cannot build.
+    #[cfg(test)]
+    test_days: Option<Vec<buddy_core::tempo::SummaryDay>>,
+    /// The phase and worklog of the session's captured delete, standing in
+    /// for a live session's.
+    #[cfg(test)]
+    test_pending: Option<(WritePhase, buddy_core::tempo::WorklogId)>,
+    /// The last operation a control asked for, sent or not.
+    #[cfg(test)]
+    test_operation: Option<std::mem::Discriminant<Operation>>,
 }
 impl TempoView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -105,6 +130,9 @@ impl TempoView {
             editor_binding: None,
             pending_editor: None,
             delete_target: None,
+            delete_focus: cx.focus_handle(),
+            deleting: None,
+            delete_unconfirmed: false,
             copy_plan: None,
             cell_filter: None,
             credentials,
@@ -127,6 +155,14 @@ impl TempoView {
             grid_scroll: gpui_kit::ScrollHandle::new(),
             today: None,
             scroll_to_today: false,
+            #[cfg(test)]
+            test_can_submit: false,
+            #[cfg(test)]
+            test_days: None,
+            #[cfg(test)]
+            test_pending: None,
+            #[cfg(test)]
+            test_operation: None,
         }
     }
     fn set_notice(&mut self, tone: Tone, message: impl Into<String>) {

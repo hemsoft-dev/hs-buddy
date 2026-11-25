@@ -1,6 +1,8 @@
 """Installed Tempo UI against owned loopback services on disposable CI only."""
 import argparse
 import base64
+from collections import Counter
+import colorsys
 from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
@@ -187,6 +189,245 @@ def assert_copy(api, original, expected_start):
     return state
 
 
+def single_cell_worklog(api, date, issue=tempo.ISSUE_ID):
+    """The one worklog in an issue's day cell, which a right-click deletes."""
+    records = api.snapshot()['records']
+    found = [identifier for identifier, row in records.items()
+        if row['startDate'] == date and row['issue']['id'] == issue]
+    if len(found) != 1:
+        raise RuntimeError('The right-click scene needs a grid cell holding exactly one worklog')
+    return found[0], records[found[0]]
+
+
+def assert_cell_kept(api, before, count):
+    """The right-click only asked: no DELETE reached Tempo before its confirmation."""
+    try:
+        state = require_writes(api, count, rejected=1)
+    except RuntimeError as error:
+        raise RuntimeError('The right-click sent a write before its confirmation') from error
+    if state['records'] != before:
+        raise RuntimeError('The right-click changed worklogs before its confirmation')
+    return state
+
+
+def assert_cell_delete(api, before, identifier, count):
+    """The right-click removed exactly its cell's worklog and nothing else."""
+    state = require_writes(api, count, rejected=1)
+    write = state['writes'][-1]
+    expected = {key: value for key, value in before.items() if key != identifier}
+    if (identifier not in before or write['method'] != 'DELETE' or write['worklogId'] != identifier
+            or state['records'] != expected):
+        raise RuntimeError('The right-click deletion did not remove exactly its single cell worklog')
+    return state
+
+
+# The grid's status tokens (rust/crates/buddy-app/assets/themes/buddy.json).
+# Pixels are classified by hue against these, never by absolute RGB, so
+# platform colour management and antialiasing cannot decide the result.
+THEME_MARKS = {
+    'dark': dict(danger=(0xf4, 0x87, 0x71), success=(0x4e, 0xc9, 0xb0), info=(0x56, 0x9c, 0xd6)),
+    'light': dict(danger=(0xa4, 0x26, 0x2c), success=(0x10, 0x7c, 0x10), info=(0x00, 0x66, 0xcc)),
+}
+# A token tint over the page is faint; text and icon strokes are not.
+MARK_CHROMA = 40
+MARK_HUE_TOLERANCE = 30
+
+
+class MarkRegionError(RuntimeError):
+    """A mark region derived from OCR boxes misses the screenshot."""
+
+
+class Frame:
+    """One screenshot as packed RGB rows."""
+
+    def __init__(self, width, height, pixels):
+        if width <= 0 or height <= 0 or len(pixels) != width * height * 3:
+            raise RuntimeError('The screenshot has invalid pixel dimensions')
+        self.width, self.height, self.pixels = width, height, pixels
+
+    def region(self, left, top, right, bottom):
+        left, top = max(0, int(left)), max(0, int(top))
+        right, bottom = min(self.width, int(right)), min(self.height, int(bottom))
+        if left >= right or top >= bottom:
+            raise MarkRegionError('A grid mark region lies outside the screenshot')
+        for y in range(top, bottom):
+            row = self.pixels[(y * self.width + left) * 3:(y * self.width + right) * 3]
+            for x in range(0, len(row), 3):
+                yield row[x], row[x + 1], row[x + 2]
+
+
+def rgb_frame(path, run=None):
+    """Decode a PNG capture into RGB with ffmpeg, which every runner has."""
+    width, height = struct.unpack('>II', path.read_bytes()[16:24])
+    raw = path.with_suffix('.marks-rgb')
+    (run or settings.run)('ffmpeg', '-nostdin', '-y', '-loglevel', 'error', '-i', path,
+        '-vf', 'format=rgb24', '-f', 'rawvideo', '-frames:v', '1', raw)
+    return Frame(width, height, raw.read_bytes())
+
+
+def hue_family(pixel, theme):
+    """The theme token whose hue a saturated pixel carries, or None."""
+    if max(pixel) - min(pixel) < MARK_CHROMA:
+        return None
+    hue = colorsys.rgb_to_hsv(*(channel / 255 for channel in pixel))[0] * 360
+    best = None
+    for name, token in THEME_MARKS[theme].items():
+        target = colorsys.rgb_to_hsv(*(channel / 255 for channel in token))[0] * 360
+        distance = min(abs(hue - target), 360 - abs(hue - target))
+        if distance <= MARK_HUE_TOLERANCE and (best is None or distance < best[0]):
+            best = (distance, name)
+    return best and best[1]
+
+
+def families(frame, box, theme):
+    counts = dict(danger=0, success=0, info=0)
+    for pixel in frame.region(*box):
+        name = hue_family(pixel, theme)
+        if name:
+            counts[name] += 1
+    return counts
+
+
+def background(frame, box):
+    """The fill a region mostly shows: its most common colour."""
+    buckets = Counter((r >> 2, g >> 2, b >> 2) for r, g, b in frame.region(*box))
+    if not buckets:
+        raise MarkRegionError('A grid mark region is empty')
+    (r, g, b), _ = buckets.most_common(1)[0]
+    return (r << 2) + 2, (g << 2) + 2, (b << 2) + 2
+
+
+def redness(color):
+    r, g, b = color
+    return 2 * r - g - b
+
+
+def grid_marks(frame, anchors, theme):
+    """Measure the holiday column and CapEx row against their neighbours.
+
+    `anchors` holds capture-pixel boxes of the plain '14 Oct' and holiday
+    '15 Oct' headings and the 'FIX-17' pill. Adjacent headings are one day
+    column apart, which scales every region without a known zoom or DPI.
+    The tint is measured twice per column: behind the heading, and in the
+    grid body below the pill's row.
+
+    Boxes that do not fit a grid raise MissingGridMarks like absent marks,
+    so the caller tries its next OCR layout of the same capture.
+    """
+    try:
+        return measure_grid_marks(frame, anchors, theme)
+    except MarkRegionError as error:
+        raise MissingGridMarks('Grid marks missing: ' + str(error),
+            dict(theme=theme, anchors=anchors, problem=str(error), passed=False)) from error
+
+
+def measure_grid_marks(frame, anchors, theme):
+    plain, holiday, pill = anchors['14 Oct'], anchors['15 Oct'], anchors['FIX-17']
+    column = holiday['left'] - plain['left']
+    height = max(plain['height'], holiday['height'])
+    if column < 3 * height or abs(holiday['top'] - plain['top']) > height:
+        raise MarkRegionError('The day headings are not adjacent grid columns')
+    def span(label):
+        return label['left'] - column * 0.02, label['left'] + column * 0.9
+    def heading(label):
+        # The date's own line: its glyphs cover far less than its column.
+        left, right = span(label)
+        return left, label['top'] - 0.3 * height, right, label['top'] + label['height'] + 0.3 * height
+    def above(label):
+        left, right = span(label)
+        return left, label['top'] - 2.2 * height, right, label['top'] - 1
+    # The rows below the issue row hold plain text on the column's own fill;
+    # the issue row's buttons are opaque. render.rs sizes the grid as one
+    # GRID_DAY (92) wide column, a GRID_ROW (40) issue row centred on its
+    # pill, then the Day total and Required GRID_LINE (28) rows.
+    unit = column / 92
+    middle = pill['top'] + pill['height'] / 2
+    def body(label):
+        left, right = span(label)
+        return left, middle + 22 * unit, right, middle + 74 * unit
+    tints = dict(plain=background(frame, heading(plain)), holiday=background(frame, heading(holiday)))
+    shift = redness(tints['holiday']) - redness(tints['plain'])
+    body_tints = dict(plain=background(frame, body(plain)), holiday=background(frame, body(holiday)))
+    body_shift = redness(body_tints['holiday']) - redness(body_tints['plain'])
+    marker = dict(plain=families(frame, above(plain), theme), holiday=families(frame, above(holiday), theme))
+    pill_counts = families(frame, (pill['left'], pill['top'], pill['left'] + pill['width'],
+        pill['top'] + pill['height']), theme)
+    left, right = span(plain)
+    cell = families(frame, (left, middle - 1.2 * pill['height'], right, middle + 1.2 * pill['height']), theme)
+    result = dict(theme=theme, tints=tints, holidayRednessShift=shift, bodyTints=body_tints,
+        holidayBodyRednessShift=body_shift, marker=marker, pill=pill_counts, capexCell=cell, passed=False)
+    problems = mark_problems(result, height)
+    if problems:
+        raise MissingGridMarks('Grid marks missing: ' + '; '.join(problems), result)
+    return dict(result, passed=True)
+
+
+def mark_problems(result, height):
+    """The marks a measured capture lacks.
+
+    Subpixel (X11) and ClearType (Windows) text carries colour fringes: plain
+    grey text shows danger- and info-hued edge pixels in similar numbers, and
+    green text shows info-hued ones beside its green strokes. So a mark must
+    dominate the hues its own region holds, and the marker must hold more
+    danger than the plain weekday's fringes.
+    """
+    strokes = max(6, height // 2)
+    marker, pill, cell = result['marker'], result['pill'], result['capexCell']
+    holiday, plain = marker['holiday'], marker['plain']
+    problems = []
+    # danger at 8% shifts 2R-G-B by about 19 in both themes.
+    if result['holidayRednessShift'] < 8:
+        problems.append('the holiday column is not tinted toward danger')
+    # The body's fill is its most common colour, which text fringes cannot
+    # move, so it takes the heading's rule.
+    if result['holidayBodyRednessShift'] < 8:
+        problems.append('the holiday column body is not tinted toward danger')
+    if holiday['danger'] < strokes or holiday['info'] * 3 > holiday['danger'] \
+            or holiday['danger'] < plain['danger'] + strokes:
+        problems.append('the holiday heading has no danger marker')
+    if pill['success'] < strokes or pill['info'] * 2 > pill['success']:
+        problems.append('the CapEx pill is not success green')
+    if cell['success'] < max(4, height // 3) or cell['info'] * 2 > cell['success']:
+        problems.append('the filled CapEx cell is not success green')
+    return problems
+
+
+class MissingGridMarks(RuntimeError):
+    def __init__(self, message, measurements):
+        super().__init__(message)
+        self.measurements = measurements
+
+
+def check_grid_marks(path, theme, run=None):
+    """Require the holiday tint and marker and the CapEx green in one capture."""
+    run = run or settings.run
+    frame = rgb_frame(path, run)
+    failure = None
+    for image in settings.ocr.analysis_images(path, run):
+        width = struct.unpack('>II', image.read_bytes()[16:24])[0]
+        scale = frame.width / width
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            try:
+                anchors = {label: {key: value * scale for key, value in settings.ocr.find_label(words, label).items()}
+                    for label in ('14 Oct', '15 Oct', 'FIX-17')}
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as error:
+                failure = error
+                continue
+            try:
+                result = grid_marks(frame, anchors, theme)
+            except MissingGridMarks as error:
+                failure = error
+                path.with_suffix('.marks.json').write_text(json.dumps(error.measurements, indent=2), encoding='utf-8')
+                continue
+            path.with_suffix('.marks.json').write_text(json.dumps(dict(result, anchors=anchors), indent=2),
+                encoding='utf-8')
+            return result
+    raise RuntimeError('The screenshot does not show the holiday column and CapEx marks') from failure
+
+
 class TempoDriver(settings.Driver):
     """Target the inner editor of every macOS Tempo input.
 
@@ -236,6 +477,7 @@ def evidence_inventory(output):
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
         'move-dark/exact-original-editor-dark.png', 'move-dark/moved-worklog-dark.png',
         'move-dark/delete-confirmation-dark.png',
+        'cell-delete-prompt-dark/tempo-holiday-capex-dark.png', 'cell-delete-prompt-dark/tempo-cell-delete-dark.png',
         'reauth-draft-dark/expired-open-draft-dark.png', 'reauth-draft-dark/draft-needs-fresh-lookup-dark.png',
         'reauth-draft-dark/retained-draft-after-lookup-dark.png',
         'reauth-draft-dark/retained-hours-after-lookup-dark.png',
@@ -464,7 +706,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('capture', 'moved-worklog-dark'),
                     # Shown and kept: the light pass deletes this worklog later.
                     ('wait_scroll_text', 'Delete worklog', 'Load date range'),
-                    ('click', 'Delete worklog'), ('wait_scroll_up', 'Confirm deletion'),
+                    ('click', 'Delete worklog'), ('wait_text', 'Confirm deletion'),
                     ('capture', 'delete-confirmation-dark'), ('click', 'Keep worklog'),
                 ])
                 state = require_writes(api, 3, rejected=1)
@@ -519,6 +761,45 @@ def qualify(executable, output, session, version, source, backend):
                 github.check(rechecked / 'retained-hours-after-lookup-dark.png', 'Hours or H:MM:SS', '1:01:01')
                 github.check(rechecked / 'retained-draft-after-lookup-dark.png', 'Retained native draft', 'No billing account')
 
+                # The week shows Thursday's named holiday and the CapEx FIX-17
+                # row. Its 14 October cell holds only the template's worklog,
+                # which a right-click deletes after the shared confirmation.
+                target, removed = single_cell_worklog(api, '2026-10-14')
+                before_cell_delete = api.snapshot()['records']
+                try:
+                    # The confirmation bar is pinned above the scrolled page,
+                    # so no scrolling finds it. A drive's commands run as one
+                    # batch, so this one stops at the prompt and the fixture
+                    # is checked before another confirms it.
+                    marked = driver.drive('cell-delete-prompt-dark', week_actions() + [
+                        ('wait_scroll_text', 'FIX-17', 'Load date range'),
+                        ('capture', 'tempo-holiday-capex-dark'),
+                        ('cell_menu', 'FIX-17', '14 Oct'), ('wait_text', 'Confirm deletion'),
+                        ('capture', 'tempo-cell-delete-dark'),
+                    ])
+                    assert_cell_kept(api, before_cell_delete, 3)
+                    driver.drive('cell-delete-dark', week_actions() + [
+                        ('wait_scroll_text', 'FIX-17', 'Load date range'),
+                        ('cell_menu', 'FIX-17', '14 Oct'), ('wait_text', 'Confirm deletion'),
+                        ('click', 'Confirm deletion'),
+                        ('wait_scroll_up', 'Tempo confirmed the worklog change'),
+                    ])
+                    assert_cell_delete(api, before_cell_delete, target, 4)
+                finally:
+                    # Later scenes read this week as it was before the deletion.
+                    with api.lock:
+                        api.records.setdefault(target, removed)
+                # The party marker replaces Thursday's weekday name; its
+                # neighbours keep theirs.
+                github.check(marked / 'tempo-holiday-capex-dark.png', 'FIX-17', '14 Oct', '15 Oct', 'Wed', 'Fri')
+                # Text alone survives a lost tint or colour, so measure them:
+                # the holiday tint in the heading and the grid body and the
+                # marker, each beside plain Wednesday, and the
+                # pill and 14 October duration in success green, not info blue.
+                grid_marks_measured = check_grid_marks(marked / 'tempo-holiday-capex-dark.png', 'dark')
+                github.check(marked / 'tempo-cell-delete-dark.png', 'Delete the 1:00 worklog on 2026-10-14',
+                    'Confirm deletion', 'Keep worklog')
+
                 api.arm_lost_reply_after(1)
                 partial = driver.drive('partial-copy-dark', week_actions() + [
                     ('wait_scroll_text', 'Copy day to Today', 'Load date range'),
@@ -529,7 +810,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('sleep', 30), ('wait_scroll_up', '1 worklog copied to Today'),
                     ('capture', 'partial-copy-unconfirmed-dark'),
                 ])
-                state = require_writes(api, 5, rejected=1)
+                state = require_writes(api, 6, rejected=1)
                 bodies = [write_body(row) for row in state['writes'][-2:]]
                 for body, start in zip(bodies, ('09:48:01', '09:49:01')):
                     if body['startDate'] != '2026-10-16' or body['timeSpentSeconds'] != 60 or body['startTime'] != start:
@@ -551,7 +832,7 @@ def qualify(executable, output, session, version, source, backend):
                 ])
                 if pending_bytes(config) != original_recovery:
                     raise RuntimeError('Restart or refresh changed the immutable recovery record')
-                require_writes(api, 5, rejected=1)
+                require_writes(api, 6, rejected=1)
                 github.check(recovered / 'restarted-recovery-light.png', 'may already exist in Tempo', 'will not resend automatically')
                 driver.drive('discard-recovery-light', [
                     ('wait_text', 'will not resend automatically'), ('click', 'Discard local recovery'),
@@ -559,7 +840,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('click', 'Discard local recovery'), ('click', 'Confirm discard'),
                     ('wait_text', 'Local recovery discarded'), ('capture', 'discarded-local-only-light'),
                 ])
-                require_writes(api, 5, rejected=1)
+                require_writes(api, 6, rejected=1)
                 if list(config.parent.glob('native-tempo-change-*.json')):
                     raise RuntimeError('Explicit discard left a local Tempo recovery record')
                 # The same cancellation at the compact size in the light theme,
@@ -574,7 +855,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('key', 'Escape'), ('sleep', 3),
                     ('capture', 'escape-draft-cancelled-compact-light'),
                 ])
-                if require_writes(api, 5, rejected=1)['records'] != before_light_escape:
+                if require_writes(api, 6, rejected=1)['records'] != before_light_escape:
                     raise RuntimeError('Escape cancellation of an idle draft reached the service')
                 github.check(escaped_light / 'escape-draft-open-compact-light.png', 'Issue key or ID', 'Hours or H:MM:SS')
                 github.check(escaped_light / 'escape-draft-cancelled-compact-light.png', 'Tempo timesheet',
@@ -586,13 +867,13 @@ def qualify(executable, output, session, version, source, backend):
                     ('input', 'From', '2026-11-05'), ('input', 'Through', '2026-11-05'),
                     ('click', 'Load date range'), ('wait_text', '2026-11-05 to 2026-11-05'),
                     ('click', 'Timeline'), ('wait_scroll_text', 'Delete worklog', 'Load date range'),
-                    ('click', 'Delete worklog'), ('wait_scroll_up', 'Confirm deletion'),
+                    ('click', 'Delete worklog'), ('wait_text', 'Confirm deletion'),
                     ('capture', 'delete-confirmation-light'), ('click', 'Confirm deletion'),
                     ('wait_scroll_up', 'Tempo confirmed the worklog change'),
                     ('wait_scroll_text', 'No worklogs in this date range', 'Load date range'),
                     ('capture', 'deleted-empty-range-light'),
                 ])
-                state = require_writes(api, 6, rejected=1)
+                state = require_writes(api, 7, rejected=1)
                 if tempo.FIRST_ID in state['records'] or state['writes'][-1]['method'] != 'DELETE':
                     raise RuntimeError('The explicit deletion did not remove exactly its captured worklog')
                 github.check(deleted / 'deleted-empty-range-light.png', 'No worklogs in this date range')
@@ -611,7 +892,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('wait_text', 'No connection is saved for this profile'),
                     ('capture', 'missing-after-restart-light'),
                 ])
-                state = require_writes(api, 6, rejected=1)
+                state = require_writes(api, 7, rejected=1)
                 if state['records'] != before_forget:
                     raise RuntimeError('Credential removal changed the remote worklogs')
                 for path in output.glob('*/app.log'):
@@ -622,7 +903,7 @@ def qualify(executable, output, session, version, source, backend):
                 inventory = evidence_inventory(output)
                 receipt = dict(result='passed', version=version, session=session, sourceSha=source, **binary,
                     largeWindow=driver.large_size, compactWindow=[900, 650], **inventory,
-                    mutationAttempts=7, serviceWrites=6, acknowledgedServiceWrites=5, deniedMutationAttempts=1,
+                    mutationAttempts=8, serviceWrites=7, acknowledgedServiceWrites=6, deniedMutationAttempts=1,
                     invalidDurationBlockedBeforeHttp=True, deniedCreateRetainedExactDraft=True,
                     completeMonthPagerVerified=True,
                     tempoApiOrigin=api.tempo_origin, regionalConnectionSurvivedRestart=True,
@@ -640,6 +921,10 @@ def qualify(executable, output, session, version, source, backend):
                     originalRecoverySha256=hashlib.sha256(original_recovery).hexdigest(),
                     restartAndRefreshNeverReplay=True, explicitDiscardChangesOnlyLocalRecovery=True,
                     explicitDeletionVerified=True, viewPreferenceAndUnknownConfigFieldsPreserved=True,
+                    # Set only by check_grid_marks, which raises unless every mark passed.
+                    holidayColumnAndCapexRowMarked=grid_marks_measured['passed'],
+                    holidayCapexMarkMeasurements=grid_marks_measured,
+                    singleWorklogCellRightClickDeleteConfirmed=True,
                     realOsCredentialStore=True, secureConnectionSurvivesProcessRestart=True,
                     secureConnectionRemovalVerifiedAfterRestart=True,
                     dataSource='Owned numeric-loopback Tempo/Jira fixture and isolated anonymous Convex')
