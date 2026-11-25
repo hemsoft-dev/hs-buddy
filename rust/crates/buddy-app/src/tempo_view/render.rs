@@ -913,33 +913,12 @@ impl Render for TempoView {
                     .into_any_element(),
             );
         }
-        // The delete confirmation shares the status region with discard.
-        if let Some(target) = &self.delete_target {
-            lines.push(delete_prompt(target.seconds, target.date));
-            if let Some(description) = target.description.clone().filter(|text| !text.is_empty()) {
-                lines.push((Tone::Info, description));
-            }
-            actions.push(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("tempo-confirm-delete")
-                            .label("Confirm deletion")
-                            .danger()
-                            .disabled(!self.can_submit())
-                            .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
-                    )
-                    .child(
-                        Button::new("tempo-keep-worklog")
-                            .label("Keep worklog")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.delete_target = None;
-                                cx.notify();
-                            })),
-                    )
-                    .into_any_element(),
-            );
+        // The delete confirmation is a modal dialog, in view however far the
+        // page is scrolled; it opens and closes with `delete_target`.
+        if self.delete_target.is_some() != self.delete_dialog {
+            cx.defer_in(window, |this, window, cx| {
+                this.sync_delete_dialog(window, cx)
+            });
         }
         if !lines.is_empty() || !actions.is_empty() {
             body = body.child(status_block(lines, actions, cx));
@@ -1064,10 +1043,10 @@ impl Render for TempoView {
 }
 
 /// One status region. Lines keep their order: the primary outcome first.
-fn status_block(
+pub(super) fn status_block(
     lines: Vec<(Tone, String)>,
     actions: Vec<AnyElement>,
-    cx: &Context<TempoView>,
+    cx: &gpui_kit::App,
 ) -> AnyElement {
     let theme = cx.theme();
     let color = |tone: Tone| -> Hsla {
@@ -1114,7 +1093,7 @@ fn status_block(
 }
 
 /// The worklog deletion prompt; it sits beside the danger "Confirm deletion" button.
-fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone, String) {
+pub(super) fn delete_prompt(seconds: u64, date: impl std::fmt::Display) -> (Tone, String) {
     (
         Tone::Danger,
         format!(

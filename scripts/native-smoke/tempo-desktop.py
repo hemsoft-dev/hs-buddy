@@ -1,6 +1,8 @@
 """Installed Tempo UI against owned loopback services on disposable CI only."""
 import argparse
 import base64
+from collections import Counter
+import colorsys
 from contextlib import contextmanager
 from copy import deepcopy
 import hashlib
@@ -206,6 +208,166 @@ def assert_cell_delete(api, before, identifier, count):
             or state['records'] != expected):
         raise RuntimeError('The right-click deletion did not remove exactly its single cell worklog')
     return state
+
+
+# The grid's status tokens (rust/crates/buddy-app/assets/themes/buddy.json).
+# Pixels are classified by hue against these, never by absolute RGB, so
+# platform colour management and antialiasing cannot decide the result.
+THEME_MARKS = {
+    'dark': dict(danger=(0xf4, 0x87, 0x71), success=(0x4e, 0xc9, 0xb0), info=(0x56, 0x9c, 0xd6)),
+    'light': dict(danger=(0xa4, 0x26, 0x2c), success=(0x10, 0x7c, 0x10), info=(0x00, 0x66, 0xcc)),
+}
+# A token tint over the page is faint; text and icon strokes are not.
+MARK_CHROMA = 40
+MARK_HUE_TOLERANCE = 30
+
+
+class Frame:
+    """One screenshot as packed RGB rows."""
+
+    def __init__(self, width, height, pixels):
+        if width <= 0 or height <= 0 or len(pixels) != width * height * 3:
+            raise RuntimeError('The screenshot has invalid pixel dimensions')
+        self.width, self.height, self.pixels = width, height, pixels
+
+    def region(self, left, top, right, bottom):
+        left, top = max(0, int(left)), max(0, int(top))
+        right, bottom = min(self.width, int(right)), min(self.height, int(bottom))
+        if left >= right or top >= bottom:
+            raise RuntimeError('A grid mark region lies outside the screenshot')
+        for y in range(top, bottom):
+            row = self.pixels[(y * self.width + left) * 3:(y * self.width + right) * 3]
+            for x in range(0, len(row), 3):
+                yield row[x], row[x + 1], row[x + 2]
+
+
+def rgb_frame(path, run=None):
+    """Decode a PNG capture into RGB with ffmpeg, which every runner has."""
+    width, height = struct.unpack('>II', path.read_bytes()[16:24])
+    raw = path.with_suffix('.marks-rgb')
+    (run or settings.run)('ffmpeg', '-nostdin', '-y', '-loglevel', 'error', '-i', path,
+        '-vf', 'format=rgb24', '-f', 'rawvideo', '-frames:v', '1', raw)
+    return Frame(width, height, raw.read_bytes())
+
+
+def hue_family(pixel, theme):
+    """The theme token whose hue a saturated pixel carries, or None."""
+    if max(pixel) - min(pixel) < MARK_CHROMA:
+        return None
+    hue = colorsys.rgb_to_hsv(*(channel / 255 for channel in pixel))[0] * 360
+    best = None
+    for name, token in THEME_MARKS[theme].items():
+        target = colorsys.rgb_to_hsv(*(channel / 255 for channel in token))[0] * 360
+        distance = min(abs(hue - target), 360 - abs(hue - target))
+        if distance <= MARK_HUE_TOLERANCE and (best is None or distance < best[0]):
+            best = (distance, name)
+    return best and best[1]
+
+
+def families(frame, box, theme):
+    counts = dict(danger=0, success=0, info=0)
+    for pixel in frame.region(*box):
+        name = hue_family(pixel, theme)
+        if name:
+            counts[name] += 1
+    return counts
+
+
+def background(frame, box):
+    """The fill a region mostly shows: its most common colour."""
+    buckets = Counter((r >> 2, g >> 2, b >> 2) for r, g, b in frame.region(*box))
+    if not buckets:
+        raise RuntimeError('A grid mark region is empty')
+    (r, g, b), _ = buckets.most_common(1)[0]
+    return (r << 2) + 2, (g << 2) + 2, (b << 2) + 2
+
+
+def redness(color):
+    r, g, b = color
+    return 2 * r - g - b
+
+
+def grid_marks(frame, anchors, theme):
+    """Measure the holiday column and CapEx row against their neighbours.
+
+    `anchors` holds capture-pixel boxes of the plain '14 Oct' and holiday
+    '15 Oct' headings and the 'FIX-17' pill. Adjacent headings are one day
+    column apart, which scales every region without a known zoom or DPI.
+    """
+    plain, holiday, pill = anchors['14 Oct'], anchors['15 Oct'], anchors['FIX-17']
+    column = holiday['left'] - plain['left']
+    height = max(plain['height'], holiday['height'])
+    if column < 3 * height or abs(holiday['top'] - plain['top']) > height:
+        raise RuntimeError('The day headings are not adjacent grid columns')
+    def span(label):
+        return label['left'] - column * 0.02, label['left'] + column * 0.9
+    def heading(label):
+        # The date's own line: its glyphs cover far less than its column.
+        left, right = span(label)
+        return left, label['top'] - 0.3 * height, right, label['top'] + label['height'] + 0.3 * height
+    def above(label):
+        left, right = span(label)
+        return left, label['top'] - 2.2 * height, right, label['top'] - 1
+    tints = dict(plain=background(frame, heading(plain)), holiday=background(frame, heading(holiday)))
+    shift = redness(tints['holiday']) - redness(tints['plain'])
+    marker = dict(plain=families(frame, above(plain), theme), holiday=families(frame, above(holiday), theme))
+    pill_counts = families(frame, (pill['left'], pill['top'], pill['left'] + pill['width'],
+        pill['top'] + pill['height']), theme)
+    middle = pill['top'] + pill['height'] / 2
+    left, right = span(plain)
+    cell = families(frame, (left, middle - 1.2 * pill['height'], right, middle + 1.2 * pill['height']), theme)
+    strokes = max(6, height // 2)
+    result = dict(theme=theme, tints=tints, holidayRednessShift=shift, marker=marker, pill=pill_counts,
+        capexCell=cell, passed=False)
+    problems = []
+    # danger at 8% shifts 2R-G-B by about 19 in both themes.
+    if shift < 8:
+        problems.append('the holiday column is not tinted toward danger')
+    if marker['holiday']['danger'] < strokes or marker['plain']['danger'] * 4 > marker['holiday']['danger']:
+        problems.append('the holiday heading has no danger marker')
+    if pill_counts['success'] < strokes or pill_counts['info'] * 3 > pill_counts['success']:
+        problems.append('the CapEx pill is not success green')
+    if cell['success'] < max(4, height // 3) or cell['info'] * 3 > cell['success']:
+        problems.append('the filled CapEx cell is not success green')
+    if problems:
+        raise MissingGridMarks('Grid marks missing: ' + '; '.join(problems), result)
+    return dict(result, passed=True)
+
+
+class MissingGridMarks(RuntimeError):
+    def __init__(self, message, measurements):
+        super().__init__(message)
+        self.measurements = measurements
+
+
+def check_grid_marks(path, theme, run=None):
+    """Require the holiday tint and marker and the CapEx green in one capture."""
+    run = run or settings.run
+    frame = rgb_frame(path, run)
+    failure = None
+    for image in settings.ocr.analysis_images(path, run):
+        width = struct.unpack('>II', image.read_bytes()[16:24])[0]
+        scale = frame.width / width
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            try:
+                anchors = {label: {key: value * scale for key, value in settings.ocr.find_label(words, label).items()}
+                    for label in ('14 Oct', '15 Oct', 'FIX-17')}
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as error:
+                failure = error
+                continue
+            try:
+                result = grid_marks(frame, anchors, theme)
+            except MissingGridMarks as error:
+                failure = error
+                path.with_suffix('.marks.json').write_text(json.dumps(error.measurements, indent=2), encoding='utf-8')
+                continue
+            path.with_suffix('.marks.json').write_text(json.dumps(dict(result, anchors=anchors), indent=2),
+                encoding='utf-8')
+            return result
+    raise RuntimeError('The screenshot does not show the holiday column and CapEx marks') from failure
 
 
 class TempoDriver(settings.Driver):
@@ -486,7 +648,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('capture', 'moved-worklog-dark'),
                     # Shown and kept: the light pass deletes this worklog later.
                     ('wait_scroll_text', 'Delete worklog', 'Load date range'),
-                    ('click', 'Delete worklog'), ('wait_scroll_up', 'Confirm deletion'),
+                    ('click', 'Delete worklog'), ('wait_text', 'Confirm deletion'),
                     ('capture', 'delete-confirmation-dark'), ('click', 'Keep worklog'),
                 ])
                 state = require_writes(api, 3, rejected=1)
@@ -550,7 +712,9 @@ def qualify(executable, output, session, version, source, backend):
                     marked = driver.drive('cell-delete-dark', week_actions() + [
                         ('wait_scroll_text', 'FIX-17', 'Load date range'),
                         ('capture', 'tempo-holiday-capex-dark'),
-                        ('cell_menu', 'FIX-17', '14 Oct'), ('wait_scroll_up', 'Confirm deletion'),
+                        # The confirmation is a modal dialog, in view at
+                        # the scrolled grid: no scrolling finds it.
+                        ('cell_menu', 'FIX-17', '14 Oct'), ('wait_text', 'Confirm deletion'),
                         ('capture', 'tempo-cell-delete-dark'), ('click', 'Confirm deletion'),
                         ('wait_scroll_up', 'Tempo confirmed the worklog change'),
                     ])
@@ -562,6 +726,10 @@ def qualify(executable, output, session, version, source, backend):
                 # The party marker replaces Thursday's weekday name; its
                 # neighbours keep theirs.
                 github.check(marked / 'tempo-holiday-capex-dark.png', 'FIX-17', '14 Oct', '15 Oct', 'Wed', 'Fri')
+                # Text alone survives a lost tint or colour, so measure them:
+                # the holiday tint and marker beside plain Wednesday, and the
+                # pill and 14 October duration in success green, not info blue.
+                grid_marks_measured = check_grid_marks(marked / 'tempo-holiday-capex-dark.png', 'dark')
                 github.check(marked / 'tempo-cell-delete-dark.png', 'Delete the 1:00 worklog on 2026-10-14',
                     'Confirm deletion', 'Keep worklog')
 
@@ -632,7 +800,7 @@ def qualify(executable, output, session, version, source, backend):
                     ('input', 'From', '2026-11-05'), ('input', 'Through', '2026-11-05'),
                     ('click', 'Load date range'), ('wait_text', '2026-11-05 to 2026-11-05'),
                     ('click', 'Timeline'), ('wait_scroll_text', 'Delete worklog', 'Load date range'),
-                    ('click', 'Delete worklog'), ('wait_scroll_up', 'Confirm deletion'),
+                    ('click', 'Delete worklog'), ('wait_text', 'Confirm deletion'),
                     ('capture', 'delete-confirmation-light'), ('click', 'Confirm deletion'),
                     ('wait_scroll_up', 'Tempo confirmed the worklog change'),
                     ('wait_scroll_text', 'No worklogs in this date range', 'Load date range'),
@@ -686,7 +854,10 @@ def qualify(executable, output, session, version, source, backend):
                     originalRecoverySha256=hashlib.sha256(original_recovery).hexdigest(),
                     restartAndRefreshNeverReplay=True, explicitDiscardChangesOnlyLocalRecovery=True,
                     explicitDeletionVerified=True, viewPreferenceAndUnknownConfigFieldsPreserved=True,
-                    holidayColumnAndCapexRowMarked=True, singleWorklogCellRightClickDeleteConfirmed=True,
+                    # Set only by check_grid_marks, which raises unless every mark passed.
+                    holidayColumnAndCapexRowMarked=grid_marks_measured['passed'],
+                    holidayCapexMarkMeasurements=grid_marks_measured,
+                    singleWorklogCellRightClickDeleteConfirmed=True,
                     realOsCredentialStore=True, secureConnectionSurvivesProcessRestart=True,
                     secureConnectionRemovalVerifiedAfterRestart=True,
                     dataSource='Owned numeric-loopback Tempo/Jira fixture and isolated anonymous Convex')

@@ -1,6 +1,7 @@
 //! Tempo inputs and UI state perform I/O only through an explicit worker.
 mod actions;
 mod copy;
+mod delete_dialog;
 mod editor;
 mod grid;
 mod io;
@@ -61,6 +62,8 @@ pub struct TempoView {
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
+    /// Whether the delete confirmation dialog is open for `delete_target`.
+    delete_dialog: bool,
     copy_plan: Option<Box<buddy_core::tempo::CopyPlan>>,
     cell_filter: Option<(jiff::civil::Date, Option<buddy_core::tempo::IssueId>)>,
     credentials: [Entity<InputState>; 4],
@@ -109,6 +112,7 @@ impl TempoView {
             editor_binding: None,
             pending_editor: None,
             delete_target: None,
+            delete_dialog: false,
             copy_plan: None,
             cell_filter: None,
             credentials,
