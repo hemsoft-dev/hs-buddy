@@ -27,6 +27,10 @@ EDGE_STEP = 12
 SAMPLE_ROWS = (0.84, 0.87, 0.90)
 # Edges closer than this belong to one painted line (a 2px HiDPI divider).
 LINE_GAP = 3
+# Windows captures include the window's invisible resize border: 8px of pure
+# black at the left, right and bottom, which the dark theme never paints. A
+# frame is never wider than 2% of the row.
+FRAME = (0, 0, 0)
 
 
 def capture_size(image):
@@ -86,6 +90,22 @@ def row_split(pixels):
     return bar[0], centre(divider)
 
 
+def window_columns(rows, width):
+    """The first column the window paints and the column after its last,
+    leaving out a capture frame that every sampled row shows."""
+    limit = int(0.02 * width)
+
+    def framed(x):
+        return all(pixels[x] == FRAME for pixels in rows)
+
+    left, right = 0, width
+    while left < limit and framed(left):
+        left += 1
+    while width - right < limit and framed(right - 1):
+        right -= 1
+    return left, right
+
+
 def split_geometry(rows, width):
     """The activity bar's edge and the divider: the first two lines that every
     sampled row paints in the same place, and the sidebar's share.
@@ -102,9 +122,21 @@ def split_geometry(rows, width):
     if len(common) < 2:
         raise RuntimeError("The sampled rows disagree on the sidebar divider")
     bar, divider = common[0][0], centre(common[1])
-    if not 0 < bar < divider < width:
+    left, right = window_columns(rows, width)
+    if not left < bar < divider < right:
         raise RuntimeError("The measured sidebar divider is outside the row")
-    return dict(width=width, bar=bar, divider=divider, share=(divider - bar) / (width - bar))
+    return dict(width=width, left=left, right=right, bar=bar, divider=divider,
+        share=(divider - bar) / (right - bar))
+
+
+def window(geometry):
+    """The window's painted columns in a capture: (left, right)."""
+    return geometry.get("left", 0), geometry.get("right", geometry["width"])
+
+
+def bar_width(geometry):
+    """The activity bar as painted, without any capture frame before it."""
+    return geometry["bar"] - window(geometry)[0]
 
 
 def measure(image, run):
@@ -131,8 +163,8 @@ def expected_share(share, geometry):
     100% pixel, whatever the platform scale and ui.zoomLevel; the row in
     100% pixels then decides whether a minimum holds the sidebar.
     """
-    unit = geometry["bar"] / ACTIVITY_BAR
-    row = (geometry["width"] - geometry["bar"]) / unit
+    unit = bar_width(geometry) / ACTIVITY_BAR
+    row = (window(geometry)[1] - geometry["bar"]) / unit
     if row < SIDEBAR_MIN + CONTENT_MIN:
         return SIDEBAR_MIN / (SIDEBAR_MIN + CONTENT_MIN)
     return min(max(share * row, SIDEBAR_MIN), row - CONTENT_MIN) / row
@@ -155,7 +187,7 @@ def saved_share(sizes):
 def drag_points(geometry, share):
     """Capture-pixel start, row and end of a divider drag to `share` of the row."""
     start = round(geometry["divider"])
-    end = round(geometry["bar"] + share * (geometry["width"] - geometry["bar"]))
+    end = round(geometry["bar"] + share * (window(geometry)[1] - geometry["bar"]))
     if abs(end - start) < 20:
         raise RuntimeError("The planned divider drag is too short to prove a save")
     return start, geometry["rows"][1], end
@@ -214,7 +246,7 @@ def qualify(driver, config, check, run):
         scaled = measure(zoom, run)
         require_share(scaled, DEFAULT_SHARE, "zoomed")
         # The activity bar is 48px at 100%; ui.zoomLevel scales the shell.
-        ratio = scaled["bar"] / launched["bar"]
+        ratio = bar_width(scaled) / bar_width(launched)
         if not math.isclose(ratio, ZOOM_LEVEL / 100, abs_tol=ZOOM_SLACK):
             raise RuntimeError(f"ui.zoomLevel {ZOOM_LEVEL} scaled the activity bar by {ratio:.3f}")
         return dict(launched=launched, dragged=after, savedSizes=sizes, zoomed=scaled, zoomRatio=ratio)

@@ -98,6 +98,28 @@ class RowGeometry(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no activity bar edge"):
             layout.split_geometry([rows[1], [DARK["bar"]] * 60 + [DARK["background"]] * 1140], 1200)
 
+    def test_a_windows_capture_frame_is_not_part_of_the_row(self):
+        # The windows-2025 zoom-125-dark capture of run 45529412262: 1,044px
+        # wide with 8px of black frame at each side, a 60px bar (48 at 125%)
+        # and the divider at 310.5 of the 1,028 the window paints. The
+        # 774.4px row at 100% holds a quarter (193.6) at the 200 minimum.
+        frame = [layout.FRAME] * 8
+        rows = [frame + row(1028, 60, 310) + frame for _ in range(3)]
+        geometry = layout.split_geometry(rows, 1044)
+        self.assertEqual((geometry["left"], geometry["right"]), (8, 1036))
+        self.assertEqual((geometry["bar"], geometry["divider"]), (68, 318.5))
+        self.assertEqual(layout.bar_width(geometry), 60)
+        self.assertAlmostEqual(geometry["share"], 250.5 / 968)
+        self.assertAlmostEqual(layout.expected_share(0.25, geometry), 200 / (968 / 1.25))
+        layout.require_share(geometry, 0.25, "zoomed")
+        # The 100% launch in the same window: a 56px edge is a 48px bar.
+        launched = layout.split_geometry([frame + row(1028, 48, 440) + frame] * 3, 1044)
+        self.assertAlmostEqual(layout.bar_width(geometry) / layout.bar_width(launched), 1.25)
+        # The drag ends at a quarter of the painted row, not of the capture.
+        self.assertEqual(layout.drag_points(dict(launched, rows=[1, 2, 3]), 0.25)[2], 56 + 245)
+        # Dark pixels that are not the frame stay part of the row.
+        self.assertEqual(layout.window_columns([row(1200, 48, 480)], 1200), (0, 1200))
+
     def test_the_share_must_be_within_the_slack(self):
         wide = dict(width=1200, bar=48)
         layout.require_share(dict(wide, share=0.42), 0.4, "launched")
