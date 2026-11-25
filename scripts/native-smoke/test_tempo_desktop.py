@@ -159,7 +159,12 @@ class FixtureScenarios(unittest.TestCase):
             before = api.snapshot()['records']
             with self.assertRaisesRegex(RuntimeError, 'unexpected number'):
                 desktop.assert_cell_delete(api, before, target, 2)
+            # The prompt alone sent nothing, so the fixture is unchanged.
+            self.assertEqual(desktop.assert_cell_kept(api, before, 1)['records'], before)
             self.assertEqual(request('DELETE', f'/4/worklogs/{target}'), 204)
+            # A DELETE sent by the right-click itself fails the prompt check.
+            with self.assertRaisesRegex(RuntimeError, 'sent a write before its confirmation'):
+                desktop.assert_cell_kept(api, before, 1)
             state = desktop.assert_cell_delete(api, before, target, 2)
             self.assertNotIn(target, state['records'])
             # Another worklog's deletion, or a stale "before", fails closed.
@@ -167,6 +172,9 @@ class FixtureScenarios(unittest.TestCase):
                 desktop.assert_cell_delete(api, before, desktop.tempo.FIRST_ID, 2)
             with self.assertRaisesRegex(RuntimeError, 'exactly its single cell worklog'):
                 desktop.assert_cell_delete(api, state['records'], target, 2)
+            # A changed record without a counted write fails it too.
+            with self.assertRaisesRegex(RuntimeError, 'changed worklogs before its confirmation'):
+                desktop.assert_cell_kept(api, before, 2)
 
     def test_public_entrypoint_refuses_home_before_parsing_or_launching_anything(self):
         with patch.dict(os.environ, {}, clear=True), \
@@ -397,39 +405,50 @@ class CellInput(unittest.TestCase):
         return eval(compile(expression, str(desktop.__file__), 'eval'),
             dict(__builtins__={}, tempo=desktop.tempo, week_actions=desktop.week_actions, session=session))
 
-    def test_holiday_and_capex_capture_precedes_a_confirmed_right_click_delete(self):
+    def test_the_prompt_drive_stops_at_the_confirmation_and_another_confirms_it(self):
         for session in ('windows', 'macos', 'x11'):
             with self.subTest(session=session):
-                actions = self.stage_actions('cell-delete-dark', session)
-                self.assertEqual(actions[:len(desktop.week_actions())], desktop.week_actions())
-                marks = actions.index(('capture', 'tempo-holiday-capex-dark'))
-                menu = actions.index(('cell_menu', 'FIX-17', '14 Oct'))
-                prompt = actions.index(('capture', 'tempo-cell-delete-dark'))
-                confirm = actions.index(('click', 'Confirm deletion'))
-                self.assertEqual(actions[marks - 1], ('wait_scroll_text', 'FIX-17', 'Load date range'))
+                prompt = self.stage_actions('cell-delete-prompt-dark', session)
+                confirm = self.stage_actions('cell-delete-dark', session)
+                for actions in (prompt, confirm):
+                    self.assertEqual(actions[:len(desktop.week_actions())], desktop.week_actions())
+                    menu = actions.index(('cell_menu', 'FIX-17', '14 Oct'))
+                    # A modal dialog: in view at the scrolled grid, so no scroll finds it.
+                    self.assertEqual(actions[menu + 1], ('wait_text', 'Confirm deletion'))
+                    # Only the secondary button reaches the cell, so no left click
+                    # can open its editor or list instead.
+                    self.assertFalse(any(action[0] == 'cell' for action in actions))
+                    self.assertIn(('cell_menu', 'FIX-17', '14 Oct'), self.driven(
+                        'cell-delete-prompt-dark' if actions is prompt else 'cell-delete-dark', session))
+                marks = prompt.index(('capture', 'tempo-holiday-capex-dark'))
+                menu = prompt.index(('cell_menu', 'FIX-17', '14 Oct'))
+                self.assertEqual(prompt[marks - 1], ('wait_scroll_text', 'FIX-17', 'Load date range'))
                 self.assertLess(marks, menu)
-                # A modal dialog: in view at the scrolled grid, so no scroll finds it.
-                self.assertEqual(actions[menu + 1], ('wait_text', 'Confirm deletion'))
-                self.assertEqual(prompt, menu + 2)
-                self.assertEqual(confirm, prompt + 1)
-                self.assertEqual(actions[-1], ('wait_scroll_up', 'Tempo confirmed the worklog change'))
-                # Only the secondary button reaches the cell, so no left click
-                # can open its editor or list instead.
-                self.assertFalse(any(action[0] == 'cell' for action in actions))
-                self.assertIn(('cell_menu', 'FIX-17', '14 Oct'), self.driven('cell-delete-dark', session))
+                # The prompt drive ends at the open confirmation, unanswered.
+                self.assertEqual(prompt[-1], ('capture', 'tempo-cell-delete-dark'))
+                self.assertEqual(len(prompt), menu + 3)
+                self.assertNotIn(('click', 'Confirm deletion'), prompt)
+                menu = confirm.index(('cell_menu', 'FIX-17', '14 Oct'))
+                self.assertEqual(confirm[menu + 2:], [('click', 'Confirm deletion'),
+                    ('wait_scroll_up', 'Tempo confirmed the worklog change')])
 
     def test_the_cell_delete_scene_sits_between_reauthentication_and_the_lost_reply(self):
         source = Path(desktop.__file__).read_text(encoding='utf-8')
         order = [source.index(f"driver.drive('{stage}'") for stage in
-            ('template-dark', 'reauth-draft-dark', 'cell-delete-dark', 'partial-copy-dark')]
+            ('template-dark', 'reauth-draft-dark', 'cell-delete-prompt-dark', 'cell-delete-dark', 'partial-copy-dark')]
         self.assertEqual(order, sorted(order))
-        scene = source[order[2]:order[3]]
+        scene = source[order[2]:order[4]]
+        # The fixture is checked between the prompt and its confirmation:
+        # unchanged after the right-click, one DELETE after the confirmation.
+        between = source[order[2]:order[3]]
+        self.assertIn('assert_cell_kept(api, before_cell_delete, 3)', between)
+        self.assertNotIn('assert_cell_delete', between)
+        self.assertIn('assert_cell_delete(api, before_cell_delete, target, 4)', source[order[3]:order[4]])
         # The deleted worklog is put back even when the scene fails.
         self.assertIn('finally:', scene)
         self.assertIn('api.records.setdefault(target, removed)', scene)
-        self.assertIn('assert_cell_delete(api, before_cell_delete, target, 4)', scene)
         for capture in ('tempo-holiday-capex-dark', 'tempo-cell-delete-dark'):
-            self.assertIn(f"'cell-delete-dark/{capture}.png'", source)
+            self.assertIn(f"'cell-delete-prompt-dark/{capture}.png'", source)
 
     def test_timeline_pager_gets_a_coarse_owned_scroll_before_expensive_ocr_waits(self):
         actions = self.stage_actions('grid-navigation-dark', 'windows')

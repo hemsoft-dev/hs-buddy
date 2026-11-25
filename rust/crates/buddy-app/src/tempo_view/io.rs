@@ -205,7 +205,7 @@ pub(super) async fn apply(
             }
             connection.templates=None;
             connection.metadata=Arc::new(super::metadata::Metadata::load(&connection.session).await);
-            return Ok(Update::Wrote{confirmed:false,tone,message,problem});
+            return Ok(Update::Wrote{confirmed:false,unconfirmed:false,tone,message,problem});
         },
         Operation::Submit(draft)=>{
             let kind=draft.kind();let date=draft.work_date();
@@ -233,6 +233,11 @@ async fn finish_write(
     date: jiff::civil::Date,
 ) -> Result<Update, String> {
     let confirmed = report.phase == buddy_core::tempo::WritePhase::Confirmed;
+    // Sent but unanswered; a Ready change was never sent.
+    let unconfirmed = matches!(
+        report.phase,
+        buddy_core::tempo::WritePhase::InFlight | buddy_core::tempo::WritePhase::Unconfirmed
+    );
     let tone = write_tone(report.phase);
     let message=match report.phase {
                 buddy_core::tempo::WritePhase::Confirmed=>"Tempo confirmed the worklog change.",
@@ -268,6 +273,7 @@ async fn finish_write(
     }
     Ok(Update::Wrote {
         confirmed,
+        unconfirmed,
         tone,
         message,
         problem: (!problems.is_empty()).then(|| problems.join(" ")),

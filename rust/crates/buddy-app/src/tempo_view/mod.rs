@@ -62,8 +62,11 @@ pub struct TempoView {
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
-    /// Whether the delete confirmation dialog is open for `delete_target`.
-    delete_dialog: bool,
+    /// The delete confirmation dialog, while it is open for `delete_target`.
+    delete_dialog: Option<crate::shell::dialogs::DialogToken>,
+    /// The confirmed deletion of `delete_target` got no reply, so Tempo may
+    /// already have removed it.
+    delete_unconfirmed: bool,
     copy_plan: Option<Box<buddy_core::tempo::CopyPlan>>,
     cell_filter: Option<(jiff::civil::Date, Option<buddy_core::tempo::IssueId>)>,
     credentials: [Entity<InputState>; 4],
@@ -112,7 +115,8 @@ impl TempoView {
             editor_binding: None,
             pending_editor: None,
             delete_target: None,
-            delete_dialog: false,
+            delete_dialog: None,
+            delete_unconfirmed: false,
             copy_plan: None,
             cell_filter: None,
             credentials,

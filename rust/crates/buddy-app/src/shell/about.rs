@@ -2,7 +2,7 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::Button;
-use gpui_kit::component::{Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     App, FontWeight, IntoElement, ParentElement, SharedString, Styled, Window, div,
     linear_color_stop, linear_gradient,
@@ -149,14 +149,17 @@ pub fn show(cx: &mut App) {
 
 /// Opens the dialog; Escape and the close button dismiss it.
 pub fn open(window: &mut Window, cx: &mut App) {
-    crate::browser_view::Overlays::set(true, cx);
-    window.open_dialog(cx, |dialog, _, cx| {
-        dialog
-            .w(gpui_kit::px(420.0))
-            .title("About Buddy")
-            .on_close(|_, _, cx| crate::browser_view::Overlays::set(false, cx))
-            .child(content(cx))
-    });
+    super::dialogs::open(
+        window,
+        cx,
+        |dialog, _, cx| {
+            dialog
+                .w(gpui_kit::px(420.0))
+                .title("About Buddy")
+                .child(content(cx))
+        },
+        |_, _| {},
+    );
 }
 
 #[cfg(test)]

@@ -305,3 +305,106 @@ fn a_right_click_from_a_scrolled_page_shows_the_confirmation_in_view(cx: &mut Te
     })
     .unwrap();
 }
+
+fn overlays(cx: &gpui_kit::App) -> usize {
+    cx.try_global::<crate::browser_view::Overlays>()
+        .map_or(0, |overlays| overlays.0)
+}
+
+/// Opens the prompt for the single-worklog FIX-17 cell on 14 October.
+fn open_cell_prompt(cx: &mut TestAppContext, handle: AnyWindowHandle, view: &Entity<TempoView>) {
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.test_can_submit = true);
+        window.render_frame(cx);
+        window.right_click("tempo-cell-19-2026-10-14", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+/// About Buddy, opened from the macOS app menu while a confirmed delete is
+/// in flight, sits above the prompt. The delete's outcome closes the prompt
+/// alone, and each dialog's overlay count is released once.
+#[gpui_kit::test]
+fn a_finished_delete_closes_its_prompt_and_not_a_dialog_above_it(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    open_cell_prompt(cx, handle, &view);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("tempo-confirm-delete").is_some());
+        crate::shell::about::open(window, cx);
+        assert_eq!(overlays(cx), 2);
+        window.render_frame(cx);
+        // The confirmed delete finishes, which clears its target.
+        view.update(cx, |view, cx| {
+            view.wrote(
+                true,
+                false,
+                Tone::Success,
+                "Tempo confirmed the worklog change.".into(),
+                None,
+            );
+            cx.notify();
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(view.read(cx).delete_dialog.is_none());
+        assert_eq!(overlays(cx), 1, "only About's overlay remains");
+        assert!(window.has_active_dialog(cx));
+        assert!(window.try_find("about-github").is_some());
+        // Escape reaches About, now the only dialog, whose own close
+        // releases the last overlay.
+        window.press("escape", cx);
+        assert!(!window.has_active_dialog(cx));
+        assert_eq!(overlays(cx), 0);
+        assert!(!cx.has_global::<Runtime>());
+    })
+    .unwrap();
+}
+
+/// Tempo may have deleted the worklog without replying. The prompt then
+/// says so in place of the question, and offers only Close: neither another
+/// attempt nor a promise that the worklog is kept.
+#[gpui_kit::test]
+fn an_unconfirmed_delete_reports_the_unknown_result_and_offers_only_close(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    open_cell_prompt(cx, handle, &view);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("tempo-keep-worklog").is_some());
+        assert!(window.try_find("tempo-close-unconfirmed-delete").is_none());
+        view.update(cx, |view, cx| {
+            view.wrote(
+                false,
+                true,
+                Tone::Warning,
+                "The worklog result is unconfirmed.".into(),
+                Some("Synthetic lost reply".into()),
+            );
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(view.read(cx).delete_target.is_some());
+        assert!(window.has_active_dialog(cx));
+        assert!(window.try_find("tempo-keep-worklog").is_none());
+        assert!(window.try_find("tempo-confirm-delete").is_none());
+        window.click("tempo-close-unconfirmed-delete", cx);
+        assert!(view.read(cx).delete_target.is_none());
+        assert!(!window.has_active_dialog(cx));
+        assert_eq!(overlays(cx), 0);
+        // The next prompt asks again.
+        window.render_frame(cx);
+        window.right_click("tempo-cell-19-2026-10-14", cx);
+        assert!(!view.read(cx).delete_unconfirmed);
+    })
+    .unwrap();
+    assert_eq!(
+        crate::tempo_view::delete_dialog::unconfirmed_delete(3600, day(14)),
+        "Tempo may already have deleted the 1:00 worklog on 2026-10-14. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery."
+    );
+}

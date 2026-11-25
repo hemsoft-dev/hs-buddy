@@ -9,6 +9,8 @@ pub(super) enum Update {
     Lookup(Box<(uuid::Uuid, String, EditorIssue)>),
     Wrote {
         confirmed: bool,
+        /// Sent without a reply: Tempo may have applied it.
+        unconfirmed: bool,
         tone: Tone,
         message: String,
         problem: Option<String>,
@@ -30,6 +32,7 @@ impl TempoView {
     pub(super) fn ask_delete(&mut self, row: Worklog, cx: &mut Context<Self>) {
         // The confirmation replaces any stale status.
         self.delete_target = Some(row);
+        self.delete_unconfirmed = false;
         self.error = None;
         self.notice = None;
         cx.notify();
@@ -105,6 +108,31 @@ impl TempoView {
             }
         }
     }
+    /// A write's outcome. A confirmed one closes its editor or delete
+    /// prompt; an unanswered one leaves the prompt saying so.
+    pub(super) fn wrote(
+        &mut self,
+        confirmed: bool,
+        unconfirmed: bool,
+        tone: Tone,
+        message: String,
+        problem: Option<String>,
+    ) {
+        if confirmed {
+            self.editor = None;
+            self.editor_binding = None;
+            self.delete_target = None;
+        }
+        if unconfirmed {
+            self.delete_unconfirmed = true;
+        }
+        self.set_notice(tone, message);
+        self.error = problem;
+        self.populate_range = true;
+        self.scroll_to_today = true;
+        self.cell_filter = None;
+        self.page = 0;
+    }
     pub(super) fn operate(&mut self, operation: Operation, cx: &mut Context<Self>) {
         if self.copy_plan.is_some() && !matches!(operation, Operation::ExecuteCopy(_)) {
             self.error = Some("Create or cancel the pending copies before another action.".into());
@@ -157,10 +185,7 @@ impl TempoView {
                                 if let Some(editor)=&mut this.editor && editor.id==id
                                     && let Err(error)=editor.accept_lookup(query,info,cx) {this.error=Some(error);}
                             },
-                            Ok(Update::Wrote{confirmed,tone,message,problem})=>{
-                                if confirmed {this.editor=None;this.editor_binding=None;this.delete_target=None;}
-                                this.set_notice(tone,message);this.error=problem;this.populate_range=true;this.scroll_to_today=true;this.cell_filter=None;this.page=0;
-                            },
+                            Ok(Update::Wrote{confirmed,unconfirmed,tone,message,problem})=>this.wrote(confirmed,unconfirmed,tone,message,problem),
                             Err(error)=>this.error=Some(error),
                         }
                     },

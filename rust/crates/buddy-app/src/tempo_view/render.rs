@@ -31,13 +31,14 @@ enum DayMarker {
     Weekend,
     Plain,
 }
-/// One tint per column. Today wins, as Electron's later `.today` rule does;
-/// a holiday tints over a weekend, and its marker icon stays on Today too.
+/// One tint per column. A holiday's tint wins over Today's and a weekend's,
+/// as in Electron, where `.holiday` keeps the background and `.today` only
+/// adds its accent; Today's heading bar and weight still mark the column.
 fn day_marker(date: Date, today: Option<Date>, holiday: bool) -> DayMarker {
-    if Some(date) == today {
-        DayMarker::Today
-    } else if holiday {
+    if holiday {
         DayMarker::Holiday
+    } else if Some(date) == today {
+        DayMarker::Today
     } else if matches!(date.weekday(), Weekday::Saturday | Weekday::Sunday) {
         DayMarker::Weekend
     } else {
@@ -270,7 +271,9 @@ impl TempoView {
             let mut text = v_flex().child(first_line).child(div().child(label));
             text = text.text_color(heading_color(marker, theme));
             let mut head = cell(date, GRID_HEAD);
-            if marker == DayMarker::Today {
+            // Today keeps its bar under a holiday's tint, as Electron keeps
+            // its accent over the holiday background.
+            if Some(date) == today {
                 // A bar, not an underline: OCR reads these headings in the
                 // installed qualification.
                 text = text.font_weight(FontWeight::SEMIBOLD);
@@ -915,7 +918,7 @@ impl Render for TempoView {
         }
         // The delete confirmation is a modal dialog, in view however far the
         // page is scrolled; it opens and closes with `delete_target`.
-        if self.delete_target.is_some() != self.delete_dialog {
+        if self.delete_target.is_some() != self.delete_dialog.is_some() {
             cx.defer_in(window, |this, window, cx| {
                 this.sync_delete_dialog(window, cx)
             });
@@ -1169,12 +1172,14 @@ mod recovery_policy_tests {
         assert_eq!(today_offset(&[day(1), day(2)], Some(today)), None);
     }
     #[test]
-    fn a_holiday_column_is_marked_over_a_weekend_but_today_keeps_its_tint() {
+    fn a_holiday_column_keeps_its_tint_over_a_weekend_and_today() {
         let today = jiff::civil::date(2026, 10, 16);
         let day = |d| jiff::civil::date(2026, 10, d);
         assert_eq!(day_marker(day(15), Some(today), true), DayMarker::Holiday);
         assert_eq!(day_marker(day(17), Some(today), true), DayMarker::Holiday);
-        assert_eq!(day_marker(day(16), Some(today), true), DayMarker::Today);
+        // Electron's `.holiday` background survives `.today`, which only
+        // adds its accent; here Today's heading bar is that accent.
+        assert_eq!(day_marker(day(16), Some(today), true), DayMarker::Holiday);
         assert_eq!(day_marker(day(15), None, true), DayMarker::Holiday);
     }
     #[test]

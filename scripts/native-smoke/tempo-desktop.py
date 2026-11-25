@@ -199,6 +199,17 @@ def single_cell_worklog(api, date, issue=tempo.ISSUE_ID):
     return found[0], records[found[0]]
 
 
+def assert_cell_kept(api, before, count):
+    """The right-click only asked: no DELETE reached Tempo before its confirmation."""
+    try:
+        state = require_writes(api, count, rejected=1)
+    except RuntimeError as error:
+        raise RuntimeError('The right-click sent a write before its confirmation') from error
+    if state['records'] != before:
+        raise RuntimeError('The right-click changed worklogs before its confirmation')
+    return state
+
+
 def assert_cell_delete(api, before, identifier, count):
     """The right-click removed exactly its cell's worklog and nothing else."""
     state = require_writes(api, count, rejected=1)
@@ -419,7 +430,7 @@ def evidence_inventory(output):
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
         'move-dark/exact-original-editor-dark.png', 'move-dark/moved-worklog-dark.png',
         'move-dark/delete-confirmation-dark.png',
-        'cell-delete-dark/tempo-holiday-capex-dark.png', 'cell-delete-dark/tempo-cell-delete-dark.png',
+        'cell-delete-prompt-dark/tempo-holiday-capex-dark.png', 'cell-delete-prompt-dark/tempo-cell-delete-dark.png',
         'reauth-draft-dark/expired-open-draft-dark.png', 'reauth-draft-dark/draft-needs-fresh-lookup-dark.png',
         'reauth-draft-dark/retained-draft-after-lookup-dark.png',
         'reauth-draft-dark/retained-hours-after-lookup-dark.png',
@@ -709,13 +720,21 @@ def qualify(executable, output, session, version, source, backend):
                 target, removed = single_cell_worklog(api, '2026-10-14')
                 before_cell_delete = api.snapshot()['records']
                 try:
-                    marked = driver.drive('cell-delete-dark', week_actions() + [
+                    # The confirmation is a modal dialog, in view at the
+                    # scrolled grid: no scrolling finds it. A drive's commands
+                    # run as one batch, so this one stops at the prompt and
+                    # the fixture is checked before another confirms it.
+                    marked = driver.drive('cell-delete-prompt-dark', week_actions() + [
                         ('wait_scroll_text', 'FIX-17', 'Load date range'),
                         ('capture', 'tempo-holiday-capex-dark'),
-                        # The confirmation is a modal dialog, in view at
-                        # the scrolled grid: no scrolling finds it.
                         ('cell_menu', 'FIX-17', '14 Oct'), ('wait_text', 'Confirm deletion'),
-                        ('capture', 'tempo-cell-delete-dark'), ('click', 'Confirm deletion'),
+                        ('capture', 'tempo-cell-delete-dark'),
+                    ])
+                    assert_cell_kept(api, before_cell_delete, 3)
+                    driver.drive('cell-delete-dark', week_actions() + [
+                        ('wait_scroll_text', 'FIX-17', 'Load date range'),
+                        ('cell_menu', 'FIX-17', '14 Oct'), ('wait_text', 'Confirm deletion'),
+                        ('click', 'Confirm deletion'),
                         ('wait_scroll_up', 'Tempo confirmed the worklog change'),
                     ])
                     assert_cell_delete(api, before_cell_delete, target, 4)
