@@ -281,6 +281,36 @@ def require_unzoomed(before, after):
     return require_scaled(before, after, UNZOOM_RATIO, "The page did not return to its 100% size")
 
 
+def favicon_steps(theme):
+    """The bookmark list, then its favicon: it arrives after the list, so its
+    colour is waited for before the capture."""
+    return [
+        ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"),
+        ("wait_colour", "magenta", FAVICON_MIN_PIXELS), ("capture", f"bookmark-favicons-{theme}"),
+    ]
+
+
+def zoom_steps(theme):
+    """Alt+= on the shown page, then Alt+- back to 100%. The engine repaints
+    the page a frame after it takes the zoom."""
+    return [
+        ("altkey", "="), ("wait_text", ZOOM_AFTER), ("sleep", 1), ("capture", f"browser-page-zoom-{theme}"),
+        ("altkey", "-"), ("wait_text", ZOOM_BEFORE), ("sleep", 1), ("capture", f"browser-page-unzoom-{theme}"),
+    ]
+
+
+def require_favicon_and_zoom(flow, theme):
+    """The favicon capture shows the icon, and the zoom captures show the page
+    one step larger and then back at its size in `page-{theme}`."""
+    github.check(flow / f"bookmark-favicons-{theme}.png", "Fixture page", "Probe page", browser=True)
+    favicon = require_favicon(flow / f"bookmark-favicons-{theme}.png")
+    github.check(flow / f"browser-page-zoom-{theme}.png", PAGE_TEXT, ZOOM_AFTER, browser=True)
+    github.check(flow / f"browser-page-unzoom-{theme}.png", PAGE_TEXT, ZOOM_BEFORE, browser=True)
+    zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
+    unzoom = require_unzoomed(flow / f"page-{theme}.png", flow / f"browser-page-unzoom-{theme}.png")
+    return dict(favicon=favicon, zoom=zoom, unzoom=unzoom)
+
+
 def first_pass(driver, theme):
     """A fresh session: the probe's refusals, then a page, at both sizes. The
     Fixture page card shows its favicon, Alt+= zooms the page one step, and
@@ -290,12 +320,9 @@ def first_pass(driver, theme):
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
         ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
-        # The favicon arrives after the list: wait for its colour, then capture.
-        ("wait_colour", "magenta", FAVICON_MIN_PIXELS), ("capture", f"bookmark-favicons-{theme}"),
+        *favicon_steps(theme)[2:],
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
-        # The engine repaints the page a frame after it takes the zoom.
-        ("altkey", "="), ("wait_text", ZOOM_AFTER), ("sleep", 1), ("capture", f"browser-page-zoom-{theme}"),
-        ("altkey", "-"), ("wait_text", ZOOM_BEFORE), ("sleep", 1), ("capture", f"browser-page-unzoom-{theme}"),
+        *zoom_steps(theme),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
         # Repeat after the title-qualified captures: reusing a URL selects
@@ -305,17 +332,11 @@ def first_pass(driver, theme):
     ], record=True)
     github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
     github.check(flow / f"tabs-list-{theme}.png", "Fixture page", "Probe page", "Buddy Probe", browser=True)
-    github.check(flow / f"bookmark-favicons-{theme}.png", "Fixture page", "Probe page", browser=True)
-    favicon = require_favicon(flow / f"bookmark-favicons-{theme}.png")
     # The page's own text and its tab title prove which page is shown. The
     # address field's dim text read in no OCR layout on Windows (run 40647223188).
     github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
     github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
-    github.check(flow / f"browser-page-zoom-{theme}.png", PAGE_TEXT, ZOOM_AFTER, browser=True)
-    github.check(flow / f"browser-page-unzoom-{theme}.png", PAGE_TEXT, ZOOM_BEFORE, browser=True)
-    zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
-    unzoom = require_unzoomed(flow / f"page-{theme}.png", flow / f"browser-page-unzoom-{theme}.png")
-    return dict(favicon=favicon, zoom=zoom, unzoom=unzoom)
+    return require_favicon_and_zoom(flow, theme)
 
 
 def saved_zoom(config):
@@ -344,15 +365,26 @@ def restart_pass(driver, theme, visit):
 
 
 def light_pass(driver, visit):
+    """The restored session in the light theme: the page at both sizes, the
+    Fixture page card's favicon, then that card is opened again (selecting its
+    tab, without a new visit, and leaving the keyboard in the browser) and
+    Alt+= and Alt+- zoom the page and take it back. The drive is recorded, so
+    the keyboard zoom flow is in its `interaction.mp4`. It ends on the probe's
+    tab, where the X11 shortcut pass starts."""
     flow = driver.drive("browser-light", [
         ("wait_text", f"Visit {visit}"), ("capture", "page-light"),
         ("resize", 900, 650), ("sleep", 1), ("capture", "page-compact-light"),
         ("resize", 1200, 820),
+        *favicon_steps("light"),
+        # The fourth explicit bookmark open, counted like the others.
+        ("content", "Fixture page"), ("wait_text", f"Visit {visit}"),
+        *zoom_steps("light"),
         ("workspace", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
     github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
     github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)
     github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT, browser=True)
+    return require_favicon_and_zoom(flow, "light")
 
 
 class BrowserDriver(settings.Driver):
@@ -441,14 +473,18 @@ def qualify(executable, output, session, version, backend, site):
     activity_opened = require_bookmark_activity(backend, activity_before, 3, 1)
     restart_pass(driver, "dark", 2)
     activity_restored = require_bookmark_activity(backend, activity_before, 3, 2)
-    light = json.loads(fixture(config.parent / "light-template", "light").read_text())
-    terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
-    light_pass(driver, 3)
-    activity_switched = require_bookmark_activity(backend, activity_before, 3, 3)
+    template = json.loads(fixture(config.parent / "light-template", "light").read_text())
+    terminal.write_config(config, lambda value: value["ui"].update(template["ui"]))
+    zoom = saved_zoom(config)
+    try:
+        light = light_pass(driver, 3)
+    finally:
+        restore_zoom(config, zoom)
+    activity_switched = require_bookmark_activity(backend, activity_before, 4, 3)
     (output / "bookmark-activity.json").write_text(json.dumps(dict(
         before=activity_before, opened=activity_opened, restored=activity_restored,
         switched=activity_switched, dataSource="isolated anonymous Convex fixture",
-        checks=["three explicit opens including repeated URL", "restart persistence",
+        checks=["four explicit opens including two of a repeated URL", "restart persistence",
             "tab restoration and switching do not write", "PR counters unchanged",
             "one Dashboard open and one closed session per launch"]), indent=2), encoding="utf-8")
     with site.lock:
@@ -466,10 +502,10 @@ def qualify(executable, output, session, version, backend, site):
         checks = ["Buddy's shortcuts with the pointer over a page"]
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True, engine=dict(windows="WebView2", macos="WKWebView",
-        x11="WebKitGTK")[session], **result, **first,
+        x11="WebKitGTK")[session], **result, **first, light=light,
         dataSource="Installed app; loopback fixture site admitted by exact origin; bookmarks in an isolated anonymous Convex deployment",
-        checks=["bookmark opens in a tab", "page renders inside the window", "bookmark card favicon",
-            "Alt+= and Alt+- zoom the page", "private address refused",
+        checks=["bookmark opens in a tab", "page renders inside the window", "bookmark card favicon in both themes",
+            "Alt+= and Alt+- zoom the page in both themes", "private address refused",
             "download refused", "private iframe refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
             "compact window", "light/dark", *checks]), indent=2), encoding="utf-8")
 

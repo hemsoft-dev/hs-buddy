@@ -37,12 +37,15 @@ struct FakeHost {
     shows_at_creation: bool,
     /// The engine error every page's zoom fails with, while set.
     zoom_error: Rc<RefCell<Option<String>>>,
+    /// Each page's own zoom error, in the order the pages were created.
+    page_zoom_errors: RefCell<Vec<Rc<RefCell<Option<String>>>>>,
 }
 
 /// Records calls; `url` is the address the page reports, shared with its host,
-/// as is the zoom error.
+/// as is the zoom error. The last field is this page's own zoom error.
 struct FakePage(
     Rc<Log>,
+    Rc<RefCell<Option<String>>>,
     Rc<RefCell<Option<String>>>,
     Rc<RefCell<Option<String>>>,
 );
@@ -74,7 +77,7 @@ impl Page for FakePage {
         self.0.push("focus parent".into());
     }
     fn zoom(&self, zoom: f64) -> Result<(), String> {
-        if let Some(error) = self.2.borrow().clone() {
+        if let Some(error) = self.2.borrow().clone().or_else(|| self.3.borrow().clone()) {
             self.0.push(format!("zoom {zoom} refused"));
             return Err(error);
         }
@@ -101,10 +104,15 @@ impl Host for FakeHost {
         }
         self.events.borrow_mut().push(config.events);
         self.checkers.borrow_mut().push(config.checker);
+        let own_zoom_error = Rc::new(RefCell::new(None));
+        self.page_zoom_errors
+            .borrow_mut()
+            .push(own_zoom_error.clone());
         Ok(Rc::new(FakePage(
             self.log.clone(),
             self.url.clone(),
             self.zoom_error.clone(),
+            own_zoom_error,
         )))
     }
 
@@ -1038,6 +1046,7 @@ fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppCo
     assert_eq!(harness.read(|view| view.zoom), 1.1);
     host.log.take();
 
+    // The selected tab's engine refuses: nothing moves, and that tab says why.
     *host.zoom_error.borrow_mut() = Some("engine said no".into());
     harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
     assert_eq!(
@@ -1046,9 +1055,20 @@ fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppCo
         "the toolbar keeps 110%"
     );
     assert_eq!(harness.saved().zoom, 1.1, "the refused zoom isn't saved");
-    assert!(host.log.has("zoom 1.2 refused"), "{:?}", host.log.take());
-    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    let zooms: Vec<String> = host
+        .log
+        .take()
+        .into_iter()
+        .filter(|entry| entry.starts_with("zoom"))
+        .collect();
+    assert_eq!(zooms, ["zoom 1.2 refused"], "only the shown page is asked");
+    let selected = harness.read(|view| view.active).unwrap();
+    assert_eq!(selected, 1);
+    let notice = harness
+        .read(|view| view.tabs[selected].notice.clone())
+        .unwrap();
     assert_eq!(notice.text, format!("{ZOOM_FAILED} engine said no"));
+    assert!(harness.read(|view| view.tabs[0].notice.is_none()));
 
     // Once the engine takes a zoom again, the shown zoom moves and the notice goes.
     *host.zoom_error.borrow_mut() = None;
@@ -1056,6 +1076,65 @@ fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppCo
     assert_eq!(harness.read(|view| view.zoom), 1.2);
     assert_eq!(harness.saved().zoom, 1.2);
     assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
+}
+
+#[gpui_kit::test]
+fn a_background_tab_refusing_a_zoom_neither_blocks_nor_hides_it(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    assert_eq!(harness.read(|view| view.active), Some(1));
+    assert_eq!(host.page_zoom_errors.borrow().len(), 2);
+    host.log.take();
+
+    // The first tab's page, now in the background, refuses.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("background said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1, "the shown page zoomed");
+    assert_eq!(harness.saved().zoom, 1.1);
+    let log = host.log.take();
+    assert!(log.contains(&"zoom 1.1".to_owned()), "{log:?}");
+    assert!(log.contains(&"zoom 1.1 refused".to_owned()), "{log:?}");
+    assert!(
+        harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())),
+        "a background refusal shows nowhere"
+    );
+
+    // Shown again, the page is given the saved zoom; still refused, that
+    // tab, the one now shown, says so.
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert!(host.log.take().contains(&"zoom 1.1 refused".to_owned()));
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(notice.text, format!("{ZOOM_FAILED} background said no"));
+    assert_eq!(harness.read(|view| view.zoom), 1.1);
+
+    // Once that engine takes zooms again, the next one clears the notice.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
+
+    // A page that missed a zoom in the background takes it when selected.
+    *host.page_zoom_errors.borrow()[1].borrow_mut() = Some("later".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.3);
+    *host.page_zoom_errors.borrow()[1].borrow_mut() = None;
+    host.log.take();
+    harness.update(|view, cx| view.select(Some(1), cx));
+    assert!(host.log.take().contains(&"zoom 1.3".to_owned()));
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
+    // Selecting it again asks nothing more of the engine.
+    harness.update(|view, cx| view.select(Some(0), cx));
+    harness.update(|view, cx| view.select(Some(1), cx));
+    assert!(
+        !host
+            .log
+            .take()
+            .iter()
+            .any(|entry| entry.starts_with("zoom"))
+    );
 }
 
 /// The app root's forwarding of Electron's Alt zoom keys (see `app.rs`).

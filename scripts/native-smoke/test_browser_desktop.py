@@ -352,6 +352,41 @@ class BrowserDesktopTests(unittest.TestCase):
         self.assertEqual(checked["browser-page-unzoom-dark.png"], (desktop.PAGE_TEXT, "100%"))
         unzoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-unzoom-dark.png")
 
+    def test_the_light_pass_repeats_the_favicon_and_zoom_steps_on_a_recording(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.name, self.actions, self.record = name, actions, record
+                return Path("flow")
+        driver = Driver()
+        with patch.object(desktop.github, "check") as check, \
+                patch.object(desktop, "require_favicon", return_value={}) as favicon, \
+                patch.object(desktop, "require_zoomed", return_value={}) as zoomed, \
+                patch.object(desktop, "require_unzoomed", return_value={}) as unzoomed:
+            desktop.light_pass(driver, 3)
+        actions = driver.actions
+        # The keyboard zoom flow is recorded with the rest of the light drive.
+        self.assertEqual((driver.name, driver.record), ("browser-light", True))
+        # The page at 100% comes first, so the zoom checks compare against it.
+        self.assertEqual(actions[:2], [("wait_text", "Visit 3"), ("capture", "page-light")])
+        favicon_at = actions.index(("workspace", "Bookmarks: All"))
+        self.assertEqual(actions[favicon_at:favicon_at + 4], desktop.favicon_steps("light"))
+        # Opening the card again selects its tab without a new visit and
+        # leaves the keyboard in the browser for the Alt keys.
+        reopen = actions.index(("content", "Fixture page"))
+        self.assertGreater(reopen, favicon_at)
+        self.assertEqual(actions[reopen + 1], ("wait_text", "Visit 3"))
+        self.assertEqual(actions[reopen + 2:reopen + 10], desktop.zoom_steps("light"))
+        self.assertEqual([action for action in actions if action[0] == "content"], [("content", "Fixture page")])
+        # It still ends on the probe's tab, where the X11 shortcut pass starts.
+        self.assertEqual(actions[-1], ("capture", "blocked-light"))
+        checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
+        self.assertEqual(checked["bookmark-favicons-light.png"], ("Fixture page", "Probe page"))
+        self.assertEqual(checked["browser-page-zoom-light.png"], (desktop.PAGE_TEXT, "110%"))
+        self.assertEqual(checked["browser-page-unzoom-light.png"], (desktop.PAGE_TEXT, "100%"))
+        favicon.assert_called_once_with(Path("flow") / "bookmark-favicons-light.png")
+        zoomed.assert_called_once_with(Path("flow") / "page-light.png", Path("flow") / "browser-page-zoom-light.png")
+        unzoomed.assert_called_once_with(Path("flow") / "page-light.png", Path("flow") / "browser-page-unzoom-light.png")
+
     def test_the_saved_page_zoom_is_restored(self):
         with tempfile.TemporaryDirectory() as root:
             config = Path(root) / "config.json"

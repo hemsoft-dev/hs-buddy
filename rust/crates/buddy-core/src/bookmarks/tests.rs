@@ -567,37 +567,183 @@ fn the_ai_prompt_matches_electron_and_replies_parse_safely() {
     assert_eq!(suggest::parse(&many).tags.unwrap().len(), MAX_TAGS);
 }
 
+/// One PNG chunk: its length, type, data and the CRC-32 decoders check.
+fn png_chunk(bytes: &mut Vec<u8>, kind: &[u8], data: &[u8]) {
+    bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    let start = bytes.len();
+    bytes.extend_from_slice(kind);
+    bytes.extend_from_slice(data);
+    let mut crc = !0u32;
+    for byte in &bytes[start..] {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                0xEDB8_8320 ^ (crc >> 1)
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    bytes.extend_from_slice(&(!crc).to_be_bytes());
+}
+
 /// A PNG whose header claims `width` x `height`, followed by a stub of image
 /// data: decoders read its size, and fail if asked for its pixels.
 fn png(width: u32, height: u32) -> Vec<u8> {
-    fn chunk(bytes: &mut Vec<u8>, kind: &[u8], data: &[u8]) {
-        bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        let start = bytes.len();
-        bytes.extend_from_slice(kind);
-        bytes.extend_from_slice(data);
-        // CRC-32 of the type and data, which decoders check.
-        let mut crc = !0u32;
-        for byte in &bytes[start..] {
-            crc ^= u32::from(*byte);
-            for _ in 0..8 {
-                crc = if crc & 1 == 1 {
-                    0xEDB8_8320 ^ (crc >> 1)
-                } else {
-                    crc >> 1
-                };
-            }
-        }
-        bytes.extend_from_slice(&(!crc).to_be_bytes());
-    }
     let mut header = width.to_be_bytes().to_vec();
     header.extend_from_slice(&height.to_be_bytes());
     header.extend_from_slice(&[8, 6, 0, 0, 0]);
     let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-    chunk(&mut bytes, b"IHDR", &header);
-    chunk(&mut bytes, b"IDAT", &[0x78, 0x9c]);
-    chunk(&mut bytes, b"IEND", &[]);
+    png_chunk(&mut bytes, b"IHDR", &header);
+    png_chunk(&mut bytes, b"IDAT", &[0x78, 0x9c]);
+    png_chunk(&mut bytes, b"IEND", &[]);
     bytes
 }
+
+/// `png` with `chunks` inserted straight after its IHDR.
+fn with_chunks(png: &[u8], chunks: &[(&[u8], Vec<u8>)]) -> Vec<u8> {
+    // The signature, then IHDR: 4 + 4 + 13 + 4 bytes.
+    let (head, tail) = png.split_at(8 + 25);
+    let mut bytes = head.to_vec();
+    for (kind, data) in chunks {
+        png_chunk(&mut bytes, kind, data);
+    }
+    bytes.extend_from_slice(tail);
+    bytes
+}
+
+/// The chunk types of a PNG, in order.
+fn chunk_kinds(png: &[u8]) -> Vec<String> {
+    let mut kinds = Vec::new();
+    let mut at = 8;
+    while at + 8 <= png.len() {
+        let length = u32::from_be_bytes(png[at..at + 4].try_into().unwrap()) as usize;
+        kinds.push(String::from_utf8_lossy(&png[at + 4..at + 8]).into_owned());
+        at += 12 + length;
+    }
+    kinds
+}
+
+/// A zlib stream that inflates to `1 + 258 * matches` zero bytes: one literal
+/// zero, then that many length-258 copies of the byte before, in a single
+/// fixed-Huffman block. 13 bits of input for every 258 bytes of output.
+fn zlib_zeros(matches: usize) -> Vec<u8> {
+    struct Bits {
+        out: Vec<u8>,
+        acc: u64,
+        count: u32,
+    }
+    impl Bits {
+        fn put(&mut self, value: u32, count: u32) {
+            self.acc |= u64::from(value) << self.count;
+            self.count += count;
+            while self.count >= 8 {
+                self.out.push(self.acc as u8);
+                self.acc >>= 8;
+                self.count -= 8;
+            }
+        }
+        /// A Huffman code, which deflate stores from its top bit down.
+        fn code(&mut self, code: u32, count: u32) {
+            self.put(code.reverse_bits() >> (32 - count), count);
+        }
+    }
+    let mut bits = Bits {
+        out: vec![0x78, 0x01],
+        acc: 0,
+        count: 0,
+    };
+    // The last block, fixed Huffman codes.
+    bits.put(1, 1);
+    bits.put(1, 2);
+    // Literal 0, then length 258 (symbol 285) at distance 1 (code 0).
+    bits.code(0x30, 8);
+    for _ in 0..matches {
+        bits.code(0xC5, 8);
+        bits.put(0, 5);
+    }
+    // End of block.
+    bits.code(0, 7);
+    if bits.count > 0 {
+        bits.put(0, 8 - bits.count);
+    }
+    let length = 1 + 258 * matches as u64;
+    // Adler-32 of zeros: a stays 1 and b adds 1 for each byte.
+    let adler = ((length % 65_521) << 16) | 1;
+    bits.out.extend_from_slice(&(adler as u32).to_be_bytes());
+    bits.out
+}
+
+/// An iCCP chunk's data: a profile name, compression 0 and `profile`.
+fn iccp(profile: Vec<u8>) -> Vec<u8> {
+    let mut data = b"bomb\0\0".to_vec();
+    data.extend(profile);
+    data
+}
+
+/// The test binary's allocator, counting what each thread has allocated, so a
+/// test can see the most a call held at once.
+mod counting {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    pub struct Counting;
+
+    thread_local! {
+        static LIVE: Cell<usize> = const { Cell::new(0) };
+        static PEAK: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn track(grown: usize, shrunk: usize) {
+        let _ = LIVE.try_with(|live| {
+            let now = live.get().saturating_add(grown).saturating_sub(shrunk);
+            live.set(now);
+            let _ = PEAK.try_with(|peak| peak.set(peak.get().max(now)));
+        });
+    }
+
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let pointer = unsafe { System.alloc(layout) };
+            if !pointer.is_null() {
+                track(layout.size(), 0);
+            }
+            pointer
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let pointer = unsafe { System.alloc_zeroed(layout) };
+            if !pointer.is_null() {
+                track(layout.size(), 0);
+            }
+            pointer
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(pointer, layout) };
+            track(0, layout.size());
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+            let moved = unsafe { System.realloc(pointer, layout, size) };
+            if !moved.is_null() {
+                track(size, layout.size());
+            }
+            moved
+        }
+    }
+
+    /// `f`'s result and the most it held allocated at once on this thread.
+    pub fn peak<T>(f: impl FnOnce() -> T) -> (T, usize) {
+        let base = LIVE.with(Cell::get);
+        PEAK.with(|peak| peak.set(base));
+        let result = f();
+        (result, PEAK.with(Cell::get).saturating_sub(base))
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: counting::Counting = counting::Counting;
 
 fn image_response(content_type: &str, body: &[u8]) -> Vec<u8> {
     let mut response = format!(
@@ -774,22 +920,213 @@ fn a_many_frame_gif_yields_only_its_first_frame() {
 
 #[test]
 fn an_icon_is_decoded_within_the_limits_whatever_its_directory_says() {
-    use super::favicon::{FaviconError, MAX_BYTES, sanitize};
+    use super::favicon::{FaviconError, MAX_BYTES, MAX_ICON_ENTRIES, sanitize};
     use image::ImageFormat;
     let small = encoded(ImageFormat::Png, 16, 16, [0, 255, 0, 255]);
     let mut entries: Vec<(u8, Vec<u8>)> = (0..70).map(|_| (16, small.clone())).collect();
-    // The 71st entry claims 256 px, so the decoder picks it, and holds a PNG
-    // of 60000 px a side: refused before anything that size is allocated.
+    // The 71st entry claims 256 px and holds a PNG of 60000 px a side: it is
+    // passed over, unallocated, for the best entry that fits.
     entries.push((0, png(60_000, 60_000)));
     let oversized = icon(&entries);
     assert!(oversized.len() < MAX_BYTES);
-    assert_eq!(sanitize(&oversized), Err(FaviconError::TooLarge));
-    // A sound entry that far down the directory is decoded.
+    let picked = sanitize(&oversized).unwrap();
+    assert_eq!(picked.image.dimensions(), (16, 16));
+    assert_eq!(picked.image.get_pixel(8, 8).0, [0, 255, 0, 255]);
+    // With nothing that fits, the icon is too large.
+    assert_eq!(
+        sanitize(&icon(&[(0, png(60_000, 60_000))])),
+        Err(FaviconError::TooLarge)
+    );
+    // A sound entry that far down the directory is the best one.
     entries.pop();
     entries.push((32, encoded(ImageFormat::Png, 32, 32, [0, 0, 255, 255])));
-    let icon = sanitize(&icon(&entries)).unwrap();
-    assert_eq!(icon.image.dimensions(), (32, 32));
-    assert_eq!(icon.image.get_pixel(8, 8).0, [0, 0, 255, 255]);
+    let icon_bytes = icon(&entries);
+    let icon_image = sanitize(&icon_bytes).unwrap();
+    assert_eq!(icon_image.image.dimensions(), (32, 32));
+    assert_eq!(icon_image.image.get_pixel(8, 8).0, [0, 0, 255, 255]);
+    // A directory with no entries, too many, or one past the end of the file.
+    let mut empty = icon(&[(16, small.clone())]);
+    empty[4] = 0;
+    let too_many: Vec<(u8, Vec<u8>)> = (0..=MAX_ICON_ENTRIES)
+        .map(|_| (16, small.clone()))
+        .collect();
+    let too_many = icon(&too_many);
+    assert!(too_many.len() < MAX_BYTES);
+    let mut past_the_end = icon(&[(16, small.clone())]);
+    past_the_end[6 + 8] = past_the_end[6 + 8].wrapping_add(1);
+    let mut cut_short = icon(&[(16, small.clone())]);
+    cut_short.truncate(6 + 8);
+    for refused in [empty, too_many, past_the_end, cut_short] {
+        assert_eq!(sanitize(&refused), Err(FaviconError::NotAnImage));
+    }
+}
+
+#[test]
+fn an_icons_png_entry_is_decoded_without_its_compressed_metadata() {
+    use super::favicon::{MAX_BYTES, MAX_DECODE_BYTES, filter_png, sanitize};
+    use image::ImageFormat;
+    // A 16 px PNG whose colour profile inflates to 16 MiB: the ICO decoder's
+    // own PNG decoder reads it with no limits.
+    let bomb = zlib_zeros(65_000);
+    let png = with_chunks(
+        &encoded(ImageFormat::Png, 16, 16, [255, 0, 255, 255]),
+        &[(b"iCCP".as_slice(), iccp(bomb))],
+    );
+    let ico = icon(&[(16, png.clone())]);
+    assert!(ico.len() < MAX_BYTES, "{}", ico.len());
+    let filtered = filter_png(&png).unwrap();
+    assert!(!chunk_kinds(&filtered).contains(&"iCCP".to_owned()));
+    assert!(filtered.len() < 1024, "{}", filtered.len());
+    let (decoded, peak) = counting::peak(|| sanitize(&ico));
+    let decoded = decoded.unwrap();
+    assert_eq!(decoded.image.dimensions(), (16, 16));
+    assert_eq!(decoded.image.get_pixel(8, 8).0, [255, 0, 255, 255]);
+    assert!(
+        peak < MAX_DECODE_BYTES as usize,
+        "{peak} bytes held at once"
+    );
+}
+
+#[test]
+fn an_icons_bitmap_entry_is_decoded_on_its_own() {
+    use super::favicon::sanitize;
+    use image::ImageFormat;
+    // A 16 px, 32-bit DIB: BITMAPINFOHEADER with the height doubled for the
+    // AND mask, bottom-up BGRA rows, then a mask that hides nothing.
+    let mut dib = 40u32.to_le_bytes().to_vec();
+    dib.extend_from_slice(&16i32.to_le_bytes());
+    dib.extend_from_slice(&32i32.to_le_bytes());
+    dib.extend_from_slice(&1u16.to_le_bytes());
+    dib.extend_from_slice(&32u16.to_le_bytes());
+    dib.extend_from_slice(&[0; 24]);
+    for _ in 0..16 * 16 {
+        dib.extend_from_slice(&[255, 128, 0, 255]);
+    }
+    dib.extend_from_slice(&[0; 16 * 4]);
+    // The bitmap has more pixels than the PNG beside it, so it is picked.
+    let both = icon(&[
+        (8, encoded(ImageFormat::Png, 8, 8, [255, 0, 255, 255])),
+        (16, dib),
+    ]);
+    let icon_image = sanitize(&both).unwrap();
+    assert_eq!(icon_image.image.dimensions(), (16, 16));
+    assert_eq!(icon_image.image.get_pixel(3, 3).0, [0, 128, 255, 255]);
+}
+
+#[test]
+fn a_png_keeps_only_the_chunks_a_favicon_needs() {
+    use super::favicon::{MAX_BYTES, MAX_DECODE_BYTES, filter_png, sanitize};
+    use image::ImageFormat;
+    let mut text = b"Comment\0\0".to_vec();
+    text.extend(zlib_zeros(65_000));
+    let png = with_chunks(
+        &encoded(ImageFormat::Png, 16, 16, [0, 255, 255, 255]),
+        &[
+            (b"iCCP".as_slice(), iccp(zlib_zeros(8))),
+            (b"gAMA".as_slice(), 45_455u32.to_be_bytes().to_vec()),
+            (b"sRGB".as_slice(), vec![0]),
+            (b"tEXt".as_slice(), b"Title\0icon".to_vec()),
+            (b"zTXt".as_slice(), text),
+        ],
+    );
+    assert!(png.len() < MAX_BYTES);
+    let kinds = chunk_kinds(&png);
+    for kind in ["iCCP", "gAMA", "sRGB", "tEXt", "zTXt"] {
+        assert!(kinds.contains(&kind.to_owned()), "{kind}");
+    }
+    let filtered = filter_png(&png).unwrap();
+    let kinds = chunk_kinds(&filtered);
+    assert_eq!(kinds.first().map(String::as_str), Some("IHDR"));
+    assert_eq!(kinds.last().map(String::as_str), Some("IEND"));
+    assert!(
+        kinds
+            .iter()
+            .all(|kind| ["IHDR", "IDAT", "IEND"].contains(&kind.as_str())),
+        "{kinds:?}"
+    );
+    let (decoded, peak) = counting::peak(|| sanitize(&png));
+    assert_eq!(decoded.unwrap().image.get_pixel(4, 4).0, [0, 255, 255, 255]);
+    assert!(
+        peak < MAX_DECODE_BYTES as usize,
+        "{peak} bytes held at once"
+    );
+    // A palette and its transparency are kept, so an indexed PNG still works.
+    let mut indexed = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut header = 1u32.to_be_bytes().to_vec();
+    header.extend_from_slice(&1u32.to_be_bytes());
+    header.extend_from_slice(&[8, 3, 0, 0, 0]);
+    png_chunk(&mut indexed, b"IHDR", &header);
+    png_chunk(&mut indexed, b"PLTE", &[255, 0, 0]);
+    png_chunk(&mut indexed, b"tRNS", &[128]);
+    // One row: filter type 0, palette index 0, stored uncompressed.
+    let row = [0u8, 0];
+    let mut idat = vec![0x78, 0x01, 0x01, 2, 0, !2, 0xFF];
+    idat.extend_from_slice(&row);
+    // Adler-32 of two zero bytes: a stays 1, b is 1 + 1.
+    let adler = (2u32 << 16) | 1;
+    idat.extend_from_slice(&adler.to_be_bytes());
+    png_chunk(&mut indexed, b"IDAT", &idat);
+    png_chunk(&mut indexed, b"IEND", &[]);
+    assert_eq!(
+        chunk_kinds(&filter_png(&indexed).unwrap()),
+        ["IHDR", "PLTE", "tRNS", "IDAT", "IEND"]
+    );
+    assert_eq!(
+        sanitize(&indexed).unwrap().image.get_pixel(0, 0).0,
+        [255, 0, 0, 128]
+    );
+}
+
+#[test]
+fn malformed_png_chunks_are_refused() {
+    use super::favicon::{FaviconError, filter_png, sanitize};
+    use image::ImageFormat;
+    let sound = encoded(ImageFormat::Png, 4, 4, [1, 2, 3, 255]);
+    assert!(filter_png(&sound).is_ok());
+    let ihdr_end = 8 + 25;
+    // A chunk length past the end of the file, or past what a PNG allows.
+    let mut long = sound.clone();
+    long[ihdr_end..ihdr_end + 4].copy_from_slice(&(sound.len() as u32).to_be_bytes());
+    let mut huge = sound.clone();
+    huge[ihdr_end..ihdr_end + 4].copy_from_slice(&u32::MAX.to_be_bytes());
+    // A CRC that doesn't match.
+    let mut bad_crc = sound.clone();
+    bad_crc[ihdr_end - 1] ^= 1;
+    // Cut off before IEND.
+    let cut = sound[..sound.len() - 12].to_vec();
+    // IHDR missing, repeated, or the wrong length.
+    let mut no_header = b"\x89PNG\r\n\x1a\n".to_vec();
+    no_header.extend_from_slice(&sound[ihdr_end..]);
+    let twice = with_chunks(&sound, &[(b"IHDR".as_slice(), sound[16..29].to_vec())]);
+    let mut short_header = b"\x89PNG\r\n\x1a\n".to_vec();
+    png_chunk(&mut short_header, b"IHDR", &sound[16..28]);
+    short_header.extend_from_slice(&sound[ihdr_end..]);
+    // No image data.
+    let mut no_data = sound[..ihdr_end].to_vec();
+    png_chunk(&mut no_data, b"IEND", &[]);
+    // A critical chunk a favicon can't do without knowing, and a chunk type
+    // that isn't four letters.
+    let critical = with_chunks(&sound, &[(b"CgBI".as_slice(), vec![0; 4])]);
+    let not_letters = with_chunks(&sound, &[(b"a1b2".as_slice(), vec![])]);
+    for (name, bytes) in [
+        ("long", long),
+        ("huge", huge),
+        ("bad crc", bad_crc),
+        ("cut", cut),
+        ("no header", no_header),
+        ("twice", twice),
+        ("short header", short_header),
+        ("no data", no_data),
+        ("critical", critical),
+        ("not letters", not_letters),
+    ] {
+        assert_eq!(filter_png(&bytes), Err(FaviconError::NotAnImage), "{name}");
+        assert_eq!(sanitize(&bytes), Err(FaviconError::NotAnImage), "{name}");
+    }
+    // Whatever follows IEND is dropped.
+    let mut trailing = sound.clone();
+    trailing.extend_from_slice(b"trailing bytes");
+    assert_eq!(filter_png(&trailing).unwrap(), filter_png(&sound).unwrap());
 }
 
 #[test]
