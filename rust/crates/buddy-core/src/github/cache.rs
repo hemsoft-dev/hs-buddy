@@ -136,6 +136,8 @@ pub struct Loaded<T> {
     pub value: T,
     /// A cached snapshot cannot acknowledge a possibly committed write.
     pub from_cache: bool,
+    /// How long ago GitHub returned this response; zero when just read.
+    pub age: Duration,
 }
 
 impl GitHubClient {
@@ -167,11 +169,12 @@ impl GitHubClient {
                 .entries
                 .get(&key)
                 .filter(|entry| entry.inserted.elapsed() < CACHE_LIFETIME)
-                .map(|entry| entry.response.clone());
-            if let Some(response) = cached {
+                .map(|entry| (entry.response.clone(), entry.inserted.elapsed()));
+            if let Some((response, age)) = cached {
                 return Ok(Loaded {
                     value: response,
                     from_cache: true,
+                    age,
                 });
             }
         }
@@ -209,6 +212,7 @@ impl GitHubClient {
         Ok(Loaded {
             value: result?,
             from_cache: false,
+            age: Duration::ZERO,
         })
     }
 }

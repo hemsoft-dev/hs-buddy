@@ -76,6 +76,23 @@ class GitHubBackendTests(unittest.TestCase):
             self.assertEqual((status, core["limit"], core["remaining"], core["used"]), (200, 5000, 4321, 679))
             self.assertGreater(core["reset"], 0)
 
+    def test_a_personal_namespace_has_repositories_and_recent_activity(self):
+        with backend.GitHubBackend() as server:
+            self.assertEqual(self.request(server, "/users/fixture-person")[1]["type"], "User")
+            names = [repo["full_name"] for repo in self.request(server, "/user/repos?visibility=all")[1]]
+            self.assertIn("fixture-person/workbench-demo", names)
+            issues = self.request(server, "/search/issues?q=user%3Afixture-person+is%3Aissue&per_page=50")[1]
+            pulls = self.request(server, "/search/issues?q=user%3Afixture-person+is%3Apr&per_page=50")[1]
+            self.assertEqual([item["title"] for item in issues["items"]], [backend.WORKBENCH_ISSUE])
+            self.assertEqual([item["title"] for item in pulls["items"]], [backend.WORKBENCH_PULL])
+            self.assertIn("pull_request", pulls["items"][0])
+            self.assertFalse(issues["incomplete_results"])
+            self.assertTrue(all(item["repository_url"].endswith("/repos/fixture-person/workbench-demo")
+                for item in issues["items"] + pulls["items"]))
+            # The organization namespace has no searched activity.
+            other = self.request(server, "/search/issues?q=user%3Afixture-org+is%3Aissue")[1]
+            self.assertEqual(other["items"], [])
+
     def test_denial_rate_limit_and_unknown_endpoints_fail_explicitly(self):
         with backend.GitHubBackend() as server:
             self.assertEqual(self.request(server, "/repos/fixture-org/denied")[0], 403)

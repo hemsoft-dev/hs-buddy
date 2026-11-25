@@ -23,7 +23,8 @@ def load(name):
 
 
 settings = load("settings-desktop")
-GitHubBackend = load("github-backend").GitHubBackend
+github_backend = load("github-backend")
+GitHubBackend = github_backend.GitHubBackend
 
 
 @contextmanager
@@ -246,6 +247,36 @@ def qualify_review_sound(driver, config, output, api):
         config.write_text(json.dumps(current), encoding="utf-8")
 
 
+def qualify_workbench(driver, config, backend):
+    """ActiveRepositoriesSection.tsx: a personal namespace's overview ranks
+    its recent issues and PRs. The organization fixture never shows it, so a
+    third account opens the synthetic User namespace, then is removed again."""
+    personal = dict(username="fixture-one", org=github_backend.PERSON)
+    value = json.loads(config.read_text(encoding="utf-8-sig"))
+    value["github"]["accounts"].append(personal)
+    value["native"]["activeSection"] = "github"
+    config.write_text(json.dumps(value), encoding="utf-8")
+    # Native mirrors Convex's accounts at launch, so the account is created there too.
+    identity = mutate(backend, "githubAccounts:create", personal)
+    try:
+        workbench = driver.drive("workbench-dark", [
+            ("content", github_backend.PERSON + " / fixture-one"), ("content", "Organization"),
+            ("wait_content", "Current workbench"),
+            # The section sits above the repository list; its cards may be below the fold.
+            ("wait_scroll_text", github_backend.WORKBENCH_ISSUE, "Current workbench"),
+            ("capture", "workbench-dark"),
+            # Later scenes start from the organization namespace.
+            ("content", "fixture-org / fixture-one"), ("sleep", 1),
+        ])
+    finally:
+        mutate(backend, "githubAccounts:remove", dict(id=identity))
+        value = json.loads(config.read_text(encoding="utf-8-sig"))
+        value["github"]["accounts"] = [account for account in value["github"]["accounts"]
+            if account.get("org") != github_backend.PERSON]
+        config.write_text(json.dumps(value), encoding="utf-8")
+    check(workbench / "workbench-dark.png", "Current workbench", "workbench-demo", github_backend.WORKBENCH_ISSUE)
+
+
 def qualify(executable, output, session, version, backend, api):
     # GitHub's route does not display a version label. Bind these captures to
     # the actual installed executable, also exercised by the base UI fixture.
@@ -360,6 +391,7 @@ def qualify(executable, output, session, version, backend, api):
         raise RuntimeError("The installed bookmark action did not reach Convex")
     if "fixture-author" not in json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["favoriteUsers"]:
         raise RuntimeError("The installed favorite action was not persisted")
+    qualify_workbench(driver, config, backend)
 
     # StatusBar.tsx: the assistant indicator and brand in the centre, and the
     # background sync item for the configured accounts' PR lists.
@@ -408,7 +440,7 @@ def qualify(executable, output, session, version, backend, api):
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
-            "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
+            "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "personal-namespace current workbench", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
             "GitHub view and repository-list activity", "bookmarked-only repository filter",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 

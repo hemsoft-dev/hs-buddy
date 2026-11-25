@@ -62,8 +62,13 @@ pub struct ActiveRepository {
 pub struct RepositoryActivity {
     pub repositories: Vec<ActiveRepository>,
     /// Why a lane could not be read; its items are then unknown, not empty.
+    /// A search that timed out with nothing to show is unread as well.
     pub issues_error: Option<GitHubError>,
     pub pull_requests_error: Option<GitHubError>,
+    /// GitHub's search timed out after returning these items, so the lane
+    /// may be missing some.
+    pub issues_incomplete: bool,
+    pub pull_requests_incomplete: bool,
     pub has_more: bool,
     pub fetched_at: Timestamp,
 }
@@ -85,6 +90,15 @@ impl RepositoryActivity {
 
     pub fn partial(&self) -> bool {
         self.issues_error.is_some() != self.pull_requests_error.is_some()
+    }
+
+    /// Either lane is unread or may be missing items, so an empty list does
+    /// not mean there was no activity.
+    pub fn uncertain(&self) -> bool {
+        self.issues_error.is_some()
+            || self.pull_requests_error.is_some()
+            || self.issues_incomplete
+            || self.pull_requests_incomplete
     }
 }
 
@@ -109,6 +123,8 @@ enum Kind {
 #[derive(Debug, Clone)]
 struct Lane {
     total: u64,
+    /// GitHub's `incomplete_results`: the search timed out before it finished.
+    incomplete: bool,
     items: Vec<(RepositoryRef, ActivityItem)>,
 }
 
@@ -117,13 +133,21 @@ impl Lane {
         let total = body["total_count"]
             .as_u64()
             .ok_or(GitHubError::InvalidData)?;
+        let incomplete = match body.get("incomplete_results") {
+            None => false,
+            Some(flag) => flag.as_bool().ok_or(GitHubError::InvalidData)?,
+        };
         let items = body["items"]
             .as_array()
             .ok_or(GitHubError::InvalidData)?
             .iter()
             .map(|value| item(value, kind))
             .collect::<Result<_, _>>()?;
-        Ok(Self { total, items })
+        Ok(Self {
+            total,
+            incomplete,
+            items,
+        })
     }
 }
 
@@ -232,10 +256,25 @@ fn build(
     });
     let has_more = ranked.len() > ACTIVE_REPOSITORY_LIMIT || total > returned;
     ranked.truncate(ACTIVE_REPOSITORY_LIMIT);
+    // A timed-out search that left nothing to show is unread, not empty.
+    let settle = |lane: Result<Lane, GitHubError>, shown: usize| match lane {
+        Ok(lane) if lane.incomplete && shown == 0 => (Err(GitHubError::IncompleteSearch), false),
+        Ok(lane) => (Ok(()), lane.incomplete),
+        Err(error) => (Err(error), false),
+    };
+    let shown = |lane: fn(&ActiveRepository) -> &Vec<ActivityItem>| {
+        ranked.iter().map(|repository| lane(repository).len()).sum()
+    };
+    let (issues, issues_incomplete) = settle(issues, shown(|r| &r.issues));
+    let (pull_requests, pull_requests_incomplete) =
+        settle(pull_requests, shown(|r| &r.pull_requests));
+    let has_more = has_more || issues_incomplete || pull_requests_incomplete;
     RepositoryActivity {
         repositories: ranked,
         issues_error: issues.err(),
         pull_requests_error: pull_requests.err(),
+        issues_incomplete,
+        pull_requests_incomplete,
         has_more,
         fetched_at,
     }

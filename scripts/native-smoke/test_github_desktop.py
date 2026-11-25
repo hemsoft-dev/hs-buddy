@@ -192,6 +192,42 @@ class InstalledEvidence(unittest.TestCase):
                 self.assertEqual(checked[-1], 'restored-sidebar-list-dark.png')
                 self.assertEqual(driver.drive.call_count, 2)
 
+    def test_the_workbench_opens_a_personal_namespace_and_removes_it_again(self):
+        for failure in (None, RuntimeError("drive failed")):
+            with self.subTest(failure=failure), TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                config = output / 'config.json'
+                accounts = [dict(username='fixture-one', org='fixture-org')]
+                config.write_text(json.dumps(dict(github=dict(accounts=accounts), native={})))
+                driver = Mock()
+                def drive(name, actions):
+                    # The scene sees the personal account in its configuration.
+                    self.assertIn(dict(username='fixture-one', org='fixture-person'),
+                        json.loads(config.read_text())['github']['accounts'])
+                    if failure:
+                        raise failure
+                    return output
+                driver.drive.side_effect = drive
+                with patch.object(desktop, 'mutate', return_value='account-id') as mutate, \
+                        patch.object(desktop, 'check') as check:
+                    if failure:
+                        with self.assertRaises(RuntimeError):
+                            desktop.qualify_workbench(driver, config, Mock())
+                    else:
+                        desktop.qualify_workbench(driver, config, Mock())
+                self.assertEqual([call.args[1] for call in mutate.call_args_list],
+                    ['githubAccounts:create', 'githubAccounts:remove'])
+                self.assertEqual(mutate.call_args_list[1].args[2], dict(id='account-id'))
+                self.assertEqual(json.loads(config.read_text())['github']['accounts'], accounts)
+                actions = driver.drive.call_args.args[1]
+                self.assertIn(('content', 'fixture-person / fixture-one'), actions)
+                self.assertIn(('wait_scroll_text', 'Fixture workbench issue', 'Current workbench'), actions)
+                if failure:
+                    check.assert_not_called()
+                else:
+                    check.assert_called_once_with(output / 'workbench-dark.png', 'Current workbench',
+                        'workbench-demo', 'Fixture workbench issue')
+
     def test_activity_requires_exact_deltas_and_does_not_reset_existing_totals(self):
         before = dict(tabsOpened=12, prsViewed=30, prsReviewed=4)
         backend = Mock()

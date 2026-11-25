@@ -180,8 +180,7 @@ pub struct GitHubView {
     review_poll_at: Option<Instant>,
     review_loading: bool,
     review_sound: crate::notification_audio::SoundPreview,
-    rate_limit_read_at: Option<Instant>,
-    rate_limit_loading: bool,
+    overview: workbench::OverviewExtras,
 }
 
 struct LoadContext {
@@ -290,8 +289,7 @@ impl GitHubView {
             review_poll_at: None,
             review_loading: false,
             review_sound: Default::default(),
-            rate_limit_read_at: None,
-            rate_limit_loading: false,
+            overview: Default::default(),
         }
     }
 
@@ -585,8 +583,12 @@ impl GitHubView {
             .recently_merged_days
             .clamp(1.0, 3650.0) as u32;
         if route == Route::Organization {
-            // The overview reads the quota; the 60-second poll starts after it.
-            self.rate_limit_read_at = Some(Instant::now());
+            // The quota is read beside the overview, never as part of it.
+            if !more {
+                self.begin_overview(&ticket, force, cx);
+            }
+        } else {
+            self.overview.reset(None);
         }
         let (abort, registration) = AbortHandle::new_pair();
         self.read_abort = Some(abort);
@@ -599,7 +601,7 @@ impl GitHubView {
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(result)) = rx.await {
                 this.update(cx, |this, cx| {
-                    this.receive_load(
+                    let shown = this.receive_load(
                         LoadContext {
                             ticket,
                             force,
@@ -609,6 +611,10 @@ impl GitHubView {
                         },
                         result,
                     );
+                    // The workbench ranks activity against the shown list.
+                    if let Some(repositories) = shown {
+                        this.load_workbench(repositories, force, cx);
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -618,14 +624,24 @@ impl GitHubView {
         cx.notify();
     }
 
-    fn receive_load(&mut self, request: LoadContext, result: Result<PageData, GitHubError>) {
+    /// Apply a page read. An organization overview returns its repositories
+    /// for the workbench, which is read after the list is shown.
+    fn receive_load(
+        &mut self,
+        request: LoadContext,
+        result: Result<PageData, GitHubError>,
+    ) -> Option<Vec<github::RepositorySummary>> {
         if !self.selection.accepts(&request.ticket) {
-            return;
+            return None;
         }
         self.loading = false;
         self.read_abort = None;
+        let mut shown = None;
         match result {
             Ok(mut data) => {
+                if self.route == Route::Organization && !request.more {
+                    shown = Some(std::mem::take(&mut data.repositories));
+                }
                 if request.more
                     && let Some(previous) = &mut self.data
                 {
@@ -653,6 +669,7 @@ impl GitHubView {
             }
             Err(error) => self.error = Some(error.to_string()),
         }
+        shown
     }
 
     fn choose_view(&mut self, view: ViewMode, cx: &mut Context<Self>) {
@@ -1068,7 +1085,7 @@ impl Render for GitHubView {
                 .items_start()
                 .gap_3()
                 .child(div().text_size(zpx(20.0)).child(data.title.clone()));
-            if let Some(limit) = &data.rate_limit {
+            if let Some(limit) = self.overview.rate_limit.ready() {
                 heading = heading.child(self.rate_limit_gauge(limit, cx));
             }
             let mut body = v_flex()
@@ -1082,8 +1099,8 @@ impl Render for GitHubView {
                 body = body.child(div().whitespace_normal().child(description.clone()));
             }
             body = body.child(self.actions(cx));
-            if let Some(activity) = &data.activity {
-                body = body.child(self.workbench(activity, cx));
+            if let Some(workbench) = self.workbench(cx) {
+                body = body.child(workbench);
             }
             if !data.contribution_days.is_empty() {
                 body = body.child(self.contributions(&data.contribution_days, cx));

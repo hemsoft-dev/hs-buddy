@@ -2,7 +2,7 @@
 //! for the organization overview's gauge.
 use serde_json::Value;
 
-use super::{ApiRequest, GitHubClient, GitHubError};
+use super::{ApiRequest, GitHubClient, GitHubError, Loaded};
 
 /// `resources.core` of `GET /rate_limit`. Only a consistent reading is kept,
 /// so a malformed response is never shown as an empty quota.
@@ -52,12 +52,15 @@ impl RateLimit {
 
 impl GitHubClient {
     /// Reading `/rate_limit` does not count against the quota it reports.
-    pub async fn rate_limit(&self, force: bool) -> Result<RateLimit, GitHubError> {
-        let response = self
-            .request(ApiRequest::get("/rate_limit"), force)
-            .await?
-            .value;
-        RateLimit::parse(&response.body)
+    /// A cached reading keeps its age, so the next poll is due by when
+    /// GitHub reported it rather than by when it was reused.
+    pub async fn rate_limit(&self, force: bool) -> Result<Loaded<RateLimit>, GitHubError> {
+        let loaded = self.request(ApiRequest::get("/rate_limit"), force).await?;
+        Ok(Loaded {
+            value: RateLimit::parse(&loaded.value.body)?,
+            from_cache: loaded.from_cache,
+            age: loaded.age,
+        })
     }
 }
 
@@ -100,6 +103,39 @@ mod tests {
             RateLimit::parse(&json!({"rate":{"limit":5000}})),
             Err(GitHubError::InvalidData)
         );
+    }
+
+    struct Quota;
+
+    impl crate::github::Transport for Quota {
+        fn request<'a>(
+            &'a self,
+            _: &'a crate::github::AccountScope,
+            _: ApiRequest,
+        ) -> crate::github::transport::ApiFuture<'a> {
+            Box::pin(async {
+                Ok(crate::github::ApiResponse {
+                    status: 200,
+                    headers: Default::default(),
+                    body: body(json!(5000), json!(4000)),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_cached_quota_keeps_the_age_of_its_reading() {
+        use std::time::Duration;
+        let client = crate::github::GitHubClients::with_transport(std::sync::Arc::new(Quota))
+            .for_account(crate::github::AccountScope::new("first", "team").unwrap());
+        let read = client.rate_limit(false).await.unwrap();
+        assert!(!read.from_cache && read.age.is_zero());
+        std::thread::sleep(Duration::from_millis(20));
+        let cached = client.rate_limit(false).await.unwrap();
+        assert!(cached.from_cache && cached.age >= Duration::from_millis(20));
+        assert_eq!(cached.value, read.value);
+        let forced = client.rate_limit(true).await.unwrap();
+        assert!(!forced.from_cache && forced.age.is_zero());
     }
 
     #[test]

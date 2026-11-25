@@ -77,6 +77,8 @@ pub enum GitHubError {
     Network,
     #[error("The GitHub request timed out. Retry when the connection is available.")]
     Timeout,
+    #[error("GitHub's search timed out before it finished. Refresh to search again.")]
+    IncompleteSearch,
     #[error("GitHub returned an unsupported response. Reload or open the item on GitHub.")]
     InvalidData,
     #[error("This response is too large to display. Open the item on GitHub.")]

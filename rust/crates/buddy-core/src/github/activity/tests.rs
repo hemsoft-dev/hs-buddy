@@ -170,6 +170,73 @@ fn a_failed_search_leaves_its_lane_unknown_rather_than_empty() {
     );
 }
 
+fn timed_out(items: Vec<Value>, kind: Kind) -> Result<Lane, GitHubError> {
+    Lane::parse(
+        &json!({"total_count": items.len(), "incomplete_results": true, "items": items}),
+        kind,
+    )
+}
+
+#[test]
+fn a_timed_out_search_is_never_read_as_a_complete_empty_lane() {
+    let repositories = [summary("alpha", false)];
+    // Nothing to show from a timed-out search: the lane is unread, like a failure.
+    let empty = build(
+        &repositories,
+        timed_out(vec![], Kind::Issue),
+        lane(0, vec![], Kind::PullRequest),
+        Timestamp::UNIX_EPOCH,
+    );
+    assert_eq!(empty.issues_error, Some(GitHubError::IncompleteSearch));
+    assert!(empty.partial() && empty.uncertain());
+    assert!(!empty.issues_incomplete);
+
+    // Items only for unlisted repositories still leave nothing to show.
+    let elsewhere = build(
+        &repositories,
+        timed_out(
+            vec![found("elsewhere", 1, "open", "2026-10-10T00:00:00Z")],
+            Kind::Issue,
+        ),
+        timed_out(vec![], Kind::PullRequest),
+        Timestamp::UNIX_EPOCH,
+    );
+    assert!(elsewhere.unavailable());
+    assert!(elsewhere.repositories.is_empty());
+
+    // Items from a timed-out search are kept and the lane may be missing some.
+    let some = build(
+        &repositories,
+        timed_out(
+            vec![found("alpha", 2, "open", "2026-10-10T00:00:00Z")],
+            Kind::Issue,
+        ),
+        lane(0, vec![], Kind::PullRequest),
+        Timestamp::UNIX_EPOCH,
+    );
+    assert!(some.issues_error.is_none() && some.issues_incomplete);
+    assert!(!some.pull_requests_incomplete && some.uncertain());
+    assert_eq!(some.repositories[0].issues[0].number, 2);
+    assert!(some.has_more, "GitHub may have more than it returned");
+
+    // Complete searches are certain; a malformed flag is unknown, not false.
+    let complete = build(
+        &repositories,
+        lane(0, vec![], Kind::Issue),
+        lane(0, vec![], Kind::PullRequest),
+        Timestamp::UNIX_EPOCH,
+    );
+    assert!(!complete.uncertain() && complete.repositories.is_empty());
+    assert_eq!(
+        Lane::parse(
+            &json!({"total_count": 0, "incomplete_results": "yes", "items": []}),
+            Kind::Issue
+        )
+        .err(),
+        Some(GitHubError::InvalidData)
+    );
+}
+
 #[test]
 fn all_activity_links_to_the_namespace_search_like_electron() {
     assert_eq!(
