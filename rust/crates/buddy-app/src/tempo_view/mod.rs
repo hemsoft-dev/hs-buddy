@@ -1,7 +1,7 @@
 //! Tempo inputs and UI state perform I/O only through an explicit worker.
 mod actions;
 mod copy;
-mod delete_dialog;
+mod delete_bar;
 mod editor;
 mod grid;
 mod io;
@@ -62,8 +62,10 @@ pub struct TempoView {
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
-    /// The delete confirmation dialog, while it is open for `delete_target`.
-    delete_dialog: Option<crate::shell::dialogs::DialogToken>,
+    /// Takes keyboard focus when the delete confirmation bar opens.
+    delete_focus: gpui_kit::FocusHandle,
+    /// The confirmed deletion of `delete_target` is in flight.
+    delete_sending: bool,
     /// The confirmed deletion of `delete_target` got no reply, so Tempo may
     /// already have removed it.
     delete_unconfirmed: bool,
@@ -94,6 +96,10 @@ pub struct TempoView {
     /// accepts writes.
     #[cfg(test)]
     test_can_submit: bool,
+    /// Days the timesheet pane draws in place of a snapshot, which GPUI
+    /// tests cannot build.
+    #[cfg(test)]
+    test_days: Option<Vec<buddy_core::tempo::SummaryDay>>,
 }
 impl TempoView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -115,7 +121,8 @@ impl TempoView {
             editor_binding: None,
             pending_editor: None,
             delete_target: None,
-            delete_dialog: None,
+            delete_focus: cx.focus_handle(),
+            delete_sending: false,
             delete_unconfirmed: false,
             copy_plan: None,
             cell_filter: None,
@@ -141,6 +148,8 @@ impl TempoView {
             scroll_to_today: false,
             #[cfg(test)]
             test_can_submit: false,
+            #[cfg(test)]
+            test_days: None,
         }
     }
     fn set_notice(&mut self, tone: Tone, message: impl Into<String>) {

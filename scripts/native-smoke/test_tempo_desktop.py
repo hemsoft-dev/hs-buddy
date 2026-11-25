@@ -413,7 +413,7 @@ class CellInput(unittest.TestCase):
                 for actions in (prompt, confirm):
                     self.assertEqual(actions[:len(desktop.week_actions())], desktop.week_actions())
                     menu = actions.index(('cell_menu', 'FIX-17', '14 Oct'))
-                    # A modal dialog: in view at the scrolled grid, so no scroll finds it.
+                    # Pinned above the scrolled page, so no scroll finds it.
                     self.assertEqual(actions[menu + 1], ('wait_text', 'Confirm deletion'))
                     # Only the secondary button reaches the cell, so no left click
                     # can open its editor or list instead.

@@ -190,6 +190,10 @@ impl TempoView {
             .ok()
     }
     fn render_timesheet(&self, cx: &Context<Self>) -> AnyElement {
+        #[cfg(test)]
+        if let Some(days) = &self.test_days {
+            return self.render_grid(days, cx);
+        }
         let Some(data) = &self.data else {
             return div()
                 .child("Connect to load your timesheet.")
@@ -359,9 +363,9 @@ impl TempoView {
                 if let Some(row) = super::grid::single_cell_worklog(days, date, issue).cloned() {
                     button = button.on_mouse_down(
                         MouseButton::Right,
-                        cx.listener(move |this, _, _, cx| {
+                        cx.listener(move |this, _, window, cx| {
                             cx.stop_propagation();
-                            this.request_cell_delete(row.clone(), cx);
+                            this.request_cell_delete(row.clone(), window, cx);
                         }),
                     );
                 }
@@ -552,8 +556,8 @@ impl TempoView {
                                             || self.editor.is_some()
                                             || self.copy_plan.is_some(),
                                     )
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.ask_delete(target.clone(), cx)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.ask_delete(target.clone(), window, cx)
                                     })),
                             ),
                     ),
@@ -840,7 +844,8 @@ impl Render for TempoView {
         if let Some(notice) = &self.notice {
             lines.push((self.notice_tone, notice.clone()));
         }
-        if let Some(error) = &self.error {
+        // While the delete bar is open it shows the error instead.
+        if let Some(error) = self.error.as_ref().filter(|_| self.delete_target.is_none()) {
             lines.push((Tone::Error, error.clone()));
         }
         lines.extend(problems.into_iter().map(|text| (Tone::Warning, text)));
@@ -915,13 +920,6 @@ impl Render for TempoView {
                     )
                     .into_any_element(),
             );
-        }
-        // The delete confirmation is a modal dialog, in view however far the
-        // page is scrolled; it opens and closes with `delete_target`.
-        if self.delete_target.is_some() != self.delete_dialog.is_some() {
-            cx.defer_in(window, |this, window, cx| {
-                this.sync_delete_dialog(window, cx)
-            });
         }
         if !lines.is_empty() || !actions.is_empty() {
             body = body.child(status_block(lines, actions, cx));
@@ -1034,14 +1032,24 @@ impl Render for TempoView {
                     Pane::Timeline => self.render_timeline(cx),
                 });
         }
-        div()
-            .id("tempo-page-scroll")
+        // The delete confirmation is pinned above the scrolling page, so it
+        // is in view however far the page is scrolled.
+        let delete_bar = self.render_delete_bar(cx);
+        v_flex()
             // Tabular numerals keep every time column aligned.
             .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
             .size_full()
-            .overflow_y_scroll()
-            .p(zpx(16.))
-            .child(body)
+            .children(delete_bar)
+            .child(
+                div()
+                    .id("tempo-page-scroll")
+                    .test_support()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p(zpx(16.))
+                    .child(body),
+            )
     }
 }
 

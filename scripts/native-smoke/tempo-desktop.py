@@ -720,10 +720,10 @@ def qualify(executable, output, session, version, source, backend):
                 target, removed = single_cell_worklog(api, '2026-10-14')
                 before_cell_delete = api.snapshot()['records']
                 try:
-                    # The confirmation is a modal dialog, in view at the
-                    # scrolled grid: no scrolling finds it. A drive's commands
-                    # run as one batch, so this one stops at the prompt and
-                    # the fixture is checked before another confirms it.
+                    # The confirmation bar is pinned above the scrolled page,
+                    # so no scrolling finds it. A drive's commands run as one
+                    # batch, so this one stops at the prompt and the fixture
+                    # is checked before another confirms it.
                     marked = driver.drive('cell-delete-prompt-dark', week_actions() + [
                         ('wait_scroll_text', 'FIX-17', 'Load date range'),
                         ('capture', 'tempo-holiday-capex-dark'),

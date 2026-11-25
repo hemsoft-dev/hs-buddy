@@ -121,11 +121,16 @@ impl TempoView {
     /// Right-click on a grid cell holding `row`, its only worklog. Unlike
     /// Electron, which deletes at once, this opens Timeline's confirmation:
     /// worklogs are the user's billed time records.
-    pub(super) fn request_cell_delete(&mut self, row: Worklog, cx: &mut Context<Self>) {
+    pub(super) fn request_cell_delete(
+        &mut self,
+        row: Worklog,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.can_submit() || self.editor.is_some() || self.copy_plan.is_some() {
             return;
         }
-        self.ask_delete(row, cx);
+        self.ask_delete(row, window, cx);
     }
 }
 
