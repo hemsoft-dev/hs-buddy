@@ -8,6 +8,7 @@ use super::*;
 use crate::zoom::zpx;
 use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -26,7 +27,6 @@ impl TempoView {
         // The confirmation replaces any stale status.
         self.delete_target = Some(row);
         self.delete_unconfirmed = false;
-        self.delete_sending = false;
         self.error = None;
         self.notice = None;
         window.focus(&self.delete_focus, cx);
@@ -34,9 +34,10 @@ impl TempoView {
     }
 
     /// Keep worklog, Escape, or Close once the deletion's result is unknown.
-    /// A delete in flight finishes first.
+    /// A delete of this worklog in flight finishes first, whichever control
+    /// sent it.
     fn dismiss_delete(&mut self, cx: &mut Context<Self>) {
-        if self.busy && self.delete_sending {
+        if self.delete_in_flight() {
             return;
         }
         self.delete_target = None;
@@ -46,9 +47,12 @@ impl TempoView {
 
     /// The pinned bar for `delete_target`, if any. Its buttons follow the
     /// view's busy and write state, and a failed delete shows its error here.
+    /// The title and buttons share a fixed first row, so no text can push
+    /// them out of view: the description is one truncated line with the
+    /// rest in its tooltip, and the messages scroll within a capped height.
     pub(super) fn render_delete_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let target = self.delete_target.as_ref()?;
-        let sending = self.busy && self.delete_sending;
+        let sending = self.delete_in_flight();
         let unconfirmed = self.delete_unconfirmed;
         let mut lines = vec![if unconfirmed {
             (
@@ -58,9 +62,6 @@ impl TempoView {
         } else {
             delete_prompt(target.seconds, target.date)
         }];
-        if let Some(description) = target.description.clone().filter(|text| !text.is_empty()) {
-            lines.push((Tone::Info, description));
-        }
         if let Some(error) = &self.error {
             lines.push((Tone::Error, error.clone()));
         }
@@ -74,10 +75,16 @@ impl TempoView {
         // bar neither offers it again nor claims it is kept.
         let actions = if unconfirmed {
             h_flex()
+                .id("tempo-delete-actions")
+                .test_support()
+                .flex_shrink_0()
                 .gap_2()
                 .child(dismiss("tempo-close-unconfirmed-delete", "Close"))
         } else {
             h_flex()
+                .id("tempo-delete-actions")
+                .test_support()
+                .flex_shrink_0()
                 .gap_2()
                 .child(
                     Button::new("tempo-confirm-delete")
@@ -87,9 +94,36 @@ impl TempoView {
                         .on_click(cx.listener(|this, _, _, cx| this.confirm_delete(cx))),
                 )
                 .child(dismiss("tempo-keep-worklog", "Keep worklog"))
-        }
-        .into_any_element();
-        let body = status_block(lines, vec![actions], cx);
+        };
+        let description = target
+            .description
+            .as_deref()
+            .map(|text| description_line(text, DESCRIPTION_LINE))
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let tip = target
+                    .description
+                    .as_deref()
+                    .map(|text| description_tooltip(text, DESCRIPTION_TOOLTIP))
+                    .unwrap_or_default();
+                let theme = cx.theme();
+                div()
+                    .id("tempo-delete-description")
+                    .aria_label(line.clone())
+                    .test_support()
+                    .w_full()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(theme.muted_foreground)
+                    .child(line)
+                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            });
+        let body = div()
+            .id("tempo-delete-messages")
+            .test_support()
+            .max_h(zpx(160.))
+            .overflow_y_scroll()
+            .child(status_block(lines, Vec::new(), cx));
         let theme = cx.theme();
         let title = if unconfirmed {
             "Deletion unconfirmed"
@@ -122,18 +156,62 @@ impl TempoView {
                 .border_b_1()
                 .border_color(theme.danger)
                 .child(
-                    div()
-                        .id("tempo-delete-title")
-                        .aria_label(title)
-                        .test_support()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
+                    h_flex()
+                        .gap_3()
+                        .items_center()
+                        .child(
+                            div()
+                                .id("tempo-delete-title")
+                                .aria_label(title)
+                                .test_support()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_lg()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(title),
+                        )
+                        .children(progress)
+                        .child(actions),
                 )
+                .children(description)
                 .child(body)
-                .children(progress)
                 .into_any_element(),
         )
+    }
+}
+
+/// Characters of the description the bar's single line shows.
+const DESCRIPTION_LINE: usize = 240;
+/// Characters of the description its tooltip shows.
+const DESCRIPTION_TOOLTIP: usize = 1000;
+
+/// The description on one line: runs of whitespace, line breaks included,
+/// become one space, and text past `limit` characters ends in an ellipsis.
+/// Tempo allows 128 KiB, which the bar must not lay out in full.
+pub(super) fn description_line(text: &str, limit: usize) -> String {
+    let mut line = String::new();
+    for (count, word) in text.split_whitespace().enumerate() {
+        if line.chars().count() >= limit {
+            break;
+        }
+        if count > 0 {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    clip(line, limit)
+}
+
+/// The tooltip keeps the description's line breaks, up to `limit` characters.
+fn description_tooltip(text: &str, limit: usize) -> String {
+    clip(text.trim().to_owned(), limit)
+}
+
+fn clip(text: String, limit: usize) -> String {
+    match text.char_indices().nth(limit) {
+        Some((end, _)) => format!("{}…", text[..end].trim_end()),
+        None => text,
     }
 }
 

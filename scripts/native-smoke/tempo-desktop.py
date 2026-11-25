@@ -304,6 +304,8 @@ def grid_marks(frame, anchors, theme):
     `anchors` holds capture-pixel boxes of the plain '14 Oct' and holiday
     '15 Oct' headings and the 'FIX-17' pill. Adjacent headings are one day
     column apart, which scales every region without a known zoom or DPI.
+    The tint is measured twice per column: behind the heading, and in the
+    grid body below the pill's row.
     """
     plain, holiday, pill = anchors['14 Oct'], anchors['15 Oct'], anchors['FIX-17']
     column = holiday['left'] - plain['left']
@@ -319,16 +321,26 @@ def grid_marks(frame, anchors, theme):
     def above(label):
         left, right = span(label)
         return left, label['top'] - 2.2 * height, right, label['top'] - 1
+    # The rows below the issue row hold plain text on the column's own fill;
+    # the issue row's buttons are opaque. render.rs sizes the grid as one
+    # GRID_DAY (92) wide column, a GRID_ROW (40) issue row centred on its
+    # pill, then the Day total and Required GRID_LINE (28) rows.
+    unit = column / 92
+    middle = pill['top'] + pill['height'] / 2
+    def body(label):
+        left, right = span(label)
+        return left, middle + 22 * unit, right, middle + 74 * unit
     tints = dict(plain=background(frame, heading(plain)), holiday=background(frame, heading(holiday)))
     shift = redness(tints['holiday']) - redness(tints['plain'])
+    body_tints = dict(plain=background(frame, body(plain)), holiday=background(frame, body(holiday)))
+    body_shift = redness(body_tints['holiday']) - redness(body_tints['plain'])
     marker = dict(plain=families(frame, above(plain), theme), holiday=families(frame, above(holiday), theme))
     pill_counts = families(frame, (pill['left'], pill['top'], pill['left'] + pill['width'],
         pill['top'] + pill['height']), theme)
-    middle = pill['top'] + pill['height'] / 2
     left, right = span(plain)
     cell = families(frame, (left, middle - 1.2 * pill['height'], right, middle + 1.2 * pill['height']), theme)
-    result = dict(theme=theme, tints=tints, holidayRednessShift=shift, marker=marker, pill=pill_counts,
-        capexCell=cell, passed=False)
+    result = dict(theme=theme, tints=tints, holidayRednessShift=shift, bodyTints=body_tints,
+        holidayBodyRednessShift=body_shift, marker=marker, pill=pill_counts, capexCell=cell, passed=False)
     problems = mark_problems(result, height)
     if problems:
         raise MissingGridMarks('Grid marks missing: ' + '; '.join(problems), result)
@@ -351,6 +363,10 @@ def mark_problems(result, height):
     # danger at 8% shifts 2R-G-B by about 19 in both themes.
     if result['holidayRednessShift'] < 8:
         problems.append('the holiday column is not tinted toward danger')
+    # The body's fill is its most common colour, which text fringes cannot
+    # move, so it takes the heading's rule.
+    if result['holidayBodyRednessShift'] < 8:
+        problems.append('the holiday column body is not tinted toward danger')
     if holiday['danger'] < strokes or holiday['info'] * 3 > holiday['danger'] \
             or holiday['danger'] < plain['danger'] + strokes:
         problems.append('the holiday heading has no danger marker')
@@ -762,7 +778,8 @@ def qualify(executable, output, session, version, source, backend):
                 # neighbours keep theirs.
                 github.check(marked / 'tempo-holiday-capex-dark.png', 'FIX-17', '14 Oct', '15 Oct', 'Wed', 'Fri')
                 # Text alone survives a lost tint or colour, so measure them:
-                # the holiday tint and marker beside plain Wednesday, and the
+                # the holiday tint in the heading and the grid body and the
+                # marker, each beside plain Wednesday, and the
                 # pill and 14 October duration in success green, not info blue.
                 grid_marks_measured = check_grid_marks(marked / 'tempo-holiday-capex-dark.png', 'dark')
                 github.check(marked / 'tempo-cell-delete-dark.png', 'Delete the 1:00 worklog on 2026-10-14',

@@ -786,8 +786,11 @@ class SyntheticGrid:
     """A drawn holiday/CapEx grid at a capture scale, with OCR anchor boxes."""
     PAGE = dict(dark=(0x1e, 0x1e, 0x1e), light=(0xff, 0xff, 0xff))
     TEXT = dict(dark=(0xcc, 0xcc, 0xcc), light=(0x1f, 0x1f, 0x1f))
+    # The cell buttons' opaque secondary fill.
+    BUTTON = dict(dark=(0x25, 0x25, 0x26), light=(0xf3, 0xf3, 0xf3))
 
-    def __init__(self, theme='dark', scale=1, tint=True, marker=True, pill='success', cell='success', fringe=False):
+    def __init__(self, theme='dark', scale=1, tint=True, marker=True, pill='success', cell='success', fringe=False,
+            body_tint=None):
         tokens = desktop.THEME_MARKS[theme]
         self.theme, self.fringe = theme, fringe
         self.scale = s = scale
@@ -795,8 +798,18 @@ class SyntheticGrid:
         page, text = self.PAGE[theme], self.TEXT[theme]
         self.pixels = bytearray(bytes(page) * (self.width * self.height))
         plain, holiday = 200 * s, 292 * s
+        # As render.rs lays it out: a 40-high issue row centred on the pill
+        # at 165, then the 28-high Day total and Required rows to 241.
+        tinted = blend(tokens['danger'], page, 0.08)
         if tint:
-            self.fill(holiday, 100 * s, holiday + 92 * s, 220 * s, blend(tokens['danger'], page, 0.08))
+            self.fill(holiday, 100 * s, holiday + 92 * s, 145 * s, tinted)
+        if tint if body_tint is None else body_tint:
+            self.fill(holiday, 145 * s, holiday + 92 * s, 241 * s, tinted)
+        for left in (plain, holiday):
+            # The issue row's opaque Log and duration buttons cover its tint.
+            self.fill(left + 2 * s, 149 * s, left + 90 * s, 181 * s, self.BUTTON[theme])
+            for top in (192, 220):
+                self.glyphs(dict(left=left + 4 * s, top=top * s, width=24 * s, height=8 * s), text)
         self.anchors = {}
         for left, name, weekday in ((plain, '14 Oct', True), (holiday, '15 Oct', not marker)):
             label = dict(left=left + 2 * s, top=125 * s, width=40 * s, height=10 * s)
@@ -861,6 +874,10 @@ class GridMarks(unittest.TestCase):
                     result = desktop.grid_marks(grid.frame(), grid.anchors, theme)
                     self.assertTrue(result['passed'])
                     self.assertGreaterEqual(result['holidayRednessShift'], 8)
+                    self.assertGreaterEqual(result['holidayBodyRednessShift'], 8)
+                    # The body is read from its fill, not the opaque buttons.
+                    fill = result['bodyTints']['plain']
+                    self.assertLessEqual(max(abs(a - b) for a, b in zip(fill, SyntheticGrid.PAGE[theme])), 2)
                     self.assertEqual(result['marker']['plain']['danger'], 0)
                     self.assertEqual(result['pill']['info'], 0)
 
@@ -868,6 +885,7 @@ class GridMarks(unittest.TestCase):
         cases = (
             (dict(), None),
             (dict(tint=False), 'the holiday column is not tinted toward danger'),
+            (dict(body_tint=False), 'the holiday column body is not tinted toward danger'),
             (dict(marker=False), 'the holiday heading has no danger marker'),
             (dict(pill='info'), 'the CapEx pill is not success green'),
             (dict(pill='text'), 'the CapEx pill is not success green'),
@@ -895,8 +913,8 @@ class GridMarks(unittest.TestCase):
         def measured(plain, holiday, pill, cell):
             def counts(values):
                 return dict(zip(('danger', 'success', 'info'), values))
-            return dict(holidayRednessShift=16, marker=dict(plain=counts(plain), holiday=counts(holiday)),
-                pill=counts(pill), capexCell=counts(cell))
+            return dict(holidayRednessShift=16, holidayBodyRednessShift=16,
+                marker=dict(plain=counts(plain), holiday=counts(holiday)), pill=counts(pill), capexCell=counts(cell))
         ubuntu = measured((50, 1, 48), (88, 0, 0), (0, 97, 32), (0, 87, 26))
         windows = measured((45, 10, 29), (85, 0, 0), (0, 78, 18), (0, 73, 16))
         for name, result in (('ubuntu', ubuntu), ('windows', windows)):
@@ -909,10 +927,14 @@ class GridMarks(unittest.TestCase):
                 blue = dict(result, pill=dict(danger=0, success=32, info=97), capexCell=dict(danger=0, success=26, info=87))
                 self.assertEqual(desktop.mark_problems(blue, 14),
                     ['the CapEx pill is not success green', 'the filled CapEx cell is not success green'])
+                # The heading keeps its tint while the cells below lose it.
+                bare = dict(result, holidayBodyRednessShift=0)
+                self.assertEqual(desktop.mark_problems(bare, 14), ['the holiday column body is not tinted toward danger'])
 
     def test_each_missing_mark_fails_while_the_text_would_still_read(self):
         cases = (
             (dict(tint=False), 'the holiday column is not tinted toward danger'),
+            (dict(body_tint=False), 'the holiday column body is not tinted toward danger'),
             (dict(marker=False), 'the holiday heading has no danger marker'),
             (dict(pill='info'), 'the CapEx pill is not success green'),
             (dict(pill='text'), 'the CapEx pill is not success green'),

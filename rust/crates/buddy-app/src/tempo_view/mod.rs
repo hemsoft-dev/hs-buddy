@@ -64,8 +64,10 @@ pub struct TempoView {
     delete_target: Option<buddy_core::tempo::Worklog>,
     /// Takes keyboard focus when the delete confirmation bar opens.
     delete_focus: gpui_kit::FocusHandle,
-    /// The confirmed deletion of `delete_target` is in flight.
-    delete_sending: bool,
+    /// The worklog that the operation in flight deletes, whichever control
+    /// sent it: Confirm deletion, or Retry captured change on a captured
+    /// delete. Set and cleared with `busy`, so it cannot drift from the write.
+    deleting: Option<buddy_core::tempo::WorklogId>,
     /// The confirmed deletion of `delete_target` got no reply, so Tempo may
     /// already have removed it.
     delete_unconfirmed: bool,
@@ -122,7 +124,7 @@ impl TempoView {
             pending_editor: None,
             delete_target: None,
             delete_focus: cx.focus_handle(),
-            delete_sending: false,
+            deleting: None,
             delete_unconfirmed: false,
             copy_plan: None,
             cell_filter: None,

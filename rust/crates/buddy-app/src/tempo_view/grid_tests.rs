@@ -1,5 +1,5 @@
 use super::*;
-use buddy_core::tempo::{AccountId, DaySchedule, DayTotal, ScheduleKind};
+use buddy_core::tempo::{AccountId, DaySchedule, DayTotal, Draft, ScheduleKind};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
@@ -167,6 +167,38 @@ fn overlays(cx: &gpui_kit::App) -> usize {
 fn assert_no_global_prompt(window: &mut Window, cx: &mut gpui_kit::App) {
     assert!(!window.has_active_dialog(cx));
     assert_eq!(overlays(cx), 0);
+}
+
+/// The deletion the open bar confirms.
+fn delete_draft(view: &TempoView) -> Draft {
+    Draft::delete(view.delete_target.as_ref().unwrap()).unwrap()
+}
+
+/// The worker's report on a sent write.
+fn wrote(confirmed: bool, unconfirmed: bool) -> actions::Update {
+    actions::Update::Wrote {
+        confirmed,
+        unconfirmed,
+        tone: if confirmed {
+            Tone::Success
+        } else {
+            Tone::Warning
+        },
+        message: "Synthetic write report.".into(),
+        problem: unconfirmed.then(|| "Synthetic lost reply".into()),
+    }
+}
+
+/// A delete of the bar's worklog is in flight: the bar shows progress, and
+/// neither its buttons nor Escape dismiss it.
+fn assert_sending(window: &mut Window, view: &Entity<TempoView>, cx: &mut gpui_kit::App) {
+    window.render_frame(cx);
+    assert_eq!(window.find("tempo-keep-worklog").disabled(), Some(true));
+    assert_eq!(window.find("tempo-confirm-delete").disabled(), Some(true));
+    assert!(window.try_find("tempo-delete-progress").is_some());
+    window.press("escape", cx);
+    window.click("tempo-keep-worklog", cx);
+    assert!(view.read(cx).delete_target.is_some());
 }
 
 #[gpui_kit::test]
@@ -338,8 +370,8 @@ fn switching_section_or_dropping_the_view_leaves_no_prompt_behind(cx: &mut TestA
     .unwrap();
     // A confirmed delete is in flight when Settings opens.
     view.update(cx, |view, _| {
-        view.busy = true;
-        view.delete_sending = true;
+        let draft = delete_draft(view);
+        view.begin(&Operation::Submit(Box::new(draft)), None);
     });
     sections(cx, |root| root.tempo = false);
     cx.run_until_parked();
@@ -352,18 +384,7 @@ fn switching_section_or_dropping_the_view_leaves_no_prompt_behind(cx: &mut TestA
     })
     .unwrap();
     // The delete finishes while Settings is shown; Tempo shows no prompt.
-    view.update(cx, |view, cx| {
-        view.busy = false;
-        view.delete_sending = false;
-        view.wrote(
-            true,
-            false,
-            Tone::Success,
-            "Tempo confirmed the worklog change.".into(),
-            None,
-        );
-        cx.notify();
-    });
+    view.update(cx, |view, cx| view.settle(Ok(wrote(true, false)), cx));
     sections(cx, |root| root.tempo = true);
     cx.update_window(handle, |_, window, cx| {
         assert!(window.try_find("tempo-delete-bar").is_none());
@@ -405,29 +426,13 @@ fn an_unconfirmed_delete_reports_the_unknown_result_and_offers_only_close(cx: &m
         );
         // While the delete is in flight the bar shows progress and holds.
         view.update(cx, |view, cx| {
-            view.busy = true;
-            view.delete_sending = true;
+            let draft = delete_draft(view);
+            view.begin(&Operation::Submit(Box::new(draft)), None);
             cx.notify();
         });
-        window.render_frame(cx);
-        assert_eq!(window.find("tempo-keep-worklog").disabled(), Some(true));
-        assert_eq!(window.find("tempo-confirm-delete").disabled(), Some(true));
-        assert!(window.try_find("tempo-delete-progress").is_some());
-        window.press("escape", cx);
-        assert!(view.read(cx).delete_target.is_some());
+        assert_sending(window, &view, cx);
         // Tempo got the request but did not answer.
-        view.update(cx, |view, cx| {
-            view.busy = false;
-            view.delete_sending = false;
-            view.wrote(
-                false,
-                true,
-                Tone::Warning,
-                "The worklog result is unconfirmed.".into(),
-                Some("Synthetic lost reply".into()),
-            );
-            cx.notify();
-        });
+        view.update(cx, |view, cx| view.settle(Ok(wrote(false, true)), cx));
         window.render_frame(cx);
         assert!(view.read(cx).delete_target.is_some());
         assert_eq!(
@@ -451,4 +456,135 @@ fn an_unconfirmed_delete_reports_the_unknown_result_and_offers_only_close(cx: &m
         crate::tempo_view::delete_bar::unconfirmed_delete(3600, day(14)),
         "Tempo may already have deleted the 1:00 worklog on 2026-10-14. It will not resend automatically. Refresh and inspect the worklogs before discarding local recovery."
     );
+}
+
+/// A delete captured but not sent (its preflight failed) is sent again by
+/// the page's Retry captured change, not by Confirm deletion. The bar
+/// follows that send as it follows its own.
+#[gpui_kit::test]
+fn a_retried_captured_delete_holds_the_bar_and_reports_an_unconfirmed_result(
+    cx: &mut TestAppContext,
+) {
+    let (handle, view) = setup(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.test_can_submit = true);
+        window.render_frame(cx);
+        window.right_click("tempo-cell-19-2026-10-14", cx);
+        window.render_frame(cx);
+        let captured = delete_draft(view.read(cx));
+        // Retrying another captured change leaves this bar free to close.
+        let other = Draft::delete(&worklog(2101, 21, day(13))).unwrap();
+        view.update(cx, |view, cx| {
+            view.begin(&Operation::RetryPrepared, Some(&other));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("tempo-delete-progress").is_none());
+        assert_ne!(window.find("tempo-keep-worklog").disabled(), Some(true));
+        view.update(cx, |view, cx| view.settle(Ok(wrote(false, true)), cx));
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("tempo-delete-title").label(),
+            Some("Delete worklog")
+        );
+        // The page retries this bar's captured delete.
+        view.update(cx, |view, cx| {
+            view.begin(&Operation::RetryPrepared, Some(&captured));
+            cx.notify();
+        });
+        assert_sending(window, &view, cx);
+        view.update(cx, |view, cx| view.settle(Ok(wrote(false, true)), cx));
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("tempo-delete-title").label(),
+            Some("Deletion unconfirmed")
+        );
+        assert!(window.try_find("tempo-delete-progress").is_none());
+        assert!(window.try_find("tempo-keep-worklog").is_none());
+        window.click("tempo-close-unconfirmed-delete", cx);
+        assert!(view.read(cx).delete_target.is_none());
+        // A failed operation also releases the bar.
+        window.render_frame(cx);
+        window.right_click("tempo-cell-19-2026-10-14", cx);
+        view.update(cx, |view, cx| {
+            view.begin(&Operation::RetryPrepared, Some(&captured));
+            cx.notify();
+        });
+        assert_sending(window, &view, cx);
+        view.update(cx, |view, cx| {
+            view.settle(Err("Synthetic failure".into()), cx)
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("tempo-delete-progress").is_none());
+        window.click("tempo-keep-worklog", cx);
+        assert!(view.read(cx).delete_target.is_none());
+    })
+    .unwrap();
+}
+
+/// Tempo accepts descriptions up to 128 KiB over many lines. The bar shows
+/// one truncated line, and its buttons stay inside a small window.
+#[gpui_kit::test]
+fn a_long_multiline_description_keeps_the_bar_buttons_in_view(cx: &mut TestAppContext) {
+    let (handle, view, _) = setup_with(cx, 420., Plain);
+    let long = "Synthetic line of a very long worklog description.\n".repeat(2570);
+    assert!(long.len() > 130_000 && long.len() <= 128 * 1024);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.test_can_submit = true);
+        window.render_frame(cx);
+        window.right_click("tempo-cell-19-2026-10-14", cx);
+        view.update(cx, |view, cx| {
+            let target = view.delete_target.as_mut().unwrap();
+            target.description = Some(long.clone());
+            view.error = Some(format!("Synthetic error. {}", "x ".repeat(4000)));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        let viewport = gpui_kit::Bounds::new(
+            gpui_kit::point(gpui_kit::px(0.), gpui_kit::px(0.)),
+            window.viewport_size(),
+        );
+        for id in [
+            "tempo-delete-bar",
+            "tempo-confirm-delete",
+            "tempo-keep-worklog",
+            "tempo-delete-description",
+        ] {
+            let element = window.find(id);
+            assert!(element.visible(), "{id} must be visible");
+            assert!(
+                viewport.intersect(&element.bounds()) == element.bounds(),
+                "{id} {:?} must lie inside the viewport {viewport:?}",
+                element.bounds()
+            );
+        }
+        // One line, and the messages scroll within their own cap.
+        let line = window.find("tempo-delete-description").bounds();
+        let title = window.find("tempo-delete-title").bounds();
+        assert!(
+            line.size.height <= title.size.height,
+            "{line:?} vs {title:?}"
+        );
+        assert!(window.find("tempo-delete-messages").bounds().size.height <= gpui_kit::px(160.));
+        let label = window
+            .find("tempo-delete-description")
+            .label()
+            .unwrap()
+            .to_owned();
+        assert!(!label.contains('\n') && label.ends_with('…'));
+        assert!(label.chars().count() <= 241);
+    })
+    .unwrap();
+}
+
+#[test]
+fn the_description_line_folds_whitespace_and_clips() {
+    use crate::tempo_view::delete_bar::description_line;
+    assert_eq!(
+        description_line("  Two\n\nlines\there ", 240),
+        "Two lines here"
+    );
+    assert_eq!(description_line("abcdef ghi", 5), "abcde…");
+    assert_eq!(description_line(&"é".repeat(300), 3), "ééé…");
+    assert_eq!(description_line(" \n ", 240), "");
 }
