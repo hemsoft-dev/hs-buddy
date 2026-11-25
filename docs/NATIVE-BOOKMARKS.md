@@ -76,11 +76,20 @@ session, up to four at a time, and kept in memory only; Electron keeps no favico
 store either. The fetch follows Electron's sidebar rule (`isSafeImageUrl`) for cards
 and rows alike: `http` or `https` only, and no internal host. It then works like the
 page-title fetch: the host is resolved and checked, every redirect is checked again,
-and each request times out after 5 seconds. The image must be at most 256 KiB and
-1024 px a side, and a PNG, JPEG, GIF, WebP, ICO or BMP file, recognized from its
-first bytes. An SVG favicon shows the globe: GPUI draws an SVG at its declared size,
-so a small file could ask for a very large bitmap. Electron's cards, unlike its
-sidebar, load any `faviconUrl`, including internal hosts.
+and each request times out after 5 seconds. The file must be at most 256 KiB and a
+PNG, JPEG, GIF, WebP, ICO or BMP image, recognized from its first bytes.
+
+Buddy decodes the file itself, never GPUI. The decoder refuses an image over 512 px
+a side or one that needs more than 4 MiB to decode, and it checks before it
+allocates. It reads only the first frame of an animated GIF or WebP, and in an ICO
+the entry it picks, whatever the directory claims. The result is scaled to at most
+64 px a side, keeping its shape, and GPUI gets those pixels as one ready frame. So a
+favicon holds at most 16 KiB however its file is built, and the globe shows until
+that frame is ready. An address no bookmark uses any more, after a delete or an
+edit, is forgotten and its image released. An SVG favicon shows the globe: it isn't
+pixels, and drawing one would need a renderer outside these limits. Electron's
+cards, unlike its sidebar, load any `faviconUrl`, including internal hosts, and
+animate a GIF.
 
 The qualification origin (`BUDDY_BROWSER_TEST_ORIGIN`, see
 [the embedded browser](NATIVE-BROWSER.md)) may serve favicons too.
