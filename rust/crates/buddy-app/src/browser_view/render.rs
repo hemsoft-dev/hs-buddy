@@ -13,7 +13,17 @@ use super::{BrowserView, CONTEXT, CloseTab, NextTab, Notice, PreviousTab, ZOOM_D
 use crate::zoom::zpx;
 
 impl Render for BrowserView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A bookmark opened from the list (a card click, Enter or Space) takes
+        // the list, and the focus it held, off screen. Without a focused
+        // element GPUI dispatches keys from the window root, outside the app's
+        // context, so Alt zoom and the tab keys would do nothing until a click.
+        // The browser keeps the keyboard instead, as Electron's window keeps
+        // the keydown listener.
+        let showed_home = std::mem::replace(&mut self.showed_home, self.active.is_none());
+        if showed_home && self.active.is_some() && self.focus.contains_focused(window, cx) {
+            window.focus(&self.focus, cx);
+        }
         let content = match self.active {
             None => self.render_home(cx),
             Some(index) => self.render_tab(index, cx),

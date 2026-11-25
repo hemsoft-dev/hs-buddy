@@ -1206,6 +1206,47 @@ fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
     assert_eq!(h.zoom(), 1.2);
 }
 
+/// The bookmark list: a focusable element, as a bookmark card is.
+struct HomeProbe {
+    focus: gpui_kit::FocusHandle,
+}
+
+impl gpui_kit::Render for HomeProbe {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+        use gpui_kit::{InteractiveElement as _, Styled as _};
+        gpui_kit::div().track_focus(&self.focus).size_full()
+    }
+}
+
+#[gpui_kit::test]
+fn a_page_opened_from_the_focused_list_keeps_the_keyboard_in_the_browser(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = zoom_root(cx, host);
+    let home = h.visual.update(|_, cx| {
+        cx.new(|cx| HomeProbe {
+            focus: cx.focus_handle(),
+        })
+    });
+    h.update(|view, cx| {
+        view.home = Some(home.clone().into());
+        view.set_active(true, cx);
+    });
+    // A card click focuses the list, then opens its bookmark: the list leaves
+    // the screen with the focus it held.
+    let focus = home.read_with(&h.visual, |home, _| home.focus.clone());
+    h.visual.update(|window, cx| window.focus(&focus, cx));
+    h.visual.run_until_parked();
+    h.update(|view, cx| view.open(PAGE, "", cx));
+    let browser = h.browser.read_with(&h.visual, |view, _| view.focus.clone());
+    assert!(h.visual.update(|window, _| browser.is_focused(window)));
+    // So Alt zoom works at once, as Electron's window listener does.
+    h.visual.simulate_keystrokes("alt-=");
+    assert_eq!(h.zoom(), 1.1);
+    assert_eq!(h.passed(), 0);
+}
+
 /// A tab with no page has nothing to zoom: the key goes through, as on the
 /// bookmark list, and the zoom isn't changed or saved.
 fn assert_a_tab_without_a_page_lets_the_zoom_keys_through(h: &mut ZoomHarness, url: &str) {

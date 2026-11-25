@@ -152,6 +152,9 @@ pub struct BrowserView {
     /// The tab shortcuts need the keyboard inside the browser. Buttons don't
     /// take focus on a click, so clicking a tab gives it to the browser.
     pub(super) focus: FocusHandle,
+    /// The last frame showed the bookmark list. When a page replaces the list
+    /// that had the keyboard, the browser keeps it (see `render`).
+    pub(super) showed_home: bool,
 }
 
 impl BrowserView {
@@ -201,6 +204,7 @@ impl BrowserView {
             full: false,
             next_id: 0,
             focus: cx.focus_handle(),
+            showed_home: false,
         };
         for saved in session.tabs {
             let tab = view.tab(saved.url, saved.title, cx);
