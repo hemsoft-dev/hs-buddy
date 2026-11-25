@@ -239,7 +239,10 @@ def qualify_editing(driver, backend, config, echo, long):
         ("input", "Name", "Native created job"), ("input", "Command", "echo native_created"),
         ("content", "Save"), ("sleep", 3),
         ("input", "Filter", "Native created"), ("sleep", 1), ("capture", "job-created-light"),
-        ("content", "Schedule"), ("sleep", 1), ("input", "Name", "Native weekdays"),
+        # The header's New schedule also reads as "schedule" (Vision on Intel
+        # groups neither button alone, run 45562287849), so the job's own
+        # Schedule button is located below the job's title.
+        ("between", "Schedule", "Native created job"), ("sleep", 1), ("input", "Name", "Native weekdays"),
         ("content", "Run the latest missed"), ("capture", "schedule-editor-light"), ("content", "Save"), ("sleep", 3),
         ("content", "Schedules"), ("sleep", 1), ("capture", "schedule-created-light"),
         # Scroll to each schedule button before clicking it, in case the
