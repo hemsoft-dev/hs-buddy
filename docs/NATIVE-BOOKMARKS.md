@@ -2,14 +2,17 @@
 
 Explicit embedded bookmark opens record one `tabsOpened` activity increment,
 including selecting an already-open URL or opening a browser refusal tab.
+Choosing "All bookmarks" or a category in the tree records one too, as Electron's
+`openTab('bookmarks-all')` and `openTab('bookmarks-category:…')` do.
 The existing `buddyStats:batchIncrement` receives only that counter. External
 opens, missing IDs, refresh, rendering and retained-tab restoration do not record
 an embedded open. Activity writes are best effort and never replayed after a
 failure or uncertain acknowledgement. Bookmark visit validation is unchanged.
 
-The isolated installed browser fixture checks four explicit opens, including
-two reuses of a URL without a new HTTP visit, and zero extra activity after
-restart or tab switching. `bookmark-activity.json` retains the synthetic counter snapshots.
+The isolated installed browser fixture checks four explicit bookmark opens,
+including two reuses of a URL without a new HTTP visit (one from a tree row),
+two category choices in the tree, and zero extra activity after restart or tab
+switching. `bookmark-activity.json` retains the synthetic counter snapshots.
 
 Bookmarks in Buddy Native shows the web bookmarks Electron Buddy keeps in Convex, in a
 category tree and a searchable list, and adds, edits, reorders and deletes them. Both
@@ -86,7 +89,9 @@ PNG, JPEG, GIF, ICO or BMP image, recognized from its first bytes.
 
 Buddy decodes the file itself, never GPUI. The decoder refuses an image over 512 px
 a side or one that needs more than 4 MiB to decode, and it checks before it
-allocates. It reads only the first frame of an animated GIF. A PNG keeps only the
+allocates. It reads only the first frame of an animated GIF. The GIF decoder keeps
+one palette index byte per frame pixel beside the pixels `image` counts, so for a
+GIF `image` may count at most 3 MiB, and canvas, frame and indices stay within 4 MiB. A PNG keeps only the
 chunks a favicon needs (IHDR, PLTE, tRNS, IDAT, IEND) before it is decoded, so a
 compressed colour profile or text chunk (iCCP, zTXt, iTXt) is never inflated, and
 a chunk with a bad length or CRC refuses the file. An ICO's directory is read by
@@ -104,7 +109,12 @@ limits above don't bound it. Electron draws both. Electron's cards, unlike its
 sidebar, load any `faviconUrl`, including internal hosts, and animate a GIF.
 
 The qualification origin (`BUDDY_BROWSER_TEST_ORIGIN`, see
-[the embedded browser](NATIVE-BROWSER.md)) may serve favicons too.
+[the embedded browser](NATIVE-BROWSER.md)) may serve favicons too. The installed
+browser scene checks the Fixture page favicon on its card, then chooses the Fixture
+category in the tree and checks it on the tree row as well, in both themes
+(`bookmark-favicons-*` and `bookmark-tree-favicons-*`). Cards and tree rows have
+separate test selectors, `bookmark-card-favicon-{id}` and `bookmark-tree-favicon-{id}`,
+so neither can pass for the other.
 
 ## Adding and editing
 

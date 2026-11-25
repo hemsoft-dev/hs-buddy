@@ -43,7 +43,8 @@ and neither does Buddy. Zoom applies to the selected tab's page: the toolbar sho
 new zoom only once that page's engine has taken it; if it refuses, the old zoom
 stays and the tab says why. Pages kept in background tabs get the new zoom too, but
 a refusal there is only logged and blocks nothing. Such a page gets the zoom again
-when its tab is selected, and if it refuses then, that tab, now shown, says so.
+when its tab is selected. If it refuses then, that tab, now shown, says so; if it
+takes the zoom, any zoom refusal the tab still showed goes.
 
 ## What a page may do
 
