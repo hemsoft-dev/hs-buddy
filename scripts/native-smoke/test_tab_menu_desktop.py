@@ -436,6 +436,7 @@ class NoBackendChange(unittest.TestCase):
                 config = json.loads((self.profile / "config.json").read_text(encoding="utf-8"))
                 drives.append(dict(name=name, actions=actions, record=record, theme=config["ui"]["theme"],
                     section=config["native"]["activeSection"], accounts=config["github"]["accounts"],
+                    panes=config["ui"].get("paneSizes"),
                     marker=(self.profile / "github-fixture.allow").read_text(),
                     queries=len(backend.paths)))
                 # The app saves the section it quits on. The Dashboard is no
@@ -475,6 +476,8 @@ class NoBackendChange(unittest.TestCase):
         self.assertEqual(self.backend.paths, ["buddyStats:get"] * 4)
         # The first pass quits on the Dashboard; the next still launches into GitHub.
         for drive in self.drives:
+            # Every pass, light included, keeps the sidebar out from under the menus.
+            self.assertEqual(drive["panes"], list(scene.PANE_SIZES))
             self.assertEqual((drive["section"], drive["marker"]), ("github", "hs-buddy native GitHub qualification v1"))
             self.assertEqual([account["username"] for account in drive["accounts"]], list(scene.ACCOUNTS))
         self.assertEqual([mutation.args[1:] for mutation in self.mutations],

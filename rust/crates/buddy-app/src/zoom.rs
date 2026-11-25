@@ -6,9 +6,15 @@
 //! component. Buddy's own sizes are written with [`zpx`], a length in pixels
 //! at 100% expressed in rems, so they follow too. Use [`scaled`] where an API
 //! needs absolute `Pixels` (shadows, viewport breakpoints, icon sizes).
+//!
+//! The rem size is the View-menu zoom times `ui.zoomLevel`, the root
+//! font-size percentage Electron sets on `<html>` from `config.json`
+//! (`useAppAppearance`). That key has no settings UI; it is read at launch,
+//! on Reload, and when a save reloads a file Electron changed.
 
 use std::path::PathBuf;
 
+use buddy_core::config::AppConfig;
 use buddy_core::zoom::{Zoom, ZoomStep, zoom_path};
 use gpui_kit::component::Theme;
 use gpui_kit::{
@@ -42,12 +48,14 @@ pub fn scaled(cx: &App, value: f32) -> Pixels {
 }
 
 fn factor(cx: &App) -> f32 {
-    cx.try_global::<ZoomState>()
-        .map_or(1.0, |state| state.zoom.factor())
+    cx.try_global::<ZoomState>().map_or(1.0, ZoomState::factor)
 }
 
 struct ZoomState {
     zoom: Zoom,
+    /// `ui.zoomLevel` as a validated percentage (see
+    /// `UiConfig::root_font_percent`).
+    root_percent: f64,
     /// `zoom-level.json`, resolved once so the level is read from and saved
     /// to the same file; `None` when no config directory is known.
     path: Option<PathBuf>,
@@ -61,16 +69,25 @@ struct ZoomState {
 
 impl Global for ZoomState {}
 
+impl ZoomState {
+    fn factor(&self) -> f32 {
+        self.zoom.factor() * (self.root_percent / 100.0) as f32
+    }
+}
+
 /// Restore the saved zoom and register the zoom actions and shortcuts. Call
 /// once, after `theme::install`.
 pub fn init(cx: &mut App) {
     let path = zoom_path()
         .inspect_err(|err| log::warn!("zoom level will not be saved: {err}"))
         .ok();
-    init_at(path, cx);
+    let root_percent = cx
+        .try_global::<crate::settings::Settings>()
+        .map_or(100.0, |settings| settings.config.ui.root_font_percent());
+    init_at(path, root_percent, cx);
 }
 
-fn init_at(path: Option<PathBuf>, cx: &mut App) {
+fn init_at(path: Option<PathBuf>, root_percent: f64, cx: &mut App) {
     let zoom = path
         .as_deref()
         .map(Zoom::load_from)
@@ -82,6 +99,7 @@ fn init_at(path: Option<PathBuf>, cx: &mut App) {
         .unwrap_or_default();
     cx.set_global(ZoomState {
         zoom,
+        root_percent,
         path,
         base_mono_font_size: Theme::global(cx).mono_font_size,
         pending_wheel_lines: 0.0,
@@ -101,9 +119,11 @@ fn init_at(path: Option<PathBuf>, cx: &mut App) {
 }
 
 /// `theme::install` (Reload, appearance changes) re-applies the theme file,
-/// which may reset the font sizes; set them for the current zoom again.
-pub fn theme_installed(cx: &mut App) {
+/// which may reset the font sizes; set them for the current zoom and the
+/// installed config's `ui.zoomLevel` again.
+pub fn theme_installed(config: &AppConfig, cx: &mut App) {
     if cx.has_global::<ZoomState>() {
+        cx.global_mut::<ZoomState>().root_percent = config.ui.root_font_percent();
         apply(cx);
     }
 }
@@ -129,7 +149,7 @@ pub fn step(step: ZoomStep, cx: &mut App) {
 
 fn apply(cx: &mut App) {
     let state = cx.global::<ZoomState>();
-    let factor = state.zoom.factor();
+    let factor = state.factor();
     let mono = state.base_mono_font_size * factor;
     Theme::update(cx, |theme| {
         theme.font_size = px(BASE_REM * factor);
@@ -388,9 +408,17 @@ mod ui_tests {
     }
 
     fn open(cx: &mut TestAppContext, path: PathBuf) -> AnyWindowHandle {
+        open_with_root_percent(cx, path, 100.0)
+    }
+
+    fn open_with_root_percent(
+        cx: &mut TestAppContext,
+        path: PathBuf,
+        root_percent: f64,
+    ) -> AnyWindowHandle {
         cx.update(|cx| {
             gpui_kit::init(cx);
-            init_at(Some(path), cx);
+            init_at(Some(path), root_percent, cx);
             let bounds = Bounds {
                 origin: point(px(0.0), px(0.0)),
                 size: size(px(640.0), px(480.0)),
@@ -509,6 +537,40 @@ mod ui_tests {
         });
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
         assert_eq!(sizes, vec![(24.0, 19.5); 3]);
+    }
+
+    #[gpui_kit::test]
+    fn config_zoom_level_scales_the_rem_on_top_of_the_window_zoom(cx: &mut TestAppContext) {
+        let path = temp_zoom_file("root-percent");
+        let handle = open_with_root_percent(cx, path.clone(), 120.0);
+        // Products of two factors carry f32 rounding noise.
+        let round = |value: f32| (value * 100.0).round() / 100.0;
+        let mut widths = Vec::new();
+        cx.update_window(handle, |_, window, cx| {
+            widths.push(round(width(window, "follows", cx)));
+            window.press("secondary-=", cx);
+            widths.push(round(width(window, "follows", cx)));
+            widths.push(round(f32::from(scaled(cx, 100.0))));
+        })
+        .unwrap();
+        // The View-menu level saved stays the window zoom alone.
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let mut config = buddy_core::config::AppConfig::default();
+        let mut reloaded = Vec::new();
+        for level in [90.0, 200.0] {
+            // What Reload Configuration and a changed config.json run.
+            config.ui.zoom_level = level;
+            cx.update(|cx| crate::theme::install(&config, cx));
+            cx.update_window(handle, |_, window, cx| {
+                reloaded.push(round(width(window, "follows", cx)));
+            })
+            .unwrap();
+        }
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        assert_eq!(widths, vec![120.0, 132.0, 132.0]);
+        assert_eq!(saved, "{\"zoomFactor\":1.1}");
+        // 110% window zoom at 90%, then an out-of-range level read as 100%.
+        assert_eq!(reloaded, vec![99.0, 110.0]);
     }
 
     #[gpui_kit::test]

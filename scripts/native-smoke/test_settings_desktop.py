@@ -1086,24 +1086,27 @@ class WindowsScrollAnchors(unittest.TestCase):
 
         action = block("'between64' {")
         action = action[action.index("{") + 1:action.rindex("}")]
-        values = ["Rename", "Workspace name", "Selected shell name"]
-        encoded = ",".join("'" + desktop.b64(value) + "'" for value in values)
-        script = block("function Find-OwnedLabelPoint") + "\n" + (
-            "$Log = Join-Path $PSScriptRoot 'actions.log'\n"
-            "function Save-OwnedImage($Path) {}\n"
-            "function python { $script:observed = @($args); throw 'captured locator invocation' }\n"
-            "$parts = @('between64'," + encoded + ")\n"
-            "try {\n" + action + "\nthrow 'locator was not invoked'\n} catch {\n"
-            " if ($_.Exception.Message -ne 'captured locator invocation') { throw }\n}\n"
-            "ConvertTo-Json -InputObject $script:observed -Compress\n")
-        with tempfile.TemporaryDirectory(prefix="buddy-row-cli-") as root:
-            path = Path(root) / "row.ps1"
-            path.write_text(script, encoding="utf-8")
-            result = subprocess.run(["pwsh", "-NoProfile", "-File", str(path)], capture_output=True,
-                text=True, encoding="utf-8", timeout=60, check=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-        arguments = json.loads(result.stdout)
-        self.assertEqual(arguments[3:], ["--label", "Rename", "--between-labels", *values[1:]])
+        # Two labels bound a row on both sides; one bounds it from above
+        # (the automation scene's Schedule button below its job title).
+        for values in (["Rename", "Workspace name", "Selected shell name"], ["Schedule", "Native created job"]):
+            encoded = ",".join("'" + desktop.b64(value) + "'" for value in values)
+            script = block("function Find-OwnedLabelPoint") + "\n" + (
+                "$Log = Join-Path $PSScriptRoot 'actions.log'\n"
+                "function Save-OwnedImage($Path) {}\n"
+                "function python { $script:observed = @($args); throw 'captured locator invocation' }\n"
+                "$parts = @('between64'," + encoded + ")\n"
+                "try {\n" + action + "\nthrow 'locator was not invoked'\n} catch {\n"
+                " if ($_.Exception.Message -ne 'captured locator invocation') { throw }\n}\n"
+                "ConvertTo-Json -InputObject $script:observed -Compress\n")
+            with tempfile.TemporaryDirectory(prefix="buddy-row-cli-") as root:
+                path = Path(root) / "row.ps1"
+                path.write_text(script, encoding="utf-8")
+                result = subprocess.run(["pwsh", "-NoProfile", "-File", str(path)], capture_output=True,
+                    text=True, encoding="utf-8", timeout=60, check=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            arguments = json.loads(result.stdout)
+            with self.subTest(anchors=len(values) - 1):
+                self.assertEqual(arguments[3:], ["--label", values[0], "--between-labels", *values[1:]])
 
     def run_wait(self, visible_after, anchor_visible, command="waitscrolltext64", anchored=True):
         """Run the real wait case against stub locators; return its call journal."""

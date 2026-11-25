@@ -130,6 +130,25 @@ class LabelGuards(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'out of order'):
             ocr.find_label(words, 'Rename', between=('Selected shell name', 'Workspace name'))
 
+    def test_a_row_below_one_anchor_skips_the_same_word_in_a_header_button(self):
+        # Vision on Intel (run 45562287849): neither the header's New schedule
+        # nor the job row's Schedule button is a group of its own.
+        def box(text, left, width, top, line):
+            return dict(text=text, left=left, top=top, width=width, height=15, line=line)
+        words = [box('New', 634, 35, 93, 'header'), box('schedule', 670, 57, 93, 'header'),
+            box('Native created job', 352, 117, 269, 'title'),
+            box('Duplicate', 495, 82, 334, 'row'), box('Schedule', 581, 86, 334, 'row'), box('Delete', 671, 49, 334, 'row')]
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words, 'Schedule')
+        self.assertEqual(ocr.find_label(words, 'Schedule', between=('Native created job',))['left'], 581)
+        with self.assertRaises(RuntimeError):
+            ocr.find_label([w for w in words if w['line'] != 'title'], 'Schedule', between=('Native created job',))
+        with self.assertRaises(ocr.AmbiguousLabel):
+            ocr.find_label(words + [box('Duplicate', 495, 82, 400, 'second-row'), box('Schedule', 581, 86, 400, 'second-row')],
+                'Schedule', between=('Native created job',))
+        with self.assertRaisesRegex(RuntimeError, 'one or two'):
+            ocr.find_label(words, 'Schedule', between=())
+
     def test_border_punctuation_does_not_create_two_matches_for_one_interrupt_button(self):
         words = [dict(text="Interrupt", left=499, top=151, width=61, height=30, line="16/1/1"),
             dict(text="(", left=584, top=155, width=4, height=30, line="16/1/1"),

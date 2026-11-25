@@ -130,7 +130,7 @@ function Find-OwnedLabelPoint([string] $Encoded, [string] $Mode, [int] $LabelBot
     if ($Mode -eq 'sidebar') { $arguments += '--sidebar' }
     if ($Mode -eq 'tab') { $arguments += '--tab' }
     if ($BetweenLabels.Count -ne 0) {
-        if ($BetweenLabels.Count -ne 2) { throw 'A row needs two visible boundary labels' }
+        if ($BetweenLabels.Count -notin 1, 2) { throw 'A row needs one or two visible boundary labels' }
         $arguments += @('--between-labels') + $BetweenLabels
     }
     if ($Mode -in @('input', 'field', 'leftfield', 'rightfield', 'save')) { $arguments += '--field' }
@@ -308,8 +308,9 @@ try {
                 Write-OwnedText $parts[1]
             }
             'between64' {
-                if ($parts.Count -ne 4) { throw 'A row action needs a control and two visible labels' }
-                $boundaries = @($parts[2..3] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
+                # One label bounds a row from above (a list's last row); two bound it on both sides.
+                if ($parts.Count -notin 3, 4) { throw 'A row action needs a control and one or two visible labels' }
+                $boundaries = @($parts[2..($parts.Count - 1)] | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
                 $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
                 Click-OwnedPoint $point.X $point.Y
             }
@@ -365,6 +366,34 @@ try {
                 [Drive]::PostMessageW($h, 0x201, 1, $lp) | Out-Null
                 Start-Sleep -Milliseconds 80
                 [Drive]::PostMessageW($h, 0x202, 0, $lp) | Out-Null
+                Start-Sleep -Milliseconds 600
+            }
+            'drag' {
+                # Capture-pixel start, row and end from an earlier capture of
+                # this window size, mapped to client points as label targets are.
+                if ($parts.Count -ne 4) { throw 'A drag needs a start, a row and an end' }
+                $rect = New-Object Drive+RECT
+                [Drive]::GetWindowRect($h, [ref]$rect) | Out-Null
+                $origin = New-Object Drive+POINT
+                [Drive]::ClientToScreen($h, [ref]$origin) | Out-Null
+                $from = [int]($rect.l + [int]$parts[1] - $origin.x)
+                $to = [int]($rect.l + [int]$parts[3] - $origin.x)
+                $y = [int]($rect.t + [int]$parts[2] - $origin.y)
+                Note "drag client=$from,$y to $to,$y hwnd=$h"
+                if (-not [Drive]::PostMessageW($h, 0x200, 0, [Drive]::MakeLParam($from, $y))) { throw 'Owned mouse move was not posted' }
+                Start-Sleep -Milliseconds 150
+                # WM_LBUTTONDOWN, then WM_MOUSEMOVE with MK_LBUTTON held, then WM_LBUTTONUP.
+                if (-not [Drive]::PostMessageW($h, 0x201, 1, [Drive]::MakeLParam($from, $y))) { throw 'Owned mouse down was not posted' }
+                Start-Sleep -Milliseconds 80
+                try {
+                    for ($step = 1; $step -le 8; $step++) {
+                        $x = [int]($from + ($to - $from) * $step / 8)
+                        if (-not [Drive]::PostMessageW($h, 0x200, 1, [Drive]::MakeLParam($x, $y))) { throw 'Owned drag move was not posted' }
+                        Start-Sleep -Milliseconds 50
+                    }
+                } finally {
+                    [Drive]::PostMessageW($h, 0x202, 0, [Drive]::MakeLParam($to, $y)) | Out-Null
+                }
                 Start-Sleep -Milliseconds 600
             }
             'move' {

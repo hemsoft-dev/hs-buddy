@@ -20,6 +20,12 @@ from desktop import fixture, require_closed_sessions
 HERE = Path(__file__).resolve().parent
 CHECKOUT = HERE.parent.parent
 ACCOUNTS = ("fixture-one", "fixture-two")
+# The menus were laid out beside the 210px sidebar native had before
+# ui.paneSizes. A wider sidebar reaches under the menu, and the pointer left
+# on a command then hovers a sidebar link whose tooltip covers the tab row
+# (Ubuntu, run 45529412262). 200 of 1,200 holds the sidebar at its 200px
+# minimum at both window sizes, left of where the 210px one ended.
+PANE_SIZES = (200, 1000)
 DASHBOARD, MY_PRS, REPOSITORIES = "Dashboard", "My PRs", "Repositories"
 # Left to right once the repository list is open (rust/crates/buddy-app/src/app.rs).
 TABS = (DASHBOARD, MY_PRS, REPOSITORIES)
@@ -279,6 +285,7 @@ def qualify(executable, output, session, version, backend, api):
         # Dashboard is "no section", and the app then omits the whole
         # `native` object from the file (Ubuntu, run 44854538756).
         terminal.write_config(config, lambda value: value.setdefault("native", {}).update(activeSection="github"))
+        terminal.write_config(config, lambda value: value.setdefault("ui", {}).update(paneSizes=list(PANE_SIZES)))
         return measured(driver, backend, baseline, name, actions, journal)
     check_dismissed(drive("menu-dark", dismissed_actions("dark", False)), "dark", False)
     check_commands(drive("commands-dark", command_actions()))

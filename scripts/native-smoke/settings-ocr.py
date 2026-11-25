@@ -305,13 +305,18 @@ def find_label(words, label, navigation=False, field=False, exact_line=False, ta
     if content:
         words = content_words(words)
     if between is not None:
-        # A scene may name the two visible field labels bounding a row.
-        # Use their tops: OCR can absorb an input border into a label's height.
-        # Missing/competing anchors or competing controls still fail closed.
-        start, end = (find_label(words, text, field=True) for text in between)
-        if start["top"] >= end["top"]:
+        # A scene may name the two visible field labels bounding a row, or
+        # only the label above it when nothing visible follows the row (a
+        # list's last item). Use their tops: OCR can absorb an input border
+        # into a label's height. Missing/competing anchors or competing
+        # controls still fail closed.
+        if len(between) not in (1, 2):
+            raise RuntimeError("A bounded row needs one or two visible anchors")
+        anchors = [find_label(words, text, field=True) for text in between]
+        start, end = anchors[0], anchors[1] if len(anchors) == 2 else None
+        if end is not None and start["top"] >= end["top"]:
             raise RuntimeError("The visible row boundaries are out of order")
-        words = [word for word in words if start["top"] < word["top"] < end["top"]]
+        words = [word for word in words if start["top"] < word["top"] and (end is None or word["top"] < end["top"])]
     if field:
         try:
             heading = find_label(words, "Settings", exact_line=True)
@@ -637,7 +642,7 @@ def main():
     parser.add_argument("--field", action="store_true")
     parser.add_argument("--tab", action="store_true")
     parser.add_argument("--content", action="store_true")
-    parser.add_argument("--between-labels", nargs=2)
+    parser.add_argument("--between-labels", nargs="+")
     parser.add_argument("--workspace", action="store_true")
     parser.add_argument("--sidebar", action="store_true")
     args = parser.parse_args()

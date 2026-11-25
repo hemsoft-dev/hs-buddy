@@ -25,6 +25,7 @@ def load(name):
 settings = load("settings-desktop")
 github_backend = load("github-backend")
 GitHubBackend = github_backend.GitHubBackend
+sidebar_layout = load("sidebar-layout")
 
 
 @contextmanager
@@ -433,6 +434,11 @@ def qualify(executable, output, session, version, backend, api):
     value["ui"]["assistantOpen"] = False
     config.write_text(json.dumps(value), encoding="utf-8")
 
+    # The sidebar split from ui.paneSizes, a divider drag saved to it, and
+    # the root zoom from ui.zoomLevel, measured from the captures' pixels.
+    layout = sidebar_layout.qualify(driver, config, check, settings.run)
+    (output / "sidebar-layout.json").write_text(json.dumps(layout, indent=2), encoding="utf-8")
+
     light_template = output / "light-template"
     light_config = fixture(light_template, "light")
     value = json.loads(config.read_text(encoding="utf-8-sig"))
@@ -468,7 +474,8 @@ def qualify(executable, output, session, version, backend, api):
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
-            "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "personal-namespace current workbench", "status bar assistant, brand and PR sync items", "Convex bookmark and favorite",
+            "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "personal-namespace current workbench", "status bar assistant, brand and PR sync items",
+            "sidebar width from ui.paneSizes", "divider drag saved to ui.paneSizes", "ui.zoomLevel 125 root zoom", "Convex bookmark and favorite",
             "GitHub view and repository-list activity", "bookmarked-only repository filter",
             "two-account data separation", "missing auth", "rate limit", "denial", "empty", "light/dark", "keyboard Tab", "compact window"]), indent=2))
 
