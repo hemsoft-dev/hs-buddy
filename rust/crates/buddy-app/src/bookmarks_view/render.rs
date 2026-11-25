@@ -239,7 +239,7 @@ impl BookmarksView {
             .rounded_md()
             .cursor_pointer()
             .hover(|style| style.bg(accent))
-            .child(self.favicon(bookmark, 12.))
+            .child(self.favicon(bookmark, "tree", 12.))
             .child(
                 div()
                     .flex_1()
@@ -439,7 +439,9 @@ impl BookmarksView {
     /// The bookmark's favicon once it has loaded and been decoded, else the
     /// globe. The image is already decoded pixels, so GPUI shows it at once:
     /// there is no loading or failed state between the globe and the icon.
-    fn favicon(&self, bookmark: &Bookmark, size: f32) -> AnyElement {
+    /// `place` (`card` or `tree`) names the selector, so each placement can
+    /// be checked on its own.
+    fn favicon(&self, bookmark: &Bookmark, place: &'static str, size: f32) -> AnyElement {
         let Some(image) = bookmark
             .favicon_url
             .as_deref()
@@ -449,7 +451,7 @@ impl BookmarksView {
                 .flex_shrink_0()
                 .debug_selector({
                     let id = bookmark.id.clone();
-                    move || format!("bookmark-globe-{id}")
+                    move || format!("bookmark-{place}-globe-{id}")
                 })
                 .child(Icon::new(IconName::Globe).size(zpx(size)))
                 .into_any_element();
@@ -459,7 +461,7 @@ impl BookmarksView {
             .flex_shrink_0()
             .size(zpx(size))
             .rounded(zpx(2.))
-            .debug_selector(move || format!("bookmark-favicon-{id}"))
+            .debug_selector(move || format!("bookmark-{place}-favicon-{id}"))
             .into_any_element()
     }
 
@@ -508,7 +510,7 @@ impl BookmarksView {
                     .gap_2()
                     .items_start()
                     // Electron's card icon: the favicon, else the globe.
-                    .child(self.favicon(bookmark, 20.))
+                    .child(self.favicon(bookmark, "card", 20.))
                     .child(
                         v_flex()
                             .id(("bookmark-open", index))

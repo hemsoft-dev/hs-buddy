@@ -1137,6 +1137,56 @@ fn a_background_tab_refusing_a_zoom_neither_blocks_nor_hides_it(cx: &mut gpui_ki
     );
 }
 
+#[gpui_kit::test]
+fn a_page_catching_up_on_a_zoom_drops_its_earlier_refusal(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    let refused = format!("{ZOOM_FAILED} first page said no");
+
+    // The shown page refuses a zoom and says so.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("first page said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.0);
+    let notice = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(notice.text, refused);
+
+    // In the background it misses the next zoom too, and keeps the notice.
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1);
+    assert!(harness.read(|view| view.tabs[0].zoom_missed));
+
+    // Selected once its engine takes zooms again, it catches up and the old
+    // refusal no longer shows: the page is at the zoom the toolbar shows.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    host.log.take();
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert!(host.log.take().contains(&"zoom 1.1".to_owned()));
+    assert!(harness.read(|view| view.tabs[0].notice.is_none()));
+    assert!(!harness.read(|view| view.tabs[0].zoom_missed));
+
+    // A catch-up leaves any other notice alone.
+    let blocked = Notice {
+        text: "Downloads are blocked.".into(),
+        offer: None,
+    };
+    harness.update(|view, _| view.tabs[0].notice = Some(blocked.clone()));
+    harness.update(|view, cx| view.select(Some(1), cx));
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("busy".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(
+        harness.read(|view| view.tabs[0].notice.clone()),
+        Some(blocked)
+    );
+}
+
 /// The app root's forwarding of Electron's Alt zoom keys (see `app.rs`).
 struct ZoomRoot {
     focus: gpui_kit::FocusHandle,

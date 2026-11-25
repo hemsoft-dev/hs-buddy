@@ -918,6 +918,63 @@ fn a_many_frame_gif_yields_only_its_first_frame() {
     assert_eq!(icon.image.get_pixel(32, 32).0, [255, 0, 0, 255]);
 }
 
+/// A one-frame GIF on a `screen` px canvas whose `width` x `height` frame
+/// starts one pixel in from the left, so it is decoded into its own buffer.
+fn gif_off_canvas(screen: u16, width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = encoded(image::ImageFormat::Gif, width, height, [255, 0, 255, 255]);
+    bytes[6..8].copy_from_slice(&screen.to_le_bytes());
+    bytes[8..10].copy_from_slice(&screen.to_le_bytes());
+    // The blocks start after the screen descriptor and its colour table.
+    let mut at = 13;
+    if bytes[10] & 0x80 != 0 {
+        at += 3 << ((bytes[10] & 0x07) + 1);
+    }
+    while bytes[at] == 0x21 {
+        at += 2;
+        while bytes[at] != 0 {
+            at += usize::from(bytes[at]) + 1;
+        }
+        at += 1;
+    }
+    assert_eq!(bytes[at], 0x2c, "an image descriptor");
+    bytes[at + 1..at + 3].copy_from_slice(&1u16.to_le_bytes());
+    bytes
+}
+
+#[test]
+fn a_gifs_frame_and_palette_indices_stay_within_the_decode_limit() {
+    use super::favicon::{
+        FaviconError, MAX_BYTES, MAX_DECODE_BYTES, MAX_GIF_DECODE_BYTES, sanitize,
+    };
+    // A 16 px canvas and a frame just within what image may count for a GIF:
+    // the frame's RGBA buffer, and the gif decoder's index byte per frame
+    // pixel beside it, which image doesn't count.
+    let canvas = 16 * 16 * 4;
+    let near = gif_off_canvas(16, 886, 887);
+    assert!(near.len() < MAX_BYTES, "{}", near.len());
+    assert!(canvas + 886 * 887 * 4 <= MAX_GIF_DECODE_BYTES);
+    let (decoded, peak) = counting::peak(|| sanitize(&near));
+    let decoded = decoded.unwrap();
+    assert_eq!(decoded.image.dimensions(), (16, 16));
+    assert_eq!(decoded.image.get_pixel(0, 8).0, [0, 0, 0, 0]);
+    assert_eq!(decoded.image.get_pixel(8, 8).0, [255, 0, 255, 255]);
+    assert!(
+        peak < MAX_DECODE_BYTES as usize,
+        "{peak} bytes held at once"
+    );
+    // A frame image would count within the 4 MiB for any other format: its
+    // indices would take the decode about 1 MiB past it, so it is refused.
+    let over = gif_off_canvas(16, 1023, 1024);
+    assert!(over.len() < MAX_BYTES, "{}", over.len());
+    assert!(canvas + 1023 * 1024 * 4 <= MAX_DECODE_BYTES);
+    let (refused, peak) = counting::peak(|| sanitize(&over));
+    assert_eq!(refused, Err(FaviconError::TooLarge));
+    assert!(
+        peak < MAX_DECODE_BYTES as usize,
+        "{peak} bytes held at once"
+    );
+}
+
 #[test]
 fn an_icon_is_decoded_within_the_limits_whatever_its_directory_says() {
     use super::favicon::{FaviconError, MAX_BYTES, MAX_ICON_ENTRIES, sanitize};

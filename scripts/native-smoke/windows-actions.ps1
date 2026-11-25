@@ -2,7 +2,7 @@
 # Runs ON the hidden desktop. Drives one window with posted messages and a
 # thread-attached key state (never SendInput), and captures it with PrintWindow.
 # Actions (comma separated): ctrlkey:<vk>  altkey:<vk>  wheel:<delta>  ctrlwheel:<delta>
-#   waitcolour:<magenta|lime>:<pixels>
+#   waitcolour:<magenta|lime>:<pixels>[:<blocks>]
 #   click:<x>:<y> (client px)  capture:<file.png>  sleep:<ms>  close
 param([Parameter(Mandatory)] [long] $Hwnd, [Parameter(Mandatory)] [string] $Actions,
     [Parameter(Mandatory)] [string] $Log, [Parameter(Mandatory)] [string] $ExpectedIconPath)
@@ -285,13 +285,16 @@ try {
             'waitcolour' {
                 # A block of one colour the scene paints (a favicon arriving after
                 # its list), found by colour_blocks.py; the same bounded wait as text.
-                if ($parts.Length -ne 3 -or $parts[1] -notin 'magenta', 'lime') { throw 'A colour wait needs a known colour and a pixel count' }
+                # An optional block count waits for that many separate blocks.
+                if ($parts.Length -notin 3, 4 -or $parts[1] -notin 'magenta', 'lime') { throw 'A colour wait needs a known colour and a pixel count' }
+                $blocks = if ($parts.Length -eq 4) { [int]$parts[3] } else { 1 }
+                if ($blocks -notin 1, 2) { throw 'A colour wait counts one or two blocks' }
                 $image = Join-Path ([IO.Path]::GetDirectoryName($Log)) 'colour-locator.png'
                 $timer = [Diagnostics.Stopwatch]::StartNew()
                 while ($true) {
                     $started = $timer.Elapsed.TotalSeconds
                     Save-OwnedImage $image
-                    & python (Join-Path $PSScriptRoot 'colour_blocks.py') --image $image --colour $parts[1] --minimum ([int]$parts[2]) | Out-Null
+                    & python (Join-Path $PSScriptRoot 'colour_blocks.py') --image $image --colour $parts[1] --minimum ([int]$parts[2]) --blocks $blocks | Out-Null
                     if ($LASTEXITCODE -eq 0) { break }
                     if ($started -ge 15) { throw "No $($parts[1]) block appeared within 15 s" }
                     Start-Sleep -Milliseconds 250

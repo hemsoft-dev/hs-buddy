@@ -15,6 +15,9 @@
 //! WebP decoder (`image-webp` 0.2) decodes a lossy frame larger than the canvas
 //! it declares before comparing the two, so the limits don't bound it.
 //!
+//! A GIF is decoded within [`MAX_GIF_DECODE_BYTES`], because its decoder keeps
+//! a palette index for each frame pixel that `image` doesn't count.
+//!
 //! The PNG decoder inflates a compressed colour profile or text chunk while it
 //! reads the header, and the ICO decoder reads an embedded PNG with no limits
 //! at all. So a PNG keeps only the chunks it needs before it is decoded, and
@@ -38,6 +41,13 @@ pub const MAX_SIDE: u32 = 512;
 /// What one decode may allocate, its output included: a 512 px RGBA image at
 /// 16 bits a channel is 2 MiB, which leaves the decoder room for its own buffers.
 pub const MAX_DECODE_BYTES: u64 = 4 * 1024 * 1024;
+/// What `image` may count for a GIF. A GIF frame that doesn't cover the
+/// canvas is decoded into its own RGBA buffer, which `image` counts, and the
+/// `gif` decoder (0.14) keeps one palette index byte per frame pixel beside
+/// it, which `image` doesn't. Those indices are at most a quarter of what is
+/// counted, so canvas, frame and indices together stay within
+/// [`MAX_DECODE_BYTES`], with a quarter MiB left for the LZW tables.
+pub const MAX_GIF_DECODE_BYTES: u64 = MAX_DECODE_BYTES / 4 * 3;
 /// The largest favicon kept: a 20 px card icon at 3x, with room to spare.
 pub const ICON_SIDE: u32 = 64;
 const MAX_REDIRECTS: usize = 5;
@@ -159,7 +169,7 @@ pub fn sanitize(bytes: &[u8]) -> Result<Favicon, FaviconError> {
         Format::Png => decode_png(bytes)?,
         Format::Ico => decode_icon(bytes)?,
         Format::Jpeg => decode(bytes, ImageFormat::Jpeg)?,
-        Format::Gif => decode(bytes, ImageFormat::Gif)?,
+        Format::Gif => decode_within(bytes, ImageFormat::Gif, MAX_GIF_DECODE_BYTES)?,
         Format::Bmp => decode(bytes, ImageFormat::Bmp)?,
     };
     if decoded.width() == 0 || decoded.height() == 0 {
@@ -179,10 +189,20 @@ pub fn sanitize(bytes: &[u8]) -> Result<Favicon, FaviconError> {
 
 /// One decode of `bytes` as `format`, within the limits.
 fn decode(bytes: &[u8], format: ImageFormat) -> Result<DynamicImage, FaviconError> {
+    decode_within(bytes, format, MAX_DECODE_BYTES)
+}
+
+/// One decode of `bytes` as `format`, at most [`MAX_SIDE`] a side, with
+/// `max_alloc` the most `image` may count as allocated.
+fn decode_within(
+    bytes: &[u8],
+    format: ImageFormat,
+    max_alloc: u64,
+) -> Result<DynamicImage, FaviconError> {
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SIDE);
     limits.max_image_height = Some(MAX_SIDE);
-    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    limits.max_alloc = Some(max_alloc);
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(limits);
     reader.decode().map_err(|error| match error {

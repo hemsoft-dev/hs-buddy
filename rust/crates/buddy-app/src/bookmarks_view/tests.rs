@@ -1011,17 +1011,48 @@ fn cards_and_tree_rows_show_loaded_favicons_and_the_globe_otherwise(
         );
         assert!(view.favicons.failed("https://example.com/missing.png"));
     });
-    // A card and a tree row each: the loaded favicon, else the globe.
-    assert!(visual.debug_bounds("bookmark-favicon-rust").is_some());
-    assert!(visual.debug_bounds("bookmark-favicon-news").is_some());
-    for (globe, favicon) in [
-        ("bookmark-globe-gpui", "bookmark-favicon-gpui"),
-        ("bookmark-globe-zig", "bookmark-favicon-zig"),
-        ("bookmark-globe-devops", "bookmark-favicon-devops"),
+    // Cards and tree rows each: the loaded favicon, else the globe. Each
+    // placement has its own selector, so neither can pass for the other.
+    for (shown, hidden) in [
+        ("bookmark-card-favicon-rust", "bookmark-card-globe-rust"),
+        ("bookmark-card-favicon-news", "bookmark-card-globe-news"),
+        ("bookmark-tree-favicon-rust", "bookmark-tree-globe-rust"),
+        ("bookmark-tree-favicon-news", "bookmark-tree-globe-news"),
+        ("bookmark-card-globe-gpui", "bookmark-card-favicon-gpui"),
+        ("bookmark-card-globe-zig", "bookmark-card-favicon-zig"),
+        ("bookmark-tree-globe-gpui", "bookmark-tree-favicon-gpui"),
+        ("bookmark-tree-globe-zig", "bookmark-tree-favicon-zig"),
     ] {
-        assert!(visual.debug_bounds(globe).is_some(), "{globe}");
-        assert!(visual.debug_bounds(favicon).is_none(), "{favicon}");
+        assert!(visual.debug_bounds(shown).is_some(), "{shown}");
+        assert!(visual.debug_bounds(hidden).is_none(), "{hidden}");
     }
+    // Devops is collapsed in the tree, so only its card shows the globe.
+    assert!(visual.debug_bounds("bookmark-card-globe-devops").is_some());
+    assert!(visual.debug_bounds("bookmark-tree-globe-devops").is_none());
+    assert!(
+        visual
+            .debug_bounds("bookmark-card-favicon-devops")
+            .is_none()
+    );
+    // With News chosen, Rust Book is only in the tree, and its row shows it.
+    view.update(&mut visual, |view, cx| {
+        view.select_category(Some("News".into()), cx)
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("bookmark-card-favicon-rust").is_none());
+    assert!(visual.debug_bounds("bookmark-tree-favicon-rust").is_some());
+    assert!(visual.debug_bounds("bookmark-card-favicon-news").is_some());
+    // With the tree collapsed and every card shown, only the card shows it.
+    view.update(&mut visual, |view, cx| {
+        view.select_category(None, cx);
+        for path in ["Dev", "News"] {
+            view.toggle_expanded(path.into(), cx);
+        }
+    });
+    visual.run_until_parked();
+    assert!(visual.debug_bounds("bookmark-card-favicon-rust").is_some());
+    assert!(visual.debug_bounds("bookmark-tree-favicon-rust").is_none());
+    assert!(visual.debug_bounds("bookmark-tree-favicon-news").is_none());
     // Later polls ask for nothing again, loaded or failed.
     view.update(&mut visual, |view, cx| view.refresh(cx));
     visual.run_until_parked();
@@ -1061,8 +1092,8 @@ fn a_favicon_no_bookmark_uses_any_more_is_forgotten(cx: &mut gpui_kit::TestAppCo
             .iter()
             .any(|url| url == MOVED)
     );
-    assert!(visual.debug_bounds("bookmark-favicon-news").is_none());
-    assert!(visual.debug_bounds("bookmark-globe-news").is_some());
+    assert!(visual.debug_bounds("bookmark-card-favicon-news").is_none());
+    assert!(visual.debug_bounds("bookmark-card-globe-news").is_some());
 }
 
 #[gpui_kit::test]
@@ -1071,11 +1102,11 @@ fn the_list_renders_before_its_favicons_arrive(cx: &mut gpui_kit::TestAppContext
     fake.hold_favicons.store(true, Ordering::SeqCst);
     let (mut visual, view) = open(cx, &fake);
     assert_eq!(shown(&view, &mut visual).len(), 5);
-    assert!(visual.debug_bounds("bookmark-globe-rust").is_some());
-    assert!(visual.debug_bounds("bookmark-favicon-rust").is_none());
+    assert!(visual.debug_bounds("bookmark-card-globe-rust").is_some());
+    assert!(visual.debug_bounds("bookmark-card-favicon-rust").is_none());
     for reply in std::mem::take(&mut *fake.favicon_replies.lock().unwrap()) {
         let _ = reply.send(());
     }
     visual.run_until_parked();
-    assert!(visual.debug_bounds("bookmark-favicon-rust").is_some());
+    assert!(visual.debug_bounds("bookmark-card-favicon-rust").is_some());
 }

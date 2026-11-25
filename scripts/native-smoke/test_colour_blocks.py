@@ -36,6 +36,40 @@ class ColourBlockTests(unittest.TestCase):
         self.assertEqual(colour_blocks.matching_pixels(data, 50),
             (41, dict(left=2, top=2, width=43, height=13)))
 
+    def test_separate_blocks_are_measured_on_their_own_left_to_right(self):
+        # A 4 px tree row icon and a 5 px card icon, 34 columns apart, and a lime block.
+        data = frame(50, 20, [(MAGENTA, 40, 10, 5), (MAGENTA, 2, 2, 4), (LIME, 20, 1, 3)])
+        self.assertEqual(colour_blocks.separate_blocks(data, 50), [
+            dict(pixels=16, left=2, top=2, width=4, height=4),
+            dict(pixels=25, left=40, top=10, width=5, height=5)])
+        # Columns a few pixels apart (one icon's softened edge) are one block.
+        data = frame(30, 10, [(MAGENTA, 2, 2, 4), (MAGENTA, 9, 2, 4)])
+        self.assertEqual(colour_blocks.separate_blocks(data, 30), [dict(pixels=32, left=2, top=2, width=11, height=4)])
+        self.assertEqual(colour_blocks.separate_blocks(frame(10, 10), 10), [])
+
+    def test_a_two_block_wait_recaptures_until_the_second_block_arrives(self):
+        # The card's icon first, then the expanded tree row's beside it.
+        card = (MAGENTA, 30, 5, 8)
+        frames = iter([frame(40, 30, [card]), frame(40, 30, [card, (MAGENTA, 2, 5, 2)]),
+            frame(40, 30, [card, (MAGENTA, 2, 5, 5)])])
+        shown = []
+        clock = iter(range(100))
+
+        def separated(path, colour):
+            return colour_blocks.separate_blocks(shown[-1], 40, colour)
+
+        result = colour_blocks.wait_for(lambda path: shown.append(next(frames)), Path("probe.png"), "magenta", 20,
+            clock=lambda: next(clock), sleep=lambda _: None, blocks=2, separated=separated)
+        # A 2 px speck is not a block; the 5 px icon is.
+        self.assertEqual(result, [dict(pixels=25, left=2, top=5, width=5, height=5),
+            dict(pixels=64, left=30, top=5, width=8, height=8)])
+        self.assertEqual(len(shown), 3)
+        times = iter([0] + [4 * n for n in range(1, 10)])
+        with self.assertRaisesRegex(RuntimeError, r"No magenta block appeared within 15 s \(1 of 2 blocks\)"):
+            colour_blocks.wait_for(lambda path: None, Path("probe.png"), "magenta", 20,
+                clock=lambda: next(times), sleep=lambda _: None, blocks=2,
+                separated=lambda path, colour: [dict(pixels=64, left=30, top=5, width=8, height=8)])
+
     def test_the_wait_recaptures_until_the_block_arrives(self):
         # Synthetic frames: the list first, then the list with its favicon.
         frames = iter([frame(40, 30), frame(40, 30), frame(40, 30, [(MAGENTA, 10, 5, 20)])])
@@ -74,6 +108,14 @@ class ColourBlockTests(unittest.TestCase):
                     self.assertEqual(colour_blocks.main(["--image", image, "--colour", "magenta", "--minimum", "150"]), code)
             with self.assertRaises(SystemExit), patch("sys.stderr"):
                 colour_blocks.main(["--image", image, "--colour", "teal", "--minimum", "1"])
+            icon = dict(pixels=60, left=0, top=0, width=8, height=8)
+            for blocks, code in (([icon, dict(icon, left=40)], 0), ([icon], 1), ([icon, dict(icon, pixels=49)], 1)):
+                with self.subTest(blocks=blocks), patch.object(colour_blocks, "measure_blocks", return_value=blocks), \
+                        patch("builtins.print"):
+                    self.assertEqual(colour_blocks.main(["--image", image, "--colour", "magenta",
+                        "--minimum", "50", "--blocks", "2"]), code)
+            with self.assertRaises(SystemExit), patch("sys.stderr"):
+                colour_blocks.main(["--image", image, "--colour", "magenta", "--minimum", "1", "--blocks", "3"])
 
 
 if __name__ == "__main__":

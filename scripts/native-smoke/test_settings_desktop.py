@@ -652,13 +652,21 @@ class LabeledInputs(unittest.TestCase):
             self.assertEqual(commands[1], "waitcolour:magenta:150")
             # The wait's own 15 s are added to the action budget.
             self.assertEqual(execute.call_args.kwargs["timeout"], 195)
+            # A two-block wait names its count; one is the default and unnamed.
+            with patch.object(desktop, "run") as execute:
+                driver.drive("two", [("wait_colour", "magenta", 50, 2), ("wait_colour", "magenta", 150, 1)])
+            args = execute.call_args.args
+            self.assertEqual(args[args.index("-Actions") + 1].split(",")[1:3],
+                ["waitcolour:magenta:50:2", "waitcolour:magenta:150"])
+            with self.assertRaisesRegex(RuntimeError, "one or two blocks"):
+                driver.drive("blocks", [("wait_colour", "magenta", 50, 3)])
             with self.assertRaisesRegex(RuntimeError, "Unknown block colour"):
                 driver.drive("unknown", [("wait_colour", "teal;rm", 1)])
         lines = Path(__file__).with_name("windows-actions.ps1").read_text(encoding="utf-8").splitlines()
         start = next(index for index, line in enumerate(lines) if line.strip() == "'waitcolour' {")
-        block = "\n".join(lines[start:start + 14])
+        block = "\n".join(lines[start:start + 18])
         for fragment in ("colour_blocks.py", "Save-OwnedImage", "$LASTEXITCODE -eq 0", "$started -ge 15",
-                "-notin 'magenta', 'lime'"):
+                "-notin 'magenta', 'lime'", "$parts.Length -notin 3, 4", "--blocks $blocks", "$blocks -notin 1, 2"):
             self.assertIn(fragment, block)
 
     def test_tab_click_uses_the_toolbar_instead_of_matching_body_help_text(self):

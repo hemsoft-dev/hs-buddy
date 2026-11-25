@@ -199,6 +199,14 @@ def colour_name(colour):
     return colour
 
 
+def colour_blocks_wanted(values):
+    """A colour wait's separate-block count: one unless a scene names two."""
+    blocks = int(values[2]) if len(values) > 2 else 1
+    if blocks not in (1, 2):
+        raise RuntimeError(f"A colour wait counts one or two blocks, not {blocks}")
+    return blocks
+
+
 def planned_large_size(width, height):
     size = (min(1200, int(width)), min(820, int(height)))
     if size[0] < 900 or size[1] < 650:
@@ -308,7 +316,9 @@ class Driver:
                 elif kind == "altkey":
                     commands.append("altkey:" + str(ALT_KEYS[values[0]]["windows"]))
                 elif kind == "wait_colour":
-                    commands.append(f"waitcolour:{colour_name(values[0])}:{int(values[1])}")
+                    blocks = colour_blocks_wanted(values)
+                    commands.append(f"waitcolour:{colour_name(values[0])}:{int(values[1])}"
+                        + (f":{blocks}" if blocks > 1 else ""))
                 elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up"):
                     encoded = values[:2] if kind in ("wait_scroll_text", "wait_scroll_up") else values[:1]
                     # Windows aims above-anchor waits at the window middle,
@@ -419,7 +429,7 @@ class Driver:
                             window.alt_key(values[0])
                         elif kind == "wait_colour":
                             colour_blocks.wait_for(window.screenshot, directory / "colour-locator.png",
-                                colour_name(values[0]), int(values[1]))
+                                colour_name(values[0]), int(values[1]), blocks=colour_blocks_wanted(values))
                         elif kind == "hover":
                             window.hover(*values)
                         elif kind in ("wait_text", "wait_content", "wait_scroll_text", "wait_scroll_above", "wait_scroll_up", *COLD_START_WAITS):

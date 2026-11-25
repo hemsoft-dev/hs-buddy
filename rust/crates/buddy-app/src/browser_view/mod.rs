@@ -59,6 +59,17 @@ fn zoom_notice(error: &str) -> Notice {
         offer: None,
     }
 }
+
+/// Drops a zoom refusal the tab shows once its page has taken a zoom; any
+/// other notice stays.
+fn clear_zoom_notice(notice: &mut Option<Notice>) {
+    if notice
+        .as_ref()
+        .is_some_and(|notice| notice.text.starts_with(ZOOM_FAILED))
+    {
+        *notice = None;
+    }
+}
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
 actions!(
@@ -813,21 +824,16 @@ impl BrowserView {
                 continue;
             }
             tab.zoom_missed = false;
-            if tab
-                .notice
-                .as_ref()
-                .is_some_and(|notice| notice.text.starts_with(ZOOM_FAILED))
-            {
-                tab.notice = None;
-            }
+            clear_zoom_notice(&mut tab.notice);
         }
         self.save(cx);
         cx.notify();
     }
 
     /// A page that missed a zoom in the background takes the current zoom
-    /// once its tab is selected. If it refuses again, that tab, now the one
-    /// shown, says so; the next zoom tries it again.
+    /// once its tab is selected, and a refusal it showed before goes. If it
+    /// refuses again, that tab, now the one shown, says so; the next zoom
+    /// tries it again.
     fn catch_up_zoom(&mut self) {
         let zoom = self.zoom;
         let Some(tab) = self.active.and_then(|index| self.tabs.get_mut(index)) else {
@@ -836,11 +842,15 @@ impl BrowserView {
         if !std::mem::take(&mut tab.zoom_missed) {
             return;
         }
-        if let Some(page) = &tab.page
-            && let Err(error) = page.zoom(zoom)
-        {
-            log::warn!("browser: zoom failed: {error}");
-            tab.notice = Some(zoom_notice(&error));
+        let Some(page) = &tab.page else {
+            return;
+        };
+        match page.zoom(zoom) {
+            Ok(()) => clear_zoom_notice(&mut tab.notice),
+            Err(error) => {
+                log::warn!("browser: zoom failed: {error}");
+                tab.notice = Some(zoom_notice(&error));
+            }
         }
     }
 

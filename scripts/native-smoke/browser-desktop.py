@@ -50,6 +50,8 @@ REQUIRED_REFUSALS = {"internal", "download"}
 FAVICON_RGB = (255, 0, 255)
 # A 20 px card icon is 400 pixels at 100%; corners and scaling take a few.
 FAVICON_MIN_PIXELS = 150
+# A 12 px tree row icon is 144 pixels at 100%; the same share of it.
+TREE_FAVICON_MIN_PIXELS = 50
 # The toolbar's page zoom before and after one Alt+= (the 10% button step).
 ZOOM_BEFORE, ZOOM_AFTER = "100%", "110%"
 # A lime block of fixed CSS size on the Fixture page: one Alt+= must widen it
@@ -253,6 +255,23 @@ def require_favicon(image):
     return dict(pixels=count, bounds=bounds)
 
 
+def require_tree_favicon(image):
+    """The expanded tree's Fixture page row shows the favicon too: two separate
+    magenta blocks, and the left one, in the tree pane beside the list, is the
+    row's icon, smaller than the card's. A tree row that lost its favicon
+    leaves only the card's block, so the card can't pass for it."""
+    blocks = colour_blocks.large_blocks(image, "magenta", TREE_FAVICON_MIN_PIXELS)
+    image.with_suffix(".favicon.json").write_text(json.dumps(dict(blocks=blocks)), encoding="utf-8")
+    if len(blocks) != 2:
+        raise RuntimeError(f"The bookmark tree row and card do not both show the favicon ({len(blocks)} magenta blocks)")
+    tree, card = blocks
+    if any(block["width"] > 64 or block["height"] > 64 for block in blocks):
+        raise RuntimeError(f"The favicon colour covers more than an icon: {blocks}")
+    if tree["width"] >= card["width"] or tree["height"] >= card["height"]:
+        raise RuntimeError(f"The block left of the card is not the tree row's smaller icon: {blocks}")
+    return dict(tree=tree, card=card)
+
+
 def require_scaled(before, after, expected, failure):
     """The page's fixed-size block in `after`, against `before`, is within the
     `expected` width and height ratios; the measurements are saved beside `after`."""
@@ -299,6 +318,26 @@ def zoom_steps(theme):
     ]
 
 
+def tree_favicon_steps(theme):
+    """Choose the Fixture category in the bookmark tree, which expands it, so
+    its Fixture page row shows the favicon beside the card's. Each card also
+    shows "Fixture" (its category), so the click is bounded by the toolbar's
+    Refresh above and the Search label below, where only the tree's row is.
+    It opens the "Bookmarks: Fixture" tab, counted like an Electron
+    `openTab('bookmarks-category:Fixture')`."""
+    return [
+        ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"),
+        ("between", "Fixture", "Refresh", "Search"),
+        ("wait_colour", "magenta", TREE_FAVICON_MIN_PIXELS, 2), ("capture", f"bookmark-tree-favicons-{theme}"),
+    ]
+
+
+def require_tree_favicons(flow, theme):
+    """The tree capture shows the chosen category, and its row's favicon."""
+    github.check(flow / f"bookmark-tree-favicons-{theme}.png", "In Fixture", "Fixture page", "Probe page", browser=True)
+    return require_tree_favicon(flow / f"bookmark-tree-favicons-{theme}.png")
+
+
 def require_favicon_and_zoom(flow, theme):
     """The favicon capture shows the icon, and the zoom captures show the page
     one step larger and then back at its size in `page-{theme}`."""
@@ -315,7 +354,9 @@ def first_pass(driver, theme):
     """A fresh session: the probe's refusals, then a page, at both sizes. The
     Fixture page card shows its favicon, Alt+= zooms the page one step, and
     Alt+- takes it back to its 100% size (so later passes see the saved zoom
-    unchanged)."""
+    unchanged). Then the Fixture category is expanded in the tree, whose row
+    shows the favicon too, and that row opens the page again, where the drive
+    ends for the restart to restore."""
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
@@ -325,9 +366,12 @@ def first_pass(driver, theme):
         *zoom_steps(theme),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
-        # Repeat after the title-qualified captures: reusing a URL selects
-        # its bookmark title. It counts without a new HTTP visit.
-        ("workspace", "Bookmarks: All"), ("content", "Fixture page"),
+        *tree_favicon_steps(theme),
+        # Repeat after the title-qualified captures, from the tree row this
+        # time: reusing a URL selects its bookmark title, and it counts without
+        # a new HTTP visit. The search leaves only the Probe page card, so the
+        # row is the one "Fixture page" shown.
+        ("box", "Search", "Probe"), ("sleep", 1), ("content", "Fixture page"),
         ("wait_text", "Visit 1"),
     ], record=True)
     github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
@@ -336,7 +380,7 @@ def first_pass(driver, theme):
     # address field's dim text read in no OCR layout on Windows (run 40647223188).
     github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
     github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
-    return require_favicon_and_zoom(flow, theme)
+    return dict(**require_favicon_and_zoom(flow, theme), tree_favicon=require_tree_favicons(flow, theme))
 
 
 def saved_zoom(config):
@@ -368,9 +412,10 @@ def light_pass(driver, visit):
     """The restored session in the light theme: the page at both sizes, the
     Fixture page card's favicon, then that card is opened again (selecting its
     tab, without a new visit, and leaving the keyboard in the browser) and
-    Alt+= and Alt+- zoom the page and take it back. The drive is recorded, so
-    the keyboard zoom flow is in its `interaction.mp4`. It ends on the probe's
-    tab, where the X11 shortcut pass starts."""
+    Alt+= and Alt+- zoom the page and take it back. The Fixture category is
+    then expanded in the tree, whose row shows the favicon too. The drive is
+    recorded, so the keyboard zoom flow is in its `interaction.mp4`. It ends
+    on the probe's tab, where the X11 shortcut pass starts."""
     flow = driver.drive("browser-light", [
         ("wait_text", f"Visit {visit}"), ("capture", "page-light"),
         ("resize", 900, 650), ("sleep", 1), ("capture", "page-compact-light"),
@@ -379,12 +424,13 @@ def light_pass(driver, visit):
         # The fourth explicit bookmark open, counted like the others.
         ("content", "Fixture page"), ("wait_text", f"Visit {visit}"),
         *zoom_steps("light"),
+        *tree_favicon_steps("light"),
         ("workspace", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
     github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
     github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)
     github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT, browser=True)
-    return require_favicon_and_zoom(flow, "light")
+    return dict(**require_favicon_and_zoom(flow, "light"), tree_favicon=require_tree_favicons(flow, "light"))
 
 
 class BrowserDriver(settings.Driver):
@@ -436,7 +482,7 @@ def saved_tabs(config):
 
 
 def require_bookmark_activity(backend, before, opens, launches):
-    """`opens` embedded bookmark opens, plus the Dashboard each launch opens,
+    """`opens` embedded bookmark and category opens, plus the Dashboard each launch opens,
     as Electron's tab list does when its window starts, and one closed
     session per launch."""
     after = backend.query("buddyStats:get")
@@ -470,9 +516,11 @@ def qualify(executable, output, session, version, backend, site):
         if site.favicons < 1:
             raise RuntimeError("Buddy never asked the fixture site for the bookmark's favicon")
         first["favicon"]["requests"] = site.favicons
-    activity_opened = require_bookmark_activity(backend, activity_before, 3, 1)
+    # Three bookmark opens (the last from the tree) and the Fixture category
+    # chosen in the tree.
+    activity_opened = require_bookmark_activity(backend, activity_before, 4, 1)
     restart_pass(driver, "dark", 2)
-    activity_restored = require_bookmark_activity(backend, activity_before, 3, 2)
+    activity_restored = require_bookmark_activity(backend, activity_before, 4, 2)
     template = json.loads(fixture(config.parent / "light-template", "light").read_text())
     terminal.write_config(config, lambda value: value["ui"].update(template["ui"]))
     zoom = saved_zoom(config)
@@ -480,11 +528,13 @@ def qualify(executable, output, session, version, backend, site):
         light = light_pass(driver, 3)
     finally:
         restore_zoom(config, zoom)
-    activity_switched = require_bookmark_activity(backend, activity_before, 4, 3)
+    # The Fixture page card opened again, and the category chosen again.
+    activity_switched = require_bookmark_activity(backend, activity_before, 6, 3)
     (output / "bookmark-activity.json").write_text(json.dumps(dict(
         before=activity_before, opened=activity_opened, restored=activity_restored,
         switched=activity_switched, dataSource="isolated anonymous Convex fixture",
-        checks=["four explicit opens including two of a repeated URL", "restart persistence",
+        checks=["four explicit bookmark opens including two of a repeated URL",
+            "two category opens from the tree", "restart persistence",
             "tab restoration and switching do not write", "PR counters unchanged",
             "one Dashboard open and one closed session per launch"]), indent=2), encoding="utf-8")
     with site.lock:
@@ -505,6 +555,7 @@ def qualify(executable, output, session, version, backend, site):
         x11="WebKitGTK")[session], **result, **first, light=light,
         dataSource="Installed app; loopback fixture site admitted by exact origin; bookmarks in an isolated anonymous Convex deployment",
         checks=["bookmark opens in a tab", "page renders inside the window", "bookmark card favicon in both themes",
+            "bookmark tree row favicon in both themes",
             "Alt+= and Alt+- zoom the page in both themes", "private address refused",
             "download refused", "private iframe refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
             "compact window", "light/dark", *checks]), indent=2), encoding="utf-8")

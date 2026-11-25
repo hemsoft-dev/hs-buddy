@@ -150,10 +150,11 @@ class BrowserDesktopTests(unittest.TestCase):
         with patch.object(desktop.github, 'check') as check, \
                 patch.object(desktop, 'require_zoomed', return_value={}), \
                 patch.object(desktop, 'require_unzoomed', return_value={}), \
+                patch.object(desktop, 'require_tree_favicon', return_value={}), \
                 patch.object(desktop, 'require_favicon', return_value={}) as favicon:
             desktop.first_pass(driver, 'dark')
         favicon.assert_called_once_with(Path('flow') / 'bookmark-favicons-dark.png')
-        self.assertEqual(len(check.call_args_list), 7)
+        self.assertEqual(len(check.call_args_list), 8)
         self.assertTrue(all(call.kwargs.get('browser') for call in check.call_args_list))
         self.assertEqual(driver.target, dict(left=182, top=44, width=78, height=9))
 
@@ -330,6 +331,7 @@ class BrowserDesktopTests(unittest.TestCase):
                 return Path("flow")
         driver = Driver()
         with patch.object(desktop.github, "check") as check, patch.object(desktop, "require_favicon", return_value={}), \
+                patch.object(desktop, "require_tree_favicon", return_value={}), \
                 patch.object(desktop, "require_zoomed", return_value={}) as zoomed, \
                 patch.object(desktop, "require_unzoomed", return_value={}) as unzoomed:
             desktop.first_pass(driver, "dark")
@@ -352,6 +354,102 @@ class BrowserDesktopTests(unittest.TestCase):
         self.assertEqual(checked["browser-page-unzoom-dark.png"], (desktop.PAGE_TEXT, "100%"))
         unzoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-unzoom-dark.png")
 
+    def test_both_passes_expand_the_tree_after_every_card_click_and_check_its_row(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions, self.record = actions, record
+                return Path("flow")
+        for theme, run in (("dark", lambda driver: desktop.first_pass(driver, "dark")),
+                ("light", lambda driver: desktop.light_pass(driver, 3))):
+            with self.subTest(theme=theme):
+                driver = Driver()
+                with patch.object(desktop.github, "check") as check, \
+                        patch.object(desktop, "require_favicon", return_value={}), \
+                        patch.object(desktop, "require_tree_favicon", return_value=dict(tree={}, card={})) as tree, \
+                        patch.object(desktop, "require_zoomed", return_value={}), \
+                        patch.object(desktop, "require_unzoomed", return_value={}):
+                    result = run(driver)
+                actions, steps = driver.actions, desktop.tree_favicon_steps(theme)
+                self.assertTrue(driver.record)
+                start = next(index for index in range(len(actions)) if actions[index:index + len(steps)] == steps)
+                # The category is chosen in the tree, between the toolbar and the
+                # search label, where no card's "Fixture" category is; then the
+                # drive waits, bounded, for the row's favicon beside the card's.
+                self.assertEqual(actions[start + 2], ("between", "Fixture", "Refresh", "Search"))
+                self.assertEqual(actions[start + 3], ("wait_colour", "magenta", desktop.TREE_FAVICON_MIN_PIXELS, 2))
+                self.assertEqual(actions[start + 4], ("capture", f"bookmark-tree-favicons-{theme}"))
+                # Once the row shows, "Fixture page" is only clicked with the
+                # card searched away, so the click is the tree row's. The dark
+                # drive ends back on the page the restart restores; the light
+                # one on the probe's tab.
+                after = actions[start + len(steps):]
+                self.assertEqual(after, [("box", "Search", "Probe"), ("sleep", 1), ("content", "Fixture page"),
+                    ("wait_text", "Visit 1")] if theme == "dark"
+                    else [("workspace", "Buddy Probe"), ("wait_text", desktop.BLOCKED_TEXT), ("capture", "blocked-light")])
+                self.assertNotIn(("content", "Fixture page"), actions[start:start + len(steps)])
+                checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
+                self.assertEqual(checked[f"bookmark-tree-favicons-{theme}.png"], ("In Fixture", "Fixture page", "Probe page"))
+                tree.assert_called_once_with(Path("flow") / f"bookmark-tree-favicons-{theme}.png")
+                self.assertEqual(result["tree_favicon"], dict(tree={}, card={}))
+
+    def test_the_tree_check_needs_the_rows_smaller_icon_left_of_the_cards(self):
+        def block(left, size, pixels=None):
+            return dict(pixels=pixels or size * size, left=left, top=200, width=size, height=size)
+        tree, card = block(90, 12), block(333, 20)
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "bookmark-tree-favicons-dark.png"
+            for blocks, error in (([tree, card], None),
+                    # Only the card shows it: the tree row lost its favicon.
+                    ([card], "do not both show the favicon"),
+                    ([], "do not both show the favicon"),
+                    # The left block is no smaller than the card's, so not the row's.
+                    ([block(90, 20), card], "not the tree row's smaller icon"),
+                    ([card, block(600, 12)], "not the tree row's smaller icon"),
+                    ([tree, block(333, 200)], "more than an icon"),
+                    ([tree, card, block(700, 20)], "do not both show the favicon")):
+                with self.subTest(blocks=blocks), \
+                        patch.object(desktop.colour_blocks, "measure_blocks", return_value=blocks) as measured:
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_tree_favicon(image)
+                    else:
+                        self.assertEqual(desktop.require_tree_favicon(image), dict(tree=tree, card=card))
+                    self.assertEqual(measured.call_args.args, (image, "magenta"))
+                    self.assertEqual(json.loads(image.with_suffix(".favicon.json").read_text())["blocks"], blocks)
+        # Blocks under the row icon's share of pixels are not counted at all.
+        with patch.object(desktop.colour_blocks, "measure_blocks",
+                return_value=[block(90, 12, desktop.TREE_FAVICON_MIN_PIXELS - 1), card]):
+            with tempfile.TemporaryDirectory() as root, self.assertRaisesRegex(RuntimeError, r"\(1 magenta blocks\)"):
+                desktop.require_tree_favicon(Path(root) / "capture.png")
+
+    def test_each_tree_category_open_is_counted_with_the_bookmark_opens(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            config = root / "dark" / "config.json"
+            config.parent.mkdir()
+            config.write_text(json.dumps(dict(native={}, ui={})), encoding="utf-8")
+            template = root / "light.json"
+            template.write_text(json.dumps(dict(ui={})), encoding="utf-8")
+            site = Mock(origin="http://127.0.0.1:1/", favicons=1, beacons={}, downloads=1)
+            site.lock = __import__("threading").Lock()
+            site.server.server_port = 1
+            activity = Mock(return_value={})
+            with patch.object(desktop.github, "installed_binary", return_value={}), \
+                    patch.object(desktop, "fixture", side_effect=[config, template]), \
+                    patch.object(desktop.terminal, "write_config"), patch.object(desktop, "seed"), \
+                    patch.object(desktop, "BrowserDriver", return_value=Mock(large_size=(1200, 820))), \
+                    patch.object(desktop, "saved_zoom", return_value=None), \
+                    patch.object(desktop, "restore_zoom"), patch.object(desktop, "first_pass", return_value=dict(favicon={})), \
+                    patch.object(desktop, "restart_pass"), patch.object(desktop, "light_pass", return_value={}), \
+                    patch.object(desktop, "require_bookmark_activity", activity), \
+                    patch.object(desktop, "audit_records", return_value=[]), patch.object(desktop, "evaluate", return_value={}), \
+                    patch.object(desktop, "saved_tabs", return_value=[item["url"] for item in desktop.bookmarks(site.origin)]), \
+                    patch.dict(os.environ):
+                desktop.qualify(Path("buddy"), root, "windows", "1.0.0", Mock(query=Mock(return_value={})), site)
+        # Three bookmark opens and a tree category open in the first pass, the
+        # card again and the category again in the light pass.
+        self.assertEqual([call.args[2:] for call in activity.call_args_list], [(4, 1), (4, 2), (6, 3)])
+
     def test_the_light_pass_repeats_the_favicon_and_zoom_steps_on_a_recording(self):
         class Driver:
             def drive(self, name, actions, record=False):
@@ -360,6 +458,7 @@ class BrowserDesktopTests(unittest.TestCase):
         driver = Driver()
         with patch.object(desktop.github, "check") as check, \
                 patch.object(desktop, "require_favicon", return_value={}) as favicon, \
+                patch.object(desktop, "require_tree_favicon", return_value={}), \
                 patch.object(desktop, "require_zoomed", return_value={}) as zoomed, \
                 patch.object(desktop, "require_unzoomed", return_value={}) as unzoomed:
             desktop.light_pass(driver, 3)
