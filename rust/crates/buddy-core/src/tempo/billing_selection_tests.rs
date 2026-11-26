@@ -5,29 +5,42 @@ use super::*;
 fn project(id: u64) -> JiraProjectId {
     JiraProjectId::parse(id).unwrap()
 }
+fn catalog(rows: &[(u64, &str, &str)]) -> Vec<BillingAccount> {
+    let results: Vec<_> = rows
+        .iter()
+        .map(|(id, key, status)| json!({"id":id,"key":key,"name":format!("Synthetic billing account {key}"),"status":status,"global":false}))
+        .collect();
+    let page = json!({"metadata":{"count":results.len(),"limit":50,"offset":0},"results":results});
+    let (pages, complete) = super::super::accounts::AccountPages::new()
+        .push(&serde_json::to_vec(&page).unwrap())
+        .unwrap();
+    assert!(complete);
+    pages.finish()
+}
+/// The project links only `key`. Its catalog also holds an unlinked account.
 fn result(
     connection: WriteScope,
     project_id: u64,
     key: &str,
     status: &str,
 ) -> ProjectBillingAccounts {
-    let page = json!({"metadata":{"count":1,"limit":50,"offset":0},"results":[{"id":1,"key":key,"name":"Synthetic billing account","status":status,"global":false}]});
-    let (pages, complete) = super::super::accounts::AccountPages::new()
-        .push(&serde_json::to_vec(&page).unwrap())
-        .unwrap();
-    assert!(complete);
+    let catalog = catalog(&[(1, key, status), (2, "UNLINKED", "OPEN")]);
     ProjectBillingAccounts {
         connection,
         project: project(project_id),
-        choices: pages
-            .finish()
-            .into_iter()
-            .map(|account| ProjectBillingAccount {
-                account,
-                is_default: true,
-            })
-            .collect(),
+        choices: vec![ProjectBillingAccount {
+            account: catalog[0].clone(),
+            is_default: true,
+        }],
+        catalog,
     }
+}
+fn keys(state: &BillingSelection) -> Vec<&str> {
+    state
+        .choices()
+        .iter()
+        .map(|choice| choice.account.key())
+        .collect()
 }
 
 #[test]
@@ -299,4 +312,126 @@ fn only_a_person_initial_value_or_edit_counts_as_a_chosen_account() {
             .is_chosen()
     );
     assert!(!BillingSelection::new(connection, None).unwrap().is_chosen());
+}
+
+#[test]
+fn every_account_is_listed_in_tempo_order_before_a_project_is_known() {
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    let accounts = catalog(&[
+        (9, "ZULU", "OPEN"),
+        (3, "ALPHA", "CLOSED"),
+        (5, "MIKE", "OPEN"),
+    ]);
+    assert!(
+        state
+            .offer_catalog(BillingCatalog {
+                connection,
+                accounts,
+            })
+            .unwrap()
+    );
+    assert!(state.lists_every_account() && state.project().is_none());
+    // Tempo's order, as Electron's select lists it; no account is a default.
+    assert_eq!(keys(&state), ["ZULU", "ALPHA", "MIKE"]);
+    assert!(state.choices().iter().all(|choice| !choice.is_default));
+    assert!(state.is_unchosen() && state.selected_key().is_none());
+    // A closed account stays listed with its status, so the editor can
+    // refuse it as it refuses a closed linked account.
+    assert!(state.choices()[1].account.status() == BillingAccountStatus::Closed);
+    assert!(state.lists(Some("MIKE")) && state.lists(None) && !state.lists(Some("GONE")));
+}
+
+#[test]
+fn a_project_with_no_linked_accounts_lists_every_account_without_a_default() {
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    let lookup = state.begin(project(7));
+    let mut unlinked = result(connection, 7, "LINKED", "OPEN");
+    unlinked.choices.clear();
+    assert!(state.loaded(lookup, unlinked).unwrap());
+    assert!(state.lists_every_account());
+    assert_eq!(keys(&state), ["LINKED", "UNLINKED"]);
+    assert!(state.is_unchosen() && state.selected_key().is_none());
+}
+
+#[test]
+fn a_project_with_links_lists_only_those_and_its_default() {
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    assert!(
+        state
+            .offer_catalog(BillingCatalog {
+                connection,
+                accounts: catalog(&[(1, "LINKED", "OPEN"), (2, "UNLINKED", "OPEN")]),
+            })
+            .unwrap()
+    );
+    let lookup = state.begin(project(7));
+    // The project narrows the list as soon as its lookup begins.
+    assert!(!state.lists_every_account() && state.choices().is_empty());
+    assert!(
+        state
+            .loaded(lookup, result(connection, 7, "LINKED", "OPEN"))
+            .unwrap()
+    );
+    assert!(!state.lists_every_account());
+    assert_eq!(keys(&state), ["LINKED"]);
+    assert_eq!(state.selected_key(), Some("LINKED"));
+    assert!(!state.lists(Some("UNLINKED")));
+}
+
+#[test]
+fn a_late_catalog_never_replaces_a_project_lookup_or_crosses_connections() {
+    let connection = WriteScope::new();
+    let accounts = || catalog(&[(2, "UNLINKED", "OPEN")]);
+    // In flight or loaded, the project's own result wins.
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    let lookup = state.begin(project(7));
+    let late = BillingCatalog {
+        connection,
+        accounts: accounts(),
+    };
+    assert!(!state.offer_catalog(late).unwrap());
+    assert!(state.choices().is_empty() && state.is_loading());
+    state
+        .loaded(lookup, result(connection, 7, "LINKED", "OPEN"))
+        .unwrap();
+    let late = BillingCatalog {
+        connection,
+        accounts: accounts(),
+    };
+    assert!(!state.offer_catalog(late).unwrap());
+    assert_eq!(keys(&state), ["LINKED"]);
+    // A failed project lookup leaves the project unknown, not a fallback.
+    let failed = state.begin(project(7));
+    assert!(state.failed(failed));
+    assert!(!state.lists_every_account());
+    assert_eq!(keys(&state), ["LINKED"]);
+    // Another connection's catalog is refused and lists nothing.
+    let mut fresh = BillingSelection::new(connection, None).unwrap();
+    let foreign = BillingCatalog {
+        connection: WriteScope::new(),
+        accounts: accounts(),
+    };
+    assert!(matches!(
+        fresh.offer_catalog(foreign),
+        Err(Error::WrongConnection)
+    ));
+    assert!(fresh.choices().is_empty() && !fresh.lists_every_account());
+}
+
+#[test]
+fn a_cleared_or_changed_project_stops_listing_the_fallback() {
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    let lookup = state.begin(project(7));
+    let mut unlinked = result(connection, 7, "LINKED", "OPEN");
+    unlinked.choices.clear();
+    state.loaded(lookup, unlinked).unwrap();
+    assert!(state.lists_every_account());
+    let _next = state.begin(project(8));
+    assert!(!state.lists_every_account() && state.choices().is_empty());
+    state.clear_project();
+    assert!(!state.lists_every_account() && state.choices().is_empty());
 }

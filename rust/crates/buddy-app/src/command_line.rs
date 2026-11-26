@@ -10,6 +10,7 @@ pub enum Command {
     Version,
     #[cfg(windows)]
     ImportElectronTempo,
+    ImportElectronTodoist,
     TerminalHost,
     AutomationHost,
     RalphHost(PathBuf),
@@ -55,6 +56,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, &
         Some("--version" | "-V") => Ok(Command::Version),
         #[cfg(windows)]
         Some("--import-electron-tempo") => Ok(Command::ImportElectronTempo),
+        Some("--import-electron-todoist") => Ok(Command::ImportElectronTodoist),
         Some("--terminal-host") => Ok(Command::TerminalHost),
         Some("--automation-host") => Ok(Command::AutomationHost),
         Some("--ralph-exec") => Ok(Command::RalphExec),
@@ -67,6 +69,9 @@ pub fn print_help() {
         "{}\nUsage: {} [--help | --version]\n\nConfiguration:\n  BUDDY_CONVEX_URL   Convex backend URL\n  BUDDY_CONFIG_PATH  Optional isolated settings file",
         env!("BUDDY_PRODUCT_NAME"),
         env!("BUDDY_BINARY_NAME")
+    );
+    println!(
+        "\nMigration:\n  --import-electron-todoist  Reuse Electron's TODOIST_API_TOKEN in an empty native vault, without opening a window or contacting Todoist"
     );
     #[cfg(windows)]
     println!(
@@ -102,6 +107,19 @@ mod tests {
         );
         let error = parse(["--import-electron-tempo".into(), "private-value".into()]).unwrap_err();
         assert!(!error.contains("private-value"));
+    }
+
+    #[test]
+    fn explicit_todoist_import_never_opens_the_desktop_or_accepts_secrets_in_arguments() {
+        assert_eq!(
+            parse(["--import-electron-todoist".into()]),
+            Ok(Command::ImportElectronTodoist)
+        );
+        let error =
+            parse(["--import-electron-todoist".into(), "private-value".into()]).unwrap_err();
+        assert!(!error.contains("private-value"));
+        // A token-looking argument is never a command or a value.
+        assert!(parse(["private-value".into()]).is_err());
     }
 
     #[test]

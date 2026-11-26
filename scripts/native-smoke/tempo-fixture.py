@@ -21,6 +21,8 @@ JIRA_TOKEN = 'native-fixture-jira-token'
 ACCOUNT = '123456:synthetic-tempo-user'
 ISSUE_ID = 9007199254740995
 PROJECT_ID = 9007199254740997
+UNLINKED_ACCOUNT_ID = 20
+UNLINKED_ACCOUNT_KEY = f'synthetic-billing-{UNLINKED_ACCOUNT_ID}'
 FIRST_ID = 9007199254741993
 NOW = '2026-10-16T16:00:00Z'
 MAX_BODY = 1024 * 1024
@@ -196,8 +198,10 @@ class TempoFixture:
             if path == '/4/accounts':
                 if query != {'limit': ['50'], 'offset': ['0']}:
                     return 400, {'error': 'Synthetic billing catalog pager required'}
+                # Account 20 is open but linked to no project: only an editor
+                # that lists every account before a lookup offers it.
                 accounts = [dict(id=identifier, key=f'synthetic-billing-{identifier}', name=f'Synthetic billing account {identifier}',
-                    global_=identifier == 19, status='CLOSED' if identifier == 18 else 'OPEN') for identifier in (17, 18, 19)
+                    global_=identifier == 19, status='CLOSED' if identifier == 18 else 'OPEN') for identifier in (17, 18, 19, UNLINKED_ACCOUNT_ID)
                     if not (self.missing_billing_account and identifier == 17)]
                 for account in accounts:
                     account['global'] = account.pop('global_')

@@ -57,6 +57,8 @@ impl TempoView {
         self.delete_target = None;
         if issue.is_some() {
             self.lookup_editor(cx);
+        } else {
+            self.load_billing_catalog(cx);
         }
         cx.notify();
     }

@@ -15,6 +15,7 @@ fn details() -> EditorIssue {
             connection: Client::new("synthetic-unused-token").unwrap().write_scope(),
             project: JiraProjectId::parse(11).unwrap(),
             choices: Vec::new(),
+            catalog: Vec::new(),
         },
         capitalization: Ok(None),
     }
@@ -435,6 +436,213 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
                 let value = body(&editor, cx);
                 assert!(value.get("description").is_none());
                 assert_eq!(value["attributes"], serde_json::json!([]));
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+fn account(id: u64, key: &str) -> buddy_core::tempo::BillingAccount {
+    buddy_core::tempo::BillingAccount::new(
+        id,
+        key,
+        &format!("Synthetic billing account {key}"),
+        false,
+        buddy_core::tempo::BillingAccountStatus::Open,
+    )
+    .unwrap()
+}
+/// Tempo's catalog, in its order: one account the project links, one it doesn't.
+fn every_account() -> Vec<buddy_core::tempo::BillingAccount> {
+    vec![account(17, "SYNTH-LINKED"), account(20, "SYNTH-UNLINKED")]
+}
+fn catalog() -> buddy_core::tempo::BillingCatalog {
+    buddy_core::tempo::BillingCatalog {
+        connection: Client::new("synthetic-unused-token").unwrap().write_scope(),
+        accounts: every_account(),
+    }
+}
+/// The lookup result. `linked` is the project's one linked account, if any.
+fn project_lookup(linked: bool) -> EditorIssue {
+    let mut info = details();
+    info.billing.catalog = every_account();
+    if linked {
+        info.billing.choices = vec![buddy_core::tempo::ProjectBillingAccount {
+            account: account(17, "SYNTH-LINKED"),
+            is_default: true,
+        }];
+    }
+    info
+}
+fn listed(editor: &Editor) -> Vec<String> {
+    editor
+        .billing
+        .as_ref()
+        .unwrap()
+        .choices()
+        .iter()
+        .map(|choice| choice.account.key().to_owned())
+        .collect()
+}
+
+#[gpui_kit::test]
+fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_accounts(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        assert!(!cx.has_global::<Runtime>());
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TempoView::new(window, cx);
+                let date = "2026-10-16".parse().unwrap();
+                let author = AccountId::parse("synthetic-user").unwrap();
+                let open = |window: &mut Window, cx: &mut Context<TempoView>| {
+                    let editor = Editor::new(None, date, next_start_time(0), window, cx);
+                    editor
+                        .issue
+                        .update(cx, |field, cx| field.set_value("19", window, cx));
+                    editor
+                };
+
+                // Before a project is known: every account, in Tempo's order,
+                // with nothing chosen. Saving still needs the lookup.
+                let mut editor = open(window, cx);
+                assert!(!editor.accept_catalog(uuid::Uuid::new_v4(), Ok(catalog())));
+                assert!(editor.billing.is_none());
+                assert!(editor.accept_catalog(editor.id, Ok(catalog())));
+                let billing = editor.billing.as_ref().unwrap();
+                assert!(billing.lists_every_account() && billing.project().is_none());
+                assert!(billing.is_unchosen());
+                assert_eq!(listed(&editor), ["SYNTH-LINKED", "SYNTH-UNLINKED"]);
+                assert!(!editor.has_current_issue(cx));
+                assert!(editor.draft(&author, cx).is_err());
+                // A repeated catalog cannot replace the list a person sees.
+                assert!(!editor.accept_catalog(editor.id, Ok(catalog())));
+
+                // A project with links lists only those, with its default.
+                editor
+                    .accept_lookup("19".into(), project_lookup(true), cx)
+                    .unwrap();
+                let billing = editor.billing.as_ref().unwrap();
+                assert!(!billing.lists_every_account());
+                assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
+                assert_eq!(billing.selected_key(), Some("SYNTH-LINKED"));
+                // A late catalog never widens a looked-up project's list.
+                assert!(!editor.accept_catalog(editor.id, Ok(catalog())));
+                assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
+
+                // A project that links no account lists every account, with
+                // no default, and a create still infers its account.
+                let mut editor = open(window, cx);
+                editor
+                    .accept_lookup("19".into(), project_lookup(false), cx)
+                    .unwrap();
+                let billing = editor.billing.as_ref().unwrap();
+                assert!(billing.lists_every_account() && billing.project().is_some());
+                assert!(billing.is_unchosen());
+                assert_eq!(listed(&editor), ["SYNTH-LINKED", "SYNTH-UNLINKED"]);
+                editor
+                    .hours
+                    .update(cx, |field, cx| field.set_value("1", window, cx));
+                let body: Value =
+                    serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap())
+                        .unwrap();
+                assert_eq!(
+                    body["attributes"],
+                    serde_json::json!([{"key": "_Account_", "value": "GEN-DEV"}])
+                );
+                editor
+                    .billing
+                    .as_mut()
+                    .unwrap()
+                    .select(Some("SYNTH-UNLINKED"))
+                    .unwrap();
+                let body: Value =
+                    serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap())
+                        .unwrap();
+                assert_eq!(
+                    body["attributes"],
+                    serde_json::json!([{"key": "_Account_", "value": "SYNTH-UNLINKED"}])
+                );
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+#[gpui_kit::test]
+fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_unlisted_account(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TempoView::new(window, cx);
+                let date = "2026-10-16".parse().unwrap();
+                let open = |window: &mut Window, cx: &mut Context<TempoView>| {
+                    let editor = Editor::new(None, date, next_start_time(0), window, cx);
+                    editor
+                        .issue
+                        .update(cx, |field, cx| field.set_value("19", window, cx));
+                    editor
+                };
+
+                // A failed read is not an empty list: there is no billing
+                // state, and the reason stays until a lookup succeeds.
+                let mut editor = open(window, cx);
+                let problem = "Tempo is limiting requests. Wait before refreshing.";
+                assert!(!editor.accept_catalog(editor.id, Err(problem.into())));
+                assert!(editor.billing.is_none());
+                assert_eq!(editor.catalog_problem.as_deref(), Some(problem));
+                editor
+                    .accept_lookup("19".into(), project_lookup(true), cx)
+                    .unwrap();
+                assert!(editor.catalog_problem.is_none());
+                assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
+
+                // A pick the project doesn't list gives way to its default;
+                // one it lists, or "No billing account", is kept.
+                for (pick, linked, kept) in [
+                    (Some("SYNTH-UNLINKED"), true, Some("SYNTH-LINKED")),
+                    (Some("SYNTH-LINKED"), true, Some("SYNTH-LINKED")),
+                    (None, true, None),
+                    (Some("SYNTH-UNLINKED"), false, Some("SYNTH-UNLINKED")),
+                ] {
+                    let mut editor = open(window, cx);
+                    assert!(editor.accept_catalog(editor.id, Ok(catalog())));
+                    editor.billing.as_mut().unwrap().select(pick).unwrap();
+                    editor
+                        .accept_lookup("19".into(), project_lookup(linked), cx)
+                        .unwrap();
+                    let billing = editor.billing.as_ref().unwrap();
+                    assert_eq!(billing.selected_key(), kept, "{pick:?} {linked}");
+                    assert!(billing.selection_is_listed(), "{pick:?} {linked}");
+                }
+
+                // A reconnect drops a pick made from the old connection's
+                // catalog along with the catalog itself.
+                let mut editor = open(window, cx);
+                assert!(editor.accept_catalog(editor.id, Ok(catalog())));
+                editor
+                    .billing
+                    .as_mut()
+                    .unwrap()
+                    .select(Some("SYNTH-UNLINKED"))
+                    .unwrap();
+                let old = editor.id;
+                editor.invalidate_connection();
+                assert!(editor.billing.is_none());
+                assert!(!editor.accept_catalog(old, Ok(catalog())));
+                editor
+                    .accept_lookup("19".into(), project_lookup(false), cx)
+                    .unwrap();
+                assert!(editor.billing.as_ref().unwrap().is_unchosen());
                 view
             })
         })

@@ -64,6 +64,51 @@ class CaptureFraming(unittest.TestCase):
                 ('capture', 'today-overdue-expanded-dark'), ('content', 'Upcoming')])
 
 
+class ElectronCarryOver(unittest.TestCase):
+    def test_each_import_run_must_print_its_own_static_outcome_and_no_value(self):
+        imported = desktop.CARRY_IMPORTED + ' No service requests were sent.'
+        kept = desktop.CARRY_KEPT + ' No credentials were changed.'
+        desktop.check_carry_outputs(imported, kept)
+        for first, second in ((kept, kept), (imported, imported), ('', kept), (imported, ''),
+                (imported + ' ' + desktop.todoist.TOKEN, kept),
+                (imported, kept + ' ' + desktop.UNREADABLE_REPEAT_TOKEN)):
+            with self.subTest(first=first, second=second):
+                with self.assertRaisesRegex(RuntimeError, 'expected static outcome'):
+                    desktop.check_carry_outputs(first, second)
+
+    def test_the_carry_over_seeds_an_empty_vault_once_then_restores_it(self):
+        source = Path(desktop.__file__).read_text(encoding='utf-8')
+        # The native token validator refuses whitespace, so only a repeat that
+        # never reads the environment can succeed with this value.
+        self.assertRegex(desktop.UNREADABLE_REPEAT_TOKEN, r'\s')
+        self.assertNotEqual(desktop.UNREADABLE_REPEAT_TOKEN, desktop.todoist.TOKEN)
+        order = [source.index(marker) for marker in (
+            "driver.drive('forgotten-restart-light'",
+            "environment(dict(TODOIST_API_TOKEN=todoist.TOKEN))",
+            'carried_token = True',
+            'environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN))',
+            '\n                check_carry_outputs(imported, kept)',
+            "driver.drive('credential-carried-dark'",
+            'finally:\n                # Leave the vault empty',
+            "driver.drive('carried-token-forget-light'",
+        )]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(source.count("'--import-electron-todoist'"), 2)
+        scene = source[order[0]:order[-1]]
+        self.assertIn("('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark')", scene)
+        self.assertIn("absent=('No API token is saved',)", scene)
+        # The forget runs only once the first import has confirmed a token.
+        self.assertIn('if carried_token:', source[order[6]:order[7]])
+        self.assertIn('set_ui(config, ui)', source[order[6]:order[7]])
+
+    def test_set_ui_replaces_only_the_theme_section(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config.json'
+            config.write_text(json.dumps(dict(ui=dict(theme='light', zoom=1), native=dict(activeSection='tasks'))))
+            desktop.set_ui(config, dict(theme='dark'))
+            self.assertEqual(json.loads(config.read_text()), dict(ui=dict(theme='dark'), native=dict(activeSection='tasks')))
+
+
 class FailureScenarios(unittest.TestCase):
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory(prefix='buddy-todoist-scenario-')

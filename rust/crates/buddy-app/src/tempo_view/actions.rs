@@ -61,6 +61,38 @@ impl TempoView {
         }
         self.operate(Operation::Lookup(id, query), cx);
     }
+    /// List every Tempo account in a new draft before its issue is looked up.
+    /// The read shares the session's client but not the session, so the
+    /// draft stays editable while it loads; the result applies only to the
+    /// same draft on the same connection.
+    pub(super) fn load_billing_catalog(&mut self, cx: &mut Context<Self>) {
+        let (Some(editor), Some(connection)) = (&self.editor, &self.connection) else {
+            return;
+        };
+        if !cx.has_global::<Runtime>() {
+            return;
+        }
+        let editor_id = editor.id;
+        let generation = self.generation;
+        let rx = Runtime::global(cx).spawn(connection.session.billing_catalog());
+        cx.spawn(async move |this, cx| {
+            let result = match rx.await {
+                Ok(result) => result.map_err(|e| e.to_string()),
+                Err(_) => Err("The worker stopped before the accounts loaded.".into()),
+            };
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                if let Some(editor) = &mut this.editor {
+                    editor.accept_catalog(editor_id, result);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
     pub(super) fn load_edit(&mut self, id: WorklogId, cx: &mut Context<Self>) {
         if !self.can_submit() || self.editor.is_some() || self.copy_plan.is_some() {
             return;

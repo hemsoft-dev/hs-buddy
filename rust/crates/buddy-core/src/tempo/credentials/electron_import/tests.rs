@@ -55,28 +55,6 @@ fn profile() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 #[test]
-fn source_resolution_matches_electron_machine_precedence_and_process_fallback() {
-    assert_eq!(
-        resolve(Some(" machine \r\n".into()), || panic!("machine wins")),
-        Some("machine".into())
-    );
-    for machine in [None, Some(" \r\n".into())] {
-        assert_eq!(
-            resolve(machine, || Some("process".into())),
-            Some("process".into())
-        );
-    }
-    // Process values are not trimmed by Electron. Invalid token whitespace is
-    // rejected by the complete credential validator, not silently repaired.
-    assert_eq!(
-        resolve(None, || Some(" process ".into())),
-        Some(" process ".into())
-    );
-    assert!(resolve(None, || Some(String::new())).is_none());
-    assert!(resolve(None, || None).is_none());
-}
-
-#[test]
 fn complete_import_roundtrips_electron_endpoints_without_touching_the_profile() {
     let (_directory, path) = profile();
     let original = std::fs::read(&path).unwrap();

@@ -37,6 +37,31 @@ pub struct BillingAccount {
     status: BillingAccountStatus,
 }
 impl BillingAccount {
+    /// The same validation a catalog page applies to each row. A catalog
+    /// still rejects duplicate identities across its rows.
+    pub fn new(
+        id: u64,
+        key: &str,
+        name: &str,
+        global: bool,
+        status: BillingAccountStatus,
+    ) -> Result<Self, Error> {
+        let id = BillingAccountId::parse(id)?;
+        if key.trim().is_empty()
+            || name.trim().is_empty()
+            || !bounded(key, 256, false)
+            || !bounded(name, 1024, false)
+        {
+            return Err(Error::InvalidResponse);
+        }
+        Ok(Self {
+            id,
+            key: key.to_owned(),
+            name: name.to_owned(),
+            global,
+            status,
+        })
+    }
     pub fn id(&self) -> BillingAccountId {
         self.id
     }
@@ -140,23 +165,11 @@ impl AccountPages {
             return Err(Error::InvalidResponse);
         }
         for raw in page.results {
-            let id = BillingAccountId::parse(raw.id)?;
-            if raw.key.trim().is_empty()
-                || raw.name.trim().is_empty()
-                || !bounded(&raw.key, 256, false)
-                || !bounded(&raw.name, 1024, false)
-                || !self.ids.insert(id)
-                || !self.keys.insert(raw.key.clone())
-            {
+            let account = BillingAccount::new(raw.id, &raw.key, &raw.name, raw.global, raw.status)?;
+            if !self.ids.insert(account.id) || !self.keys.insert(raw.key) {
                 return Err(Error::InvalidResponse);
             }
-            self.rows.push(BillingAccount {
-                id,
-                key: raw.key,
-                name: raw.name,
-                global: raw.global,
-                status: raw.status,
-            });
+            self.rows.push(account);
         }
         self.pages += 1;
         if let Some(offset) = next {

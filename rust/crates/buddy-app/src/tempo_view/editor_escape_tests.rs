@@ -44,6 +44,7 @@ fn open_editor(view: &mut TempoView, edit: bool, window: &mut Window, cx: &mut C
                     connection: Client::new("synthetic-unused-token").unwrap().write_scope(),
                     project: JiraProjectId::parse(11).unwrap(),
                     choices: Vec::new(),
+                    catalog: Vec::new(),
                 },
                 capitalization: Ok(None),
             },

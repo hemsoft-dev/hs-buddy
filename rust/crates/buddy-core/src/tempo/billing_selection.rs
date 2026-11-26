@@ -2,8 +2,8 @@
 use uuid::Uuid;
 
 use super::{
-    BillingAccountStatus, Error, JiraProjectId, ProjectBillingAccount, ProjectBillingAccounts,
-    WriteScope, bounded,
+    BillingAccount, BillingAccountStatus, BillingCatalog, Error, JiraProjectId,
+    ProjectBillingAccount, ProjectBillingAccounts, WriteScope, bounded,
 };
 
 /// Opaque correlation, not a provider idempotency key or a dispatch permission.
@@ -27,6 +27,8 @@ pub struct BillingSelection {
     selected: Option<String>,
     manual: bool,
     choices: Vec<ProjectBillingAccount>,
+    /// The choices are the complete catalog, not a project's linked accounts.
+    every_account: bool,
 }
 impl BillingSelection {
     pub fn new(connection: WriteScope, initial: Option<&str>) -> Result<Self, Error> {
@@ -38,6 +40,7 @@ impl BillingSelection {
             manual: selected.is_some(),
             selected,
             choices: Vec::new(),
+            every_account: false,
         })
     }
     /// An existing worklog with no billing account must remain unassigned too.
@@ -86,16 +89,38 @@ impl BillingSelection {
     pub fn choices(&self) -> &[ProjectBillingAccount] {
         &self.choices
     }
+    /// Whether the choices are every Tempo account: before a project is
+    /// known, or for a project that links no account, as in Electron.
+    pub fn lists_every_account(&self) -> bool {
+        self.every_account
+    }
+    /// Whether a person may keep `key` here. No billing account always is.
+    pub fn lists(&self, key: Option<&str>) -> bool {
+        key.is_none_or(|key| {
+            self.choices
+                .iter()
+                .any(|choice| choice.account.key() == key)
+        })
+    }
+    /// List every account while no project is known. False means a project
+    /// lookup began, so its own choices (or their absence) win.
+    pub fn offer_catalog(&mut self, catalog: BillingCatalog) -> Result<bool, Error> {
+        if self.project.is_some() || self.pending.is_some() {
+            return Ok(false);
+        }
+        if catalog.connection != self.connection {
+            return Err(Error::WrongConnection);
+        }
+        self.choices = every_account(catalog.accounts);
+        self.every_account = true;
+        Ok(true)
+    }
     pub fn is_loading(&self) -> bool {
         self.pending.is_some()
     }
     /// Preserve an unavailable existing account so an edit never silently clears it.
     pub fn selection_is_listed(&self) -> bool {
-        self.selected.as_deref().is_none_or(|key| {
-            self.choices
-                .iter()
-                .any(|choice| choice.account.key() == key)
-        })
+        self.lists(self.selected.as_deref())
     }
     pub fn select(&mut self, value: Option<&str>) -> Result<(), Error> {
         let selected = selection(value)?;
@@ -106,6 +131,7 @@ impl BillingSelection {
     pub fn begin(&mut self, project: JiraProjectId) -> BillingLookup {
         if self.project != Some(project) {
             self.choices.clear();
+            self.every_account = false;
             if !self.manual {
                 self.selected = None;
             }
@@ -123,6 +149,7 @@ impl BillingSelection {
         self.project = None;
         self.pending = None;
         self.choices.clear();
+        self.every_account = false;
         if !self.manual {
             self.selected = None;
         }
@@ -164,9 +191,26 @@ impl BillingSelection {
                 })
                 .map(|choice| choice.account.key().to_owned());
         }
-        self.choices = result.choices;
+        // A project with no linked accounts falls back to every account, as
+        // Electron does. That list has no project default.
+        self.every_account = result.choices.is_empty();
+        self.choices = if self.every_account {
+            every_account(result.catalog)
+        } else {
+            result.choices
+        };
         Ok(true)
     }
+}
+
+fn every_account(accounts: Vec<BillingAccount>) -> Vec<ProjectBillingAccount> {
+    accounts
+        .into_iter()
+        .map(|account| ProjectBillingAccount {
+            account,
+            is_default: false,
+        })
+        .collect()
 }
 
 /// Electron's `inferTempoAccount`: the INT project bills INT, any other

@@ -181,11 +181,15 @@ impl Client {
                 project,
                 self.origin,
             )?;
-            let choices = links.resolve(self.billing_accounts().await?)?;
+            // One catalog read resolves the links and is kept whole for the
+            // editor's fallback list. No second account request is made.
+            let catalog = self.billing_accounts().await?;
+            let choices = links.resolve(&catalog)?;
             Ok(super::ProjectBillingAccounts {
                 connection: self.scope,
                 project,
                 choices,
+                catalog,
             })
         })
         .await

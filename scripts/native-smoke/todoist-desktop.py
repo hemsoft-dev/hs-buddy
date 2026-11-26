@@ -154,6 +154,26 @@ def check_task(api, identifier, **expected):
             raise RuntimeError(f'Todoist UI did not apply the expected synthetic {key}')
 
 
+CARRY_IMPORTED = "Electron Todoist token imported into this profile's protected store."
+CARRY_KEPT = 'The existing native Todoist token was kept.'
+# Spaces make it a value the import could never save, so a repeat succeeds
+# only by keeping the native token without reading the environment.
+UNREADABLE_REPEAT_TOKEN = 'synthetic repeat value never read'
+
+
+def set_ui(config, ui):
+    value = json.loads(config.read_text())
+    value['ui'] = dict(ui)
+    config.write_text(json.dumps(value), encoding='utf-8')
+
+
+def check_carry_outputs(imported, kept):
+    """Each run printed its own static outcome and neither value."""
+    for text, expected in ((imported, CARRY_IMPORTED), (kept, CARRY_KEPT)):
+        if expected not in text or todoist.TOKEN in text or UNREADABLE_REPEAT_TOKEN in text:
+            raise RuntimeError('The Electron Todoist import did not report its expected static outcome')
+
+
 def captures(output):
     result = []
     for path in sorted(output.glob('*/*.png')):
@@ -386,6 +406,40 @@ def qualify(executable, output, session, version, backend):
             if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
                 raise RuntimeError('Removing the local credential changed service tasks')
 
+            # Electron keeps no Todoist store of its own: it reads
+            # TODOIST_API_TOKEN. The explicit headless import carries that
+            # value into this now-empty native vault once, and the next
+            # launch connects with it. The capture uses the dark theme.
+            ui = json.loads(config.read_text())['ui']
+            dark = json.loads(fixture(output / 'dark-template', 'dark').read_text())['ui']
+            carried_token = False
+            try:
+                set_ui(config, dark)
+                with environment(dict(TODOIST_API_TOKEN=todoist.TOKEN)):
+                    imported = settings.run(executable, '--import-electron-todoist')
+                carried_token = True
+                # The vault now holds a token, so a repeat keeps it without
+                # reading the environment: even a value that could never be
+                # saved succeeds, and nothing is sent anywhere.
+                with environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN)):
+                    kept = settings.run(executable, '--import-electron-todoist')
+                check_carry_outputs(imported, kept)
+                carried = driver.drive('credential-carried-dark', [
+                    ('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark'),
+                ])
+                github.check(carried / 'todoist-credential-carried-dark.png', 'Synthetic today task',
+                    absent=('No API token is saved',))
+                if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
+                    raise RuntimeError('Carrying the Electron token over changed service tasks')
+            finally:
+                # Leave the vault empty and the light theme, as before.
+                set_ui(config, ui)
+                if carried_token:
+                    driver.drive('carried-token-forget-light', [
+                        ('wait_text', 'Synthetic today task'), ('content', 'Connection'),
+                        ('content', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'),
+                    ])
+
             for path in output.glob('*/app.log'):
                 text = path.read_text(encoding='utf-8', errors='replace')
                 if any(private in text for private in (todoist.TOKEN, 'Synthetic created task', 'Synthetic undated task')):
@@ -412,6 +466,7 @@ def qualify(executable, output, session, version, backend):
                 realOsCredentialStore=True, secureTokenSurvivedProcessRestart=True,
                 secureTokenRemovalVerifiedAfterRestart=True,
                 initialConnectionErrorRecheckedWithoutTokenEntry=True,
+                electronTokenCarriedOnce=True, carriedTokenKeptWithoutRereading=True,
                 expiredAndOfflineReadRetainedTasks=True, privateTraceContentAbsent=True,
                 dataSource='Owned numeric loopback Todoist fixture and isolated anonymous Convex')
         except BaseException as failure:

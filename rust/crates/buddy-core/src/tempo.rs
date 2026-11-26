@@ -54,7 +54,7 @@ pub use mutation::{WriteAttempt, WriteOutcome, WritePhase, WriteRequest, WriteSc
 pub use origin::ApiOrigin;
 pub use paging::{READ_PAGE_SIZE, ReadPages};
 pub use planner::{Planner, PlannerError, Snapshot};
-pub use project_accounts::{ProjectBillingAccount, ProjectBillingAccounts};
+pub use project_accounts::{BillingCatalog, ProjectBillingAccount, ProjectBillingAccounts};
 pub use ranges::{DateRange, DayTotal, SummaryDay, TimesheetSummary, day_totals, summarize};
 pub use session::{
     CopyPlan, CopyReport, EditorIssue, IssueSummary, Session, SessionError, Templates,

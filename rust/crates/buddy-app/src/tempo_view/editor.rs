@@ -1,6 +1,6 @@
 use super::*;
 use buddy_core::tempo::{
-    AccountId, BillingSelection, Draft, EditorIssue, JiraError, JiraIssue, Worklog,
+    AccountId, BillingCatalog, BillingSelection, Draft, EditorIssue, JiraError, JiraIssue, Worklog,
     create_description, inferred_account,
 };
 use jiff::civil::{Date, Time};
@@ -26,6 +26,9 @@ pub(super) struct Editor {
     pub capitalization: Option<Result<Option<bool>, JiraError>>,
     resolved_query: Option<String>,
     retained_billing: Option<Option<String>>,
+    /// Why every account could not be listed before a lookup. The list then
+    /// stays unknown instead of looking empty.
+    catalog_problem: Option<String>,
 }
 impl Editor {
     pub fn new(
@@ -131,6 +134,7 @@ impl Editor {
             capitalization: None,
             resolved_query: None,
             retained_billing: None,
+            catalog_problem: None,
         }
     }
     pub fn from_template(
@@ -159,16 +163,53 @@ impl Editor {
     pub fn invalidate_connection(&mut self) {
         // Only a choice survives: an unchosen account is inferred again and a
         // project default comes from the fresh lookup, never a stale one.
+        // A pick from every account, made before any project was known, is
+        // client-bound like the catalog it came from.
         if let Some(billing) = &self.billing {
-            self.retained_billing = billing
-                .is_chosen()
+            self.retained_billing = (billing.is_chosen() && billing.project().is_some())
                 .then(|| billing.selected_key().map(str::to_owned));
         }
+        self.catalog_problem = None;
         self.id = uuid::Uuid::new_v4();
         self.resolved = None;
         self.resolved_query = None;
         self.billing = None;
         self.capitalization = None;
+    }
+    /// Every account, offered until a lookup narrows the list, as Electron's
+    /// editor lists `tempo:get-accounts` before a project is known. A late
+    /// or foreign catalog changes nothing; a failed read keeps the list
+    /// unknown. True means this draft now lists every account.
+    pub fn accept_catalog(
+        &mut self,
+        editor_id: uuid::Uuid,
+        result: Result<BillingCatalog, String>,
+    ) -> bool {
+        if editor_id != self.id || self.billing.is_some() || self.resolved.is_some() {
+            return false;
+        }
+        let catalog = match result {
+            Ok(catalog) => catalog,
+            Err(error) => {
+                self.catalog_problem = Some(error);
+                return false;
+            }
+        };
+        let offered = BillingSelection::new(catalog.connection, None).and_then(|mut billing| {
+            billing.offer_catalog(catalog)?;
+            Ok(billing)
+        });
+        match offered {
+            Ok(billing) => {
+                self.catalog_problem = None;
+                self.billing = Some(billing);
+                true
+            }
+            Err(error) => {
+                self.catalog_problem = Some(error.to_string());
+                false
+            }
+        }
     }
     pub fn accept_lookup(
         &mut self,
@@ -203,6 +244,14 @@ impl Editor {
         {
             self.retained_billing = Some(previous.selected_key().map(str::to_owned));
         }
+        // A pick from every account, made before any project was known,
+        // stays only where the project still lists it. Otherwise the
+        // project's own default applies, as when Electron's issue key changes.
+        let provisional = self
+            .billing
+            .as_ref()
+            .filter(|previous| previous.is_chosen() && previous.project().is_none())
+            .map(|previous| previous.selected_key().map(str::to_owned));
         let mut billing = if self.original.is_some() {
             BillingSelection::for_edit(info.billing.connection, initial)
         } else {
@@ -222,8 +271,15 @@ impl Editor {
             billing
                 .select(selected.as_deref())
                 .map_err(|e| e.to_string())?;
+        } else if let Some(selected) = provisional
+            && billing.lists(selected.as_deref())
+        {
+            billing
+                .select(selected.as_deref())
+                .map_err(|e| e.to_string())?;
         }
         self.retained_billing = None;
+        self.catalog_problem = None;
         self.billing = Some(billing);
         self.resolved = Some(info.issue);
         self.capitalization = Some(info.capitalization);
@@ -526,6 +582,13 @@ impl Editor {
                     .w(zpx(320.))
                     .child(Input::new(&self.billing_filter).disabled(busy)),
             );
+            if billing.lists_every_account() {
+                body = body.child(div().whitespace_normal().child(if billing.project().is_some() {
+                    "This project links no billing account, so every Tempo account is listed."
+                } else {
+                    "Every Tempo account is listed until the issue lookup narrows it to the project's accounts."
+                }));
+            }
             if !billing.selection_is_listed() {
                 body=body.child(div().whitespace_normal().child(format!("The existing account {} is unavailable. It will be preserved unless you explicitly choose another account.",billing.selected_key().unwrap_or_default())));
             }
@@ -616,6 +679,11 @@ impl Editor {
                 );
             }
         } else {
+            if let Some(problem) = &self.catalog_problem {
+                body = body.child(div().whitespace_normal().child(format!(
+                    "Every Tempo account could not be listed. {problem}"
+                )));
+            }
             body = body.child(
                 div()
                     .whitespace_normal()
