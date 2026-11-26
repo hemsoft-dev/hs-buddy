@@ -29,6 +29,10 @@ pub struct BillingSelection {
     choices: Vec<ProjectBillingAccount>,
     /// The choices are the complete catalog, not a project's linked accounts.
     every_account: bool,
+    /// An edit's existing account (`Some(None)`: it has none). It stays
+    /// sendable even when the project no longer offers it, so an edit never
+    /// silently changes it. A create has no existing account.
+    existing: Option<Option<String>>,
 }
 impl BillingSelection {
     pub fn new(connection: WriteScope, initial: Option<&str>) -> Result<Self, Error> {
@@ -41,12 +45,14 @@ impl BillingSelection {
             selected,
             choices: Vec::new(),
             every_account: false,
+            existing: None,
         })
     }
     /// An existing worklog with no billing account must remain unassigned too.
     pub fn for_edit(connection: WriteScope, initial: Option<&str>) -> Result<Self, Error> {
         let mut state = Self::new(connection, initial)?;
         state.manual = true;
+        state.existing = Some(state.selected.clone());
         Ok(state)
     }
     pub fn selected_key(&self) -> Option<&str> {
@@ -63,13 +69,38 @@ impl BillingSelection {
         self.manual
     }
     /// The account a new worklog sends. As in the Electron app, a create with
-    /// no chosen account takes the account inferred from its issue key.
-    pub fn create_account<'a>(&'a self, issue_key: &str) -> Option<&'a str> {
+    /// no chosen account takes the account inferred from its issue key. A
+    /// chosen account the current list doesn't offer is refused, never sent.
+    pub fn create_account<'a>(&'a self, issue_key: &str) -> Result<Option<&'a str>, Error> {
         if self.is_unchosen() {
-            self.inferred_create_account(issue_key)
+            Ok(self.inferred_create_account(issue_key))
         } else {
-            self.selected_key()
+            self.sendable_key()
         }
+    }
+    /// The chosen account, if the current list offers it (see `offers`).
+    pub fn sendable_key(&self) -> Result<Option<&str>, Error> {
+        let key = self.selected_key();
+        if self.offers(key) {
+            Ok(key)
+        } else {
+            Err(Error::UnavailableBillingAccount)
+        }
+    }
+    /// Whether a worklog may send `key`: no billing account, an edit's
+    /// existing account, or an account the current list has as open. Every
+    /// earlier pick a lookup keeps, and every account a save sends, passes
+    /// this one check.
+    pub fn offers(&self, key: Option<&str>) -> bool {
+        let Some(key) = key else {
+            return true;
+        };
+        self.existing
+            .as_ref()
+            .is_some_and(|existing| existing.as_deref() == Some(key))
+            || self.choices.iter().any(|choice| {
+                choice.account.key() == key && choice.account.status() == BillingAccountStatus::Open
+            })
     }
     /// The inferred account, unless the project lists it as closed or
     /// archived: nobody may choose such an account, so inference doesn't
@@ -182,15 +213,6 @@ impl BillingSelection {
         if Some(result.project) != self.project {
             return Err(Error::WrongScope);
         }
-        if !self.manual {
-            self.selected = result
-                .choices
-                .iter()
-                .find(|choice| {
-                    choice.is_default && choice.account.status() == BillingAccountStatus::Open
-                })
-                .map(|choice| choice.account.key().to_owned());
-        }
         // A project with no linked accounts falls back to every account, as
         // Electron does. That list has no project default.
         self.every_account = result.choices.is_empty();
@@ -199,6 +221,29 @@ impl BillingSelection {
         } else {
             result.choices
         };
+        // A pick made before this lookup (from every account, an earlier
+        // lookup, a template or a person) stays only where this list has it
+        // as open. Otherwise the draft falls back exactly as a fresh one
+        // would: an edit to its existing account, a create to the project's
+        // default or to no choice.
+        if self.manual && !self.offers(self.selected.as_deref()) {
+            match &self.existing {
+                Some(existing) => self.selected = existing.clone(),
+                None => {
+                    self.manual = false;
+                    self.selected = None;
+                }
+            }
+        }
+        if !self.manual {
+            self.selected = self
+                .choices
+                .iter()
+                .find(|choice| {
+                    choice.is_default && choice.account.status() == BillingAccountStatus::Open
+                })
+                .map(|choice| choice.account.key().to_owned());
+        }
         Ok(true)
     }
 }

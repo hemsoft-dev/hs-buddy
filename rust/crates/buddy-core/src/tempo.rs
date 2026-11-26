@@ -84,10 +84,12 @@ pub enum Error {
     WriteBlocked,
     InvalidRecovery,
     CopyLimit,
+    UnavailableBillingAccount,
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
+            Self::UnavailableBillingAccount => "Choose an open billing account from the current list, or No billing account. The draft is retained.",
             Self::CopyLimit => "Copy fewer worklogs at once. This selection exceeds the supported size.",
             Self::InvalidRecovery => "This saved Tempo change cannot be recovered. Keep it for inspection and do not resend it.",
             Self::WrongConnection => "This worklog change belongs to a different Tempo connection. Return to its original connection before continuing.",

@@ -244,7 +244,15 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
                     assert_eq!(editor.date.read(cx).value(), "2026-11-05");
                     assert_eq!(editor.start.read(cx).value(), "09:15:01");
                     assert!(!editor.has_current_issue(cx));
-                    editor.accept_lookup("19".into(), details(), cx).unwrap();
+                    // The template's account stays where the project offers it.
+                    let mut info = details();
+                    if let Some(key) = selected {
+                        info.billing.choices = vec![buddy_core::tempo::ProjectBillingAccount {
+                            account: account(30, key),
+                            is_default: false,
+                        }];
+                    }
+                    editor.accept_lookup("19".into(), info, cx).unwrap();
                     assert_eq!(editor.billing.as_ref().unwrap().selected_key(), selected);
                     let draft = editor.draft(&source.author, cx).unwrap();
                     assert_eq!(draft.kind(), buddy_core::tempo::DraftKind::Create);
@@ -267,6 +275,22 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
                     assert_eq!(source.seconds, 90061);
                     assert_eq!(source.date.to_string(), "2026-10-16");
                 }
+                // A template account the project doesn't offer gives way, as
+                // in a fresh draft: unchosen, so the create infers one.
+                let source = worklog();
+                let date = "2026-11-05".parse().unwrap();
+                let mut editor =
+                    Editor::from_template(&source, date, next_start_time(0), window, cx).unwrap();
+                editor.accept_lookup("19".into(), details(), cx).unwrap();
+                assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                let body: Value = serde_json::from_slice(
+                    &editor.draft(&source.author, cx).unwrap().encode().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    body["attributes"],
+                    serde_json::json!([{"key": "_Account_", "value": "GEN-DEV"}])
+                );
                 view
             })
         })
@@ -444,12 +468,19 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
 }
 
 fn account(id: u64, key: &str) -> buddy_core::tempo::BillingAccount {
+    account_with(id, key, buddy_core::tempo::BillingAccountStatus::Open)
+}
+fn account_with(
+    id: u64,
+    key: &str,
+    status: buddy_core::tempo::BillingAccountStatus,
+) -> buddy_core::tempo::BillingAccount {
     buddy_core::tempo::BillingAccount::new(
         id,
         key,
         &format!("Synthetic billing account {key}"),
         false,
-        buddy_core::tempo::BillingAccountStatus::Open,
+        status,
     )
     .unwrap()
 }
@@ -643,6 +674,220 @@ fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_u
                     .accept_lookup("19".into(), project_lookup(false), cx)
                     .unwrap();
                 assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+/// The project links SYNTH-LINKED (its default) and SYNTH-UNLINKED with `status`.
+fn both_linked(status: buddy_core::tempo::BillingAccountStatus) -> EditorIssue {
+    let mut info = project_lookup(true);
+    info.billing
+        .choices
+        .push(buddy_core::tempo::ProjectBillingAccount {
+            account: account_with(20, "SYNTH-UNLINKED", status),
+            is_default: false,
+        });
+    info
+}
+fn sent_account(editor: &Editor, cx: &Context<TempoView>) -> Value {
+    let author = AccountId::parse("synthetic-user").unwrap();
+    let body: Value =
+        serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap()).unwrap();
+    body["attributes"].clone()
+}
+
+#[gpui_kit::test]
+fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_open(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use buddy_core::tempo::BillingAccountStatus::{Archived, Closed, Open};
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TempoView::new(window, cx);
+                let date = "2026-10-16".parse().unwrap();
+                let open = |window: &mut Window, cx: &mut Context<TempoView>| {
+                    let editor = Editor::new(None, date, next_start_time(0), window, cx);
+                    editor.issue.update(cx, |field, cx| {
+                        field.set_value("19", window, cx);
+                    });
+                    editor
+                        .hours
+                        .update(cx, |field, cx| field.set_value("1", window, cx));
+                    editor
+                };
+                let linked = serde_json::json!([{"key": "_Account_", "value": "SYNTH-LINKED"}]);
+                let unlinked = serde_json::json!([{"key": "_Account_", "value": "SYNTH-UNLINKED"}]);
+
+                // A project with no links lists every account; a pick from
+                // that list is dropped when the same project, looked up
+                // again, now links accounts that exclude it.
+                let mut editor = open(window, cx);
+                editor
+                    .accept_lookup("19".into(), project_lookup(false), cx)
+                    .unwrap();
+                editor
+                    .billing
+                    .as_mut()
+                    .unwrap()
+                    .select(Some("SYNTH-UNLINKED"))
+                    .unwrap();
+                assert_eq!(sent_account(&editor, cx), unlinked);
+                editor
+                    .accept_lookup("19".into(), project_lookup(true), cx)
+                    .unwrap();
+                let billing = editor.billing.as_ref().unwrap();
+                assert_eq!(billing.selected_key(), Some("SYNTH-LINKED"));
+                assert!(!billing.is_chosen(), "the project default, not a choice");
+                assert_eq!(sent_account(&editor, cx), linked);
+
+                // The same through a connection recheck, and for each way an
+                // account stops being open: dropped to the project default.
+                // An account still open and listed is kept.
+                for (status, kept) in [(Closed, false), (Archived, false), (Open, true)] {
+                    let mut editor = open(window, cx);
+                    editor
+                        .accept_lookup("19".into(), both_linked(Open), cx)
+                        .unwrap();
+                    editor
+                        .billing
+                        .as_mut()
+                        .unwrap()
+                        .select(Some("SYNTH-UNLINKED"))
+                        .unwrap();
+                    for recheck in [false, true] {
+                        if recheck {
+                            editor.invalidate_connection();
+                        }
+                        editor
+                            .accept_lookup("19".into(), both_linked(status), cx)
+                            .unwrap();
+                        let expected = if kept { &unlinked } else { &linked };
+                        assert_eq!(&sent_account(&editor, cx), expected, "{recheck}");
+                        if !kept {
+                            // Put the pick back for the recheck round.
+                            editor
+                                .billing
+                                .as_mut()
+                                .unwrap()
+                                .select(Some("SYNTH-UNLINKED"))
+                                .unwrap();
+                            assert!(
+                                editor
+                                    .draft(&AccountId::parse("synthetic-user").unwrap(), cx)
+                                    .is_err()
+                            );
+                        }
+                    }
+                }
+
+                // A pick from the pre-lookup catalog that the lookup returns
+                // closed or archived is dropped; still open, it is kept.
+                for (status, kept) in [(Closed, false), (Archived, false), (Open, true)] {
+                    let mut editor = open(window, cx);
+                    assert!(editor.accept_catalog(editor.id, Ok(catalog())));
+                    editor
+                        .billing
+                        .as_mut()
+                        .unwrap()
+                        .select(Some("SYNTH-UNLINKED"))
+                        .unwrap();
+                    editor
+                        .accept_lookup("19".into(), both_linked(status), cx)
+                        .unwrap();
+                    let expected = if kept { &unlinked } else { &linked };
+                    assert_eq!(&sent_account(&editor, cx), expected);
+                }
+
+                // The last guard: a chosen account the current list doesn't
+                // offer as open is refused, whatever chose it.
+                let mut editor = open(window, cx);
+                editor
+                    .accept_lookup("19".into(), both_linked(Closed), cx)
+                    .unwrap();
+                for refused in ["SYNTH-UNLINKED", "SYNTH-GONE"] {
+                    editor
+                        .billing
+                        .as_mut()
+                        .unwrap()
+                        .select(Some(refused))
+                        .unwrap();
+                    let error = editor
+                        .draft(&AccountId::parse("synthetic-user").unwrap(), cx)
+                        .err()
+                        .unwrap();
+                    assert!(error.contains("open billing account"), "{error}");
+                }
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+#[gpui_kit::test]
+fn a_catalog_arriving_during_or_after_an_issue_lookup_is_ignored(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = TempoView::new(window, cx);
+                let date = "2026-10-16".parse().unwrap();
+                for (succeeds, result) in [
+                    (false, Ok(catalog())),
+                    (false, Err("Tempo is limiting requests.".to_owned())),
+                    (true, Ok(catalog())),
+                ] {
+                    let editor = Editor::new(None, date, next_start_time(0), window, cx);
+                    editor
+                        .issue
+                        .update(cx, |field, cx| field.set_value("19", window, cx));
+                    let id = editor.id;
+                    view.editor = Some(editor);
+                    let lookup = Operation::Lookup(id, "19".into());
+                    view.begin(&lookup, None);
+                    // During the lookup: neither a list nor its problem lands.
+                    let late = || match &result {
+                        Ok(_) => Ok(catalog()),
+                        Err(error) => Err(error.clone()),
+                    };
+                    let editor = view.editor.as_mut().unwrap();
+                    assert!(!editor.accept_catalog(id, late()));
+                    assert!(editor.billing.is_none() && editor.catalog_problem.is_none());
+                    if succeeds {
+                        view.settle(
+                            Ok(actions::Update::Lookup(Box::new((
+                                id,
+                                "19".into(),
+                                project_lookup(true),
+                            )))),
+                            cx,
+                        );
+                        assert!(view.error.is_none());
+                    } else {
+                        view.settle(Err("The issue lookup failed.".into()), cx);
+                        assert_eq!(view.error.as_deref(), Some("The issue lookup failed."));
+                    }
+                    // After it: still ignored. A failed lookup shows its
+                    // error and no list; a successful one keeps the project's.
+                    let editor = view.editor.as_mut().unwrap();
+                    assert!(!editor.accept_catalog(id, late()));
+                    assert!(editor.catalog_problem.is_none());
+                    if succeeds {
+                        assert_eq!(listed(editor), ["SYNTH-LINKED"]);
+                    } else {
+                        assert!(editor.billing.is_none());
+                    }
+                    assert!(!view.busy);
+                }
                 view
             })
         })

@@ -3,6 +3,7 @@ import http.client
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -84,22 +85,83 @@ class ElectronCarryOver(unittest.TestCase):
         self.assertNotEqual(desktop.UNREADABLE_REPEAT_TOKEN, desktop.todoist.TOKEN)
         order = [source.index(marker) for marker in (
             "driver.drive('forgotten-restart-light'",
-            "environment(dict(TODOIST_API_TOKEN=todoist.TOKEN))",
-            'carried_token = True',
-            'environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN))',
-            '\n                check_carry_outputs(imported, kept)',
-            "driver.drive('credential-carried-dark'",
-            'finally:\n                # Leave the vault empty',
-            "driver.drive('carried-token-forget-light'",
+            "('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark')",
+            '\n            carry_over(executable, driver, config, dark, check_carried)',
         )]
         self.assertEqual(order, sorted(order))
         self.assertEqual(source.count("'--import-electron-todoist'"), 2)
-        scene = source[order[0]:order[-1]]
-        self.assertIn("('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark')", scene)
-        self.assertIn("absent=('No API token is saved',)", scene)
-        # The forget runs only once the first import has confirmed a token.
-        self.assertIn('if carried_token:', source[order[6]:order[7]])
-        self.assertIn('set_ui(config, ui)', source[order[6]:order[7]])
+        self.assertIn("absent=('No API token is saved',)", source[order[0]:order[-1]])
+
+    def carry(self, runs, drives=(), check=None):
+        """Run carry_over against mocks. Returns (driver, config, environments, error)."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = Path(directory.name) / 'config.json'
+        config.write_text(json.dumps(dict(ui=dict(theme='light'))))
+        environments = []
+
+        def run(executable, argument):
+            self.assertEqual(json.loads(config.read_text())['ui'], dict(theme='dark'))
+            environments.append(desktop.os.environ.get('TODOIST_API_TOKEN'))
+            result = runs.pop(0)
+            if isinstance(result, BaseException):
+                raise result
+            return result
+        driver = Mock()
+        driver.drive.side_effect = list(drives) or None
+        error = None
+        with patch.object(desktop.settings, 'run', side_effect=run):
+            try:
+                desktop.carry_over('buddy', driver, config, dict(theme='dark'), check or Mock())
+            except BaseException as raised:
+                error = raised
+        self.assertEqual(json.loads(config.read_text())['ui'], dict(theme='light'))
+        return driver, environments, error
+
+    def test_a_confirmed_carry_over_forgets_through_the_connected_view(self):
+        check = Mock()
+        driver, environments, error = self.carry(
+            [desktop.CARRY_IMPORTED, desktop.CARRY_KEPT], check=check)
+        self.assertIsNone(error)
+        self.assertEqual(environments, [desktop.todoist.TOKEN, desktop.UNREADABLE_REPEAT_TOKEN])
+        check.assert_called_once_with()
+        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['carried-token-forget-light'])
+        self.assertEqual(driver.drive.call_args.args[1][-2:], list(desktop.FORGET_STEPS))
+
+    def test_a_failed_read_back_after_the_write_still_forgets_the_token(self):
+        # Exit 1 after the vault write: settings.run raises before the import
+        # is confirmed, yet the synthetic token may be stored.
+        failed = subprocess.CalledProcessError(1, 'buddy')
+        driver, environments, error = self.carry([failed])
+        self.assertIs(error, failed)
+        self.assertEqual(environments, [desktop.todoist.TOKEN])
+        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['unconfirmed-token-forget-light'])
+        # The connection form is tried when the launch shows no tasks.
+        driver, _, error = self.carry([RuntimeError('import exited 1')], drives=[RuntimeError('no tasks'), None])
+        self.assertIsInstance(error, RuntimeError)
+        self.assertEqual(str(error), 'import exited 1')
+        self.assertEqual([call.args[0] for call in driver.drive.call_args_list],
+            ['unconfirmed-token-forget-light', 'unconfirmed-token-forget-form-light'])
+        self.assertEqual(driver.drive.call_args.args[1], list(desktop.FORGET_STEPS))
+
+    def test_a_failed_forget_cannot_hide_the_import_failure(self):
+        driver, _, error = self.carry([RuntimeError('import exited 1')],
+            drives=[RuntimeError('no tasks'), RuntimeError('no form')])
+        self.assertEqual(str(error), 'import exited 1')
+        self.assertEqual(driver.drive.call_count, 2)
+        # Without an earlier failure, a failed forget fails the run.
+        driver, _, error = self.carry([desktop.CARRY_IMPORTED, desktop.CARRY_KEPT],
+            drives=[RuntimeError('forget failed')])
+        self.assertEqual(str(error), 'forget failed')
+
+    def test_a_failure_before_any_import_never_drives_a_forget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config.json'
+            config.write_text('not json')
+            driver = Mock()
+            with self.assertRaises(ValueError):
+                desktop.carry_over('buddy', driver, config, dict(theme='dark'), Mock())
+            driver.drive.assert_not_called()
 
     def test_set_ui_replaces_only_the_theme_section(self):
         with tempfile.TemporaryDirectory() as directory:

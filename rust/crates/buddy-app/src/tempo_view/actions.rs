@@ -212,6 +212,12 @@ impl TempoView {
     /// in-flight state is the operation's own. `pending` is the captured
     /// change that `Operation::RetryPrepared` sends.
     pub(super) fn begin(&mut self, operation: &Operation, pending: Option<&Draft>) {
+        if let Operation::Lookup(id, _) = operation
+            && let Some(editor) = &mut self.editor
+            && editor.id == *id
+        {
+            editor.lookup_beginning();
+        }
         self.busy = true;
         self.deleting = deletes(operation, pending);
         self.error = None;

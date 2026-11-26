@@ -29,6 +29,10 @@ pub(super) struct Editor {
     /// Why every account could not be listed before a lookup. The list then
     /// stays unknown instead of looking empty.
     catalog_problem: Option<String>,
+    /// An issue lookup began for this draft. From then on the project's own
+    /// result (or its failure) decides the list, so a late catalog is
+    /// ignored even while the lookup is still in flight.
+    lookup_began: bool,
 }
 impl Editor {
     pub fn new(
@@ -135,6 +139,7 @@ impl Editor {
             resolved_query: None,
             retained_billing: None,
             catalog_problem: None,
+            lookup_began: false,
         }
     }
     pub fn from_template(
@@ -176,16 +181,25 @@ impl Editor {
         self.billing = None;
         self.capitalization = None;
     }
+    /// An issue lookup for this draft is starting. Called before it is sent.
+    pub fn lookup_beginning(&mut self) {
+        self.lookup_began = true;
+    }
     /// Every account, offered until a lookup narrows the list, as Electron's
-    /// editor lists `tempo:get-accounts` before a project is known. A late
-    /// or foreign catalog changes nothing; a failed read keeps the list
-    /// unknown. True means this draft now lists every account.
+    /// editor lists `tempo:get-accounts` before a project is known. A catalog
+    /// that arrives once a lookup began, or a foreign one, changes nothing; a
+    /// failed read keeps the list unknown. True means this draft now lists
+    /// every account.
     pub fn accept_catalog(
         &mut self,
         editor_id: uuid::Uuid,
         result: Result<BillingCatalog, String>,
     ) -> bool {
-        if editor_id != self.id || self.billing.is_some() || self.resolved.is_some() {
+        if editor_id != self.id
+            || self.lookup_began
+            || self.billing.is_some()
+            || self.resolved.is_some()
+        {
             return false;
         }
         let catalog = match result {
@@ -244,9 +258,8 @@ impl Editor {
         {
             self.retained_billing = Some(previous.selected_key().map(str::to_owned));
         }
-        // A pick from every account, made before any project was known,
-        // stays only where the project still lists it. Otherwise the
-        // project's own default applies, as when Electron's issue key changes.
+        // A pick from every account, made before any project was known, is
+        // provisional the same way.
         let provisional = self
             .billing
             .as_ref()
@@ -258,6 +271,16 @@ impl Editor {
             BillingSelection::new(info.billing.connection, None)
         }
         .map_err(|e| e.to_string())?;
+        // Either pick is made before the lookup result loads, so `loaded`
+        // keeps it only where the fresh list has it as open. Otherwise the
+        // draft falls back as a fresh one would: an edit to its existing
+        // account, a create to the project's default or to no choice, as
+        // when Electron's issue key changes.
+        if let Some(selected) = self.retained_billing.as_ref().or(provisional.as_ref()) {
+            billing
+                .select(selected.as_deref())
+                .map_err(|e| e.to_string())?;
+        }
         let lookup = billing.begin(info.billing.project);
         if !billing
             .loaded(lookup, info.billing)
@@ -266,17 +289,6 @@ impl Editor {
             return Err(
                 "The billing account lookup became obsolete. Look up the issue again.".into(),
             );
-        }
-        if let Some(selected) = &self.retained_billing {
-            billing
-                .select(selected.as_deref())
-                .map_err(|e| e.to_string())?;
-        } else if let Some(selected) = provisional
-            && billing.lists(selected.as_deref())
-        {
-            billing
-                .select(selected.as_deref())
-                .map_err(|e| e.to_string())?;
         }
         self.retained_billing = None;
         self.catalog_problem = None;
@@ -348,13 +360,16 @@ impl Editor {
         draft
             .set_description(description)
             .map_err(|e| e.to_string())?;
-        let billing = self.billing.as_ref();
+        // The last guard: an account the current list doesn't offer as open
+        // is refused here, whichever path chose it.
+        let account = match &self.billing {
+            Some(billing) if creating => billing.create_account(&issue.key),
+            Some(billing) => billing.sendable_key(),
+            None => Ok(None),
+        }
+        .map_err(|e| e.to_string())?;
         draft
-            .set_billing_account(if creating {
-                billing.and_then(|billing| billing.create_account(&issue.key))
-            } else {
-                billing.and_then(BillingSelection::selected_key)
-            })
+            .set_billing_account(account)
             .map_err(|e| e.to_string())?;
         Ok(draft)
     }

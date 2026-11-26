@@ -9,7 +9,7 @@ from pathlib import Path
 import struct
 import sys
 
-from desktop import fixture
+from desktop import finish_cleanup, fixture
 
 HERE = Path(__file__).resolve().parent
 
@@ -172,6 +172,60 @@ def check_carry_outputs(imported, kept):
     for text, expected in ((imported, CARRY_IMPORTED), (kept, CARRY_KEPT)):
         if expected not in text or todoist.TOKEN in text or UNREADABLE_REPEAT_TOKEN in text:
             raise RuntimeError('The Electron Todoist import did not report its expected static outcome')
+
+
+FORGET_STEPS = (('content', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'))
+
+
+def forget_carried_token(driver, confirmed):
+    """Remove the synthetic token an import may have written.
+
+    Forget deletes an absent entry too, so this runs whenever the import was
+    attempted, including one that wrote the token and then failed read-back.
+    A confirmed import connects at launch, which puts Forget behind
+    Connection. After an unconfirmed one the launch may show tasks or the
+    connection form, so both are tried.
+    """
+    connected = [('wait_text', 'Synthetic today task'), ('content', 'Connection'), *FORGET_STEPS]
+    if confirmed:
+        driver.drive('carried-token-forget-light', connected)
+        return
+    try:
+        driver.drive('unconfirmed-token-forget-light', connected)
+    except Exception:
+        driver.drive('unconfirmed-token-forget-form-light', list(FORGET_STEPS))
+
+
+def carry_over(executable, driver, config, dark, check_carried):
+    """Import the Electron token into the empty vault once, then repeat.
+
+    The cleanup leaves the vault empty and the light theme, as before, even
+    when an import fails part-way. A cleanup failure cannot hide the first.
+    """
+    ui = json.loads(config.read_text())['ui']
+    attempted = confirmed = False
+    failure = None
+    try:
+        set_ui(config, dark)
+        attempted = True
+        with environment(dict(TODOIST_API_TOKEN=todoist.TOKEN)):
+            imported = settings.run(executable, '--import-electron-todoist')
+        confirmed = True
+        # The vault now holds a token, so a repeat keeps it without reading
+        # the environment: even a value that could never be saved succeeds,
+        # and nothing is sent anywhere.
+        with environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN)):
+            kept = settings.run(executable, '--import-electron-todoist')
+        check_carry_outputs(imported, kept)
+        check_carried()
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        set_ui(config, ui)
+        if attempted:
+            finish_cleanup(lambda: forget_carried_token(driver, confirmed), failure,
+                'Forgetting the carried Todoist token')
 
 
 def captures(output):
@@ -410,20 +464,9 @@ def qualify(executable, output, session, version, backend):
             # TODOIST_API_TOKEN. The explicit headless import carries that
             # value into this now-empty native vault once, and the next
             # launch connects with it. The capture uses the dark theme.
-            ui = json.loads(config.read_text())['ui']
             dark = json.loads(fixture(output / 'dark-template', 'dark').read_text())['ui']
-            carried_token = False
-            try:
-                set_ui(config, dark)
-                with environment(dict(TODOIST_API_TOKEN=todoist.TOKEN)):
-                    imported = settings.run(executable, '--import-electron-todoist')
-                carried_token = True
-                # The vault now holds a token, so a repeat keeps it without
-                # reading the environment: even a value that could never be
-                # saved succeeds, and nothing is sent anywhere.
-                with environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN)):
-                    kept = settings.run(executable, '--import-electron-todoist')
-                check_carry_outputs(imported, kept)
+
+            def check_carried():
                 carried = driver.drive('credential-carried-dark', [
                     ('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark'),
                 ])
@@ -431,14 +474,8 @@ def qualify(executable, output, session, version, backend):
                     absent=('No API token is saved',))
                 if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
                     raise RuntimeError('Carrying the Electron token over changed service tasks')
-            finally:
-                # Leave the vault empty and the light theme, as before.
-                set_ui(config, ui)
-                if carried_token:
-                    driver.drive('carried-token-forget-light', [
-                        ('wait_text', 'Synthetic today task'), ('content', 'Connection'),
-                        ('content', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'),
-                    ])
+
+            carry_over(executable, driver, config, dark, check_carried)
 
             for path in output.glob('*/app.log'):
                 text = path.read_text(encoding='utf-8', errors='replace')
@@ -477,7 +514,6 @@ def qualify(executable, output, session, version, backend):
                 failure.add_note('Todoist request diagnostics failed: ' + type(diagnostic).__name__)
             raise
         finally:
-            from desktop import finish_cleanup
             finish_cleanup(api.close, primary, 'Todoist fixture shutdown')
         (output / 'qualification.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
 
