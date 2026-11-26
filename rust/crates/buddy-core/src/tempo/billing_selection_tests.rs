@@ -56,7 +56,7 @@ fn an_edits_existing_account_survives_a_late_default_even_when_unlisted() {
     assert_eq!(state.selected_key(), Some("INITIAL"));
     assert!(!state.selection_is_listed());
     assert_eq!(state.choices()[0].account.key(), "DEFAULT");
-    assert_eq!(state.sendable_key().unwrap(), Some("INITIAL"));
+    assert_eq!(state.request_account("INT-4"), Some("INITIAL"));
 }
 
 /// The project links DEFAULT (its default) and `key` with `status`.
@@ -101,13 +101,13 @@ fn an_earlier_pick_survives_a_lookup_only_where_the_fresh_list_has_it_open() {
             if kept {
                 assert_eq!(state.selected_key(), Some("PICKED"), "{status:?}");
                 assert!(state.is_chosen());
-                assert_eq!(state.create_account("INT-4").unwrap(), Some("PICKED"));
+                assert_eq!(state.request_account("INT-4"), Some("PICKED"));
             } else {
                 // Exactly as a fresh draft: the project default, unchosen,
                 // so a later lookup takes the fresh default again.
                 assert_eq!(state.selected_key(), Some("DEFAULT"), "{status:?}");
                 assert!(!state.is_chosen(), "{status:?}");
-                assert_eq!(state.create_account("INT-4").unwrap(), Some("DEFAULT"));
+                assert_eq!(state.request_account("INT-4"), Some("DEFAULT"));
             }
         }
     }
@@ -130,7 +130,7 @@ fn an_earlier_pick_survives_a_lookup_only_where_the_fresh_list_has_it_open() {
 }
 
 #[test]
-fn a_save_refuses_a_chosen_account_the_current_list_does_not_offer_as_open() {
+fn a_pick_the_settled_list_does_not_offer_as_open_is_refused_and_changes_nothing() {
     let connection = WriteScope::new();
     let mut state = BillingSelection::new(connection, None).unwrap();
     let lookup = state.begin(project(7));
@@ -138,21 +138,44 @@ fn a_save_refuses_a_chosen_account_the_current_list_does_not_offer_as_open() {
         .loaded(lookup, two_links(connection, "CLOSED-ONE", "CLOSED"))
         .unwrap();
     for refused in ["CLOSED-ONE", "UNLISTED"] {
-        state.select(Some(refused)).unwrap();
         assert!(!state.offers(Some(refused)));
         assert!(matches!(
-            state.create_account("INT-4"),
+            state.select(Some(refused)),
             Err(Error::UnavailableBillingAccount)
         ));
-        assert!(matches!(
-            state.sendable_key(),
-            Err(Error::UnavailableBillingAccount)
-        ));
+        // Still the project default, unchosen, and the request sends it.
+        assert_eq!(state.selected_key(), Some("DEFAULT"));
+        assert!(!state.is_chosen());
+        assert_eq!(state.request_account("INT-4"), Some("DEFAULT"));
     }
-    state.select(Some("DEFAULT")).unwrap();
-    assert_eq!(state.create_account("INT-4").unwrap(), Some("DEFAULT"));
     state.select(None).unwrap();
-    assert_eq!(state.create_account("INT-4").unwrap(), None);
+    assert_eq!(state.request_account("INT-4"), None);
+    state.select(Some("DEFAULT")).unwrap();
+    assert_eq!(state.request_account("INT-4"), Some("DEFAULT"));
+}
+
+/// The review's round-3 case: a pick from every account, then a lookup of
+/// a non-INT issue whose project links other accounts and no open default.
+#[test]
+fn a_catalog_pick_the_lookup_drops_is_not_inferred_back_into_the_request() {
+    let connection = WriteScope::new();
+    let mut state = BillingSelection::new(connection, None).unwrap();
+    assert!(
+        state
+            .offer_catalog(BillingCatalog {
+                connection,
+                accounts: catalog(&[(1, "GEN-DEV", "OPEN"), (2, "OTHER", "OPEN")]),
+            })
+            .unwrap()
+    );
+    state.select(Some("GEN-DEV")).unwrap();
+    let lookup = state.begin(project(7));
+    let mut listed = result(connection, 7, "OTHER", "OPEN");
+    listed.choices[0].is_default = false;
+    listed.catalog = catalog(&[(1, "GEN-DEV", "OPEN"), (2, "OTHER", "OPEN")]);
+    assert!(state.loaded(lookup, listed).unwrap());
+    assert!(state.is_unchosen());
+    assert_eq!(state.request_account("FIX-17"), None);
 }
 
 #[test]
@@ -343,13 +366,20 @@ fn an_unchosen_create_account_is_inferred_from_the_issue_key_prefix() {
     let connection = WriteScope::new();
     let mut state = BillingSelection::new(connection, None).unwrap();
     let lookup = state.begin(project(7));
+    // The project links none, so the list is every account; both inferred
+    // accounts are in it and open.
     let mut empty = result(connection, 7, "UNUSED", "OPEN");
     empty.choices.clear();
+    empty.catalog = catalog(&[
+        (1, "INT", "OPEN"),
+        (2, "GEN-DEV", "OPEN"),
+        (3, "UNLINKED", "OPEN"),
+    ]);
     assert!(state.loaded(lookup, empty).unwrap());
     assert!(state.is_unchosen());
     assert_eq!(state.selected_key(), None);
-    assert_eq!(state.create_account("INT-4").unwrap(), Some("INT"));
-    assert_eq!(state.create_account("FIX-17").unwrap(), Some("GEN-DEV"));
+    assert_eq!(state.request_account("INT-4"), Some("INT"));
+    assert_eq!(state.request_account("FIX-17"), Some("GEN-DEV"));
 
     let mut defaulted = BillingSelection::new(connection, None).unwrap();
     let lookup = defaulted.begin(project(7));
@@ -357,32 +387,44 @@ fn an_unchosen_create_account_is_inferred_from_the_issue_key_prefix() {
         .loaded(lookup, result(connection, 7, "DEFAULT", "OPEN"))
         .unwrap();
     assert!(!defaulted.is_unchosen());
-    assert_eq!(defaulted.create_account("INT-4").unwrap(), Some("DEFAULT"));
+    assert_eq!(defaulted.request_account("INT-4"), Some("DEFAULT"));
 
     // An explicit "No billing account" choice is kept, never inferred.
     state.select(None).unwrap();
     assert!(!state.is_unchosen());
-    assert_eq!(state.create_account("INT-4").unwrap(), None);
+    assert_eq!(state.request_account("INT-4"), None);
     state.select(Some("UNLINKED")).unwrap();
-    assert_eq!(state.create_account("INT-4").unwrap(), Some("UNLINKED"));
+    assert_eq!(state.request_account("INT-4"), Some("UNLINKED"));
 }
 
 #[test]
-fn inference_never_picks_an_account_the_project_lists_as_closed_or_archived() {
+fn inference_sends_only_an_account_the_fresh_list_has_open() {
     for (status, sent) in [("CLOSED", None), ("ARCHIVED", None), ("OPEN", Some("INT"))] {
         let connection = WriteScope::new();
+        // Linked by the project, with no default, so it stays unchosen.
         let mut state = BillingSelection::new(connection, None).unwrap();
         let lookup = state.begin(project(7));
-        // A closed or archived default is never selected, so the account stays unchosen.
         let mut listed = result(connection, 7, "INT", status);
         listed.choices[0].is_default = false;
         state.loaded(lookup, listed).unwrap();
         assert!(state.is_unchosen(), "{status}");
-        assert_eq!(state.create_account("INT-4").unwrap(), sent, "{status}");
-        // An account the project doesn't list is still inferred, as in Electron.
+        assert_eq!(state.request_account("INT-4"), sent, "{status}");
+        // An account the project doesn't link is never sent by inference.
+        assert_eq!(state.request_account("FIX-17"), None, "{status}");
+
+        // A project that links none lists every account; inference follows
+        // the fresh catalog's status the same way.
+        let mut state = BillingSelection::new(connection, None).unwrap();
+        let lookup = state.begin(project(7));
+        let mut unlinked = result(connection, 7, "UNUSED", "OPEN");
+        unlinked.choices.clear();
+        unlinked.catalog = catalog(&[(1, "INT", status), (2, "GEN-DEV", status)]);
+        state.loaded(lookup, unlinked).unwrap();
+        assert!(state.lists_every_account() && state.is_unchosen());
+        assert_eq!(state.request_account("INT-4"), sent, "{status}");
         assert_eq!(
-            state.create_account("FIX-17").unwrap(),
-            Some("GEN-DEV"),
+            state.request_account("FIX-17"),
+            sent.map(|_| "GEN-DEV"),
             "{status}"
         );
     }

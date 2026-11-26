@@ -200,7 +200,9 @@ def carry_over(executable, driver, config, dark, check_carried):
     """Import the Electron token into the empty vault once, then repeat.
 
     The cleanup leaves the vault empty and the light theme, as before, even
-    when an import fails part-way. A cleanup failure cannot hide the first.
+    when an import fails part-way. Each cleanup has its own guard, so a
+    failed theme restore cannot skip the Forget, and neither cleanup can
+    replace an earlier failure: a later one is added to it as a note.
     """
     ui = json.loads(config.read_text())['ui']
     attempted = confirmed = False
@@ -222,10 +224,16 @@ def carry_over(executable, driver, config, dark, check_carried):
         failure = error
         raise
     finally:
-        set_ui(config, ui)
+        restore_failure = None
+        try:
+            finish_cleanup(lambda: set_ui(config, ui), failure, 'Restoring the fixture theme')
+        except Exception as error:
+            restore_failure = error
         if attempted:
-            finish_cleanup(lambda: forget_carried_token(driver, confirmed), failure,
+            finish_cleanup(lambda: forget_carried_token(driver, confirmed), failure or restore_failure,
                 'Forgetting the carried Todoist token')
+        if restore_failure is not None:
+            raise restore_failure
 
 
 def captures(output):

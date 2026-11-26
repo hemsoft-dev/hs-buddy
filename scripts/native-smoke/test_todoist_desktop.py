@@ -154,6 +154,51 @@ class ElectronCarryOver(unittest.TestCase):
             drives=[RuntimeError('forget failed')])
         self.assertEqual(str(error), 'forget failed')
 
+    def carry_with_failed_restore(self, runs, drives=()):
+        """Run carry_over where restoring the light theme raises."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = Path(directory.name) / 'config.json'
+        config.write_text(json.dumps(dict(ui=dict(theme='light'))))
+        restore = PermissionError('config is read-only')
+        real = desktop.set_ui
+
+        def set_ui(path, ui):
+            if ui == dict(theme='light'):
+                raise restore
+            real(path, ui)
+        driver = Mock()
+        driver.drive.side_effect = list(drives) or None
+        error = None
+        with patch.object(desktop.settings, 'run', side_effect=list(runs)), \
+                patch.object(desktop, 'set_ui', side_effect=set_ui):
+            try:
+                desktop.carry_over('buddy', driver, config, dict(theme='dark'), Mock())
+            except BaseException as raised:
+                error = raised
+        return driver, restore, error
+
+    def test_a_failed_theme_restore_still_forgets_the_token(self):
+        driver, restore, error = self.carry_with_failed_restore([desktop.CARRY_IMPORTED, desktop.CARRY_KEPT])
+        # The Forget ran, then the restore failure fails the run.
+        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['carried-token-forget-light'])
+        self.assertIs(error, restore)
+        # A failed Forget too is reported on the restore failure, not instead of it.
+        driver, restore, error = self.carry_with_failed_restore(
+            [desktop.CARRY_IMPORTED, desktop.CARRY_KEPT], drives=[RuntimeError('forget failed')])
+        self.assertIs(error, restore)
+        self.assertEqual(driver.drive.call_count, 1)
+        self.assertTrue(any('Forgetting the carried Todoist token also failed' in note
+            for note in getattr(error, '__notes__', [])))
+
+    def test_a_failed_theme_restore_cannot_replace_the_import_failure(self):
+        failed = RuntimeError('import exited 1')
+        driver, _, error = self.carry_with_failed_restore([failed], drives=[None])
+        self.assertIs(error, failed)
+        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['unconfirmed-token-forget-light'])
+        self.assertTrue(any('Restoring the fixture theme also failed' in note
+            for note in getattr(error, '__notes__', [])))
+
     def test_a_failure_before_any_import_never_drives_a_forget(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config.json'

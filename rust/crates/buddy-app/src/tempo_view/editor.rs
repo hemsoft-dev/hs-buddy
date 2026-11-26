@@ -5,6 +5,9 @@ use buddy_core::tempo::{
 };
 use jiff::civil::{Date, Time};
 #[cfg(test)]
+#[path = "editor_account_gate_tests.rs"]
+mod account_gate_tests;
+#[cfg(test)]
 #[path = "editor_tests.rs"]
 mod behavior_tests;
 #[cfg(test)]
@@ -180,6 +183,15 @@ impl Editor {
         self.resolved_query = None;
         self.billing = None;
         self.capitalization = None;
+    }
+    /// A new draft whose issue was never looked up lists every account, so
+    /// it needs the catalog read again: when it opens, and after a
+    /// connection recheck drops the old connection's catalog.
+    pub fn wants_catalog(&self) -> bool {
+        self.original.is_none()
+            && !self.lookup_began
+            && self.billing.is_none()
+            && self.resolved.is_none()
     }
     /// An issue lookup for this draft is starting. Called before it is sent.
     pub fn lookup_beginning(&mut self) {
@@ -360,14 +372,14 @@ impl Editor {
         draft
             .set_description(description)
             .map_err(|e| e.to_string())?;
-        // The last guard: an account the current list doesn't offer as open
-        // is refused here, whichever path chose it.
-        let account = match &self.billing {
-            Some(billing) if creating => billing.create_account(&issue.key),
-            Some(billing) => billing.sendable_key(),
-            None => Ok(None),
-        }
-        .map_err(|e| e.to_string())?;
+        // The only way an account key reaches the request: whatever chose
+        // or inferred it, `request_account` sends it only where the current
+        // list has it open (or it is an edit's existing account), and
+        // otherwise sends what a fresh draft would.
+        let account = self
+            .billing
+            .as_ref()
+            .and_then(|billing| billing.request_account(&issue.key));
         draft
             .set_billing_account(account)
             .map_err(|e| e.to_string())?;
@@ -631,12 +643,12 @@ impl Editor {
                 && let Some(issue) = &self.resolved
             {
                 body = body.child(div().whitespace_normal().child(
-                    match billing.inferred_create_account(&issue.key) {
+                    match billing.request_account(&issue.key) {
                         Some(account) => format!(
                             "No account chosen. Creating bills {account}, inferred from the issue key."
                         ),
                         None => format!(
-                            "No account chosen. The inferred account {} is not open, so creating sends no billing account.",
+                            "No account chosen. The inferred account {} is not open in this list, so creating sends no billing account.",
                             inferred_account(&issue.key)
                         ),
                     },

@@ -250,6 +250,10 @@ impl TempoView {
                             this.set_notice(Tone::Warning,"Connection checked. Your draft was retained. Look up its issue and billing accounts again before saving.");
                         } else {this.editor_binding=None;}
                         this.connection=Some(connection);this.saved=Some(true);this.connection_form=false;this.clear_credentials=true;this.populate_range=true;this.scroll_to_today=true;this.page=0;
+                        // The recheck dropped the old connection's catalog.
+                        // A draft that never looked up its issue reads it
+                        // again, as when it opened.
+                        if this.editor.as_ref().is_some_and(editor::Editor::wants_catalog) {this.load_billing_catalog(cx);}
                     },
                     Ok(Ok(None))=>{this.connection_form=true;this.saved=Some(false);this.set_notice(Tone::Info,if retained {"No connection is saved. The displayed timesheet was retained. Reconnect to continue."} else {"Connect Tempo and Jira. No connection is saved for this profile."});},
                     Ok(Err(error))=>this.error=Some(error),

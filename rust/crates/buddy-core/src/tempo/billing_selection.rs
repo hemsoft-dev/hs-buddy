@@ -68,29 +68,57 @@ impl BillingSelection {
     pub fn is_chosen(&self) -> bool {
         self.manual
     }
-    /// The account a new worklog sends. As in the Electron app, a create with
-    /// no chosen account takes the account inferred from its issue key. A
-    /// chosen account the current list doesn't offer is refused, never sent.
-    pub fn create_account<'a>(&'a self, issue_key: &str) -> Result<Option<&'a str>, Error> {
-        if self.is_unchosen() {
-            Ok(self.inferred_create_account(issue_key))
+    /// The account key a worklog request carries. This is the only way a
+    /// key reaches `_Account_`: the editor sends what this returns and
+    /// nothing else. A create with no chosen account takes the account
+    /// inferred from its issue key, as in the Electron app. Every candidate,
+    /// chosen or inferred, passes `admit`.
+    pub fn request_account<'a>(&'a self, issue_key: &str) -> Option<&'a str> {
+        let candidate = if self.is_unchosen() {
+            Some(inferred_account(issue_key))
         } else {
-            self.sendable_key()
+            self.selected_key()
+        };
+        self.admit(candidate).key()
+    }
+    /// The single gate between an account key and a worklog request. A
+    /// candidate passes when it is no billing account, an edit's existing
+    /// account (already decided, so an edit never silently changes it), or
+    /// an account the current list holds as open. The current list is the
+    /// project's linked accounts after a lookup, or every account when no
+    /// lookup has happened or the project links none. Any other candidate
+    /// is turned away to the fallback a fresh draft would take: an edit's
+    /// existing account, else the project's default if it is open and
+    /// listed, else nothing.
+    ///
+    /// Every source of a key goes through here: a person's pick (`select`),
+    /// a pick carried into a new lookup (retained, provisional, template or
+    /// kept across a connection recheck, via `readmit`), the project
+    /// default (`fallback`), and inference and the final save
+    /// (`request_account`).
+    fn admit<'a>(&'a self, candidate: Option<&'a str>) -> Admission<'a> {
+        if self.offers(candidate) {
+            Admission::Admitted(candidate)
+        } else {
+            Admission::Refused {
+                fallback: self.fallback(),
+            }
         }
     }
-    /// The chosen account, if the current list offers it (see `offers`).
-    pub fn sendable_key(&self) -> Result<Option<&str>, Error> {
-        let key = self.selected_key();
-        if self.offers(key) {
-            Ok(key)
-        } else {
-            Err(Error::UnavailableBillingAccount)
+    /// What a fresh draft takes when nothing it may send was chosen.
+    fn fallback(&self) -> Option<&str> {
+        match &self.existing {
+            Some(existing) => existing.as_deref(),
+            None => self
+                .choices
+                .iter()
+                .find(|choice| {
+                    choice.is_default && choice.account.status() == BillingAccountStatus::Open
+                })
+                .map(|choice| choice.account.key()),
         }
     }
-    /// Whether a worklog may send `key`: no billing account, an edit's
-    /// existing account, or an account the current list has as open. Every
-    /// earlier pick a lookup keeps, and every account a save sends, passes
-    /// this one check.
+    /// Whether `admit` lets `key` through. See `admit` for the rule.
     pub fn offers(&self, key: Option<&str>) -> bool {
         let Some(key) = key else {
             return true;
@@ -102,16 +130,25 @@ impl BillingSelection {
                 choice.account.key() == key && choice.account.status() == BillingAccountStatus::Open
             })
     }
-    /// The inferred account, unless the project lists it as closed or
-    /// archived: nobody may choose such an account, so inference doesn't
-    /// either, and the create then sends no account.
-    pub fn inferred_create_account(&self, issue_key: &str) -> Option<&'static str> {
-        let inferred = inferred_account(issue_key);
-        let unavailable = self.choices.iter().any(|choice| {
-            choice.account.key() == inferred
-                && choice.account.status() != BillingAccountStatus::Open
-        });
-        (!unavailable).then_some(inferred)
+    /// Re-check the selection against a new list. A pick made before it (a
+    /// person's, a retained or provisional one, a template's) stays only if
+    /// `admit` lets it through. Otherwise the draft falls back as a fresh
+    /// one would. An unchosen draft takes the fallback (the open default).
+    fn readmit(&mut self) {
+        let kept =
+            self.manual && matches!(self.admit(self.selected.as_deref()), Admission::Admitted(_));
+        if !kept {
+            // An edit keeps its existing account, still as a choice; a
+            // create drops to the project's open default, unchosen.
+            self.manual = self.existing.is_some();
+            self.selected = self.fallback().map(str::to_owned);
+        }
+    }
+    /// Whether the list is settled: a lookup finished (or failed after an
+    /// earlier one) or every account is listed. Before that a pick is held
+    /// until the list arrives and `readmit` checks it.
+    fn settled(&self) -> bool {
+        self.pending.is_none() && (self.project.is_some() || self.every_account)
     }
     /// The project this selection belongs to, once a lookup began.
     pub fn project(&self) -> Option<JiraProjectId> {
@@ -144,6 +181,7 @@ impl BillingSelection {
         }
         self.choices = every_account(catalog.accounts);
         self.every_account = true;
+        self.readmit();
         Ok(true)
     }
     pub fn is_loading(&self) -> bool {
@@ -153,8 +191,14 @@ impl BillingSelection {
     pub fn selection_is_listed(&self) -> bool {
         self.lists(self.selected.as_deref())
     }
+    /// A person's pick. Once the list is settled, `admit` must let it
+    /// through or it is refused and the selection stays as it was. Before
+    /// that it is held, and the list's arrival checks it (`readmit`).
     pub fn select(&mut self, value: Option<&str>) -> Result<(), Error> {
         let selected = selection(value)?;
+        if self.settled() && !matches!(self.admit(selected.as_deref()), Admission::Admitted(_)) {
+            return Err(Error::UnavailableBillingAccount);
+        }
         self.selected = selected;
         self.manual = true;
         Ok(())
@@ -222,29 +266,26 @@ impl BillingSelection {
             result.choices
         };
         // A pick made before this lookup (from every account, an earlier
-        // lookup, a template or a person) stays only where this list has it
-        // as open. Otherwise the draft falls back exactly as a fresh one
+        // lookup, a template or a person) stays only where `admit` lets it
+        // through. Otherwise the draft falls back exactly as a fresh one
         // would: an edit to its existing account, a create to the project's
-        // default or to no choice.
-        if self.manual && !self.offers(self.selected.as_deref()) {
-            match &self.existing {
-                Some(existing) => self.selected = existing.clone(),
-                None => {
-                    self.manual = false;
-                    self.selected = None;
-                }
-            }
-        }
-        if !self.manual {
-            self.selected = self
-                .choices
-                .iter()
-                .find(|choice| {
-                    choice.is_default && choice.account.status() == BillingAccountStatus::Open
-                })
-                .map(|choice| choice.account.key().to_owned());
-        }
+        // open default or to no choice.
+        self.readmit();
         Ok(true)
+    }
+}
+
+/// `admit`'s verdict on a candidate key.
+enum Admission<'a> {
+    Admitted(Option<&'a str>),
+    Refused { fallback: Option<&'a str> },
+}
+impl<'a> Admission<'a> {
+    /// The key to send: the candidate if admitted, else the fallback.
+    fn key(self) -> Option<&'a str> {
+        match self {
+            Self::Admitted(key) | Self::Refused { fallback: key } => key,
+        }
     }
 }
 

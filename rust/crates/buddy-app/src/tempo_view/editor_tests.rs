@@ -4,7 +4,7 @@ use buddy_core::tempo::{
 };
 use serde_json::Value;
 
-fn details() -> EditorIssue {
+pub(super) fn details() -> EditorIssue {
     EditorIssue {
         issue: JiraIssue {
             id: IssueId::parse(19).unwrap(),
@@ -20,7 +20,7 @@ fn details() -> EditorIssue {
         capitalization: Ok(None),
     }
 }
-fn worklog() -> Worklog {
+pub(super) fn worklog() -> Worklog {
     Worklog {
         id: WorklogId::parse(7).unwrap(),
         issue: Some(IssueId::parse(19).unwrap()),
@@ -276,7 +276,8 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
                     assert_eq!(source.date.to_string(), "2026-10-16");
                 }
                 // A template account the project doesn't offer gives way, as
-                // in a fresh draft: unchosen, so the create infers one.
+                // in a fresh draft: unchosen, so the create infers GEN-DEV,
+                // which this list doesn't hold either, so no account is sent.
                 let source = worklog();
                 let date = "2026-11-05".parse().unwrap();
                 let mut editor =
@@ -287,10 +288,7 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
                     &editor.draft(&source.author, cx).unwrap().encode().unwrap(),
                 )
                 .unwrap();
-                assert_eq!(
-                    body["attributes"],
-                    serde_json::json!([{"key": "_Account_", "value": "GEN-DEV"}])
-                );
+                assert_eq!(body["attributes"], serde_json::json!([]));
                 view
             })
         })
@@ -408,9 +406,13 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
                         .unwrap()
                 };
                 for (key, account) in [("INT-4", "INT"), ("SYNTH-19", "GEN-DEV")] {
+                    // The project links none, so every account is listed,
+                    // and both inferred accounts are open in it.
                     let issue = || {
                         let mut issue = details();
                         issue.issue.key = key.into();
+                        issue.billing.catalog =
+                            vec![self::account(1, "INT"), self::account(2, "GEN-DEV")];
                         issue
                     };
                     let mut editor = Editor::new(None, date, next_start_time(0), window, cx);
@@ -467,10 +469,10 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
     });
 }
 
-fn account(id: u64, key: &str) -> buddy_core::tempo::BillingAccount {
+pub(super) fn account(id: u64, key: &str) -> buddy_core::tempo::BillingAccount {
     account_with(id, key, buddy_core::tempo::BillingAccountStatus::Open)
 }
-fn account_with(
+pub(super) fn account_with(
     id: u64,
     key: &str,
     status: buddy_core::tempo::BillingAccountStatus,
@@ -488,7 +490,7 @@ fn account_with(
 fn every_account() -> Vec<buddy_core::tempo::BillingAccount> {
     vec![account(17, "SYNTH-LINKED"), account(20, "SYNTH-UNLINKED")]
 }
-fn catalog() -> buddy_core::tempo::BillingCatalog {
+pub(super) fn catalog() -> buddy_core::tempo::BillingCatalog {
     buddy_core::tempo::BillingCatalog {
         connection: Client::new("synthetic-unused-token").unwrap().write_scope(),
         accounts: every_account(),
@@ -566,7 +568,8 @@ fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_acco
                 assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
 
                 // A project that links no account lists every account, with
-                // no default, and a create still infers its account.
+                // no default. A create infers GEN-DEV, but sends it only
+                // where that list has it open; this one doesn't hold it.
                 let mut editor = open(window, cx);
                 editor
                     .accept_lookup("19".into(), project_lookup(false), cx)
@@ -581,10 +584,7 @@ fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_acco
                 let body: Value =
                     serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap())
                         .unwrap();
-                assert_eq!(
-                    body["attributes"],
-                    serde_json::json!([{"key": "_Account_", "value": "GEN-DEV"}])
-                );
+                assert_eq!(body["attributes"], serde_json::json!([]));
                 editor
                     .billing
                     .as_mut()
@@ -750,17 +750,17 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                 // account stops being open: dropped to the project default.
                 // An account still open and listed is kept.
                 for (status, kept) in [(Closed, false), (Archived, false), (Open, true)] {
-                    let mut editor = open(window, cx);
-                    editor
-                        .accept_lookup("19".into(), both_linked(Open), cx)
-                        .unwrap();
-                    editor
-                        .billing
-                        .as_mut()
-                        .unwrap()
-                        .select(Some("SYNTH-UNLINKED"))
-                        .unwrap();
                     for recheck in [false, true] {
+                        let mut editor = open(window, cx);
+                        editor
+                            .accept_lookup("19".into(), both_linked(Open), cx)
+                            .unwrap();
+                        editor
+                            .billing
+                            .as_mut()
+                            .unwrap()
+                            .select(Some("SYNTH-UNLINKED"))
+                            .unwrap();
                         if recheck {
                             editor.invalidate_connection();
                         }
@@ -769,20 +769,6 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                             .unwrap();
                         let expected = if kept { &unlinked } else { &linked };
                         assert_eq!(&sent_account(&editor, cx), expected, "{recheck}");
-                        if !kept {
-                            // Put the pick back for the recheck round.
-                            editor
-                                .billing
-                                .as_mut()
-                                .unwrap()
-                                .select(Some("SYNTH-UNLINKED"))
-                                .unwrap();
-                            assert!(
-                                editor
-                                    .draft(&AccountId::parse("synthetic-user").unwrap(), cx)
-                                    .is_err()
-                            );
-                        }
                     }
                 }
 
@@ -804,24 +790,25 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                     assert_eq!(&sent_account(&editor, cx), expected);
                 }
 
-                // The last guard: a chosen account the current list doesn't
-                // offer as open is refused, whatever chose it.
+                // A pick the settled list doesn't offer as open is refused:
+                // the selection and the request stay the project default.
                 let mut editor = open(window, cx);
                 editor
                     .accept_lookup("19".into(), both_linked(Closed), cx)
                     .unwrap();
                 for refused in ["SYNTH-UNLINKED", "SYNTH-GONE"] {
-                    editor
+                    let error = editor
                         .billing
                         .as_mut()
                         .unwrap()
                         .select(Some(refused))
-                        .unwrap();
-                    let error = editor
-                        .draft(&AccountId::parse("synthetic-user").unwrap(), cx)
                         .err()
                         .unwrap();
-                    assert!(error.contains("open billing account"), "{error}");
+                    assert!(
+                        error.to_string().contains("open billing account"),
+                        "{error}"
+                    );
+                    assert_eq!(sent_account(&editor, cx), linked);
                 }
                 view
             })
