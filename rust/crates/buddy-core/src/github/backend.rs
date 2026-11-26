@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use super::{PrMode, RepositoryRef, ViewMode};
 use crate::config::AppConfig;
 use crate::settings_backend::{BackendError, connect, result_json};
+use crate::view_modes;
 
 const TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -28,24 +29,11 @@ impl Bookmark {
 
 /// Local state wins; a missing key may adopt the existing synced preference.
 pub fn view_mode(config: &AppConfig, mode: PrMode) -> Option<ViewMode> {
-    config.native.extra.get("github")?["viewModes"]
-        .get(page_key(mode))
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
+    view_modes::local(config, "github", &page_key(mode))
 }
 
 pub fn set_view_mode(config: &mut AppConfig, mode: PrMode, view: ViewMode) {
-    let github = config
-        .native
-        .extra
-        .entry("github".into())
-        .or_insert_with(|| json!({}));
-    if !github.is_object() {
-        *github = json!({});
-    }
-    if !github["viewModes"].is_object() {
-        github["viewModes"] = json!({});
-    }
-    github["viewModes"][page_key(mode)] = json!(view);
+    view_modes::set_local(config, "github", &page_key(mode), view);
 }
 
 pub fn page_key(mode: PrMode) -> String {
@@ -53,19 +41,11 @@ pub fn page_key(mode: PrMode) -> String {
 }
 
 pub async fn load_view_modes(url: &str) -> Result<BTreeMap<String, ViewMode>, BackendError> {
-    let value = query(url, "settings:get").await?;
-    serde_json::from_value(value.get("viewModes").cloned().unwrap_or_else(|| json!({})))
-        .map_err(|_| BackendError::InvalidSnapshot)
+    view_modes::load(url).await
 }
 
 pub async fn save_view_mode(url: &str, mode: PrMode, view: ViewMode) -> Result<(), BackendError> {
-    mutate(
-        url,
-        "settings:updateViewMode",
-        json!({"pageKey":page_key(mode),"mode":view}),
-    )
-    .await?;
-    Ok(())
+    view_modes::save(url, &page_key(mode), view).await
 }
 
 pub async fn bookmarks(url: &str) -> Result<Vec<Bookmark>, BackendError> {
@@ -121,7 +101,7 @@ pub async fn remove_bookmark(url: &str, id: &str) -> Result<(), BackendError> {
     Ok(())
 }
 
-async fn query(url: &str, function: &str) -> Result<Value, BackendError> {
+pub(crate) async fn query(url: &str, function: &str) -> Result<Value, BackendError> {
     let mut client = connect(url).await?;
     let result = tokio::time::timeout(TIMEOUT, client.query(function, BTreeMap::new()))
         .await
@@ -130,7 +110,11 @@ async fn query(url: &str, function: &str) -> Result<Value, BackendError> {
     result_json(result)
 }
 
-async fn mutate(url: &str, function: &str, arguments: Value) -> Result<Value, BackendError> {
+pub(crate) async fn mutate(
+    url: &str,
+    function: &str,
+    arguments: Value,
+) -> Result<Value, BackendError> {
     let args = arguments
         .as_object()
         .ok_or(BackendError::InvalidSnapshot)?

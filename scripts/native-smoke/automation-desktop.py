@@ -192,6 +192,46 @@ def check_status_totals(path, backend):
     raise RuntimeError("Screenshot does not show both backend totals in one status footer")
 
 
+# The run history's card / list toggle (Electron's ViewModeToggle). The list
+# shows the table header; only the cards carry Show/Hide output buttons.
+RUN_VIEW_DARK_STEPS = [
+    ("capture", "run-history-cards-dark"),
+    ("content", "List view"), ("sleep", 2), ("capture", "run-history-list-dark"),
+]
+RUN_VIEW_LIGHT_STEPS = [
+    ("content", "Card view"), ("sleep", 2), ("capture", "run-history-cards-light"),
+]
+LIST_HEADER = ("Name", "Status", "Duration", "Triggered")
+
+
+def check_run_views(runs):
+    github.check(runs / "run-history-cards-dark.png", "Long job", "Cancelled", "Hide output", "List view",
+        absent=("Triggered",))
+    github.check(runs / "run-history-list-dark.png", "Long job", "Cancelled", *LIST_HEADER,
+        absent=("Hide output", "Show output"))
+
+
+def saved_run_view(config):
+    """The run history layout config.json keeps (native.automation.viewModes)."""
+    value = json.loads(config.read_text(encoding="utf-8-sig"))
+    return value.get("native", {}).get("automation", {}).get("viewModes", {}).get("run-list")
+
+
+def require_run_view(config, backend, expected):
+    if saved_run_view(config) != expected:
+        raise RuntimeError(f"The native app did not save the {expected} run history layout in config.json")
+    synced = (backend.query("settings:get") or {}).get("viewModes", {}).get("run-list")
+    if synced != expected:
+        raise RuntimeError(f"The native app did not sync the {expected} run history layout to Convex settings")
+
+
+def restore_run_view(config, backend):
+    """Puts the fixture back on Electron's default card layout, locally and in Convex."""
+    terminal.write_config(config, lambda value: value.setdefault("native", {}).get("automation", {})
+        .get("viewModes", {}).pop("run-list", None))
+    github.mutate(backend, "settings:updateViewMode", dict(pageKey="run-list", mode="card"))
+
+
 def qualify_runs(driver, backend, output, workspace, sentinel):
     proof, children = output / "run-proof.json", output / "owned-children.jsonl"
     nonce, long_nonce = str(uuid.uuid4()), str(uuid.uuid4())
@@ -213,6 +253,7 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
         ("content", "History"), ("sleep", 1), ("content", "Show output"),
         ("wait_text", "NATIVESTARTED"), ("capture", "running-dark"),
         ("content", "Cancel run"), ("wait_text", "Cancelled"), ("sleep", 2), ("capture", "cancelled-dark"),
+        *RUN_VIEW_DARK_STEPS,
     ], record=True)
     github.check(runs / "jobs-dark.png", "Echo job", "Run now", "Edit", "Duplicate", absent=("Long job",))
     github.check(runs / "file-menu-status-dark.png", "Open Folder", "Exit")
@@ -221,6 +262,7 @@ def qualify_runs(driver, backend, output, workspace, sentinel):
     github.check(runs / "output-dark.png", "Completed", "NATIVEAUTOMATIONREADY", "Manual")
     github.check(runs / "running-dark.png", "Running", "NATIVESTARTED", "Cancel run")
     github.check(runs / "cancelled-dark.png", "Cancelled")
+    check_run_views(runs)
     verify_proof(proof, nonce, workspace)
     verify_output(single_run(backend, echo, "completed"))
     single_run(backend, long, "cancelled")
@@ -233,8 +275,10 @@ def qualify_editing(driver, backend, config, echo, long):
     # A seven-day forecast window, as Electron's dropdown saves it.
     terminal.write_config(config, lambda value: (value["ui"].update(light["ui"]),
         value.setdefault("automation", {}).update(scheduleForecastDays=7)))
+    # The list chosen in runs-dark is what the restarted app opens History with.
     restarted = driver.drive("restart-light", [
         ("content", "History"), ("sleep", 2), ("capture", "history-after-restart-light"),
+        *RUN_VIEW_LIGHT_STEPS,
         ("content", "Jobs"), ("content", "New job"), ("sleep", 1), ("capture", "new-job-light"),
         ("input", "Name", "Native created job"), ("input", "Command", "echo native_created"),
         ("content", "Save"), ("sleep", 3),
@@ -252,7 +296,11 @@ def qualify_editing(driver, backend, config, echo, long):
         ("content", "History"), ("sleep", 1), ("content", "Cleanup old runs"), ("capture", "cleanup-confirm-light"),
         ("content", "Delete"), ("sleep", 3), ("capture", "cleanup-done-light"),
     ])
-    github.check(restarted / "history-after-restart-light.png", "Completed", "Cancelled", "Echo job", "Long job")
+    github.check(restarted / "history-after-restart-light.png", "Completed", "Cancelled", "Echo job", "Long job",
+        *LIST_HEADER, absent=("Show output",))
+    github.check(restarted / "run-history-cards-light.png", "Completed", "Cancelled", "Echo job", "Long job",
+        "Show output", absent=("Triggered",))
+    require_run_view(config, backend, "card")
     github.check(restarted / "new-job-light.png", "New job", "Shell command", "Command", "Save")
     github.check(restarted / "job-created-light.png", "Native created job", "Run now")
     github.check(restarted / "schedule-editor-light.png", "New schedule", "Native created job", "Run the latest missed")
@@ -332,13 +380,20 @@ def qualify(executable, output, session, version, backend):
         # Start offline first; the next launch reconnects to the real backend.
         qualify_offline(executable, output, session)
         echo, long = qualify_runs(driver, backend, output, workspace, sentinel)
+        require_run_view(config, backend, "list")
         qualify_editing(driver, backend, config, echo, long)
         terminal.verify_sentinel(sentinel, "the full automation exercise")
     except BaseException as failure:
         primary = failure
         raise
     finally:
-        terminal.stop_sentinel(sentinel, primary)
+        try:
+            restore_run_view(config, backend)
+        except Exception:
+            if primary is None:
+                raise
+        finally:
+            terminal.stop_sentinel(sentinel, primary)
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True,
         dataSource="Installed dispatcher and an isolated anonymous Convex deployment",
@@ -346,7 +401,8 @@ def qualify(executable, output, session, version, backend):
             "live output while running", "cancellation stops the job's process family", "unrelated process preserved",
             "restart reconciles without rerunning", "job create/edit/delete", "schedule create/pause/delete",
             "missed policy and timezone", "schedule forecast from automation.scheduleForecastDays",
-            "schedule detail recent runs", "confirmed run cleanup", "compact window", "light/dark"]), indent=2), encoding="utf-8")
+            "schedule detail recent runs", "confirmed run cleanup",
+            "run history card/list layout saved locally and in Convex and kept across restart", "compact window", "light/dark"]), indent=2), encoding="utf-8")
 
 
 def main():

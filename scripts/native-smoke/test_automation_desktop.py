@@ -134,6 +134,84 @@ class AutomationDesktopTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exactly one receipt"):
                 desktop.verify_cancelled_children(receipts, sentinel, "missing")
 
+    def test_the_dark_pass_captures_cards_then_lists_and_the_light_pass_returns_to_cards(self):
+        captures = [step[1] for step in desktop.RUN_VIEW_DARK_STEPS if step[0] == "capture"]
+        self.assertEqual(captures, ["run-history-cards-dark", "run-history-list-dark"])
+        clicks = [step[1] for step in desktop.RUN_VIEW_DARK_STEPS if step[0] == "content"]
+        self.assertEqual(clicks, ["List view"])
+        self.assertEqual(desktop.RUN_VIEW_LIGHT_STEPS[0], ("content", "Card view"))
+        self.assertEqual(desktop.RUN_VIEW_LIGHT_STEPS[-1], ("capture", "run-history-cards-light"))
+        with patch.object(desktop.github, "check") as check:
+            desktop.check_run_views(Path("runs"))
+        cards, listed = check.call_args_list
+        self.assertIn("Hide output", cards.args)
+        self.assertEqual(cards.kwargs["absent"], ("Triggered",))
+        for word in ("Long job", "Cancelled", *desktop.LIST_HEADER):
+            self.assertIn(word, listed.args)
+        self.assertIn("Hide output", listed.kwargs["absent"])
+
+    def test_the_layout_must_be_saved_locally_and_synced_to_convex(self):
+        backend = Mock()
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "config.json"
+            config.write_text(json.dumps(dict(native=dict(automation=dict(viewModes={"run-list": "list"})))),
+                encoding="utf-8")
+            backend.query.return_value = dict(viewModes={"run-list": "list"})
+            desktop.require_run_view(config, backend, "list")
+            backend.query.assert_called_with("settings:get")
+            with self.assertRaisesRegex(RuntimeError, "config.json"):
+                desktop.require_run_view(config, backend, "card")
+            backend.query.return_value = dict(viewModes={})
+            with self.assertRaisesRegex(RuntimeError, "Convex"):
+                desktop.require_run_view(config, backend, "list")
+            backend.query.return_value = None
+            with self.assertRaisesRegex(RuntimeError, "Convex"):
+                desktop.require_run_view(config, backend, "list")
+            config.write_text("{}", encoding="utf-8")
+            self.assertIsNone(desktop.saved_run_view(config))
+
+    def test_restoring_returns_both_stores_to_cards_and_keeps_other_settings(self):
+        backend = Mock()
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "config.json"
+            config.write_text(json.dumps(dict(ui=dict(theme="light"), native=dict(automation=dict(
+                future=1, viewModes={"run-list": "list", "other": "card"})))), encoding="utf-8")
+            with patch.object(desktop.github, "mutate") as mutate:
+                desktop.restore_run_view(config, backend)
+                desktop.restore_run_view(config, backend)
+            value = json.loads(config.read_text(encoding="utf-8"))
+            self.assertEqual(value["native"]["automation"], dict(future=1, viewModes={"other": "card"}))
+            self.assertEqual(value["ui"], dict(theme="light"))
+            mutate.assert_called_with(backend, "settings:updateViewMode", dict(pageKey="run-list", mode="card"))
+            config.write_text("{}", encoding="utf-8")
+            with patch.object(desktop.github, "mutate"):
+                desktop.restore_run_view(config, backend)
+
+    def test_a_failed_scene_still_restores_the_layout_and_reports_its_own_failure(self):
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(desktop.github, "installed_binary", return_value={}), \
+                patch.object(desktop, "fixture", return_value=Path(root) / "config.json"), \
+                patch.object(desktop.terminal, "write_config"), \
+                patch.object(desktop.settings, "Driver"), \
+                patch.object(desktop.terminal, "start_sentinel"), \
+                patch.object(desktop.terminal, "stop_sentinel") as stop, \
+                patch.object(desktop, "qualify_offline"), \
+                patch.object(desktop, "qualify_runs", side_effect=RuntimeError("scene failed")), \
+                patch.object(desktop, "restore_run_view", side_effect=OSError("restore failed")) as restore:
+            with self.assertRaisesRegex(RuntimeError, "scene failed"):
+                desktop.qualify(Path("buddy"), Path(root), "x11", "1.0", Mock())
+            restore.assert_called_once()
+            stop.assert_called_once()
+            with patch.object(desktop, "qualify_runs", return_value=("echo", "long")), \
+                    patch.object(desktop, "require_run_view"), \
+                    patch.object(desktop, "qualify_editing"), \
+                    patch.object(desktop.terminal, "verify_sentinel"):
+                # With no scene failure to report, a failed restore is the failure.
+                second = Path(root) / "second"
+                second.mkdir()
+                with self.assertRaisesRegex(OSError, "restore failed"):
+                    desktop.qualify(Path("buddy"), second, "x11", "1.0", Mock())
+
 
 if __name__ == "__main__":
     unittest.main()

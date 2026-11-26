@@ -158,6 +158,12 @@ pub(super) struct Form {
     pub merge: bool,
     /// The GitHub account a handoff came from; the loop works as it.
     pub account: Option<String>,
+    /// The Advanced options Electron's launch accepts but its form never shows.
+    pub skip_review: bool,
+    pub no_pr: bool,
+    pub announce: bool,
+    /// Whether the Advanced disclosure is open; a retried run with any of them opens it.
+    pub advanced: bool,
 }
 
 fn picker(
@@ -239,6 +245,7 @@ impl Form {
                     .unwrap_or_default(),
             ),
             ("labels", base.labels.clone()),
+            ("work_until", base.work_until.clone()),
         ] {
             let input = cx.new(|cx| {
                 let input = InputState::new(window, cx);
@@ -251,6 +258,7 @@ impl Form {
                     "branch" => input.placeholder("Leave empty to create one"),
                     "pr" => input.placeholder("e.g. 42"),
                     "labels" => input.placeholder("e.g. tech-debt,automated"),
+                    "work_until" => input.placeholder("HH:mm, e.g. 08:00"),
                     _ => input,
                 }
             });
@@ -321,6 +329,13 @@ impl Form {
             dry_run: base.dry_run,
             merge: base.merge,
             account: base.account.clone(),
+            skip_review: base.skip_review,
+            no_pr: base.no_pr,
+            announce: base.announce,
+            advanced: !base.work_until.is_empty()
+                || base.skip_review
+                || base.no_pr
+                || base.announce,
         };
         for review in &base.review_agents {
             form.toggle_review(&review.role, review.model.as_deref(), window, cx);
@@ -408,6 +423,20 @@ impl Form {
             dry_run: issues && self.dry_run,
             merge: self.script.can_merge() && self.merge,
             account: self.account.clone(),
+            work_until: self.value("work_until", cx).trim().to_owned(),
+            skip_review: self.offers_skip_review() && self.skip_review,
+            no_pr: self.offers_no_pr() && self.no_pr,
+            announce: self.announce,
         })
+    }
+
+    /// ralph-issues.ps1 requests no reviews, so it has no Skip review.
+    pub fn offers_skip_review(&self) -> bool {
+        self.script != Script::Issues
+    }
+
+    /// Only a loop that would open a pull request can skip it.
+    pub fn offers_no_pr(&self) -> bool {
+        matches!(self.script, Script::Ralph | Script::Template(_))
     }
 }

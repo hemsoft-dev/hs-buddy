@@ -46,6 +46,7 @@ pub mod terminal_prompts;
 pub mod terminal_recovery;
 pub mod terminal_workspaces;
 pub mod todoist;
+pub mod view_modes;
 pub mod weather;
 pub mod wire_time;
 pub mod zoom;
