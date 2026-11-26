@@ -154,7 +154,8 @@ class BrowserDesktopTests(unittest.TestCase):
                 patch.object(desktop, 'require_favicon', return_value={}) as favicon:
             desktop.first_pass(driver, 'dark')
         favicon.assert_called_once_with(Path('flow') / 'bookmark-favicons-dark.png')
-        self.assertEqual(len(check.call_args_list), 8)
+        # Zoom and unzoom each check the page and the toolbar label separately.
+        self.assertEqual(len(check.call_args_list), 10)
         self.assertTrue(all(call.kwargs.get('browser') for call in check.call_args_list))
         self.assertEqual(driver.target, dict(left=182, top=44, width=78, height=9))
 
@@ -347,11 +348,15 @@ class BrowserDesktopTests(unittest.TestCase):
         self.assertEqual(actions[favicon - 1], ("wait_colour", "magenta", desktop.FAVICON_MIN_PIXELS))
         self.assertLess(favicon, actions.index(("content", "Fixture page")))
         checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
-        self.assertEqual(checked["browser-page-zoom-dark.png"], (desktop.PAGE_TEXT, "110%"))
+        every = [(call.args[0].name, call.args[1:]) for call in check.call_args_list]
+        # The page heading and the toolbar label are required separately on each capture.
+        self.assertEqual([args for name, args in every if name == "browser-page-zoom-dark.png"],
+            [(desktop.PAGE_TEXT,), ("110%",)])
         # The page itself must have grown, not just the toolbar's number.
         zoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-zoom-dark.png")
         # And Alt+- must have shrunk it back to its 100% size.
-        self.assertEqual(checked["browser-page-unzoom-dark.png"], (desktop.PAGE_TEXT, "100%"))
+        self.assertEqual([args for name, args in every if name == "browser-page-unzoom-dark.png"],
+            [(desktop.PAGE_TEXT,), ("100%",)])
         unzoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-unzoom-dark.png")
 
     def test_both_passes_expand_the_tree_after_every_card_click_and_check_its_row(self):
@@ -480,8 +485,12 @@ class BrowserDesktopTests(unittest.TestCase):
         self.assertEqual(actions[-1], ("capture", "blocked-light"))
         checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
         self.assertEqual(checked["bookmark-favicons-light.png"], ("Fixture page", "Probe page"))
-        self.assertEqual(checked["browser-page-zoom-light.png"], (desktop.PAGE_TEXT, "110%"))
-        self.assertEqual(checked["browser-page-unzoom-light.png"], (desktop.PAGE_TEXT, "100%"))
+        every = [(call.args[0].name, call.args[1:]) for call in check.call_args_list]
+        # The page heading and the toolbar label are required separately on each capture.
+        self.assertEqual([args for name, args in every if name == "browser-page-zoom-light.png"],
+            [(desktop.PAGE_TEXT,), ("110%",)])
+        self.assertEqual([args for name, args in every if name == "browser-page-unzoom-light.png"],
+            [(desktop.PAGE_TEXT,), ("100%",)])
         favicon.assert_called_once_with(Path("flow") / "bookmark-favicons-light.png")
         zoomed.assert_called_once_with(Path("flow") / "page-light.png", Path("flow") / "browser-page-zoom-light.png")
         unzoomed.assert_called_once_with(Path("flow") / "page-light.png", Path("flow") / "browser-page-unzoom-light.png")

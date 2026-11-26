@@ -343,8 +343,12 @@ def require_favicon_and_zoom(flow, theme):
     one step larger and then back at its size in `page-{theme}`."""
     github.check(flow / f"bookmark-favicons-{theme}.png", "Fixture page", "Probe page", browser=True)
     favicon = require_favicon(flow / f"bookmark-favicons-{theme}.png")
-    github.check(flow / f"browser-page-zoom-{theme}.png", PAGE_TEXT, ZOOM_AFTER, browser=True)
-    github.check(flow / f"browser-page-unzoom-{theme}.png", PAGE_TEXT, ZOOM_BEFORE, browser=True)
+    # The large page heading and the small toolbar label need different OCR
+    # preprocessing, so one layout rarely reads both (Windows, run
+    # 45719379502); each is required on the same capture separately.
+    for name, label in ((f"browser-page-zoom-{theme}.png", ZOOM_AFTER), (f"browser-page-unzoom-{theme}.png", ZOOM_BEFORE)):
+        github.check(flow / name, PAGE_TEXT, browser=True)
+        github.check(flow / name, label, browser=True)
     zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
     unzoom = require_unzoomed(flow / f"page-{theme}.png", flow / f"browser-page-unzoom-{theme}.png")
     return dict(favicon=favicon, zoom=zoom, unzoom=unzoom)
