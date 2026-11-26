@@ -39,6 +39,10 @@ class CopilotGitHubBackend(github.GitHubBackend):
             if route == '/copilot-fixture/codex-usage':
                 now = int(time.time())
                 return 200, dict(plan_type='synthetic', rate_limit=dict(primary_window=dict(used_percent=25, reset_at=now + 9000, limit_window_seconds=18000), secondary_window=dict(used_percent=14, reset_at=now + 302400, limit_window_seconds=604800))), {}
+            if route == '/copilot_internal/user':
+                # The premium usage badge's quota: 126 of 300 used.
+                return 200, {'quota_reset_date_utc': '2099-01-01T00:00:00Z', 'quota_snapshots': {'premium_interactions': dict(
+                    entitlement=USAGE_ENTITLEMENT, remaining=USAGE_REMAINING, overage_count=0, percent_remaining=58)}}, {}
             if route.endswith('/copilot/billing'):
                 return 200, {'seat_breakdown': {'total': 1}}, {}
             if route.endswith('/settings/billing/usage'):
@@ -171,11 +175,17 @@ def assert_private_content_not_logged(output):
             raise RuntimeError('Private synthetic assistant/session data appeared in app diagnostics')
 
 
+USAGE_ENTITLEMENT, USAGE_REMAINING = 300, 174
+# The badge reads "42% · 174/300"; only the figures are matched.
+USAGE_BADGE = f'{USAGE_REMAINING}/{USAGE_ENTITLEMENT}'
+# The sidebar row of the review-dark result. The label is cut to the sidebar
+# width, so only its start is matched; the Chat Recent list shows the prompt.
+RECENT_REVIEW_LABEL = 'PR Review: Second'
 CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
 UNCONFIRMED_ENDING = 'will not resend'
 UNCONFIRMED_LAST_LINE_WORD = 'resend'
-STARTUP_SCENES = ('chat-dark', 'rerun-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
+STARTUP_SCENES = ('chat-dark', 'rerun-dark', 'code-copy-dark', 'review-dark', 'recent-results-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -288,6 +298,8 @@ def code_copy(driver, appearance):
     # installed app. Headless GPUI tests prove the copied text.
     name = 'code-copy-' + appearance
     captures = [name]
+    # Electron's premium usage badge beside the account field.
+    badge = 'copilot-usage-badge-' + appearance
     if appearance == 'light':
         # At 900x650 the chat pane is shorter than one wheel step, so use the
         # saved result's taller pane. Revealing the code line keeps the control
@@ -299,13 +311,35 @@ def code_copy(driver, appearance):
     else:
         reveal = [('wait_scroll_up', 'Copy code', 'Saved to results'), ('capture', name)]
     scene = driver.drive(name, [
-        ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
+        ('input', 'GitHub account', 'synthetic-account'),
+        *([('wait_text', USAGE_BADGE), ('capture', badge)] if appearance == 'light' else []),
+        ('content', 'Load available models'),
         ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
         ('input', 'Message', 'BUDDYSTREAM61527 ' + CODE_MARKER), ('content', 'Run and save'),
         ('wait_scroll_text', 'Saved to results'), *reveal, ('content', 'Copy code'),
     ], record=appearance == 'dark')
+    if appearance == 'light':
+        github.check(scene / (badge + '.png'), 'GitHub account', USAGE_BADGE)
     for capture in captures:
         github.check(scene / (capture + '.png'), 'Copy code', CODE_LINE)
+
+
+def recent_results(driver):
+    """The premium usage badge beside the account, then the sidebar's Recent
+    Results section: open it, find the review-dark result and open it."""
+    scene = driver.drive('recent-results-dark', [
+        ('input', 'GitHub account', 'synthetic-account'), ('wait_text', USAGE_BADGE),
+        ('capture', 'copilot-usage-badge-dark'),
+        # Electron's section starts collapsed. Wait for the row before
+        # clicking it: the list is read again when the section opens.
+        ('content', 'Recent Results'), ('wait_text', RECENT_REVIEW_LABEL), ('sleep', 1),
+        ('capture', 'copilot-recent-results-dark'),
+        ('content', RECENT_REVIEW_LABEL), ('wait_text', 'Captured review'),
+        ('capture', 'copilot-recent-result-opened-dark'),
+    ], record=True)
+    github.check(scene / 'copilot-usage-badge-dark.png', 'GitHub account', USAGE_BADGE)
+    github.check(scene / 'copilot-recent-results-dark.png', 'Recent Results', RECENT_REVIEW_LABEL)
+    github.check(scene / 'copilot-recent-result-opened-dark.png', RECENT_REVIEW_LABEL, 'Captured review')
 
 
 def review_pull_request(driver):
@@ -432,6 +466,7 @@ def qualify(executable, output, session, version, backend, api):
             write_section(config, 'github')
             review_pull_request(driver)
             write_section(config, 'copilot')
+            recent_results(driver)
             session_workspaces.qualify_dark(driver, user_directory, github.check)
             light = json.loads(fixture(output / 'light-template', 'light').read_text())['ui']
             write_section(config, 'github', light)

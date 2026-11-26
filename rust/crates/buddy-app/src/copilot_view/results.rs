@@ -31,6 +31,13 @@ enum Loading {
     Delete,
 }
 
+/// A saved result was deleted, or a re-run created or finished one, so the
+/// Recent lists read again.
+pub(super) enum ResultsEvent {
+    Changed,
+}
+impl gpui_kit::EventEmitter<ResultsEvent> for ResultsView {}
+
 pub(super) struct ResultsView {
     backend: Option<CopilotBackend>,
     category: Entity<InputState>,
@@ -114,6 +121,14 @@ impl ResultsView {
         if !self.initialized {
             self.load(true, cx);
         }
+    }
+    /// The result shown in the detail, if any.
+    pub(super) fn selected_id(&self) -> Option<&str> {
+        self.selected_id.as_deref()
+    }
+    #[cfg(test)]
+    pub(super) fn pending_open(&self) -> Option<&str> {
+        self.pending_open.as_deref()
     }
     pub(super) fn inspect(&mut self, id: String, cx: &mut Context<Self>) {
         self.pending_open = Some(id);
@@ -316,6 +331,7 @@ impl ResultsView {
                         this.selected = None;
                         this.selected_id = None;
                         this.notice = Some("Saved result deleted.".into());
+                        cx.emit(ResultsEvent::Changed);
                     }
                     Err(_) => {
                         this.detail_error = Some(

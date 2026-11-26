@@ -170,8 +170,9 @@ fn the_recent_list_shows_newest_results_with_status_and_time_and_opens_the_click
     cx.update(|cx| {
         let opened = opened.clone();
         cx.subscribe(&view, move |_, event: &ChatEvent, _| {
-            let ChatEvent::OpenResult(id) = event;
-            opened.borrow_mut().push(id.clone());
+            if let ChatEvent::OpenResult(id) = event {
+                opened.borrow_mut().push(id.clone());
+            }
         })
         .detach();
         view.update(cx, |view, cx| {

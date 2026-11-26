@@ -67,6 +67,7 @@ test('repeated creation retains one result, PR snapshot and active count', async
       repo: review.repo,
       prNumber: review.prNumber,
       prUrl: 'https://github.com/owner/repo.name/pull/7',
+      prTitle: review.title,
       ghAccount: input.account,
       reviewedHeadSha: review.head,
     },

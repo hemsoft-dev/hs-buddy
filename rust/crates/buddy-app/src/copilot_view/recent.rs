@@ -1,38 +1,50 @@
-//! Electron's prompt-box "Recent" list and active-prompt badge. Both are read
-//! once per refresh; nothing here writes.
+//! Electron's prompt-box "Recent" list, its sidebar "Recent Results" section
+//! and the active-prompt badge. One read serves all three; nothing here writes.
 use buddy_core::copilot_backend::{ActiveCounts, CopilotBackend, Error, HistoryFilter};
+use buddy_core::copilot_results::Status;
 use buddy_core::copilot_results::status_emoji;
 use buddy_core::copilot_results::summaries::ResultSummary;
 
 /// `useCopilotResultsRecent(10)` in `CopilotPromptBox.tsx`.
 pub(super) const LIMIT: u8 = 10;
+/// `useCopilotResultsRecent(15)` in `CopilotSidebar.tsx`.
+pub(super) const SIDEBAR_LIMIT: u8 = 15;
 const PROMPT_CHARS: usize = 80;
+/// `getResultPromptLabel` in `CopilotSidebar.tsx`.
+const SIDEBAR_PROMPT_CHARS: usize = 40;
 
 #[derive(Default)]
 pub(super) struct Recent {
+    /// The newest results, up to [`SIDEBAR_LIMIT`]; the prompt box lists the
+    /// first [`LIMIT`].
     pub rows: Vec<ResultSummary>,
     pub active: ActiveCounts,
     pub loading: bool,
     /// Another refresh was asked for while one was loading.
     pub stale: bool,
     pub unavailable: bool,
-    /// The read stopped early (a split page), so newer results may be missing.
+    /// The read stopped early (a split page), so newer results may be missing
+    /// from the prompt box's ten.
     pub partial: bool,
+    /// The same for the sidebar's fifteen.
+    pub sidebar_partial: bool,
 }
 
 pub(super) struct Fetched {
-    rows: Result<(Vec<ResultSummary>, bool), Error>,
+    rows: Result<(Vec<ResultSummary>, bool, bool), Error>,
     active: Result<ActiveCounts, Error>,
 }
 
 pub(super) async fn fetch(backend: CopilotBackend) -> Fetched {
     let rows = backend
-        .history(None, LIMIT, &HistoryFilter::All)
+        .history(None, SIDEBAR_LIMIT, &HistoryFilter::All)
         .await
         .map(|page| {
-            let partial =
-                !page.can_append() || (!page.is_done && page.rows.len() < usize::from(LIMIT));
-            (page.rows, partial)
+            let partial = |limit: u8| {
+                !page.can_append() || (!page.is_done && page.rows.len() < usize::from(limit))
+            };
+            let (prompt, sidebar) = (partial(LIMIT), partial(SIDEBAR_LIMIT));
+            (page.rows, prompt, sidebar)
         });
     let active = backend.count_active().await;
     Fetched { rows, active }
@@ -47,10 +59,11 @@ impl Recent {
             return;
         };
         self.unavailable = fetched.rows.is_err() || fetched.active.is_err();
-        if let Ok((rows, partial)) = fetched.rows {
+        if let Ok((rows, partial, sidebar_partial)) = fetched.rows {
             self.rows = rows;
-            self.rows.truncate(LIMIT.into());
+            self.rows.truncate(SIDEBAR_LIMIT.into());
             self.partial = partial;
+            self.sidebar_partial = sidebar_partial;
         }
         if let Ok(active) = fetched.active {
             self.active = active;
@@ -62,6 +75,53 @@ impl Recent {
         let total = self.active.total();
         (total > 0).then(|| format!("{total} active"))
     }
+
+    /// The prompt box's ten.
+    pub fn prompt_rows(&self) -> impl Iterator<Item = &ResultSummary> {
+        self.rows.iter().take(LIMIT.into())
+    }
+}
+
+/// `getRecentResultLabel`: a pr-review result shows its PR title, any other
+/// its prompt cut at 40 characters.
+pub(super) fn sidebar_label(row: &ResultSummary) -> String {
+    if let Some(title) = row.review_title() {
+        let title = if title.is_empty() { "Untitled" } else { title };
+        return format!("PR Review: {title}");
+    }
+    let mut prompt: String = row
+        .prompt_preview
+        .chars()
+        .take(SIDEBAR_PROMPT_CHARS)
+        .collect();
+    if row
+        .prompt_preview
+        .chars()
+        .nth(SIDEBAR_PROMPT_CHARS)
+        .is_some()
+    {
+        prompt.push('…');
+    }
+    prompt
+}
+
+/// `getStatusIcon`: Electron's lucide icon for each status, and none for a
+/// status it does not know.
+pub(super) fn status_icon(status: Status) -> Option<gpui_kit::assets::IconName> {
+    use gpui_kit::assets::IconName;
+    Some(match status {
+        Status::Pending => IconName::Clock,
+        Status::Running => IconName::LoaderCircle,
+        Status::Completed => IconName::CircleCheck,
+        Status::Failed => IconName::CircleX,
+        Status::Unknown => return None,
+    })
+}
+
+/// `formatDistanceToNow(createdAt)`.
+pub(super) fn age(row: &ResultSummary, now_ms: f64) -> String {
+    let elapsed = (now_ms - row.created_at).max(0.0) as u64;
+    buddy_core::format::distance_to_now(elapsed)
 }
 
 /// Status emoji, the prompt cut at 80 characters, and the relative time.
@@ -70,11 +130,10 @@ pub(super) fn line(row: &ResultSummary, now_ms: f64) -> String {
     if row.prompt_preview.chars().nth(PROMPT_CHARS).is_some() {
         prompt.push('…');
     }
-    let elapsed = (now_ms - row.created_at).max(0.0) as u64;
     format!(
         "{} {prompt} · {}",
         status_emoji(row.status),
-        buddy_core::format::distance_to_now(elapsed)
+        age(row, now_ms)
     )
 }
 
@@ -96,7 +155,7 @@ pub(super) fn fetched_page(
     active: Option<ActiveCounts>,
 ) -> Fetched {
     Fetched {
-        rows: Ok((rows, partial)),
+        rows: Ok((rows, partial, partial)),
         active: active.ok_or(Error::Unavailable),
     }
 }

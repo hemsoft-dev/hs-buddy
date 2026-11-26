@@ -455,6 +455,31 @@ async fn fetch_billing_inner(
     })
 }
 
+/// `getCopilotQuota`: the account's own `premium_interactions` quota, which
+/// Electron's premium usage badge shows whatever the account's organization.
+pub async fn fetch_personal_quota(
+    account: &GitHubAccount,
+    now: Timestamp,
+) -> Result<UsagePool, String> {
+    gh::assert_valid_slug(&account.username).map_err(|e| e.to_string())?;
+    let reader = transport::Reader::new(account).await?;
+    personal_quota(&reader, now).await
+}
+
+async fn personal_quota(reader: &transport::Reader, now: Timestamp) -> Result<UsagePool, String> {
+    // `/copilot_internal/user` answers for whoever the token belongs to, so it
+    // must use the account's own credential; never fall back to the active
+    // login and show another user's quota (`getCopilotQuota`).
+    if !reader.selected() {
+        return Err("Sign in with GitHub CLI for the selected account.".into());
+    }
+    let body = reader
+        .api("/copilot_internal/user", &[])
+        .await
+        .map_err(|e| e.to_string())?;
+    parse_personal_quota(&body, now)
+}
+
 /// One account's AI Credit pool (`doFetchQuota`).
 pub async fn fetch_account_pool(
     account: &GitHubAccount,
@@ -469,17 +494,7 @@ pub async fn fetch_account_pool(
     let reader = transport::Reader::new(account).await?;
 
     if is_personal_namespace(account) {
-        // `/copilot_internal/user` answers for whoever the token belongs to, so a
-        // personal account must use its own credential; never fall back to the
-        // active login and show another user's quota (`getCopilotQuota`).
-        if !reader.selected() {
-            return Err("Sign in with GitHub CLI for the selected account.".into());
-        }
-        let body = reader
-            .api("/copilot_internal/user", &[])
-            .await
-            .map_err(|e| e.to_string())?;
-        return parse_personal_quota(&body, now);
+        return personal_quota(&reader, now).await;
     }
 
     // Org billing: like `tryGetCliToken`, a missing per-account token falls

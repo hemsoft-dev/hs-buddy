@@ -24,6 +24,9 @@ pub struct ResultSummary {
     /// Older deployments omit it; an unusable link hides the action, not the row.
     #[serde(default, deserialize_with = "lenient_link")]
     pr_url: Option<String>,
+    /// Older deployments omit it; any value but a string counts as absent.
+    #[serde(default, deserialize_with = "lenient_text")]
+    pr_title: Option<String>,
 }
 
 impl ResultSummary {
@@ -33,6 +36,22 @@ impl ResultSummary {
             .then_some(self.pr_url.as_deref())
             .flatten()
     }
+
+    /// The PR title Electron's sidebar shows for a pr-review result
+    /// (`metadata.prTitle`), or `None` for another category.
+    pub fn review_title(&self) -> Option<&str> {
+        (self.category_label.as_deref() == Some(super::REVIEW_CATEGORY))
+            .then(|| self.pr_title.as_deref().unwrap_or(""))
+    }
+}
+
+fn lenient_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::String(text) => Some(text),
+        _ => None,
+    })
 }
 
 fn lenient_link<'de, D: serde::Deserializer<'de>>(

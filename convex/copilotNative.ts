@@ -46,6 +46,15 @@ function reviewedPullRequestUrl(row: Doc<'copilotResults'>): string | undefined 
   return typeof url === 'string' && url.length <= 2048 ? url : undefined
 }
 
+// Electron's sidebar labels a pr-review result with metadata.prTitle.
+function reviewedPullRequestTitle(row: Doc<'copilotResults'>): string | undefined {
+  if (row.category !== 'pr-review') return
+  const metadata: unknown = row.metadata
+  if (typeof metadata !== 'object' || metadata === null || !('prTitle' in metadata)) return
+  const title = metadata.prTitle
+  return typeof title === 'string' ? preview(title) : undefined
+}
+
 function resultSummary(row: Doc<'copilotResults'>) {
   return {
     _id: row._id,
@@ -58,6 +67,7 @@ function resultSummary(row: Doc<'copilotResults'>) {
     duration: row.duration,
     hasOutput: row.result !== undefined,
     prUrl: reviewedPullRequestUrl(row),
+    prTitle: reviewedPullRequestTitle(row),
   }
 }
 

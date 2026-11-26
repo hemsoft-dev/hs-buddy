@@ -146,10 +146,18 @@ impl ResultsView {
         let generation = self.rerun.generation;
         Runtime::global(cx).spawn_detached(future);
         cx.spawn(async move |this, cx| {
+            // As a saved Chat run does, the re-run refreshes Recent when its
+            // record is created and again when it finishes.
+            let mut seen = (false, true);
             while updates.changed().await.is_ok() {
                 if this
                     .update(cx, |this, cx| {
                         if this.rerun.generation == generation {
+                            let now = this.rerun.run.as_ref().map(RunHandle::record_and_busy);
+                            if let Some(now) = now.filter(|now| *now != seen) {
+                                seen = now;
+                                cx.emit(ResultsEvent::Changed);
+                            }
                             cx.notify();
                         }
                     })

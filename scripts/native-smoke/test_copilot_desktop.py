@@ -390,6 +390,14 @@ class CopilotQualificationTests(unittest.TestCase):
             saved = actions.index(('wait_scroll_text', 'Saved to results'))
             click = actions.index(('content', 'Copy code'))
             self.assertEqual(click, len(actions) - 1)
+            account = actions.index(('input', 'GitHub account', 'synthetic-account'))
+            badge = ('capture', 'copilot-usage-badge-light')
+            if name.endswith('light'):
+                # The badge is captured once its quota has arrived.
+                self.assertEqual(actions[account + 1:account + 3],
+                    [('wait_text', copilot.USAGE_BADGE), badge])
+            else:
+                self.assertNotIn(badge, actions)
             if name.endswith('light'):
                 # The compact chat pane is too short, so both captures use the
                 # saved result and reveal the code line before each capture.
@@ -412,9 +420,56 @@ class CopilotQualificationTests(unittest.TestCase):
                 self.assertLess(reveal, actions.index(('capture', name)))
         self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
             ('code-copy-dark.png', 'Copy code', copilot.CODE_LINE),
+            ('copilot-usage-badge-light.png', 'GitHub account', '174/300'),
             ('code-copy-light.png', 'Copy code', copilot.CODE_LINE),
             ('code-copy-compact-light.png', 'Copy code', copilot.CODE_LINE),
         ])
+
+    def test_recent_results_waits_for_the_badge_and_the_row_before_each_click(self):
+        class Driver:
+            def __init__(self):
+                self.runs = []
+
+            def drive(self, name, actions, record=False):
+                self.runs.append((name, actions, record))
+                return Path('unused-' + name)
+
+        driver = Driver()
+        with patch.object(copilot.github, 'check') as screenshots:
+            copilot.recent_results(driver)
+        [(name, actions, record)] = driver.runs
+        self.assertEqual((name, record), ('recent-results-dark', True))
+        self.assertIn(name, copilot.STARTUP_SCENES)
+        self.assertEqual(copilot.RECENT_REVIEW_LABEL, 'PR Review: Second')
+        order = [
+            ('input', 'GitHub account', 'synthetic-account'),
+            ('wait_text', '174/300'),
+            ('capture', 'copilot-usage-badge-dark'),
+            ('content', 'Recent Results'),
+            ('wait_text', copilot.RECENT_REVIEW_LABEL),
+            ('capture', 'copilot-recent-results-dark'),
+            ('content', copilot.RECENT_REVIEW_LABEL),
+            ('wait_text', 'Captured review'),
+            ('capture', 'copilot-recent-result-opened-dark'),
+        ]
+        positions = [actions.index(action) for action in order]
+        self.assertEqual(positions, sorted(positions))
+        # The row is clicked only after the list has settled.
+        self.assertIn(('sleep', 1), actions[positions[4]:positions[6]])
+        self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
+            ('copilot-usage-badge-dark.png', 'GitHub account', '174/300'),
+            ('copilot-recent-results-dark.png', 'Recent Results', 'PR Review: Second'),
+            ('copilot-recent-result-opened-dark.png', 'PR Review: Second', 'Captured review'),
+        ])
+
+    def test_a_failed_recent_results_check_stops_the_scene(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                return Path('unused-' + name)
+
+        with patch.object(copilot.github, 'check', side_effect=RuntimeError('missing')):
+            with self.assertRaises(RuntimeError):
+                copilot.recent_results(Driver())
 
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this
@@ -501,6 +556,8 @@ class CopilotQualificationTests(unittest.TestCase):
             self.assertEqual(usage['usageItems'][0]['date'], '2026-10-02')
             self.assertEqual(usage['usageItems'][0]['quantity'], 1200)
             self.assertEqual(self.request(api, '/orgs/fixture-org/copilot/billing')['seat_breakdown']['total'], 1)
+            premium = self.request(api, '/copilot_internal/user')['quota_snapshots']['premium_interactions']
+            self.assertEqual((premium['remaining'], premium['entitlement']), (174, 300))
             self.assertEqual(self.request(api, '/organizations/fixture-org/settings/billing/budgets?page=1')['budgets'], [])
             first = self.request(api, '/enterprises/fixture-enterprise/settings/billing/budgets?page=1')
             second = self.request(api, '/enterprises/fixture-enterprise/settings/billing/budgets?page=2')
