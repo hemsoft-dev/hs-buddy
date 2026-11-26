@@ -9,11 +9,23 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window, canvas, div,
 };
 
-use super::{BrowserView, CONTEXT, CloseTab, NextTab, Notice, PreviousTab, ZOOM_DELTA};
+use super::{
+    BrowserView, CONTEXT, CloseTab, NextTab, Notice, PreviousTab, ZOOM_DELTA, ZOOM_FAILED,
+};
 use crate::zoom::zpx;
 
 impl Render for BrowserView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A bookmark opened from the list (a card click, Enter or Space) takes
+        // the list, and the focus it held, off screen. Without a focused
+        // element GPUI dispatches keys from the window root, outside the app's
+        // context, so Alt zoom and the tab keys would do nothing until a click.
+        // The browser keeps the keyboard instead, as Electron's window keeps
+        // the keydown listener.
+        let showed_home = std::mem::replace(&mut self.showed_home, self.active.is_none());
+        if showed_home && self.active.is_some() && self.focus.contains_focused(window, cx) {
+            window.focus(&self.focus, cx);
+        }
         let content = match self.active {
             None => self.render_home(cx),
             Some(index) => self.render_tab(index, cx),
@@ -36,6 +48,7 @@ impl Render for BrowserView {
                         ),
                         offer: None,
                     },
+                    NoticeKind::Tab,
                     false,
                     cx,
                 ))
@@ -150,7 +163,19 @@ impl BrowserView {
             .min_h_0()
             .child(self.render_toolbar(index, cx))
             .when_some(tab.notice.clone(), |this, notice| {
-                this.child(self.render_notice(notice, tab.page.is_some(), cx))
+                this.child(self.render_notice(notice, NoticeKind::Tab, tab.page.is_some(), cx))
+            })
+            // A zoom refusal has its own row, so the notice above keeps its offer.
+            .when_some(tab.zoom_error.clone(), |this, error| {
+                this.child(self.render_notice(
+                    Notice {
+                        text: format!("{ZOOM_FAILED} {error}"),
+                        offer: None,
+                    },
+                    NoticeKind::Zoom,
+                    true,
+                    cx,
+                ))
             })
             .child(area)
             .into_any_element()
@@ -234,7 +259,7 @@ impl BrowserView {
                 div()
                     .text_size(zpx(12.0))
                     .text_color(theme.foreground)
-                    .child(format!("{:.0}%", self.zoom * 100.0)),
+                    .child(format!("{:.0}%", self.shown_zoom() * 100.0)),
             )
             .child(
                 Button::new("browser-zoom-in")
@@ -257,6 +282,7 @@ impl BrowserView {
     fn render_notice(
         &self,
         notice: Notice,
+        kind: NoticeKind,
         live: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
@@ -265,9 +291,13 @@ impl BrowserView {
             .offer
             .as_ref()
             .is_some_and(|url| url.scheme() == "mailto");
+        let (id, dismiss_id) = match kind {
+            NoticeKind::Tab => ("browser-notice", "browser-notice-dismiss"),
+            NoticeKind::Zoom => ("browser-zoom-notice", "browser-zoom-notice-dismiss"),
+        };
         h_flex()
-            .id("browser-notice")
-            .debug_selector(|| "browser-notice".into())
+            .id(id)
+            .debug_selector(move || id.into())
             .w_full()
             .flex_shrink_0()
             .gap_2()
@@ -306,15 +336,25 @@ impl BrowserView {
             })
             .when(live, |this| {
                 this.child(
-                    Button::new("browser-notice-dismiss")
+                    Button::new(dismiss_id)
                         .icon(IconName::X)
                         .ghost()
                         .small()
                         .tooltip("Dismiss")
-                        .on_click(cx.listener(|this, _, _, cx| this.dismiss(cx))),
+                        .on_click(cx.listener(move |this, _, _, cx| match kind {
+                            NoticeKind::Tab => this.dismiss(cx),
+                            NoticeKind::Zoom => this.dismiss_zoom_error(cx),
+                        })),
                 )
             })
     }
+}
+
+/// Which notice a row shows: the tab's own, or its page's zoom refusal.
+#[derive(Clone, Copy)]
+enum NoticeKind {
+    Tab,
+    Zoom,
 }
 
 /// A tab's frame in the strip; the selected one is marked like the shell's tabs.

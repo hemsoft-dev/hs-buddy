@@ -29,6 +29,30 @@ once the browser has the keyboard: clicking a tab gives it to the browser, as do
 reaching a tab with Tab. Clicking into a page gives the page the keyboard until you
 click Buddy again.
 
+Alt+= or Alt++ zooms the shown page in and Alt+- zooms it out, the same 10% step as
+the toolbar buttons; on macOS the keys are Option+= and Option+-. As in Electron,
+which listens on its window while a page tab is mounted, the keys work wherever
+Buddy has the keyboard while a page tab is shown, except in the terminal, whose
+shell keeps Alt keys. A page that has the keyboard keeps them, as an Electron
+webview does, and with the bookmark list or another section shown they reach the
+focused field (Option+= still types ≠). So do they on a tab with no page to zoom (a
+refused address, or no engine on this system), whose zoom stays as it was and isn't
+saved. A bookmark opened from the list leaves the keyboard with the browser, so the
+keys work at once, as Electron's window listener does. Electron has no reset key,
+and neither does Buddy.
+
+The zoom the keys and buttons set is saved, and each page records the zoom its
+engine last took. The toolbar shows the selected page's own zoom (the saved one on a
+tab without a page), so it never shows a zoom the page doesn't have. A step starts
+from the zoom the toolbar shows and is saved only once the selected page takes it;
+if its engine refuses, nothing changes and the tab says why. Pages kept in
+background tabs get the new zoom too, and a refusal there blocks nothing. Whenever a
+tab is shown and its page's zoom differs from the saved one, the page is asked
+again: if it refuses, the toolbar keeps the page's zoom and the tab says why; once
+it takes the zoom, that refusal goes. A zoom refusal has its own row beside any
+other notice, so it never replaces a notice's offer, such as a refused pop-up's
+Open externally.
+
 ## What a page may do
 
 The rules are stricter than Electron's embedded tab and match its in-app browser

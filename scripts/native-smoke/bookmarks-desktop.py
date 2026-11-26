@@ -127,7 +127,11 @@ def add_and_delete(driver, theme, victim):
     # "All bookmarks" inside its light-theme focus ring on macOS (run 40643311321).
     github.check(flow / f"list-{theme}.png", "Bookmarks", "Development", "News",
         "Rust Book", "Morning news", "Open externally")
-    github.check(flow / f"category-{theme}.png", "All bookmarks", "In Development", "Rust", "Web", "GPUI guide",
+    # "GPUI guide" is waited for before this capture. Beside the card's icon,
+    # Tesseract read its "GPUI" as "GPUL" or "GPU" in every layout of the
+    # Windows light capture (run 45669020415), so Rust Book, the other Rust
+    # bookmark under Development, stands for the category's cards here.
+    github.check(flow / f"category-{theme}.png", "All bookmarks", "In Development", "Rust", "Web", "Rust Book",
         "MDN reference", absent=("Morning news",))
     github.check(flow / f"editor-{theme}.png", "New bookmark", "URL", "Title", "Category", "Tags", "Add bookmark")
     # "Bookmark added." is waited for before Reading is chosen, which clears it;

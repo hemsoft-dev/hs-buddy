@@ -119,7 +119,6 @@ impl Host for WryHost {
 
         let PageConfig {
             url,
-            zoom,
             bounds,
             checker,
             events,
@@ -236,9 +235,7 @@ impl Host for WryHost {
             log::warn!("browser: frame guard failed: {err}");
             Unavailable("The web engine couldn't start.".into())
         })?;
-        let page = WryPage(webview);
-        page.zoom(zoom);
-        Ok(Rc::new(page))
+        Ok(Rc::new(WryPage(webview)))
     }
 
     fn pump(&self) {
@@ -338,8 +335,8 @@ impl Page for WryPage {
         logged("focus", self.0.focus_parent());
     }
 
-    fn zoom(&self, zoom: f64) {
-        logged("zoom", self.0.zoom(zoom));
+    fn zoom(&self, zoom: f64) -> Result<(), String> {
+        self.0.zoom(zoom).map_err(|err| err.to_string())
     }
 
     fn url(&self) -> Option<String> {

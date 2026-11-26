@@ -50,9 +50,31 @@ pub(super) const LOAD_LIMIT: Duration = Duration::from_secs(30);
 pub(super) const STALLED: &str =
     "The page didn't finish loading. Try again, or open it externally.";
 pub(super) const ZOOM_DELTA: f64 = 0.1;
+/// The zoom every engine gives a new page.
+pub(super) const ENGINE_ZOOM: f64 = 1.0;
+/// Starts the notice a page tab shows when its engine refuses a zoom.
+pub(super) const ZOOM_FAILED: &str = "The page couldn't be zoomed.";
 pub(super) const CONTEXT: &str = "BuddyBrowser";
 
-actions!(browser, [NextTab, PreviousTab, CloseTab]);
+actions!(
+    browser,
+    [NextTab, PreviousTab, CloseTab, ZoomPageIn, ZoomPageOut]
+);
+
+/// Electron's `handleZoomKeydown` (`BrowserTabView.tsx`): Alt+= or Alt++ zooms
+/// the shown page in and Alt+- zooms it out; there is no reset key. Electron
+/// listens on the whole window while a page tab is shown, so the bindings sit
+/// at the app root, outside the terminal, whose shell keeps Alt keys. A page
+/// that has the keyboard keeps these keys, as an Electron webview does.
+pub fn init(cx: &mut App) {
+    let context = Some("BuddyApp && !BuddyTerminal && !BuddyTerminalPaste");
+    cx.bind_keys([
+        gpui_kit::KeyBinding::new("alt-=", ZoomPageIn, context),
+        gpui_kit::KeyBinding::new("alt-+", ZoomPageIn, context),
+        gpui_kit::KeyBinding::new("alt-shift-=", ZoomPageIn, context),
+        gpui_kit::KeyBinding::new("alt--", ZoomPageOut, context),
+    ]);
+}
 
 /// Open GPUI overlays (menus, dialogs) that a native page would cover.
 /// Whoever opens one counts it here while it is open.
@@ -97,6 +119,13 @@ pub(super) struct Tab {
     starting: bool,
     pub(super) bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     visible: bool,
+    /// The zoom the page's engine last took (`ENGINE_ZOOM` until it takes
+    /// one). While it differs from the saved zoom, the page is given the
+    /// saved zoom each time its tab is shown; see `catch_up_zoom`.
+    pub(super) applied_zoom: f64,
+    /// Why the engine refused the page's last zoom. It is kept apart from
+    /// `notice`, so a refusal never replaces another notice and its offer.
+    pub(super) zoom_error: Option<String>,
 }
 
 impl Tab {
@@ -118,6 +147,8 @@ pub struct BrowserView {
     pub(super) home: Option<AnyView>,
     shown: bool,
     pub(crate) global_tabs: bool,
+    /// The saved zoom: what the zoom keys and buttons set and the session
+    /// keeps. Each page records the zoom it has (`Tab::applied_zoom`).
     pub(super) zoom: f64,
     fixture: Option<FixtureOrigin>,
     audit: Option<PathBuf>,
@@ -132,6 +163,9 @@ pub struct BrowserView {
     /// The tab shortcuts need the keyboard inside the browser. Buttons don't
     /// take focus on a click, so clicking a tab gives it to the browser.
     pub(super) focus: FocusHandle,
+    /// The last frame showed the bookmark list. When a page replaces the list
+    /// that had the keyboard, the browser keeps it (see `render`).
+    pub(super) showed_home: bool,
 }
 
 impl BrowserView {
@@ -181,6 +215,7 @@ impl BrowserView {
             full: false,
             next_id: 0,
             focus: cx.focus_handle(),
+            showed_home: false,
         };
         for saved in session.tabs {
             let tab = view.tab(saved.url, saved.title, cx);
@@ -269,6 +304,8 @@ impl BrowserView {
             starting: false,
             bounds: Rc::default(),
             visible: false,
+            applied_zoom: ENGINE_ZOOM,
+            zoom_error: None,
         }
     }
 
@@ -309,6 +346,7 @@ impl BrowserView {
     /// Shows exactly the page that should be on screen, and starts the
     /// active tab's page the first time it is needed.
     fn sync(&mut self, cx: &mut Context<Self>) {
+        self.catch_up_zoom();
         let showing = self.shown && !Overlays::any(cx);
         for (index, tab) in self.tabs.iter_mut().enumerate() {
             let visible = showing
@@ -421,7 +459,6 @@ impl BrowserView {
             && tab.bounds.get().is_some();
         Some(PageConfig {
             url,
-            zoom: self.zoom,
             bounds: tab.bounds.get().unwrap_or_default(),
             checker: self.checker.clone(),
             events: tab.events.clone(),
@@ -454,6 +491,8 @@ impl BrowserView {
                 }
                 tab.visible = visible;
                 tab.page = Some(page);
+                tab.applied_zoom = ENGINE_ZOOM;
+                tab.zoom_error = None;
                 self.start_pump(cx);
                 self.start_following(cx);
             }
@@ -679,6 +718,15 @@ impl BrowserView {
         self.sync(cx);
     }
 
+    /// Hides the zoom refusal. The page keeps the zoom the toolbar shows and
+    /// is given the saved zoom again the next time its tab is shown.
+    pub(super) fn dismiss_zoom_error(&mut self, cx: &mut Context<Self>) {
+        if let Some(tab) = self.active.and_then(|index| self.tabs.get_mut(index)) {
+            tab.zoom_error = None;
+        }
+        cx.notify();
+    }
+
     pub(super) fn back(&mut self) {
         if let Some(page) = self.active_tab().and_then(|tab| tab.page.as_ref()) {
             page.back();
@@ -734,13 +782,63 @@ impl BrowserView {
         }
     }
 
+    /// Alt+= / Alt+-: zoom only while a page tab is shown, as Electron's
+    /// listener lives only in a mounted page tab; the toolbar buttons' step.
+    /// True when a shown page took the key. A tab with no page (a refused
+    /// address, or no engine on this system) has nothing to zoom, so its zoom
+    /// isn't changed or saved. Otherwise the caller lets the keystroke
+    /// through, so Option+= and Option+- still type in text fields.
+    pub(crate) fn zoom_shortcut(&mut self, zoom_in: bool, cx: &mut Context<Self>) -> bool {
+        let handled = self.shown && self.active_tab().is_some_and(|tab| tab.page.is_some());
+        if handled {
+            self.zoom_by(if zoom_in { ZOOM_DELTA } else { -ZOOM_DELTA }, cx);
+        }
+        handled
+    }
+
+    /// The zoom the toolbar shows: the selected page's own, so it never
+    /// shows a zoom that page doesn't have, or the saved zoom while the tab
+    /// has no page.
+    pub(super) fn shown_zoom(&self) -> f64 {
+        self.active_tab()
+            .filter(|tab| tab.page.is_some())
+            .map_or(self.zoom, |tab| tab.applied_zoom)
+    }
+
+    /// One step from the zoom the toolbar shows. The selected tab's page must
+    /// take it first: when its engine refuses, nothing is saved and the tab
+    /// says why, beside any other notice. Once it is taken (or the tab has
+    /// no page), it is saved and every other page is given it.
     pub(super) fn zoom_by(&mut self, delta: f64, cx: &mut Context<Self>) {
-        self.zoom = browser::clamp_zoom(((self.zoom + delta) * 10.0).round() / 10.0);
-        for page in self.tabs.iter().filter_map(|tab| tab.page.as_ref()) {
-            page.zoom(self.zoom);
+        let zoom = browser::clamp_zoom(((self.shown_zoom() + delta) * 10.0).round() / 10.0);
+        let selected = self.active.and_then(|index| self.tabs.get_mut(index));
+        if let Some(tab) = selected
+            && !apply_zoom(tab, zoom)
+        {
+            cx.notify();
+            return;
+        }
+        self.zoom = zoom;
+        for tab in &mut self.tabs {
+            if tab.applied_zoom != zoom {
+                apply_zoom(tab, zoom);
+            }
         }
         self.save(cx);
         cx.notify();
+    }
+
+    /// The shown tab's page takes the saved zoom if it doesn't have it yet:
+    /// it refused it earlier, or it is new. A refusal leaves the page's zoom
+    /// on the toolbar and says why; the next time the tab is shown it is
+    /// asked again.
+    fn catch_up_zoom(&mut self) {
+        let zoom = self.zoom;
+        if let Some(tab) = self.active.and_then(|index| self.tabs.get_mut(index))
+            && tab.applied_zoom != zoom
+        {
+            apply_zoom(tab, zoom);
+        }
     }
 
     /// The toolbar's Open externally: always the page the tab shows.
@@ -812,6 +910,28 @@ impl BrowserView {
         };
         if Session::load(&Settings::global(cx).config, self.fixture.as_ref()) != session {
             Settings::update_at(cx, path, |config| session.store(config));
+        }
+    }
+}
+
+/// Gives `tab`'s page `zoom`. Its record changes only with the engine's
+/// answer: a taken zoom is recorded and clears an earlier refusal; a refused
+/// one is kept as the tab's zoom error. False only when the page refused; a
+/// tab without a page has nothing to refuse.
+fn apply_zoom(tab: &mut Tab, zoom: f64) -> bool {
+    let Some(page) = &tab.page else {
+        return true;
+    };
+    match page.zoom(zoom) {
+        Ok(()) => {
+            tab.applied_zoom = zoom;
+            tab.zoom_error = None;
+            true
+        }
+        Err(error) => {
+            log::warn!("browser: zoom failed: {error}");
+            tab.zoom_error = Some(error);
+            false
         }
     }
 }

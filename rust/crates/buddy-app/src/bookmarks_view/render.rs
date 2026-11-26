@@ -11,7 +11,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    div,
+    div, img,
 };
 
 use super::editor::Editor;
@@ -239,7 +239,7 @@ impl BookmarksView {
             .rounded_md()
             .cursor_pointer()
             .hover(|style| style.bg(accent))
-            .child(Icon::new(IconName::Globe).size(zpx(12.)))
+            .child(self.favicon(bookmark, "tree", 12.))
             .child(
                 div()
                     .flex_1()
@@ -436,6 +436,35 @@ impl BookmarksView {
             .into_any_element()
     }
 
+    /// The bookmark's favicon once it has loaded and been decoded, else the
+    /// globe. The image is already decoded pixels, so GPUI shows it at once:
+    /// there is no loading or failed state between the globe and the icon.
+    /// `place` (`card` or `tree`) names the selector, so each placement can
+    /// be checked on its own.
+    fn favicon(&self, bookmark: &Bookmark, place: &'static str, size: f32) -> AnyElement {
+        let Some(image) = bookmark
+            .favicon_url
+            .as_deref()
+            .and_then(|url| self.favicons.image(url))
+        else {
+            return div()
+                .flex_shrink_0()
+                .debug_selector({
+                    let id = bookmark.id.clone();
+                    move || format!("bookmark-{place}-globe-{id}")
+                })
+                .child(Icon::new(IconName::Globe).size(zpx(size)))
+                .into_any_element();
+        };
+        let id = bookmark.id.clone();
+        img(image)
+            .flex_shrink_0()
+            .size(zpx(size))
+            .rounded(zpx(2.))
+            .debug_selector(move || format!("bookmark-{place}-favicon-{id}"))
+            .into_any_element()
+    }
+
     pub(super) fn render_card(
         &self,
         index: usize,
@@ -480,6 +509,8 @@ impl BookmarksView {
                     .flex_wrap()
                     .gap_2()
                     .items_start()
+                    // Electron's card icon: the favicon, else the globe.
+                    .child(self.favicon(bookmark, "card", 20.))
                     .child(
                         v_flex()
                             .id(("bookmark-open", index))

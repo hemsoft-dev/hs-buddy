@@ -13,10 +13,14 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import struct
+import sys
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
+import zlib
 
+import colour_blocks
 from desktop import fixture, require_closed_sessions
 
 HERE = Path(__file__).resolve().parent
@@ -43,6 +47,34 @@ THEMES = ("dark", "light")
 # Kinds every engine must refuse and record; the others depend on what each engine
 # lets an app intercept, and are reported rather than required.
 REQUIRED_REFUSALS = {"internal", "download"}
+# The Fixture page bookmark's favicon: one solid colour no theme or globe icon uses.
+FAVICON_RGB = (255, 0, 255)
+# A 20 px card icon is 400 pixels at 100%; corners and scaling take a few.
+FAVICON_MIN_PIXELS = 150
+# A 12 px tree row icon is 144 pixels at 100%; the same share of it.
+TREE_FAVICON_MIN_PIXELS = 50
+# The toolbar's page zoom before and after one Alt+= (the 10% button step).
+ZOOM_BEFORE, ZOOM_AFTER = "100%", "110%"
+# A lime block of fixed CSS size on the Fixture page: one Alt+= must widen it
+# by the step, so a zoom the engine refused fails even if the toolbar moved.
+PAGE_BLOCK = "lime"
+PAGE_BLOCK_CSS = "width:160px;height:80px;background:#00ff00"
+ZOOM_RATIO = (1.05, 1.15)
+# After Alt+- the block is back at its 100% size, give or take a pixel of rounding;
+# a page left at 110% is 10% off.
+UNZOOM_RATIO = (0.97, 1.03)
+
+
+def solid_png(width, height, rgb):
+    """An opaque single-colour PNG, built without an imaging library."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\0" + bytes(rgb) * width for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+FAVICON = solid_png(32, 32, FAVICON_RGB)
 
 PROBE = """<!doctype html><html><head><title>Buddy Probe</title></head>
 <body style="font:40px sans-serif;margin:32px"><p>PROBE PAGE</p><p id="state">running</p>
@@ -76,13 +108,14 @@ class Site:
     def __init__(self):
         self.beacons = {}
         self.downloads = 0
+        self.favicons = 0
         self.lock = threading.Lock()
         self.server = None
 
     def page(self, visits):
         return (f"<!doctype html><html><head><title>Buddy Fixture OK</title></head>"
                 f"<body style=\"font:48px sans-serif;margin:32px\"><p>{PAGE_TEXT}</p>"
-                f"<p>Visit {visits}</p></body></html>")
+                f"<p>Visit {visits}</p><div style=\"{PAGE_BLOCK_CSS}\"></div></body></html>")
 
     def handler(self, site):
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -90,7 +123,7 @@ class Site:
                 pass
 
             def send(self, status, body, content_type="text/html; charset=utf-8", headers=()):
-                data = body.encode("utf-8")
+                data = body if isinstance(body, bytes) else body.encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(data)))
@@ -113,6 +146,10 @@ class Site:
                     with site.lock:
                         site.beacons[query.get("name", [""])[0]] = query.get("value", [""])[0]
                     self.send(204, "")
+                elif url.path == "/favicon.png":
+                    with site.lock:
+                        site.favicons += 1
+                    self.send(200, FAVICON, "image/png")
                 elif url.path == "/download":
                     with site.lock:
                         site.downloads += 1
@@ -148,7 +185,7 @@ class Site:
 def bookmarks(origin):
     return [
         dict(url=origin + "probe", title="Probe page", category="Fixture"),
-        dict(url=origin + "ok", title="Fixture page", category="Fixture"),
+        dict(url=origin + "ok", title="Fixture page", category="Fixture", faviconUrl=origin + "favicon.png"),
     ]
 
 
@@ -201,18 +238,181 @@ def evaluate(records, beacons, downloads, frame):
     return dict(refusals=sorted(set(kinds)), beacons=beacons)
 
 
+def favicon_pixels(image):
+    """How many pixels of the capture are the fixture favicon's colour, and their bounds."""
+    return colour_blocks.measure(image, "magenta")
+
+
+def require_favicon(image):
+    """The Fixture page card shows the served favicon, not the globe: a block of
+    its colour about icon-sized, which nothing else in Buddy paints."""
+    count, bounds = favicon_pixels(image)
+    image.with_suffix(".favicon.json").write_text(json.dumps(dict(pixels=count, bounds=bounds)), encoding="utf-8")
+    if count < FAVICON_MIN_PIXELS:
+        raise RuntimeError(f"The bookmark card shows no favicon ({count} favicon-coloured pixels)")
+    # Two icons at most (the card and an expanded tree row), each under 64 px a side.
+    if bounds["width"] > 160 or bounds["height"] > 160:
+        raise RuntimeError(f"The favicon colour covers more than an icon: {bounds}")
+    return dict(pixels=count, bounds=bounds)
+
+
+def require_tree_favicon(image):
+    """The expanded tree's Fixture page row shows the favicon too: two separate
+    magenta blocks, and the left one, in the tree pane beside the list, is the
+    row's icon, smaller than the card's. A tree row that lost its favicon
+    leaves only the card's block, so the card can't pass for it."""
+    blocks = colour_blocks.large_blocks(image, "magenta", TREE_FAVICON_MIN_PIXELS)
+    image.with_suffix(".favicon.json").write_text(json.dumps(dict(blocks=blocks)), encoding="utf-8")
+    if len(blocks) != 2:
+        raise RuntimeError(f"The bookmark tree row and card do not both show the favicon ({len(blocks)} magenta blocks)")
+    tree, card = blocks
+    if any(block["width"] > 64 or block["height"] > 64 for block in blocks):
+        raise RuntimeError(f"The favicon colour covers more than an icon: {blocks}")
+    if tree["width"] >= card["width"] or tree["height"] >= card["height"]:
+        raise RuntimeError(f"The block left of the card is not the tree row's smaller icon: {blocks}")
+    return dict(tree=tree, card=card)
+
+
+def require_scaled(before, after, expected, failure):
+    """The page's fixed-size block in `after`, against `before`, is within the
+    `expected` width and height ratios; the measurements are saved beside `after`."""
+    sizes = []
+    for image in (before, after):
+        count, bounds = colour_blocks.measure(image, PAGE_BLOCK)
+        if bounds is None or count < 1000:
+            raise RuntimeError(f"The Fixture page's block is not shown in {image.name} ({count} pixels)")
+        sizes.append(bounds)
+    ratios = [sizes[1][side] / sizes[0][side] for side in ("width", "height")]
+    evidence = dict(before=sizes[0], after=sizes[1], ratios=ratios)
+    after.with_suffix(".zoom.json").write_text(json.dumps(evidence), encoding="utf-8")
+    if not all(expected[0] <= ratio <= expected[1] for ratio in ratios):
+        raise RuntimeError(f"{failure}: {evidence}")
+    return evidence
+
+
+def require_zoomed(before, after):
+    """The page's content grew by one zoom step between the two captures: its
+    fixed-size block is wider and taller by about 10%, not just relabelled."""
+    return require_scaled(before, after, ZOOM_RATIO, "The page did not scale by one zoom step")
+
+
+def require_unzoomed(before, after):
+    """After Alt+- the page's content is back at its 100% size, not just relabelled."""
+    return require_scaled(before, after, UNZOOM_RATIO, "The page did not return to its 100% size")
+
+
+# The all-bookmarks tab. Its own word "All" is the fallback: on macOS
+# (run 45719379502) Vision read the light tab as "Bookman: All".
+BOOKMARKS_TAB = "Bookmarks: All|All"
+
+
+# The tree's Fixture page row. Vision on Intel read its magenta favicon as a
+# letter glued to the title, "JFixture page" (run 45737486513).
+FIXTURE_ROW = "Fixture page|JFixture page"
+# The probe's tab. Its own word "Probe" is unique in the tab row; on macOS
+# Vision read the light tab as "Buy Probe" (run 45737486513).
+PROBE_TAB = "Buddy Probe|Probe"
+
+
+def favicon_steps(theme):
+    """The bookmark list, then its favicon: it arrives after the list, so its
+    colour is waited for before the capture."""
+    return [
+        ("workspace", BOOKMARKS_TAB), ("wait_text", "Fixture page"),
+        ("wait_colour", "magenta", FAVICON_MIN_PIXELS), ("capture", f"bookmark-favicons-{theme}"),
+    ]
+
+
+def zoom_steps(theme):
+    """Alt+= on the shown page, then Alt+- back to 100%. The engine repaints
+    the page a frame after it takes the zoom."""
+    return [
+        ("altkey", "="), ("wait_text", ZOOM_AFTER), ("sleep", 1), ("capture", f"browser-page-zoom-{theme}"),
+        ("altkey", "-"), ("wait_text", ZOOM_BEFORE), ("sleep", 1), ("capture", f"browser-page-unzoom-{theme}"),
+    ]
+
+
+def tree_favicon_steps(theme):
+    """Choose the Fixture category in the bookmark tree, which expands it, so
+    its Fixture page row shows the favicon beside the card's. Each card also
+    shows "Fixture" (its category), so the click is bounded by the toolbar's
+    Refresh above and the Search label below, where only the tree's row is.
+    It opens the "Bookmarks: Fixture" tab, counted like an Electron
+    `openTab('bookmarks-category:Fixture')`."""
+    return [
+        ("workspace", BOOKMARKS_TAB), ("wait_text", "Fixture page"),
+        ("between", "Fixture", "Refresh", "Search"),
+        ("wait_colour", "magenta", TREE_FAVICON_MIN_PIXELS, 2), ("capture", f"bookmark-tree-favicons-{theme}"),
+    ]
+
+
+def require_tree_favicons(flow, theme):
+    """The tree capture shows the chosen category, and its row's favicon."""
+    github.check(flow / f"bookmark-tree-favicons-{theme}.png", "In Fixture", "Fixture page", "Probe page", browser=True)
+    return require_tree_favicon(flow / f"bookmark-tree-favicons-{theme}.png")
+
+
+def require_toolbar_label(path, label):
+    """The toolbar's small zoom label on a capture. The whole-capture OCR of
+    `github.check` can miss it on Windows even though the drive's live
+    `wait_text` found it (run 45737486513), so the label locator that wait
+    uses is tried on the same capture too. Either reading suffices; neither
+    keeps the check's failure."""
+    try:
+        github.check(path, label, browser=True)
+        return
+    except RuntimeError as failure:
+        missing = failure
+    engines = [{}] + ([dict(native_macos=True)] if sys.platform == "darwin" else [])
+    for options in engines:
+        try:
+            settings.ocr.locate_image(path, label, **options)
+            return
+        except settings.ocr.AmbiguousLabel:
+            return
+        except RuntimeError:
+            pass
+    raise missing
+
+
+def require_favicon_and_zoom(flow, theme):
+    """The favicon capture shows the icon, and the zoom captures show the page
+    one step larger and then back at its size in `page-{theme}`."""
+    github.check(flow / f"bookmark-favicons-{theme}.png", "Fixture page", "Probe page", browser=True)
+    favicon = require_favicon(flow / f"bookmark-favicons-{theme}.png")
+    # The large page heading and the small toolbar label need different OCR
+    # preprocessing, so one layout rarely reads both (Windows, run
+    # 45719379502); each is required on the same capture separately.
+    for name, label in ((f"browser-page-zoom-{theme}.png", ZOOM_AFTER), (f"browser-page-unzoom-{theme}.png", ZOOM_BEFORE)):
+        github.check(flow / name, PAGE_TEXT, browser=True)
+        require_toolbar_label(flow / name, label)
+    zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
+    unzoom = require_unzoomed(flow / f"page-{theme}.png", flow / f"browser-page-unzoom-{theme}.png")
+    return dict(favicon=favicon, zoom=zoom, unzoom=unzoom)
+
+
 def first_pass(driver, theme):
-    """A fresh session: the probe's refusals, then a page, at both sizes."""
+    """A fresh session: the probe's refusals, then a page, at both sizes. The
+    Fixture page card shows its favicon, Alt+= zooms the page one step, and
+    Alt+- takes it back to its 100% size (so later passes see the saved zoom
+    unchanged). Then the Fixture category is expanded in the tree, whose row
+    shows the favicon too, and that row opens the page again, where the drive
+    ends for the restart to restore."""
     flow = driver.drive(f"browser-{theme}", [
         ("wait_text", "Probe page"), ("content", "Probe page"),
         ("wait_text", BLOCKED_TEXT), ("capture", f"blocked-{theme}"),
         ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"), ("capture", f"tabs-list-{theme}"),
+        *favicon_steps(theme)[2:],
         ("content", "Fixture page"), ("wait_text", "Visit 1"), ("capture", f"page-{theme}"),
+        *zoom_steps(theme),
         ("resize", 900, 650), ("sleep", 1), ("capture", f"page-compact-{theme}"),
         ("resize", 1200, 820),
-        # Repeat after the title-qualified captures: reusing a URL selects
-        # its bookmark title. It counts without a new HTTP visit.
-        ("workspace", "Bookmarks: All"), ("content", "Fixture page"),
+        *tree_favicon_steps(theme),
+        # Repeat after the title-qualified captures, from the tree row this
+        # time: reusing a URL selects its bookmark title, and it counts without
+        # a new HTTP visit. The search leaves only the Probe page card, so the
+        # row is the one "Fixture page" shown.
+        ("box", "Search", "Probe"), ("sleep", 1), ("content", FIXTURE_ROW),
         ("wait_text", "Visit 1"),
     ], record=True)
     github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
@@ -221,6 +421,24 @@ def first_pass(driver, theme):
     # address field's dim text read in no OCR layout on Windows (run 40647223188).
     github.check(flow / f"page-{theme}.png", PAGE_TEXT, "Visit 1", "Buddy Fixture OK", browser=True)
     github.check(flow / f"page-compact-{theme}.png", PAGE_TEXT, "Buddy Fixture OK", browser=True)
+    return dict(**require_favicon_and_zoom(flow, theme), tree_favicon=require_tree_favicons(flow, theme))
+
+
+def saved_zoom(config):
+    """The page zoom saved in `native.browser`, or None when none is saved."""
+    return json.loads(config.read_text(encoding="utf-8-sig"))["native"].get("browser", {}).get("zoom")
+
+
+def restore_zoom(config, zoom):
+    def change(value):
+        browser = value["native"].get("browser")
+        if browser is None:
+            return
+        if zoom is None:
+            browser.pop("zoom", None)
+        else:
+            browser["zoom"] = zoom
+    terminal.write_config(config, change)
 
 
 def restart_pass(driver, theme, visit):
@@ -232,15 +450,28 @@ def restart_pass(driver, theme, visit):
 
 
 def light_pass(driver, visit):
+    """The restored session in the light theme: the page at both sizes, the
+    Fixture page card's favicon, then that card is opened again (selecting its
+    tab, without a new visit, and leaving the keyboard in the browser) and
+    Alt+= and Alt+- zoom the page and take it back. The Fixture category is
+    then expanded in the tree, whose row shows the favicon too. The drive is
+    recorded, so the keyboard zoom flow is in its `interaction.mp4`. It ends
+    on the probe's tab, where the X11 shortcut pass starts."""
     flow = driver.drive("browser-light", [
         ("wait_text", f"Visit {visit}"), ("capture", "page-light"),
         ("resize", 900, 650), ("sleep", 1), ("capture", "page-compact-light"),
         ("resize", 1200, 820),
-        ("workspace", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
+        *favicon_steps("light"),
+        # The fourth explicit bookmark open, counted like the others.
+        ("content", "Fixture page"), ("wait_text", f"Visit {visit}"),
+        *zoom_steps("light"),
+        *tree_favicon_steps("light"),
+        ("workspace", PROBE_TAB), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
     github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
     github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)
     github.check(flow / "blocked-light.png", PROBE_TEXT, BLOCKED_TEXT, browser=True)
+    return dict(**require_favicon_and_zoom(flow, "light"), tree_favicon=require_tree_favicons(flow, "light"))
 
 
 class BrowserDriver(settings.Driver):
@@ -292,7 +523,7 @@ def saved_tabs(config):
 
 
 def require_bookmark_activity(backend, before, opens, launches):
-    """`opens` embedded bookmark opens, plus the Dashboard each launch opens,
+    """`opens` embedded bookmark and category opens, plus the Dashboard each launch opens,
     as Electron's tab list does when its window starts, and one closed
     session per launch."""
     after = backend.query("buddyStats:get")
@@ -316,18 +547,35 @@ def qualify(executable, output, session, version, backend, site):
     # WebView2 can't create pages on the driver's hidden Windows desktop.
     driver.input_desktop = True
     activity_before = backend.query("buddyStats:get")
-    first_pass(driver, "dark")
-    activity_opened = require_bookmark_activity(backend, activity_before, 3, 1)
+    zoom = saved_zoom(config)
+    try:
+        first = first_pass(driver, "dark")
+    finally:
+        # Alt+- already took the page back; a failed drive may not have.
+        restore_zoom(config, zoom)
+    with site.lock:
+        if site.favicons < 1:
+            raise RuntimeError("Buddy never asked the fixture site for the bookmark's favicon")
+        first["favicon"]["requests"] = site.favicons
+    # Three bookmark opens (the last from the tree) and the Fixture category
+    # chosen in the tree.
+    activity_opened = require_bookmark_activity(backend, activity_before, 4, 1)
     restart_pass(driver, "dark", 2)
-    activity_restored = require_bookmark_activity(backend, activity_before, 3, 2)
-    light = json.loads(fixture(config.parent / "light-template", "light").read_text())
-    terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
-    light_pass(driver, 3)
-    activity_switched = require_bookmark_activity(backend, activity_before, 3, 3)
+    activity_restored = require_bookmark_activity(backend, activity_before, 4, 2)
+    template = json.loads(fixture(config.parent / "light-template", "light").read_text())
+    terminal.write_config(config, lambda value: value["ui"].update(template["ui"]))
+    zoom = saved_zoom(config)
+    try:
+        light = light_pass(driver, 3)
+    finally:
+        restore_zoom(config, zoom)
+    # The Fixture page card opened again, and the category chosen again.
+    activity_switched = require_bookmark_activity(backend, activity_before, 6, 3)
     (output / "bookmark-activity.json").write_text(json.dumps(dict(
         before=activity_before, opened=activity_opened, restored=activity_restored,
         switched=activity_switched, dataSource="isolated anonymous Convex fixture",
-        checks=["three explicit opens including repeated URL", "restart persistence",
+        checks=["four explicit bookmark opens including two of a repeated URL",
+            "two category opens from the tree", "restart persistence",
             "tab restoration and switching do not write", "PR counters unchanged",
             "one Dashboard open and one closed session per launch"]), indent=2), encoding="utf-8")
     with site.lock:
@@ -345,9 +593,11 @@ def qualify(executable, output, session, version, backend, site):
         checks = ["Buddy's shortcuts with the pointer over a page"]
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True, engine=dict(windows="WebView2", macos="WKWebView",
-        x11="WebKitGTK")[session], **result,
+        x11="WebKitGTK")[session], **result, **first, light=light,
         dataSource="Installed app; loopback fixture site admitted by exact origin; bookmarks in an isolated anonymous Convex deployment",
-        checks=["bookmark opens in a tab", "page renders inside the window", "private address refused",
+        checks=["bookmark opens in a tab", "page renders inside the window", "bookmark card favicon in both themes",
+            "bookmark tree row favicon in both themes",
+            "Alt+= and Alt+- zoom the page in both themes", "private address refused",
             "download refused", "private iframe refused", "popup refused", "no permission granted", "tabs and cookies survive restart",
             "compact window", "light/dark", *checks]), indent=2), encoding="utf-8")
 

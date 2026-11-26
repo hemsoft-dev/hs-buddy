@@ -35,6 +35,39 @@ class DashboardGate(unittest.TestCase):
         self.assertFalse(any("mousemove" in args for args in shortcut))
         self.assertEqual(shortcut[-1], ("xdotool", "key", "--clearmodifiers", "ctrl+q"))
 
+    def test_alt_keys_reach_buddy_on_each_unix_session(self):
+        import desktop
+        geometry = "\n".join(["WINDOW=42", "X=80", "Y=40", "WIDTH=1200", "HEIGHT=820", "SCREEN=0"])
+        window = desktop.UnixWindow(None, "x11")
+        window.window = "42"
+        with patch.object(desktop, "run", return_value=geometry) as run_command, patch.object(desktop.time, "sleep"):
+            window.alt_key("=")
+            calls = [call.args for call in run_command.call_args_list]
+        # A page keeps Alt keys, so the pointer leaves it for the title bar first.
+        self.assertEqual(calls[1], ("xdotool", "mousemove", "--window", "42", 600, 15))
+        self.assertEqual(calls[-1], ("xdotool", "key", "--clearmodifiers", "alt+equal"))
+        with patch.object(desktop, "run", return_value=geometry) as run_command, patch.object(desktop.time, "sleep"):
+            window.alt_key("-")
+        self.assertEqual(run_command.call_args_list[-1].args, ("xdotool", "key", "--clearmodifiers", "alt+minus"))
+
+        mac = desktop.UnixWindow(None, "macos")
+        mac.process = type("Process", (), {"pid": 7})()
+        with patch.object(desktop, "run") as run_command, patch.object(desktop.time, "sleep"):
+            mac.alt_key("=")
+            mac.alt_key("-")
+        scripts = [call.args[2] for call in run_command.call_args_list]
+        self.assertIn("key code 24 using option down", scripts[0])
+        self.assertIn("key code 27 using option down", scripts[1])
+        self.assertTrue(all("unix id is 7" in script for script in scripts))
+
+        wayland = desktop.UnixWindow(None, "wayland")
+        wayland.window = "9"
+        with patch.object(desktop, "run") as run_command, patch.object(desktop.time, "sleep"):
+            wayland.alt_key("=")
+        self.assertEqual(run_command.call_args_list[-1].args, ("wtype", "-M", "alt", "-k", "equal", "-m", "alt"))
+        with self.assertRaisesRegex(RuntimeError, "Unsupported Alt key"):
+            window.alt_key("0")
+
     def test_hover_rests_the_pointer_in_the_middle_of_the_window(self):
         import desktop
         window = desktop.UnixWindow(None, "x11")

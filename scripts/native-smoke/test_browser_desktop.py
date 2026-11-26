@@ -22,6 +22,54 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_the_tree_row_and_probe_tab_fall_back_to_the_readings_vision_gave(self):
+        # Run 45737486513: Intel read the favicon glued to the tree row, and
+        # macos-15 read the light probe tab as "Buy Probe".
+        def box(text, left, top, width, line):
+            return dict(text=text, left=left, top=top, width=width, height=12, line=line)
+        ocr = desktop.settings.ocr
+        tree = [box("Probe", 116, 160, 34, "13"), box("page", 154, 160, 30, "13"),
+            box("JFixture", 109, 183, 46, "14"), box("page", 159, 183, 30, "14")]
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(tree, "Fixture page")
+        self.assertEqual(ocr.locate_label(tree, desktop.FIXTURE_ROW)["top"], 183)
+        tabs = [box("Browser", 308, 44, 48, "4"), box("Buy", 360, 44, 28, "4"), box("Probe", 399, 44, 34, "4"),
+            box("Browser:", 475, 44, 48, "4"), box("Faure", 526, 44, 36, "4"), box("page", 567, 44, 30, "4")]
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(tabs, "Buddy Probe")
+        self.assertEqual(ocr.locate_label(tabs, desktop.PROBE_TAB)["left"], 399)
+
+    def test_the_zoom_label_falls_back_to_the_live_wait_locator(self):
+        # Windows (run 45737486513): the whole-capture OCR missed "110%",
+        # which the drive's live wait had found with the label locator.
+        capture = Path("flow") / "browser-page-zoom-dark.png"
+        missed = RuntimeError("GitHub screenshot does not show all required text in one OCR layout")
+        with patch.object(desktop.github, "check", side_effect=missed), \
+                patch.object(desktop.settings.ocr, "locate_image", return_value=dict(left=1, top=1, width=9, height=9)) as locate:
+            desktop.require_toolbar_label(capture, "110%")
+        locate.assert_any_call(capture, "110%")
+        with patch.object(desktop.github, "check", return_value=None), \
+                patch.object(desktop.settings.ocr, "locate_image") as locate:
+            desktop.require_toolbar_label(capture, "110%")
+        locate.assert_not_called()
+        with patch.object(desktop.github, "check", side_effect=missed), \
+                patch.object(desktop.settings.ocr, "locate_image", side_effect=RuntimeError("not found")), \
+                self.assertRaises(RuntimeError) as raised:
+            desktop.require_toolbar_label(capture, "110%")
+        self.assertIs(raised.exception, missed)
+
+    def test_the_bookmarks_tab_falls_back_to_its_own_word_when_vision_misreads_it(self):
+        # The tab row Vision read on macOS in run 45719379502's light pass.
+        def box(text, left, top, width=40):
+            return dict(text=text, left=left, top=top, width=width, height=12, line="4/1/1")
+        words = [box("«Dashboard", 53, 44), box("Bookman:", 182, 44, 60), box("All", 248, 44, 18),
+            box("Browser:", 308, 44, 50), box("Buidy", 360, 44), box("Probe", 399, 44),
+            box("Browser", 475, 44, 50), box("Fate", 528, 44), box("pag.", 567, 44)]
+        ocr = desktop.settings.ocr
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(words, "Bookmarks: All")
+        self.assertEqual(ocr.locate_label(words, desktop.BOOKMARKS_TAB)["left"], 248)
+
     def test_bookmark_activity_requires_exact_explicit_delta_and_unchanged_other_counters(self):
         before = dict(tabsOpened=40, prsViewed=7, appLaunches=5, totalUptimeMs=999)
         backend = Mock()
@@ -147,9 +195,15 @@ class BrowserDesktopTests(unittest.TestCase):
                 return Path('flow')
 
         driver = Driver()
-        with patch.object(desktop.github, 'check') as check:
+        with patch.object(desktop.github, 'check') as check, \
+                patch.object(desktop, 'require_zoomed', return_value={}), \
+                patch.object(desktop, 'require_unzoomed', return_value={}), \
+                patch.object(desktop, 'require_tree_favicon', return_value={}), \
+                patch.object(desktop, 'require_favicon', return_value={}) as favicon:
             desktop.first_pass(driver, 'dark')
-        self.assertEqual(len(check.call_args_list), 4)
+        favicon.assert_called_once_with(Path('flow') / 'bookmark-favicons-dark.png')
+        # Zoom and unzoom each check the page and the toolbar label separately.
+        self.assertEqual(len(check.call_args_list), 10)
         self.assertTrue(all(call.kwargs.get('browser') for call in check.call_args_list))
         self.assertEqual(driver.target, dict(left=182, top=44, width=78, height=9))
 
@@ -230,6 +284,280 @@ class BrowserDesktopTests(unittest.TestCase):
         items = desktop.bookmarks("http://127.0.0.1:9/")
         self.assertEqual([item["url"] for item in items], ["http://127.0.0.1:9/probe", "http://127.0.0.1:9/ok"])
         self.assertEqual({item["category"] for item in items}, {"Fixture"})
+        # Only the page bookmark has a favicon, served by the fixture site itself.
+        self.assertEqual([item.get("faviconUrl") for item in items], [None, "http://127.0.0.1:9/favicon.png"])
+
+    def test_the_site_serves_a_solid_favicon_and_counts_requests(self):
+        with desktop.Site() as site:
+            request = urllib.request.Request(site.origin + "favicon.png")
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.headers["Content-Type"], "image/png")
+                body = response.read()
+            self.assertEqual(body, desktop.FAVICON)
+            self.assertEqual(site.favicons, 1)
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(struct.unpack(">II", body[16:24]), (32, 32))
+        # The image data decodes to the one colour.
+        import zlib
+        data = zlib.decompress(body[body.index(b"IDAT") + 4:body.index(b"IEND") - 8])
+        rows = [data[y * (1 + 32 * 3):(y + 1) * (1 + 32 * 3)] for y in range(32)]
+        self.assertTrue(all(row == b"\0" + bytes(desktop.FAVICON_RGB) * 32 for row in rows))
+
+    def test_favicon_pixels_are_the_magenta_block(self):
+        with patch.object(desktop.colour_blocks, "measure", return_value=(400, None)) as measure:
+            self.assertEqual(desktop.favicon_pixels(Path("capture.png")), (400, None))
+        measure.assert_called_once_with(Path("capture.png"), "magenta")
+
+    def test_the_fixture_page_paints_a_fixed_size_lime_block(self):
+        page = desktop.Site().page(1)
+        self.assertIn(desktop.PAGE_BLOCK_CSS, page)
+        self.assertIn("#00ff00", desktop.PAGE_BLOCK_CSS)
+        self.assertEqual(desktop.PAGE_BLOCK, "lime")
+
+    def test_the_zoom_check_needs_the_page_content_to_scale_one_step(self):
+        def block(width, height):
+            return (width * height, dict(left=40, top=300, width=width, height=height))
+        with tempfile.TemporaryDirectory() as root:
+            before, after = Path(root) / "page-dark.png", Path(root) / "browser-page-zoom-dark.png"
+            for sizes, error in (((block(160, 80), block(176, 88)), None),
+                    ((block(320, 160), block(352, 176)), None),
+                    # The toolbar said 110% but the engine kept the page at 100%.
+                    ((block(160, 80), block(160, 80)), "did not scale"),
+                    ((block(160, 80), block(192, 96)), "did not scale"),
+                    ((block(160, 80), (0, None)), "not shown in browser-page-zoom-dark.png"),
+                    (((0, None), block(176, 88)), "not shown in page-dark.png")):
+                with self.subTest(sizes=sizes), patch.object(desktop.colour_blocks, "measure", side_effect=sizes) as measure:
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_zoomed(before, after)
+                    else:
+                        evidence = desktop.require_zoomed(before, after)
+                        self.assertEqual(evidence["ratios"], [1.1, 1.1])
+                        self.assertEqual(json.loads(after.with_suffix(".zoom.json").read_text())["ratios"], [1.1, 1.1])
+                    self.assertEqual(measure.call_args_list[0].args, (before, "lime"))
+
+    def test_the_zoom_out_check_needs_the_page_content_back_at_its_100_percent_size(self):
+        def block(width, height):
+            return (width * height, dict(left=40, top=300, width=width, height=height))
+        with tempfile.TemporaryDirectory() as root:
+            before, after = Path(root) / "page-dark.png", Path(root) / "browser-page-unzoom-dark.png"
+            for sizes, error in (((block(160, 80), block(160, 80)), None),
+                    # A pixel of rounding either way is the same size.
+                    ((block(160, 80), block(161, 79)), None),
+                    ((block(320, 160), block(318, 162)), None),
+                    # The toolbar said 100% but the engine left the page at 110%.
+                    ((block(160, 80), block(176, 88)), "did not return to its 100% size"),
+                    ((block(160, 80), block(144, 72)), "did not return to its 100% size"),
+                    ((block(160, 80), (0, None)), "not shown in browser-page-unzoom-dark.png")):
+                with self.subTest(sizes=sizes), patch.object(desktop.colour_blocks, "measure", side_effect=sizes) as measure:
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_unzoomed(before, after)
+                    else:
+                        evidence = desktop.require_unzoomed(before, after)
+                        self.assertEqual(json.loads(after.with_suffix(".zoom.json").read_text()), evidence)
+                    self.assertEqual(measure.call_args_list[1].args[1], "lime")
+
+    def test_the_favicon_check_needs_an_icon_sized_block(self):
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "capture.png"
+            for result, error in (((400, dict(left=1, top=1, width=20, height=20)), None),
+                    ((40, dict(left=1, top=1, width=6, height=6)), "no favicon"),
+                    ((0, None), "no favicon"),
+                    ((90000, dict(left=0, top=0, width=300, height=300)), "more than an icon")):
+                with self.subTest(result=result), patch.object(desktop, "favicon_pixels", return_value=result):
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_favicon(image)
+                    else:
+                        self.assertEqual(desktop.require_favicon(image)["pixels"], 400)
+                        self.assertEqual(json.loads(image.with_suffix(".favicon.json").read_text())["pixels"], 400)
+
+    def test_alt_zoom_changes_the_toolbar_level_then_takes_it_back(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions = actions
+                return Path("flow")
+        driver = Driver()
+        with patch.object(desktop.github, "check") as check, patch.object(desktop, "require_favicon", return_value={}), \
+                patch.object(desktop, "require_tree_favicon", return_value={}), \
+                patch.object(desktop, "require_zoomed", return_value={}) as zoomed, \
+                patch.object(desktop, "require_unzoomed", return_value={}) as unzoomed:
+            desktop.first_pass(driver, "dark")
+        actions = driver.actions
+        zoom_in = actions.index(("altkey", "="))
+        # The page is open first; then the level changes, is captured, and is taken back.
+        self.assertLess(actions.index(("wait_text", "Visit 1")), zoom_in)
+        self.assertEqual(actions[zoom_in:zoom_in + 8], [("altkey", "="), ("wait_text", "110%"), ("sleep", 1),
+            ("capture", "browser-page-zoom-dark"), ("altkey", "-"), ("wait_text", "100%"), ("sleep", 1),
+            ("capture", "browser-page-unzoom-dark")])
+        # The favicon loads after the list: its colour is waited for before the capture.
+        favicon = actions.index(("capture", "bookmark-favicons-dark"))
+        self.assertEqual(actions[favicon - 1], ("wait_colour", "magenta", desktop.FAVICON_MIN_PIXELS))
+        self.assertLess(favicon, actions.index(("content", "Fixture page")))
+        checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
+        every = [(call.args[0].name, call.args[1:]) for call in check.call_args_list]
+        # The page heading and the toolbar label are required separately on each capture.
+        self.assertEqual([args for name, args in every if name == "browser-page-zoom-dark.png"],
+            [(desktop.PAGE_TEXT,), ("110%",)])
+        # The page itself must have grown, not just the toolbar's number.
+        zoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-zoom-dark.png")
+        # And Alt+- must have shrunk it back to its 100% size.
+        self.assertEqual([args for name, args in every if name == "browser-page-unzoom-dark.png"],
+            [(desktop.PAGE_TEXT,), ("100%",)])
+        unzoomed.assert_called_once_with(Path("flow") / "page-dark.png", Path("flow") / "browser-page-unzoom-dark.png")
+
+    def test_both_passes_expand_the_tree_after_every_card_click_and_check_its_row(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions, self.record = actions, record
+                return Path("flow")
+        for theme, run in (("dark", lambda driver: desktop.first_pass(driver, "dark")),
+                ("light", lambda driver: desktop.light_pass(driver, 3))):
+            with self.subTest(theme=theme):
+                driver = Driver()
+                with patch.object(desktop.github, "check") as check, \
+                        patch.object(desktop, "require_favicon", return_value={}), \
+                        patch.object(desktop, "require_tree_favicon", return_value=dict(tree={}, card={})) as tree, \
+                        patch.object(desktop, "require_zoomed", return_value={}), \
+                        patch.object(desktop, "require_unzoomed", return_value={}):
+                    result = run(driver)
+                actions, steps = driver.actions, desktop.tree_favicon_steps(theme)
+                self.assertTrue(driver.record)
+                start = next(index for index in range(len(actions)) if actions[index:index + len(steps)] == steps)
+                # The category is chosen in the tree, between the toolbar and the
+                # search label, where no card's "Fixture" category is; then the
+                # drive waits, bounded, for the row's favicon beside the card's.
+                self.assertEqual(actions[start + 2], ("between", "Fixture", "Refresh", "Search"))
+                self.assertEqual(actions[start + 3], ("wait_colour", "magenta", desktop.TREE_FAVICON_MIN_PIXELS, 2))
+                self.assertEqual(actions[start + 4], ("capture", f"bookmark-tree-favicons-{theme}"))
+                # Once the row shows, "Fixture page" is only clicked with the
+                # card searched away, so the click is the tree row's. The dark
+                # drive ends back on the page the restart restores; the light
+                # one on the probe's tab.
+                after = actions[start + len(steps):]
+                self.assertEqual(after, [("box", "Search", "Probe"), ("sleep", 1), ("content", desktop.FIXTURE_ROW),
+                    ("wait_text", "Visit 1")] if theme == "dark"
+                    else [("workspace", desktop.PROBE_TAB), ("wait_text", desktop.BLOCKED_TEXT), ("capture", "blocked-light")])
+                self.assertNotIn(("content", "Fixture page"), actions[start:start + len(steps)])
+                checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
+                self.assertEqual(checked[f"bookmark-tree-favicons-{theme}.png"], ("In Fixture", "Fixture page", "Probe page"))
+                tree.assert_called_once_with(Path("flow") / f"bookmark-tree-favicons-{theme}.png")
+                self.assertEqual(result["tree_favicon"], dict(tree={}, card={}))
+
+    def test_the_tree_check_needs_the_rows_smaller_icon_left_of_the_cards(self):
+        def block(left, size, pixels=None):
+            return dict(pixels=pixels or size * size, left=left, top=200, width=size, height=size)
+        tree, card = block(90, 12), block(333, 20)
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "bookmark-tree-favicons-dark.png"
+            for blocks, error in (([tree, card], None),
+                    # Only the card shows it: the tree row lost its favicon.
+                    ([card], "do not both show the favicon"),
+                    ([], "do not both show the favicon"),
+                    # The left block is no smaller than the card's, so not the row's.
+                    ([block(90, 20), card], "not the tree row's smaller icon"),
+                    ([card, block(600, 12)], "not the tree row's smaller icon"),
+                    ([tree, block(333, 200)], "more than an icon"),
+                    ([tree, card, block(700, 20)], "do not both show the favicon")):
+                with self.subTest(blocks=blocks), \
+                        patch.object(desktop.colour_blocks, "measure_blocks", return_value=blocks) as measured:
+                    if error:
+                        with self.assertRaisesRegex(RuntimeError, error):
+                            desktop.require_tree_favicon(image)
+                    else:
+                        self.assertEqual(desktop.require_tree_favicon(image), dict(tree=tree, card=card))
+                    self.assertEqual(measured.call_args.args, (image, "magenta"))
+                    self.assertEqual(json.loads(image.with_suffix(".favicon.json").read_text())["blocks"], blocks)
+        # Blocks under the row icon's share of pixels are not counted at all.
+        with patch.object(desktop.colour_blocks, "measure_blocks",
+                return_value=[block(90, 12, desktop.TREE_FAVICON_MIN_PIXELS - 1), card]):
+            with tempfile.TemporaryDirectory() as root, self.assertRaisesRegex(RuntimeError, r"\(1 magenta blocks\)"):
+                desktop.require_tree_favicon(Path(root) / "capture.png")
+
+    def test_each_tree_category_open_is_counted_with_the_bookmark_opens(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            config = root / "dark" / "config.json"
+            config.parent.mkdir()
+            config.write_text(json.dumps(dict(native={}, ui={})), encoding="utf-8")
+            template = root / "light.json"
+            template.write_text(json.dumps(dict(ui={})), encoding="utf-8")
+            site = Mock(origin="http://127.0.0.1:1/", favicons=1, beacons={}, downloads=1)
+            site.lock = __import__("threading").Lock()
+            site.server.server_port = 1
+            activity = Mock(return_value={})
+            with patch.object(desktop.github, "installed_binary", return_value={}), \
+                    patch.object(desktop, "fixture", side_effect=[config, template]), \
+                    patch.object(desktop.terminal, "write_config"), patch.object(desktop, "seed"), \
+                    patch.object(desktop, "BrowserDriver", return_value=Mock(large_size=(1200, 820))), \
+                    patch.object(desktop, "saved_zoom", return_value=None), \
+                    patch.object(desktop, "restore_zoom"), patch.object(desktop, "first_pass", return_value=dict(favicon={})), \
+                    patch.object(desktop, "restart_pass"), patch.object(desktop, "light_pass", return_value={}), \
+                    patch.object(desktop, "require_bookmark_activity", activity), \
+                    patch.object(desktop, "audit_records", return_value=[]), patch.object(desktop, "evaluate", return_value={}), \
+                    patch.object(desktop, "saved_tabs", return_value=[item["url"] for item in desktop.bookmarks(site.origin)]), \
+                    patch.dict(os.environ):
+                desktop.qualify(Path("buddy"), root, "windows", "1.0.0", Mock(query=Mock(return_value={})), site)
+        # Three bookmark opens and a tree category open in the first pass, the
+        # card again and the category again in the light pass.
+        self.assertEqual([call.args[2:] for call in activity.call_args_list], [(4, 1), (4, 2), (6, 3)])
+
+    def test_the_light_pass_repeats_the_favicon_and_zoom_steps_on_a_recording(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.name, self.actions, self.record = name, actions, record
+                return Path("flow")
+        driver = Driver()
+        with patch.object(desktop.github, "check") as check, \
+                patch.object(desktop, "require_favicon", return_value={}) as favicon, \
+                patch.object(desktop, "require_tree_favicon", return_value={}), \
+                patch.object(desktop, "require_zoomed", return_value={}) as zoomed, \
+                patch.object(desktop, "require_unzoomed", return_value={}) as unzoomed:
+            desktop.light_pass(driver, 3)
+        actions = driver.actions
+        # The keyboard zoom flow is recorded with the rest of the light drive.
+        self.assertEqual((driver.name, driver.record), ("browser-light", True))
+        # The page at 100% comes first, so the zoom checks compare against it.
+        self.assertEqual(actions[:2], [("wait_text", "Visit 3"), ("capture", "page-light")])
+        favicon_at = actions.index(("workspace", desktop.BOOKMARKS_TAB))
+        self.assertEqual(actions[favicon_at:favicon_at + 4], desktop.favicon_steps("light"))
+        # Opening the card again selects its tab without a new visit and
+        # leaves the keyboard in the browser for the Alt keys.
+        reopen = actions.index(("content", "Fixture page"))
+        self.assertGreater(reopen, favicon_at)
+        self.assertEqual(actions[reopen + 1], ("wait_text", "Visit 3"))
+        self.assertEqual(actions[reopen + 2:reopen + 10], desktop.zoom_steps("light"))
+        self.assertEqual([action for action in actions if action[0] == "content"], [("content", "Fixture page")])
+        # It still ends on the probe's tab, where the X11 shortcut pass starts.
+        self.assertEqual(actions[-1], ("capture", "blocked-light"))
+        checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
+        self.assertEqual(checked["bookmark-favicons-light.png"], ("Fixture page", "Probe page"))
+        every = [(call.args[0].name, call.args[1:]) for call in check.call_args_list]
+        # The page heading and the toolbar label are required separately on each capture.
+        self.assertEqual([args for name, args in every if name == "browser-page-zoom-light.png"],
+            [(desktop.PAGE_TEXT,), ("110%",)])
+        self.assertEqual([args for name, args in every if name == "browser-page-unzoom-light.png"],
+            [(desktop.PAGE_TEXT,), ("100%",)])
+        favicon.assert_called_once_with(Path("flow") / "bookmark-favicons-light.png")
+        zoomed.assert_called_once_with(Path("flow") / "page-light.png", Path("flow") / "browser-page-zoom-light.png")
+        unzoomed.assert_called_once_with(Path("flow") / "page-light.png", Path("flow") / "browser-page-unzoom-light.png")
+
+    def test_the_saved_page_zoom_is_restored(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "config.json"
+            config.write_text(json.dumps(dict(native=dict(browser=dict(tabs=[], zoom=1.0)))), encoding="utf-8")
+            self.assertEqual(desktop.saved_zoom(config), 1.0)
+            desktop.terminal.write_config(config, lambda value: value["native"]["browser"].update(zoom=1.1))
+            desktop.restore_zoom(config, 1.0)
+            self.assertEqual(desktop.saved_zoom(config), 1.0)
+            # Nothing was saved before: the key goes again, and the tabs stay.
+            desktop.restore_zoom(config, None)
+            self.assertEqual(json.loads(config.read_text())["native"]["browser"], dict(tabs=[]))
+            config.write_text(json.dumps(dict(native={})), encoding="utf-8")
+            self.assertIsNone(desktop.saved_zoom(config))
+            desktop.restore_zoom(config, None)
+            self.assertEqual(json.loads(config.read_text()), dict(native={}))
 
     def test_audit_records_keep_only_the_origin(self):
         with tempfile.TemporaryDirectory() as directory:

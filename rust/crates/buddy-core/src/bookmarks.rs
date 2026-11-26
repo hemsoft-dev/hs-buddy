@@ -3,6 +3,7 @@
 //! rules follow Electron's `useBookmarkListState`, `BookmarkDialog` and
 //! `bookmarksSidebarUtils`.
 pub mod client;
+pub mod favicon;
 pub mod suggest;
 #[cfg(test)]
 mod tests;

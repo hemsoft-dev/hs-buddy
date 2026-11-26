@@ -28,6 +28,7 @@ log.workspace = true
 tokio.workspace = true
 reqwest.workspace = true
 futures.workspace = true
+image.workspace = true
 raw-window-handle = "0.6"
 # Pages inside the window (`browser_view`), on each OS's own engine.
 wry = "0.57"

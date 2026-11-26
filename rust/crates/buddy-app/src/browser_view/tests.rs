@@ -35,10 +35,20 @@ struct FakeHost {
     url: Rc<RefCell<Option<String>>>,
     /// Asks for pages created on screen, like WebKitGTK.
     shows_at_creation: bool,
+    /// The engine error every page's zoom fails with, while set.
+    zoom_error: Rc<RefCell<Option<String>>>,
+    /// Each page's own zoom error, in the order the pages were created.
+    page_zoom_errors: RefCell<Vec<Rc<RefCell<Option<String>>>>>,
 }
 
-/// Records calls; `url` is the address the page reports, shared with its host.
-struct FakePage(Rc<Log>, Rc<RefCell<Option<String>>>);
+/// Records calls; `url` is the address the page reports, shared with its host,
+/// as is the zoom error. The last field is this page's own zoom error.
+struct FakePage(
+    Rc<Log>,
+    Rc<RefCell<Option<String>>>,
+    Rc<RefCell<Option<String>>>,
+    Rc<RefCell<Option<String>>>,
+);
 
 impl Page for FakePage {
     fn load(&self, url: &Url) {
@@ -66,8 +76,13 @@ impl Page for FakePage {
     fn focus_parent(&self) {
         self.0.push("focus parent".into());
     }
-    fn zoom(&self, zoom: f64) {
+    fn zoom(&self, zoom: f64) -> Result<(), String> {
+        if let Some(error) = self.2.borrow().clone().or_else(|| self.3.borrow().clone()) {
+            self.0.push(format!("zoom {zoom} refused"));
+            return Err(error);
+        }
         self.0.push(format!("zoom {zoom}"));
+        Ok(())
     }
     fn url(&self) -> Option<String> {
         self.1.borrow().clone()
@@ -89,7 +104,16 @@ impl Host for FakeHost {
         }
         self.events.borrow_mut().push(config.events);
         self.checkers.borrow_mut().push(config.checker);
-        Ok(Rc::new(FakePage(self.log.clone(), self.url.clone())))
+        let own_zoom_error = Rc::new(RefCell::new(None));
+        self.page_zoom_errors
+            .borrow_mut()
+            .push(own_zoom_error.clone());
+        Ok(Rc::new(FakePage(
+            self.log.clone(),
+            self.url.clone(),
+            self.zoom_error.clone(),
+            own_zoom_error,
+        )))
     }
 
     fn pump(&self) {
@@ -1009,4 +1033,444 @@ fn global_destination_restores_its_page_and_close_disposes_it(cx: &mut gpui_kit:
     assert_eq!(h.read(|view| view.tabs.len()), 1);
     assert_eq!(h.saved().tabs.len(), 1);
     assert!(host.log.has("visible false"));
+}
+
+/// The zoom requests the engine saw since the log was last taken.
+fn zooms(host: &FakeHost) -> Vec<String> {
+    host.log
+        .take()
+        .into_iter()
+        .filter(|entry| entry.starts_with("zoom"))
+        .collect()
+}
+
+#[gpui_kit::test]
+fn a_refused_zoom_keeps_the_shown_zoom_and_says_why(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1);
+    host.log.take();
+
+    // The selected tab's engine refuses: nothing moves, and that tab says why.
+    *host.zoom_error.borrow_mut() = Some("engine said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1, "nothing is saved");
+    assert_eq!(
+        harness.read(BrowserView::shown_zoom),
+        1.1,
+        "the toolbar keeps 110%"
+    );
+    assert_eq!(harness.saved().zoom, 1.1, "the refused zoom isn't saved");
+    assert_eq!(
+        zooms(&host),
+        ["zoom 1.2 refused"],
+        "only the shown page is asked"
+    );
+    let selected = harness.read(|view| view.active).unwrap();
+    assert_eq!(selected, 1);
+    assert_eq!(
+        harness.read(|view| view.tabs[selected].zoom_error.clone()),
+        Some("engine said no".into())
+    );
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_some());
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.notice.is_none())));
+
+    // Once the engine takes a zoom again, the shown zoom moves and the error goes.
+    *host.zoom_error.borrow_mut() = None;
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.2);
+    assert_eq!(harness.saved().zoom, 1.2);
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.zoom_error.is_none())));
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_none());
+}
+
+#[gpui_kit::test]
+fn a_background_tab_refusing_a_zoom_does_not_block_it(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    assert_eq!(harness.read(|view| view.active), Some(1));
+    assert_eq!(host.page_zoom_errors.borrow().len(), 2);
+    host.log.take();
+
+    // The first tab's page, now in the background, refuses.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("background said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.1, "the shown page zoomed");
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert_eq!(harness.saved().zoom, 1.1);
+    let log = zooms(&host);
+    assert!(log.contains(&"zoom 1.1".to_owned()), "{log:?}");
+    assert!(log.contains(&"zoom 1.1 refused".to_owned()), "{log:?}");
+    assert_eq!(harness.read(|view| view.tabs[0].applied_zoom), 1.0);
+    assert!(harness.read(|view| view.tabs[1].zoom_error.is_none()));
+
+    // A page that missed a zoom in the background takes it when selected.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(zooms(&host), ["zoom 1.1"]);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert!(harness.read(|view| view.tabs.iter().all(|tab| tab.zoom_error.is_none())));
+    // Selecting it again asks nothing more of the engine.
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert!(zooms(&host).is_empty());
+}
+
+#[gpui_kit::test]
+fn a_page_that_refuses_its_catch_up_shows_its_own_zoom_until_it_takes_one(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    harness.update(|view, cx| view.open(OTHER, "", cx));
+    host.log.take();
+
+    // The first page refuses the zoom in the background, and again when its
+    // tab is selected: the toolbar shows the zoom that page has, and why.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("still no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(
+        zooms(&host),
+        ["zoom 1.1", "zoom 1.1 refused", "zoom 1.1 refused"]
+    );
+    assert_eq!(harness.read(|view| view.zoom), 1.1, "the saved zoom stays");
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.0);
+    assert_eq!(
+        harness.read(|view| view.tabs[0].zoom_error.clone()),
+        Some("still no".into())
+    );
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_some());
+
+    // Dismissed, the error goes but the page is still behind, so it is asked
+    // again each time its tab is selected.
+    harness.update(|view, cx| view.dismiss_zoom_error(cx));
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.0);
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(zooms(&host), ["zoom 1.1 refused"]);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_some()));
+
+    // Once its engine recovers, selecting the tab gives it the saved zoom.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(zooms(&host), ["zoom 1.1"]);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_none());
+
+    // A step starts from the zoom the toolbar shows: 110% on a page left
+    // there goes to 120%, though 120% is already saved.
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = Some("no".into());
+    harness.update(|view, cx| view.select(Some(1), cx));
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    harness.update(|view, cx| view.select(Some(0), cx));
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    *host.page_zoom_errors.borrow()[0].borrow_mut() = None;
+    host.log.take();
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(zooms(&host), ["zoom 1.2"]);
+    assert_eq!(harness.read(|view| view.zoom), 1.2);
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.2);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+}
+
+#[gpui_kit::test]
+fn a_zoom_refusal_leaves_the_tabs_other_notice_and_its_offer(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut harness = open(cx, &host);
+    shown(&mut harness);
+    harness.update(|view, cx| view.open(PAGE, "", cx));
+    host.send(
+        0,
+        PageEvent::Blocked {
+            raw: "https://93.184.215.16/popup".into(),
+            reason: Blocked::Popup,
+        },
+    );
+    harness.visual.run_until_parked();
+    let offer = harness.read(|view| view.tabs[0].notice.clone()).unwrap();
+    assert_eq!(
+        offer.offer.as_ref().map(Url::as_str),
+        Some("https://93.184.215.16/popup")
+    );
+
+    // The refusal shows beside the pop-up's offer.
+    *host.zoom_error.borrow_mut() = Some("engine said no".into());
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(
+        harness.read(|view| view.tabs[0].notice.clone()),
+        Some(offer.clone())
+    );
+    assert_eq!(
+        harness.read(|view| view.tabs[0].zoom_error.clone()),
+        Some("engine said no".into())
+    );
+    assert!(harness.visual.debug_bounds("browser-notice").is_some());
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_some());
+
+    // A later zoom the engine takes clears only the refusal.
+    *host.zoom_error.borrow_mut() = None;
+    harness.update(|view, cx| view.zoom_by(ZOOM_DELTA, cx));
+    assert_eq!(harness.read(BrowserView::shown_zoom), 1.1);
+    assert!(harness.read(|view| view.tabs[0].zoom_error.is_none()));
+    assert_eq!(
+        harness.read(|view| view.tabs[0].notice.clone()),
+        Some(offer)
+    );
+    assert!(harness.visual.debug_bounds("browser-notice").is_some());
+    assert!(harness.visual.debug_bounds("browser-zoom-notice").is_none());
+}
+
+/// The app root's forwarding of Electron's Alt zoom keys (see `app.rs`).
+struct ZoomRoot {
+    focus: gpui_kit::FocusHandle,
+    browser: Entity<BrowserView>,
+    /// Zoom keys the root let through to an outer handler, as a text field gets them.
+    passed: usize,
+}
+
+impl gpui_kit::Render for ZoomRoot {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+        use gpui_kit::{InteractiveElement as _, ParentElement as _, Styled as _};
+        let app = gpui_kit::div()
+            .key_context("BuddyApp")
+            .on_action(cx.listener(|this, _: &ZoomPageIn, _, cx| {
+                if !this
+                    .browser
+                    .update(cx, |view, cx| view.zoom_shortcut(true, cx))
+                {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ZoomPageOut, _, cx| {
+                if !this
+                    .browser
+                    .update(cx, |view, cx| view.zoom_shortcut(false, cx))
+                {
+                    cx.propagate();
+                }
+            }))
+            .track_focus(&self.focus)
+            .size_full()
+            .child(self.browser.clone());
+        gpui_kit::div()
+            .size_full()
+            .on_action(cx.listener(|this, _: &ZoomPageIn, _, _| this.passed += 1))
+            .on_action(cx.listener(|this, _: &ZoomPageOut, _, _| this.passed += 1))
+            .child(app)
+    }
+}
+
+/// A browser under an app root that forwards the Alt zoom keys, with its
+/// config file.
+struct ZoomHarness {
+    visual: VisualTestContext,
+    root: Entity<ZoomRoot>,
+    browser: Entity<BrowserView>,
+    _dir: tempfile::TempDir,
+    file: PathBuf,
+}
+
+impl ZoomHarness {
+    fn zoom(&mut self) -> f64 {
+        self.browser.read_with(&self.visual, |view, _| view.zoom)
+    }
+
+    fn passed(&mut self) -> usize {
+        self.root.read_with(&self.visual, |root, _| root.passed)
+    }
+
+    fn update(&mut self, f: impl FnOnce(&mut BrowserView, &mut Context<BrowserView>)) {
+        self.browser.update(&mut self.visual, f);
+        self.visual.run_until_parked();
+    }
+}
+
+fn zoom_root(cx: &mut gpui_kit::TestAppContext, host: Rc<FakeHost>) -> ZoomHarness {
+    use gpui_kit::{Bounds, Point, WindowBounds, WindowOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("config.json");
+    let config = buddy_core::config::AppConfig::default();
+    std::fs::write(&file, serde_json::to_string(&config).unwrap()).unwrap();
+    let engine: Rc<dyn Host> = host;
+    let (window, root) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&config, cx);
+        cx.set_global(Settings::new(config));
+        init(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Point::default(),
+                    size: size(px(1200.), px(820.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                let browser = cx.new(|cx| {
+                    BrowserView::with_host(engine, checker(), Some(file.clone()), window, cx)
+                });
+                cx.new(|cx| {
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    ZoomRoot {
+                        focus,
+                        browser,
+                        passed: 0,
+                    }
+                })
+            },
+        )
+        .unwrap()
+    });
+    let visual = VisualTestContext::from_window(window, cx);
+    let browser = root.read_with(&visual, |root, _| root.browser.clone());
+    ZoomHarness {
+        visual,
+        root,
+        browser,
+        _dir: dir,
+        file,
+    }
+}
+
+#[gpui_kit::test]
+fn alt_keys_zoom_only_a_shown_page_tab(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = zoom_root(cx, host.clone());
+
+    // The bookmark list is not a page tab: Electron has no listener there.
+    h.update(|view, cx| view.set_active(true, cx));
+    h.visual.simulate_keystrokes("alt-=");
+    assert_eq!(h.zoom(), 1.0);
+    // An unused zoom key is let through, so Option+= can still type ≠.
+    assert_eq!(h.passed(), 1);
+
+    h.update(|view, cx| view.open(PAGE, "", cx));
+    host.log.take();
+    h.visual.simulate_keystrokes("alt-=");
+    assert_eq!(h.zoom(), 1.1);
+    h.visual.simulate_keystrokes("alt-+");
+    assert_eq!(h.zoom(), 1.2);
+    h.visual.simulate_keystrokes("alt-shift-=");
+    assert_eq!(h.zoom(), 1.3);
+    h.visual.simulate_keystrokes("alt--");
+    assert_eq!(h.zoom(), 1.2);
+    assert_eq!(h.passed(), 1, "a shown page keeps its zoom keys");
+    assert!(host.log.has("zoom 1.2"), "{:?}", host.log.take());
+    // No reset key, as in Electron; Alt+0 changes nothing.
+    h.visual.simulate_keystrokes("alt-0");
+    assert_eq!(h.zoom(), 1.2);
+
+    // A hidden browser (another section is shown) ignores the keys.
+    h.update(|view, cx| view.set_active(false, cx));
+    h.visual.simulate_keystrokes("alt--");
+    assert_eq!(h.zoom(), 1.2);
+}
+
+/// The bookmark list: a focusable element, as a bookmark card is.
+struct HomeProbe {
+    focus: gpui_kit::FocusHandle,
+}
+
+impl gpui_kit::Render for HomeProbe {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+        use gpui_kit::{InteractiveElement as _, Styled as _};
+        gpui_kit::div().track_focus(&self.focus).size_full()
+    }
+}
+
+#[gpui_kit::test]
+fn a_page_opened_from_the_focused_list_keeps_the_keyboard_in_the_browser(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = zoom_root(cx, host);
+    let home = h.visual.update(|_, cx| {
+        cx.new(|cx| HomeProbe {
+            focus: cx.focus_handle(),
+        })
+    });
+    h.update(|view, cx| {
+        view.home = Some(home.clone().into());
+        view.set_active(true, cx);
+    });
+    // A card click focuses the list, then opens its bookmark: the list leaves
+    // the screen with the focus it held.
+    let focus = home.read_with(&h.visual, |home, _| home.focus.clone());
+    h.visual.update(|window, cx| window.focus(&focus, cx));
+    h.visual.run_until_parked();
+    h.update(|view, cx| view.open(PAGE, "", cx));
+    let browser = h.browser.read_with(&h.visual, |view, _| view.focus.clone());
+    assert!(h.visual.update(|window, _| browser.is_focused(window)));
+    // So Alt zoom works at once, as Electron's window listener does.
+    h.visual.simulate_keystrokes("alt-=");
+    assert_eq!(h.zoom(), 1.1);
+    assert_eq!(h.passed(), 0);
+}
+
+/// A tab with no page has nothing to zoom: the key goes through, as on the
+/// bookmark list, and the zoom isn't changed or saved.
+fn assert_a_tab_without_a_page_lets_the_zoom_keys_through(h: &mut ZoomHarness, url: &str) {
+    h.update(|view, cx| view.set_active(true, cx));
+    h.update(|view, cx| view.open(url, "", cx));
+    let page = h.browser.read_with(&h.visual, |view, _| {
+        view.active_tab().map(|tab| tab.page.is_some())
+    });
+    assert_eq!(page, Some(false), "the selected tab has no page");
+    let before = std::fs::read_to_string(&h.file).unwrap();
+    h.visual.simulate_keystrokes("alt-=");
+    h.visual.simulate_keystrokes("alt--");
+    assert_eq!(h.zoom(), 1.0);
+    assert_eq!(h.passed(), 2, "both keys went through");
+    assert_eq!(
+        std::fs::read_to_string(&h.file).unwrap(),
+        before,
+        "nothing was saved"
+    );
+}
+
+#[gpui_kit::test]
+fn alt_keys_pass_a_refused_tab_by(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost::default());
+    let mut h = zoom_root(cx, host.clone());
+    assert_a_tab_without_a_page_lets_the_zoom_keys_through(&mut h, "file:///C:/notes.txt");
+    let log = host.log.take();
+    assert!(
+        !log.iter().any(|entry| entry.starts_with("zoom")),
+        "{log:?}"
+    );
+}
+
+#[gpui_kit::test]
+fn alt_keys_pass_a_tab_without_an_engine_by(cx: &mut gpui_kit::TestAppContext) {
+    let host = Rc::new(FakeHost {
+        refuse: Some(Unavailable(
+            "Web pages can't be embedded on Wayland yet.".into(),
+        )),
+        ..FakeHost::default()
+    });
+    let mut h = zoom_root(cx, host.clone());
+    assert_a_tab_without_a_page_lets_the_zoom_keys_through(&mut h, PAGE);
+    let log = host.log.take();
+    assert!(
+        !log.iter().any(|entry| entry.starts_with("zoom")),
+        "{log:?}"
+    );
 }
