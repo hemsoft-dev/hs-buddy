@@ -139,6 +139,9 @@ class AutomationDesktopTests(unittest.TestCase):
         self.assertEqual(captures, ["run-history-cards-dark", "run-history-list-dark"])
         clicks = [step[1] for step in desktop.RUN_VIEW_DARK_STEPS if step[0] == "content"]
         self.assertEqual(clicks, ["List view"])
+        # The layout settles before the cards are captured and the toggle is located.
+        self.assertEqual(desktop.RUN_VIEW_DARK_STEPS[:3],
+            [("wait_text", "Dispatcher idle"), ("sleep", 1), ("capture", "run-history-cards-dark")])
         self.assertEqual(desktop.RUN_VIEW_LIGHT_STEPS[0], ("content", "Card view"))
         self.assertEqual(desktop.RUN_VIEW_LIGHT_STEPS[-1], ("capture", "run-history-cards-light"))
         with patch.object(desktop.github, "check") as check:

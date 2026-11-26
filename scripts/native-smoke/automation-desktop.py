@@ -195,6 +195,11 @@ def check_status_totals(path, backend):
 # The run history's card / list toggle (Electron's ViewModeToggle). The list
 # shows the table header; only the cards carry Show/Hide output buttons.
 RUN_VIEW_DARK_STEPS = [
+    # The cancellation notice above the toggle clears when the cancelled run
+    # has been reported ("Dispatcher idle"), moving the toggle up a line. On
+    # Windows in run 45809088753 that happened between locating "List view"
+    # and clicking it, so the click landed below the button.
+    ("wait_text", "Dispatcher idle"), ("sleep", 1),
     ("capture", "run-history-cards-dark"),
     ("content", "List view"), ("sleep", 2), ("capture", "run-history-list-dark"),
 ]
