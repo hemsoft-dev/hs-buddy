@@ -6,10 +6,27 @@ where Electron's `TODOIST_API_TOKEN` is set. There is nothing to type. The
 command exits without opening a window, starting telemetry, or making a
 Todoist request.
 
+The commands below use the default install locations from
+[Native desktop](NATIVE-DESKTOP.md). On Windows and macOS the executable is not
+on `PATH`, so they name its full path.
+
+On Windows, the per-user install is in `%LOCALAPPDATA%\Buddy Native`. Run this
+from PowerShell, which waits for the import and reads its exit code:
+
 ```powershell
-$process = Start-Process -FilePath 'C:\path\to\buddy-native.exe' -ArgumentList '--import-electron-todoist' -WindowStyle Hidden -Wait -PassThru
+$exe = "$env:LOCALAPPDATA\Buddy Native\buddy-native.exe"
+$process = Start-Process -FilePath $exe -ArgumentList '--import-electron-todoist' -WindowStyle Hidden -Wait -PassThru
 if ($process.ExitCode -ne 0) { throw 'Todoist token import did not confirm success.' }
 ```
+
+On macOS, the executable is inside the application bundle copied to
+Applications:
+
+```sh
+'/Applications/Buddy Native.app/Contents/MacOS/buddy-native' --import-electron-todoist
+```
+
+On Linux, the Ubuntu DEB installs `buddy-native` on `PATH`:
 
 ```sh
 buddy-native --import-electron-todoist
