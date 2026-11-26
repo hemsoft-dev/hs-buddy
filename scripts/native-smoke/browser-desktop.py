@@ -306,6 +306,14 @@ def require_unzoomed(before, after):
 BOOKMARKS_TAB = "Bookmarks: All|All"
 
 
+# The tree's Fixture page row. Vision on Intel read its magenta favicon as a
+# letter glued to the title, "JFixture page" (run 45737486513).
+FIXTURE_ROW = "Fixture page|JFixture page"
+# The probe's tab. Its own word "Probe" is unique in the tab row; on macOS
+# Vision read the light tab as "Buy Probe" (run 45737486513).
+PROBE_TAB = "Buddy Probe|Probe"
+
+
 def favicon_steps(theme):
     """The bookmark list, then its favicon: it arrives after the list, so its
     colour is waited for before the capture."""
@@ -404,7 +412,7 @@ def first_pass(driver, theme):
         # time: reusing a URL selects its bookmark title, and it counts without
         # a new HTTP visit. The search leaves only the Probe page card, so the
         # row is the one "Fixture page" shown.
-        ("box", "Search", "Probe"), ("sleep", 1), ("content", "Fixture page"),
+        ("box", "Search", "Probe"), ("sleep", 1), ("content", FIXTURE_ROW),
         ("wait_text", "Visit 1"),
     ], record=True)
     github.check(flow / f"blocked-{theme}.png", PROBE_TEXT, BLOCKED_TEXT, "Bookmarks", "Buddy Probe", browser=True)
@@ -458,7 +466,7 @@ def light_pass(driver, visit):
         ("content", "Fixture page"), ("wait_text", f"Visit {visit}"),
         *zoom_steps("light"),
         *tree_favicon_steps("light"),
-        ("workspace", "Buddy Probe"), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
+        ("workspace", PROBE_TAB), ("wait_text", BLOCKED_TEXT), ("capture", "blocked-light"),
     ], record=True)
     github.check(flow / "page-light.png", PAGE_TEXT, f"Visit {visit}", "Buddy Fixture OK", browser=True)
     github.check(flow / "page-compact-light.png", PAGE_TEXT, browser=True)

@@ -22,6 +22,23 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_the_tree_row_and_probe_tab_fall_back_to_the_readings_vision_gave(self):
+        # Run 45737486513: Intel read the favicon glued to the tree row, and
+        # macos-15 read the light probe tab as "Buy Probe".
+        def box(text, left, top, width, line):
+            return dict(text=text, left=left, top=top, width=width, height=12, line=line)
+        ocr = desktop.settings.ocr
+        tree = [box("Probe", 116, 160, 34, "13"), box("page", 154, 160, 30, "13"),
+            box("JFixture", 109, 183, 46, "14"), box("page", 159, 183, 30, "14")]
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(tree, "Fixture page")
+        self.assertEqual(ocr.locate_label(tree, desktop.FIXTURE_ROW)["top"], 183)
+        tabs = [box("Browser", 308, 44, 48, "4"), box("Buy", 360, 44, 28, "4"), box("Probe", 399, 44, 34, "4"),
+            box("Browser:", 475, 44, 48, "4"), box("Faure", 526, 44, 36, "4"), box("page", 567, 44, 30, "4")]
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(tabs, "Buddy Probe")
+        self.assertEqual(ocr.locate_label(tabs, desktop.PROBE_TAB)["left"], 399)
+
     def test_the_zoom_label_falls_back_to_the_live_wait_locator(self):
         # Windows (run 45737486513): the whole-capture OCR missed "110%",
         # which the drive's live wait had found with the label locator.
@@ -419,9 +436,9 @@ class BrowserDesktopTests(unittest.TestCase):
                 # drive ends back on the page the restart restores; the light
                 # one on the probe's tab.
                 after = actions[start + len(steps):]
-                self.assertEqual(after, [("box", "Search", "Probe"), ("sleep", 1), ("content", "Fixture page"),
+                self.assertEqual(after, [("box", "Search", "Probe"), ("sleep", 1), ("content", desktop.FIXTURE_ROW),
                     ("wait_text", "Visit 1")] if theme == "dark"
-                    else [("workspace", "Buddy Probe"), ("wait_text", desktop.BLOCKED_TEXT), ("capture", "blocked-light")])
+                    else [("workspace", desktop.PROBE_TAB), ("wait_text", desktop.BLOCKED_TEXT), ("capture", "blocked-light")])
                 self.assertNotIn(("content", "Fixture page"), actions[start:start + len(steps)])
                 checked = {call.args[0].name: call.args[1:] for call in check.call_args_list}
                 self.assertEqual(checked[f"bookmark-tree-favicons-{theme}.png"], ("In Fixture", "Fixture page", "Probe page"))
