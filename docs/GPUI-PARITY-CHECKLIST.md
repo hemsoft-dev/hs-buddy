@@ -16,21 +16,21 @@ The remaining work is tracked per area in #988 to #995.
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 355 are ported,
-186 are partly ported, 50 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 356 are ported,
+187 are partly ported, 48 are missing natively, 5 are a
 placeholder natively and 26 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
 | --- | --- | --- | --- | --- | --- | --- |
 | [Shell, dashboard and settings](parity/shell.md) | 99 | 3 | 1 | 16 | 72 | 7 |
-| [GitHub repositories and pull requests](parity/github.md) | 82 | 14 | 0 | 42 | 25 | 1 |
+| [GitHub repositories and pull requests](parity/github.md) | 82 | 12 | 0 | 43 | 26 | 1 |
 | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | 47 | 0 | 0 | 9 | 36 | 2 |
 | [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 10 | 0 | 28 | 33 | 3 |
 | [Todoist and Tempo](parity/planning.md) | 71 | 5 | 0 | 18 | 47 | 1 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 6 | 0 | 24 | 56 | 3 |
 | [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 2 | 4 | 21 | 30 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 10 | 0 | 28 | 56 | 7 |
-| **All areas** | **622** | **50** | **5** | **186** | **355** | **26** |
+| **All areas** | **622** | **48** | **5** | **187** | **356** | **26** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
