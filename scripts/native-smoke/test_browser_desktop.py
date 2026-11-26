@@ -22,6 +22,25 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_the_zoom_label_falls_back_to_the_live_wait_locator(self):
+        # Windows (run 45737486513): the whole-capture OCR missed "110%",
+        # which the drive's live wait had found with the label locator.
+        capture = Path("flow") / "browser-page-zoom-dark.png"
+        missed = RuntimeError("GitHub screenshot does not show all required text in one OCR layout")
+        with patch.object(desktop.github, "check", side_effect=missed), \
+                patch.object(desktop.settings.ocr, "locate_image", return_value=dict(left=1, top=1, width=9, height=9)) as locate:
+            desktop.require_toolbar_label(capture, "110%")
+        locate.assert_any_call(capture, "110%")
+        with patch.object(desktop.github, "check", return_value=None), \
+                patch.object(desktop.settings.ocr, "locate_image") as locate:
+            desktop.require_toolbar_label(capture, "110%")
+        locate.assert_not_called()
+        with patch.object(desktop.github, "check", side_effect=missed), \
+                patch.object(desktop.settings.ocr, "locate_image", side_effect=RuntimeError("not found")), \
+                self.assertRaises(RuntimeError) as raised:
+            desktop.require_toolbar_label(capture, "110%")
+        self.assertIs(raised.exception, missed)
+
     def test_the_bookmarks_tab_falls_back_to_its_own_word_when_vision_misreads_it(self):
         # The tab row Vision read on macOS in run 45719379502's light pass.
         def box(text, left, top, width=40):

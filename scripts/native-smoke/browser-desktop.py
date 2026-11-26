@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import sys
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
@@ -343,6 +344,29 @@ def require_tree_favicons(flow, theme):
     return require_tree_favicon(flow / f"bookmark-tree-favicons-{theme}.png")
 
 
+def require_toolbar_label(path, label):
+    """The toolbar's small zoom label on a capture. The whole-capture OCR of
+    `github.check` can miss it on Windows even though the drive's live
+    `wait_text` found it (run 45737486513), so the label locator that wait
+    uses is tried on the same capture too. Either reading suffices; neither
+    keeps the check's failure."""
+    try:
+        github.check(path, label, browser=True)
+        return
+    except RuntimeError as failure:
+        missing = failure
+    engines = [{}] + ([dict(native_macos=True)] if sys.platform == "darwin" else [])
+    for options in engines:
+        try:
+            settings.ocr.locate_image(path, label, **options)
+            return
+        except settings.ocr.AmbiguousLabel:
+            return
+        except RuntimeError:
+            pass
+    raise missing
+
+
 def require_favicon_and_zoom(flow, theme):
     """The favicon capture shows the icon, and the zoom captures show the page
     one step larger and then back at its size in `page-{theme}`."""
@@ -353,7 +377,7 @@ def require_favicon_and_zoom(flow, theme):
     # 45719379502); each is required on the same capture separately.
     for name, label in ((f"browser-page-zoom-{theme}.png", ZOOM_AFTER), (f"browser-page-unzoom-{theme}.png", ZOOM_BEFORE)):
         github.check(flow / name, PAGE_TEXT, browser=True)
-        github.check(flow / name, label, browser=True)
+        require_toolbar_label(flow / name, label)
     zoom = require_zoomed(flow / f"page-{theme}.png", flow / f"browser-page-zoom-{theme}.png")
     unzoom = require_unzoomed(flow / f"page-{theme}.png", flow / f"browser-page-unzoom-{theme}.png")
     return dict(favicon=favicon, zoom=zoom, unzoom=unzoom)
