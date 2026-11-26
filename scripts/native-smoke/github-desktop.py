@@ -306,6 +306,56 @@ def qualify_workbench(driver, config, backend):
         remove_personal_account(config, backend, identity, sys.exc_info()[1])
 
 
+# PRItem.tsx and PRContextMenu.tsx: a PR list row's Approve button and its
+# right-click menu. Needs Review lists only the unapproved #8 (see the
+# activity pass), so its row has the one Approve button on screen.
+LIST_ROW = "#8 Paginated fixture follow-up"
+# Electron's menu entries native has, in Electron's order. The navigation
+# pass bookmarked native-demo, so the repository entry offers to remove it.
+LIST_MENU = ("Request AI Review", "Request Copilot Review", "Approve", "Copy Link", "Unbookmark native-demo")
+# Electron's entry native leaves out: it sends a prompt to the assistant.
+LIST_MENU_ABSENT = ("Address Unresolved",)
+
+
+def list_menu_actions(theme):
+    return [("sidebar", "Needs Review"), ("wait_content", LIST_ROW),
+        ("content_menu", LIST_ROW), ("wait_text", "Copy Link"),
+        ("capture", f"pr-list-context-menu-{theme}"), ("key", "Escape"), ("sleep", 1)]
+
+
+def require_list_approval(requests):
+    """Exactly one approval of #8 at the fixture's head, as fixture-one."""
+    approvals = [request for request in requests
+        if request["method"] == "POST" and request["path"].endswith("/pulls/8/reviews")]
+    if (len(approvals) != 1 or approvals[0]["account"] != "fixture-one"
+            or approvals[0]["body"] != dict(event="APPROVE", body="Approved", commit_id=github_backend.SHA)):
+        raise RuntimeError("The list approval did not reach exactly the confirmed fixture PR and head")
+    if any(request["method"] == "POST" and request["path"].endswith("/reviews") and request is not approvals[0]
+            for request in requests):
+        raise RuntimeError("The list approval approved another pull request")
+
+
+def qualify_list_actions(driver, config, api, theme="dark"):
+    """Right-click a PR list row for its menu; in the dark pass, also approve
+    the row's PR through the confirmation. The configuration is restored."""
+    saved = config.read_text(encoding="utf-8-sig")
+    start = len(api.requests)
+    try:
+        reset_section(config)
+        actions = list_menu_actions(theme)
+        if theme == "dark":
+            actions += [("content", "Approve…"), ("wait_content", "Confirm action"),
+                ("content", "Confirm action"), ("wait_content", "Commit approved"),
+                ("capture", "pr-list-approve-dark")]
+        directory = driver.drive(f"pr-list-actions-{theme}", actions, record=theme == "dark")
+        check(directory / f"pr-list-context-menu-{theme}.png", LIST_ROW, *LIST_MENU, absent=LIST_MENU_ABSENT)
+        if theme == "dark":
+            require_list_approval(api.requests[start:])
+            check(directory / "pr-list-approve-dark.png", LIST_ROW, "Approved", "Commit approved")
+    finally:
+        config.write_text(saved, encoding="utf-8")
+
+
 def qualify(executable, output, session, version, backend, api):
     # GitHub's route does not display a version label. Bind these captures to
     # the actual installed executable, also exercised by the base UI fixture.
@@ -421,6 +471,7 @@ def qualify(executable, output, session, version, backend, api):
     if "fixture-author" not in json.loads(config.read_text(encoding="utf-8-sig"))["ui"]["favoriteUsers"]:
         raise RuntimeError("The installed favorite action was not persisted")
     qualify_workbench(driver, config, backend)
+    qualify_list_actions(driver, config, api)
 
     # StatusBar.tsx: the assistant indicator and brand in the centre, and the
     # background sync item for the configured accounts' PR lists.
@@ -460,6 +511,7 @@ def qualify(executable, output, session, version, backend, api):
     check(light / "compact-keyboard-light.png", "My PRs", "First private")
     if json.loads(config.read_text(encoding="utf-8-sig"))["native"]["github"]["viewModes"]["pr-list-my-prs"] != "card":
         raise RuntimeError("Tab and Enter did not activate the native Cards view control")
+    qualify_list_actions(driver, config, api, theme="light")
 
     api.scenario = "auth"
     reset_section(config)
@@ -474,6 +526,7 @@ def qualify(executable, output, session, version, backend, api):
         **binary, largeWindow=driver.large_size,
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
+            "PR list row menu (dark and light)", "confirmed approval from a PR list row",
             "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "personal-namespace current workbench", "status bar assistant, brand and PR sync items",
             "sidebar width from ui.paneSizes", "divider drag saved to ui.paneSizes", "ui.zoomLevel 125 root zoom", "Convex bookmark and favorite",
             "GitHub view and repository-list activity", "bookmarked-only repository filter",

@@ -1,6 +1,7 @@
 //! Native GitHub workspace. Reads cancel on navigation; writes retain their receipt.
 mod controls;
 mod data;
+mod list_actions;
 mod nudges;
 mod quota;
 mod reviews;
@@ -163,6 +164,10 @@ pub struct GitHubView {
     clear_inputs: bool,
     clear_draft: Option<String>,
     pending: Option<PendingWrite>,
+    /// Set when `pending` was prepared from a PR list row.
+    pending_list: Option<list_actions::ListOrigin>,
+    /// The latest write started from each PR list row, per account and PR.
+    row_writes: BTreeMap<String, list_actions::RowWrite>,
     write_busy: bool,
     must_reload: bool,
     view_mode: ViewMode,
@@ -274,6 +279,8 @@ impl GitHubView {
             clear_inputs: false,
             clear_draft: None,
             pending: None,
+            pending_list: None,
+            row_writes: BTreeMap::new(),
             write_busy: false,
             must_reload: false,
             view_mode: ViewMode::Card,
@@ -713,7 +720,10 @@ impl GitHubView {
         }
         self.pending_nudge = None;
         match PendingWrite::new(&self.selection, action) {
-            Ok(pending) => self.pending = Some(pending),
+            Ok(pending) => {
+                self.pending = Some(pending);
+                self.pending_list = None;
+            }
             Err(error) => self.status = Some(error.to_string()),
         }
         cx.notify();
@@ -726,6 +736,9 @@ impl GitHubView {
         let Some(pending) = self.pending.take() else {
             return;
         };
+        let origin = self.pending_list.take();
+        let listed = origin.is_some();
+        let approval = matches!(pending.action(), WriteAction::Approve { .. });
         let account = pending.account().clone();
         let resource = pending.action().pull().clone();
         let submitted_draft = match pending.action() {
@@ -750,7 +763,12 @@ impl GitHubView {
             WriteAction::RequestCopilot { .. } => Some(github::ReviewKind::Copilot),
             _ => None,
         };
-        let confirmed = match pending.confirm(&self.selection) {
+        let action = pending.action().clone();
+        let confirmed = match origin {
+            Some(origin) => origin.confirm(&self.selection, pending),
+            None => pending.confirm(&self.selection),
+        };
+        let confirmed = match confirmed {
             Ok(confirmed) => confirmed,
             Err(error) => {
                 self.status = Some(error.to_string());
@@ -761,6 +779,9 @@ impl GitHubView {
         self.write_busy = true;
         let write_key = format!("{}:{}", account.key(), resource.key());
         self.write_locks.insert(write_key.clone(), recovery);
+        if listed {
+            self.start_row_write(&write_key, &action);
+        }
         let client = self.clients.for_account(account.clone());
         let watched_resource = resource.clone();
         let rx = Runtime::global(cx).spawn(async move {
@@ -789,7 +810,14 @@ impl GitHubView {
                     this.write_locks.remove(&write_key);
                 }
                 this.update_write_guard();
-                if this.account.as_ref() != Some(&account) {
+                let shown = this.account.as_ref() == Some(&account);
+                if listed {
+                    // The row shows the outcome, under its own account only.
+                    this.finish_row_write(&write_key, approval, &result, shown);
+                    cx.notify();
+                    return;
+                }
+                if !shown {
                     cx.notify();
                     return;
                 }

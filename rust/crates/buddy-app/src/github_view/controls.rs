@@ -1,5 +1,6 @@
 use super::*;
 use buddy_core::github::{Reaction, RepositoryRef};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 
 impl GitHubView {
     pub(super) fn route_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -428,7 +429,7 @@ impl GitHubView {
         index: usize,
         row: &data::Row,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    ) -> gpui_kit::AnyElement {
         let mut item = v_flex()
             .gap_2()
             .min_w_0()
@@ -496,6 +497,20 @@ impl GitHubView {
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             );
         }
+        let listed = self.listed(row).cloned();
+        if let Some(pull) = &listed
+            && let Some((label, enabled)) = self.row_approve(pull)
+        {
+            let target = pull.clone();
+            links = links.child(
+                Button::new(format!("github-item-approve-{index}"))
+                    .label(label)
+                    .disabled(!enabled)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.run_row_action(&target, list_actions::RowAction::Approve, cx)
+                    })),
+            );
+        }
         if let Some(thread) = &row.thread {
             let thread = thread.clone();
             let resolved = !row.resolved;
@@ -533,10 +548,47 @@ impl GitHubView {
                 );
             }
         }
-        item.child(links)
+        let item = item.child(links);
+        let Some(pull) = listed else {
+            return item.into_any_element();
+        };
+        let mut item = item;
+        if let Some(write) = self.row_write(&pull) {
+            item = item.child(
+                div()
+                    .whitespace_normal()
+                    .text_color(match write {
+                        list_actions::RowWrite::Failed(_) => cx.theme().danger,
+                        _ => cx.theme().muted_foreground,
+                    })
+                    .child(write.text().to_string()),
+            );
+        }
+        let view = cx.entity().downgrade();
+        item.id(format!("github-item-row-{index}"))
+            .debug_selector(move || format!("github-item-row-{index}"))
+            .context_menu(move |mut menu, _, cx| {
+                let Some(entity) = view.upgrade() else {
+                    return menu;
+                };
+                for entry in entity.read(cx).menu_entries(&pull) {
+                    let (view, pull) = (view.clone(), pull.clone());
+                    menu = menu.item(
+                        PopupMenuItem::new(entry.label)
+                            .disabled(!entry.enabled)
+                            .on_click(move |_, _, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.run_row_action(&pull, entry.action, cx)
+                                });
+                            }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
     }
 
-    fn bookmark(&mut self, target: RepositoryRef, cx: &mut Context<Self>) {
+    pub(super) fn bookmark(&mut self, target: RepositoryRef, cx: &mut Context<Self>) {
         if self.write_busy {
             return;
         }

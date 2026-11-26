@@ -70,6 +70,23 @@ class X11SecondaryClick(unittest.TestCase):
         self.assertEqual(menu_locator[0], TAB)
         self.assertTrue(menu_locator[1]["workspace"])
 
+    def test_a_content_menu_presses_button_three_where_a_content_click_presses_button_one(self):
+        click, click_locator = self.press("content")
+        menu, menu_locator = self.press("content_menu")
+        self.assertEqual(click, (426, 49, "click", 1))
+        self.assertEqual(menu, (426, 49, "click", 3))
+        self.assertEqual(menu_locator, click_locator)
+        self.assertTrue(menu_locator[1]["content"])
+        self.assertNotIn("workspace", menu_locator[1])
+
+    def test_a_content_menu_names_exactly_one_label_before_any_input(self):
+        driver = unix_driver("x11")
+        with patch.object(desktop.ocr, "locate_image") as locate, patch.object(desktop, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "one visible label"):
+                driver.interact(Mock(), capture_directory(), "content_menu", [TAB, "Dashboard"])
+        locate.assert_not_called()
+        run.assert_not_called()
+
     def test_a_tab_menu_names_exactly_one_tab_before_any_input(self):
         driver = unix_driver("x11")
         with patch.object(desktop.ocr, "locate_image") as locate, patch.object(desktop, "run") as run:
@@ -201,6 +218,22 @@ class MacSecondaryClick(unittest.TestCase):
         click.secondary_click.assert_not_called()
         self.assertEqual(click_locate, locate)
 
+    def test_the_driver_sends_a_content_menu_through_the_secondary_click_only(self):
+        # The Mac content scope crops the window above its status footer.
+        with patch.object(desktop.ocr, "status_content_image", side_effect=lambda image, *_, **__: image), \
+                patch.object(desktop.ocr, "crop_content_image", side_effect=lambda image, *_: image), \
+                patch.object(desktop, "record_measurement"):
+            helper, locate, written = self.interact("content_menu")
+            click, click_locate, _ = self.interact("content")
+        # A whole point, as for a tab menu, inside the label it was found by.
+        helper.secondary_click.assert_called_once_with(526, 99)
+        helper.click.assert_not_called()
+        self.assertTrue(locate[1]["content"])
+        self.assertEqual({(row["kind"], row["label"]) for row in written}, {("content_menu", TAB)})
+        click.click.assert_called_once_with(526.5, 99.0)
+        click.secondary_click.assert_not_called()
+        self.assertEqual(click_locate, locate)
+
 
 def driver_text():
     return (HERE / "windows-actions.ps1").read_text(encoding="utf-8").splitlines()
@@ -305,6 +338,16 @@ try {{ SecondaryClick-OwnedPoint 88 302 }} catch {{ $errorMessage=$_.Exception.M
         click = self.run_case("{ $_ -in 'nav64',", ["workspace64", ENCODED])
         self.assertEqual(click, [f"find:{TAB}:workspace", "left:88,302"])
 
+    def test_the_content_menu_case_locates_a_label_like_a_content_click_and_presses_the_right_button(self):
+        menu = self.run_case("'content_menu64' {", ["content_menu64", ENCODED])
+        self.assertEqual(menu, [f"find:{TAB}:content", "right:88,302"])
+        click = self.run_case("{ $_ -in 'nav64',", ["content64", ENCODED])
+        self.assertEqual(click, [f"find:{TAB}:content", "left:88,302"])
+        for parts in (["content_menu64"], ["content_menu64", ENCODED, ENCODED]):
+            with self.subTest(parts=len(parts)):
+                self.assertEqual(self.run_case("'content_menu64' {", parts),
+                    ["error:A content menu needs one visible label"])
+
     def test_the_tab_menu_case_takes_exactly_one_tab_title(self):
         for parts in (["workspace_menu64"], ["workspace_menu64", ENCODED, ENCODED]):
             with self.subTest(parts=len(parts)):
@@ -338,6 +381,19 @@ class WindowsCommandEncoding(unittest.TestCase):
         self.assertEqual(commands[1:4], ["workspace64:" + ENCODED, "workspace_menu64:" + ENCODED, "key:27"])
         # Every encoded command has a case in the real Windows driver.
         self.assertTrue(any(line.strip().startswith("'workspace_menu64' {") for line in driver_text()))
+
+    def test_a_content_menu_is_its_own_windows_command(self):
+        with tempfile.TemporaryDirectory(prefix="buddy-content-menu-") as root:
+            directory = Path(root)
+            driver = object.__new__(desktop.Driver)
+            driver.profile, driver.session, driver.large_size = directory, "windows", (1200, 820)
+            driver.executable, driver.config, driver.checkout = directory / "owned.exe", directory / "config.json", directory
+            driver.backend = Mock(url="http://127.0.0.1:9")
+            with patch.object(desktop, "run") as run:
+                driver.drive("menu", [("content", TAB), ("content_menu", TAB), ("key", "Escape")])
+            commands = run.call_args.args[run.call_args.args.index("-Actions") + 1].split(",")
+        self.assertEqual(commands[1:4], ["content64:" + ENCODED, "content_menu64:" + ENCODED, "key:27"])
+        self.assertTrue(any(line.strip().startswith("'content_menu64' {") for line in driver_text()))
 
 
 if __name__ == "__main__":

@@ -358,6 +358,12 @@ try {
                 $point = Find-OwnedLabelPoint $parts[1] 'button' 20 $boundaries
                 Click-OwnedPoint $point.X $point.Y
             }
+            'content_menu64' {
+                # The same OCR scope and target as content64; only the button differs.
+                if ($parts.Count -ne 2) { throw 'A content menu needs one visible label' }
+                $point = Find-OwnedLabelPoint $parts[1] 'content'
+                SecondaryClick-OwnedPoint $point.X $point.Y
+            }
             'workspace_menu64' {
                 # The same OCR scope and target as workspace64; only the button differs.
                 if ($parts.Count -ne 2) { throw 'A tab menu needs one visible tab title' }

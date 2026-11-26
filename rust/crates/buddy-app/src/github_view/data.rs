@@ -76,6 +76,18 @@ pub struct Row {
     pub comment: Option<CommentRef>,
     pub thread: Option<ThreadRef>,
     pub resolved: bool,
+    /// The PR a PR-list row can act on: approve, request reviews, copy its link.
+    pub listed: Option<ListedPull>,
+}
+
+/// What a PR list row needs to approve its PR or offer Electron's card menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedPull {
+    pub target: PullRef,
+    /// The head the list showed; an approval pins it, as the PR page's does.
+    pub head_sha: String,
+    pub open: bool,
+    pub i_approved: bool,
 }
 impl Row {
     pub fn text(title: impl Into<String>, detail: impl Into<String>) -> Self {
@@ -89,6 +101,7 @@ impl Row {
             comment: None,
             thread: None,
             resolved: false,
+            listed: None,
         }
     }
 }
@@ -121,7 +134,7 @@ impl PageData {
     }
 }
 
-fn pull_row(pull: PullSummary) -> Row {
+pub(super) fn pull_row(pull: PullSummary) -> Row {
     let timestamp = pull
         .merged_at
         .as_deref()
@@ -141,6 +154,12 @@ fn pull_row(pull: PullSummary) -> Row {
     );
     row.author = Some(pull.author);
     row.url = Some(pull.target.web_url());
+    row.listed = Some(ListedPull {
+        target: pull.target.clone(),
+        head_sha: pull.head_sha,
+        open: pull.state == "OPEN",
+        i_approved: pull.i_approved,
+    });
     row.route = Some(Route::Pull(pull.target, PullTab::Conversation));
     row
 }
