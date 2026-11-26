@@ -349,7 +349,7 @@ class InstalledEvidence(unittest.TestCase):
                 directory = Path(seen['name'])
                 menu = check.call_args_list[0]
                 self.assertEqual(menu.args[0].name, f'pr-list-context-menu-{theme}.png')
-                self.assertEqual(menu.args[1:], (desktop.LIST_ROW, *desktop.LIST_MENU))
+                self.assertEqual(menu.args[1:], (desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU))
                 self.assertEqual(menu.kwargs, dict(absent=('Address Unresolved',)))
                 self.assertEqual(seen['record'], theme == 'dark')
                 if theme == 'dark':
@@ -980,6 +980,54 @@ class InstalledEvidence(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Another account"):
                     desktop.check(image, "My PRs", "Second private", absent=("First private",))
 
+
+
+# What tesseract read from pr-list-context-menu-dark.png on Ubuntu in run
+# 45812387690 (psm 11; the open menu covers the end of the row title).
+UBUNTU_MENU_READING = """needs review
+cards
+list
+#8 paginated fivtre follows san
+2
+request al review...
+fixture-orginative-demo - open - @fixture-author - feature/nay
+request copilot review...
+@fixture-author
+open link
+approve...
+approve...
+copy link
+unbookmark native-demo
+"""
+
+
+class ListMenuReading(unittest.TestCase):
+    def check(self, reading, *markers):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "pr-list-context-menu-dark.png"
+            with patch.object(desktop, "analysis_images", lambda image: iter([image])), \
+                    patch.object(desktop.settings, "run", return_value=reading):
+                desktop.check(path, *markers, absent=desktop.LIST_MENU_ABSENT)
+
+    def test_the_real_ubuntu_reading_of_the_open_menu_passes(self):
+        self.check(UBUNTU_MENU_READING, desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+
+    def test_the_whole_row_title_is_not_required_under_the_open_menu(self):
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING, desktop.LIST_ROW, *desktop.LIST_MENU)
+
+    def test_an_alternative_counts_but_a_missing_entry_still_fails(self):
+        self.check("request ai review copy link", "Request AI Review|Request al Review", "Copy Link")
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING.replace("copy link", ""), desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING.replace("request al review", "request review"),
+                desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+
+    def test_the_left_out_entry_must_stay_absent(self):
+        with self.assertRaisesRegex(RuntimeError, "remained visible"):
+            self.check(UBUNTU_MENU_READING + "address unresolved comments\n",
+                desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
 
 if __name__ == "__main__":
     unittest.main()

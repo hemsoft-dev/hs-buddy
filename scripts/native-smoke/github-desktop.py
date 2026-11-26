@@ -96,16 +96,33 @@ def browser_analysis(path):
     yield from settings.ocr.analysis_images(image, settings.run, smooth_inverted=smooth)
 
 
+def has_marker(text, marker):
+    """Whether OCR text holds one of a marker's `|` alternatives, compared as
+    settings.verify_text compares: by words, or with the spaces dropped."""
+    words = " ".join(text.casefold().split())
+    compact = "".join(words.split())
+    return any(" ".join(wanted.casefold().split()) in words or "".join(wanted.casefold().split()) in compact
+        for wanted in marker.split("|"))
+
+
 def check(path, *markers, absent=(), browser=False):
+    """All markers in one OCR layout. A marker with `|` lists alternative
+    readings, any one of which counts."""
+    plain = [marker for marker in markers if "|" not in marker]
+    alternatives = [marker for marker in markers if "|" in marker]
     missing = None
     for image in (browser_analysis(path) if browser else analysis_images(path)):
         for mode in (11, 3, 6):
             complete = True
             try:
-                settings.verify_text(image, *markers, mode=mode)
+                settings.verify_text(image, *plain, mode=mode)
             except settings.MissingVisibleText as failure:
                 missing, complete = failure, False
             text = image.with_suffix(".ocr.txt").read_text(encoding="utf-8")
+            for marker in alternatives:
+                if complete and not has_marker(text, marker):
+                    missing = settings.MissingVisibleText(f"Settings screenshot is missing {marker!r}")
+                    complete = False
             for marker in absent:
                 if marker.casefold() in text.casefold():
                     raise RuntimeError("Another account's fixture data remained visible")
@@ -310,9 +327,14 @@ def qualify_workbench(driver, config, backend):
 # right-click menu. Needs Review lists only the unapproved #8 (see the
 # activity pass), so its row has the one Approve button on screen.
 LIST_ROW = "#8 Paginated fixture follow-up"
+# The open menu covers the end of the row title (run 45812387690 on Ubuntu read
+# "#8 paginated fixture follow: un"), so its capture checks only the start.
+LIST_ROW_UNDER_MENU = "#8 Paginated"
 # Electron's menu entries native has, in Electron's order. The navigation
 # pass bookmarked native-demo, so the repository entry offers to remove it.
-LIST_MENU = ("Request AI Review", "Request Copilot Review", "Approve", "Copy Link", "Unbookmark native-demo")
+# Tesseract read "AI" as "al" in every layout of that capture.
+LIST_MENU = ("Request AI Review|Request al Review", "Request Copilot Review", "Approve", "Copy Link",
+    "Unbookmark native-demo")
 # Electron's entry native leaves out: it sends a prompt to the assistant.
 LIST_MENU_ABSENT = ("Address Unresolved",)
 
@@ -348,7 +370,8 @@ def qualify_list_actions(driver, config, api, theme="dark"):
                 ("content", "Confirm action"), ("wait_content", "Commit approved"),
                 ("capture", "pr-list-approve-dark")]
         directory = driver.drive(f"pr-list-actions-{theme}", actions, record=theme == "dark")
-        check(directory / f"pr-list-context-menu-{theme}.png", LIST_ROW, *LIST_MENU, absent=LIST_MENU_ABSENT)
+        check(directory / f"pr-list-context-menu-{theme}.png", LIST_ROW_UNDER_MENU, *LIST_MENU,
+            absent=LIST_MENU_ABSENT)
         if theme == "dark":
             require_list_approval(api.requests[start:])
             check(directory / "pr-list-approve-dark.png", LIST_ROW, "Approved", "Commit approved")
