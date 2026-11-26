@@ -22,6 +22,18 @@ def fetch(url, cookie=None):
 
 
 class BrowserDesktopTests(unittest.TestCase):
+    def test_the_bookmarks_tab_falls_back_to_its_own_word_when_vision_misreads_it(self):
+        # The tab row Vision read on macOS in run 45719379502's light pass.
+        def box(text, left, top, width=40):
+            return dict(text=text, left=left, top=top, width=width, height=12, line="4/1/1")
+        words = [box("«Dashboard", 53, 44), box("Bookman:", 182, 44, 60), box("All", 248, 44, 18),
+            box("Browser:", 308, 44, 50), box("Buidy", 360, 44), box("Probe", 399, 44),
+            box("Browser", 475, 44, 50), box("Fate", 528, 44), box("pag.", 567, 44)]
+        ocr = desktop.settings.ocr
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(words, "Bookmarks: All")
+        self.assertEqual(ocr.locate_label(words, desktop.BOOKMARKS_TAB)["left"], 248)
+
     def test_bookmark_activity_requires_exact_explicit_delta_and_unchanged_other_counters(self):
         before = dict(tabsOpened=40, prsViewed=7, appLaunches=5, totalUptimeMs=999)
         backend = Mock()
@@ -472,7 +484,7 @@ class BrowserDesktopTests(unittest.TestCase):
         self.assertEqual((driver.name, driver.record), ("browser-light", True))
         # The page at 100% comes first, so the zoom checks compare against it.
         self.assertEqual(actions[:2], [("wait_text", "Visit 3"), ("capture", "page-light")])
-        favicon_at = actions.index(("workspace", "Bookmarks: All"))
+        favicon_at = actions.index(("workspace", desktop.BOOKMARKS_TAB))
         self.assertEqual(actions[favicon_at:favicon_at + 4], desktop.favicon_steps("light"))
         # Opening the card again selects its tab without a new visit and
         # leaves the keyboard in the browser for the Alt keys.

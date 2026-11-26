@@ -300,11 +300,16 @@ def require_unzoomed(before, after):
     return require_scaled(before, after, UNZOOM_RATIO, "The page did not return to its 100% size")
 
 
+# The all-bookmarks tab. Its own word "All" is the fallback: on macOS
+# (run 45719379502) Vision read the light tab as "Bookman: All".
+BOOKMARKS_TAB = "Bookmarks: All|All"
+
+
 def favicon_steps(theme):
     """The bookmark list, then its favicon: it arrives after the list, so its
     colour is waited for before the capture."""
     return [
-        ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"),
+        ("workspace", BOOKMARKS_TAB), ("wait_text", "Fixture page"),
         ("wait_colour", "magenta", FAVICON_MIN_PIXELS), ("capture", f"bookmark-favicons-{theme}"),
     ]
 
@@ -326,7 +331,7 @@ def tree_favicon_steps(theme):
     It opens the "Bookmarks: Fixture" tab, counted like an Electron
     `openTab('bookmarks-category:Fixture')`."""
     return [
-        ("workspace", "Bookmarks: All"), ("wait_text", "Fixture page"),
+        ("workspace", BOOKMARKS_TAB), ("wait_text", "Fixture page"),
         ("between", "Fixture", "Refresh", "Search"),
         ("wait_colour", "magenta", TREE_FAVICON_MIN_PIXELS, 2), ("capture", f"bookmark-tree-favicons-{theme}"),
     ]
