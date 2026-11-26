@@ -1,4 +1,6 @@
-use super::form::{model_choices, repository_path, review_model_choices, whole};
+use super::form::{
+    model_choices, offers_no_pr, offers_skip_review, repository_path, review_model_choices, whole,
+};
 use super::render::{advanced_summary, branch, duration, progress, stats, title};
 use super::*;
 use buddy_core::ralph::launch::{Plan, Script};
@@ -761,4 +763,34 @@ fn a_start_or_stop_notice_goes_once_its_run_settles(cx: &mut gpui_kit::TestAppCo
     visual.run_until_parked();
     assert!(view.read_with(&visual, |view, _| view.notice.is_none()
         && view.notice_run.is_none()));
+}
+
+/// The form offers Skip review and No pull request exactly for the bundled scripts whose
+/// `param(...)` block declares them, so no checkbox leads to a launch that is refused.
+#[test]
+fn advanced_options_are_offered_only_where_the_script_declares_them() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/ralph-loops");
+    let mut scripts = vec![Script::Ralph, Script::Pr, Script::Issues];
+    let mut templates: Vec<_> = std::fs::read_dir(root.join("scripts"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".ps1"))
+        .collect();
+    templates.sort();
+    assert!(templates.len() >= 6, "bundled templates: {templates:?}");
+    scripts.extend(templates.into_iter().map(Script::Template));
+    for script in scripts {
+        let text = std::fs::read_to_string(root.join(script.relative_path())).unwrap();
+        let declared = buddy_core::ralph::scripts::declared_parameters(&text);
+        assert_eq!(
+            offers_skip_review(&script),
+            declared.contains("SkipReview"),
+            "Skip review for {script:?}"
+        );
+        assert_eq!(
+            offers_no_pr(&script),
+            declared.contains("NoPR"),
+            "No pull request for {script:?}"
+        );
+    }
 }

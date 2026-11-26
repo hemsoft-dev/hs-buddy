@@ -1331,6 +1331,43 @@ fn run_history_shows_cards_or_a_list_and_pages_both(cx: &mut gpui_kit::TestAppCo
 }
 
 #[gpui_kit::test]
+fn a_later_layout_save_takes_back_only_its_own_error(cx: &mut gpui_kit::TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    std::fs::write(&path, "{}").unwrap();
+    // A config.json under a plain file cannot be locked or written.
+    let blocker = directory.path().join("blocker");
+    std::fs::write(&blocker, "").unwrap();
+    let unwritable = blocker.join("config.json");
+    let (window, view) = open_with_settings(cx, buddy_core::config::AppConfig::default());
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.choose_run_view(ViewMode::List, Some(&unwritable), cx);
+            assert_eq!(view.error.as_deref(), Some(LAYOUT_NOT_SAVED));
+            let other = if view.run_view(cx) == ViewMode::List {
+                ViewMode::Card
+            } else {
+                ViewMode::List
+            };
+            view.choose_run_view(other, Some(&path), cx);
+            assert_eq!(view.run_view(cx), other);
+            assert_eq!(view.error, None);
+
+            // Another error stays: the layout save only takes back its own.
+            view.error = Some("The runs could not be loaded.".into());
+            let back = if other == ViewMode::List {
+                ViewMode::Card
+            } else {
+                ViewMode::List
+            };
+            view.choose_run_view(back, Some(&path), cx);
+            assert_eq!(view.error.as_deref(), Some("The runs could not be loaded."));
+        })
+    });
+}
+
+#[gpui_kit::test]
 fn a_saved_list_choice_is_shown_from_the_start(cx: &mut gpui_kit::TestAppContext) {
     let mut config = buddy_core::config::AppConfig::default();
     buddy_core::view_modes::set_local(&mut config, "automation", RUN_LIST, ViewMode::List);

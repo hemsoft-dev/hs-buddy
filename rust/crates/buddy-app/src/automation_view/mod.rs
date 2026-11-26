@@ -32,6 +32,9 @@ use service::{Command, Completion, Handle, Snapshot};
 const VIEW_SECTION: &str = "automation";
 pub(super) const RUN_LIST: &str = "run-list";
 
+/// Shown when the run history layout cannot be written to config.json.
+const LAYOUT_NOT_SAVED: &str = "The run history layout could not be saved on this device.";
+
 impl gpui_kit::Global for Handle {}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pane {
@@ -130,8 +133,15 @@ impl AutomationView {
             None => Settings::update(cx, edit),
         };
         if !saved {
-            self.error = Some("The run history layout could not be saved on this device.".into());
-        } else if cx.has_global::<Runtime>() {
+            self.error = Some(LAYOUT_NOT_SAVED.into());
+            cx.notify();
+            return;
+        }
+        // A later save that works takes back this save's own error, and only that one.
+        if self.error.as_deref() == Some(LAYOUT_NOT_SAVED) {
+            self.error = None;
+        }
+        if cx.has_global::<Runtime>() {
             // Fire-and-forget like Electron's `updateViewMode`: the local copy already wins.
             let url = buddy_core::convex_data::convex_url();
             let rx = Runtime::global(cx)

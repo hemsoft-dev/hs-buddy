@@ -430,13 +430,22 @@ impl Form {
         })
     }
 
-    /// ralph-issues.ps1 requests no reviews, so it has no Skip review.
     pub fn offers_skip_review(&self) -> bool {
-        self.script != Script::Issues
+        offers_skip_review(&self.script)
     }
 
-    /// Only a loop that would open a pull request can skip it.
     pub fn offers_no_pr(&self) -> bool {
-        matches!(self.script, Script::Ralph | Script::Template(_))
+        offers_no_pr(&self.script)
     }
+}
+
+/// ralph-issues.ps1 requests no reviews, so it has no Skip review.
+pub(super) fn offers_skip_review(script: &Script) -> bool {
+    *script != Script::Issues
+}
+
+/// Only ralph.ps1 declares `-NoPR`: ralph-pr.ps1 works on an existing pull request,
+/// and the bundled templates hand their work to ralph-pr.ps1 without that switch.
+pub(super) fn offers_no_pr(script: &Script) -> bool {
+    *script == Script::Ralph
 }
