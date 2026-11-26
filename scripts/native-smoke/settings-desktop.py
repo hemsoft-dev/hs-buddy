@@ -155,6 +155,8 @@ COLD_START_WAITS = ("wait_models", "wait_cold_start")
 SECONDARY_WORKSPACE = "workspace_menu"
 # A Tempo grid cell located like "cell" and pressed with the secondary button.
 SECONDARY_CELL = "cell_menu"
+# Right-click one content label (a PR list row's title), located like "content".
+SECONDARY_CONTENT = "content_menu"
 
 
 # Pointer moves between a drag's press and release, as a hand would make.
@@ -294,7 +296,7 @@ class Driver:
                 commands += ["record-start:" + str(directory / "frames")]
             for action in actions:
                 kind, *values = action
-                if kind in ("nav", "tab", "click", "content", "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell", SECONDARY_CELL):
+                if kind in ("nav", "tab", "click", "content", SECONDARY_CONTENT, "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save", "cell", SECONDARY_CELL):
                     # An adjacent Unix row control is not part of the Windows
                     # command. Explicit input spacing is shared by both drivers.
                     encoded = values[:2] if kind == "input" else values
@@ -413,7 +415,7 @@ class Driver:
                     for index, (kind, *values) in enumerate(actions):
                         with (directory / "actions.jsonl").open("a", encoding="utf-8") as receipt:
                             action = dict(index=index, kind=kind,
-                                label=values[0] if kind in ("nav", "tab", "click", "content", "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)
+                                label=values[0] if kind in ("nav", "tab", "click", "content", SECONDARY_CONTENT, "workspace", SECONDARY_WORKSPACE, "sidebar", "between", "input", "field", "box", "leftfield", "rightfield", "save") else None)
                             if self.session == "macos":
                                 action["started"] = stamp()
                             receipt.write(json.dumps(action) + "\n")
@@ -776,12 +778,13 @@ class Driver:
         if kind in ("cell", SECONDARY_CELL):
             return self.interact_cell(window, directory, values, secondary=kind == SECONDARY_CELL)
         image = directory / "locator.png"
-        # A tab's menu is addressed exactly like a click on that tab: the same
-        # OCR scope and target point. Only the button differs.
-        secondary = kind == SECONDARY_WORKSPACE
+        # A tab's or content label's menu is addressed exactly like a click on
+        # it: the same OCR scope and target point. Only the button differs.
+        secondary = kind in (SECONDARY_WORKSPACE, SECONDARY_CONTENT)
         if secondary and len(values) != 1:
-            raise RuntimeError("A tab menu needs one visible tab title")
-        locator = "workspace" if secondary else kind
+            raise RuntimeError("A tab menu needs one visible tab title" if kind == SECONDARY_WORKSPACE
+                else "A content menu needs one visible label")
+        locator = {SECONDARY_WORKSPACE: "workspace", SECONDARY_CONTENT: "content"}.get(kind, kind)
         hint = values[2] if kind == "input" and len(values) == 3 else None
         offset = 20
         if isinstance(hint, dict):

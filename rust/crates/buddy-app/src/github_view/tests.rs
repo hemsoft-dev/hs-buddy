@@ -139,7 +139,7 @@ fn write_fixture_view(
     entity.unwrap()
 }
 
-fn wait_for_write(cx: &mut gpui_kit::TestAppContext, view: &Entity<GitHubView>) {
+pub(super) fn wait_for_write(cx: &mut gpui_kit::TestAppContext, view: &Entity<GitHubView>) {
     cx.run_until_parked();
     assert!(
         cx.update(|cx| !view.read(cx).write_busy),
@@ -421,10 +421,10 @@ fn review_sound_rejects_stale_account_and_returned_selection_results(
 fn pull() -> PullRef {
     PullRef::new(RepositoryRef::parse("team/private").unwrap(), 7).unwrap()
 }
-fn account(user: &str) -> AccountScope {
+pub(super) fn account(user: &str) -> AccountScope {
     AccountScope::new(user, "team").unwrap()
 }
-fn setup(cx: &mut App) {
+pub(super) fn setup(cx: &mut App) {
     gpui_kit::init(cx);
     let mut config = buddy_core::config::AppConfig::default();
     config.github.accounts = ["First", "Second"]
@@ -931,7 +931,7 @@ fn repository_row(name: &str) -> data::Row {
     row
 }
 
-fn bookmark(owner: &str, repo: &str) -> github::backend::Bookmark {
+pub(super) fn bookmark(owner: &str, repo: &str) -> github::backend::Bookmark {
     github::backend::Bookmark {
         id: format!("{owner}/{repo}"),
         owner: owner.into(),

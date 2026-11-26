@@ -377,11 +377,14 @@ class GitHubScene(unittest.TestCase):
                     patch.object(github, "verify_detail_requests"), patch.object(github, "require_activity", return_value={}), \
                     patch.object(github, "check") as check, patch.object(github, "check_status_bar"), \
                     patch.object(github, "qualify_review_sound"), \
+                    patch.object(github, "qualify_list_actions") as list_actions, \
                     patch.object(github.settings, "Driver", return_value=driver), \
                     patch.object(github.sidebar_layout, "qualify", side_effect=Reached) as step:
                 with self.assertRaises(Reached):
                     github.qualify(Path("owned-buddy"), output, "x11", "fixture", backend, api)
             self.assertEqual(names[-1], "status-bar-dark")
+            # The PR list's dark pass runs before the status bar; its light pass follows the layout.
+            list_actions.assert_called_once_with(driver, output / "config.json", api)
             args = step.call_args.args
             self.assertEqual(args, (driver, output / "config.json", check, github.settings.run))
             # The status-bar step's assistant is closed again before the split is measured.

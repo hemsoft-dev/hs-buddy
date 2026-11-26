@@ -304,6 +304,84 @@ class InstalledEvidence(unittest.TestCase):
         self.assertEqual(raised.__notes__, ['Fixture account removal also failed: ConnectionError'])
         self.assertEqual(mutations, ['githubAccounts:create', 'githubAccounts:remove'])
 
+    def approval(self, **changes):
+        request = dict(method='POST', path='/repos/fixture-org/native-demo/pulls/8/reviews', account='fixture-one',
+            body=dict(event='APPROVE', body='Approved', commit_id=desktop.github_backend.SHA))
+        request.update(changes)
+        return request
+
+    def run_list_actions(self, theme, requests=(), failure=None):
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            config = output / 'config.json'
+            original = json.dumps(dict(native=dict(activeSection='dashboard'), ui={}))
+            config.write_text(original)
+            api = Mock(requests=[dict(method='GET', path='/earlier', account='fixture-one', body=None),
+                self.approval(path='/repos/fixture-org/native-demo/pulls/7/reviews')])
+            seen = {}
+            def drive(name, actions, record):
+                seen.update(name=name, actions=actions, record=record,
+                    section=json.loads(config.read_text())['native']['activeSection'])
+                if failure:
+                    raise failure
+                api.requests.extend(requests)
+                return output / name
+            with patch.object(desktop, 'check') as check:
+                raised = None
+                try:
+                    desktop.qualify_list_actions(Mock(drive=drive), config, api, theme=theme)
+                except Exception as error:
+                    raised = error
+            restored = config.read_text() == original
+        return seen, check, raised, restored
+
+    def test_the_list_menu_is_right_clicked_on_the_row_and_checked_in_each_theme(self):
+        for theme in ('dark', 'light'):
+            with self.subTest(theme=theme):
+                seen, check, raised, restored = self.run_list_actions(theme, [self.approval()])
+                self.assertIsNone(raised)
+                self.assertTrue(restored)
+                self.assertEqual(seen['section'], 'github')
+                actions = seen['actions']
+                self.assertEqual(actions[:6], [('sidebar', 'Needs Review'), ('wait_content', desktop.LIST_ROW),
+                    ('content_menu', desktop.LIST_ROW), ('wait_text', 'Copy Link'),
+                    ('capture', f'pr-list-context-menu-{theme}'), ('key', 'Escape')])
+                directory = Path(seen['name'])
+                menu = check.call_args_list[0]
+                self.assertEqual(menu.args[0].name, f'pr-list-context-menu-{theme}.png')
+                self.assertEqual(menu.args[1:], (desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU))
+                self.assertEqual(menu.kwargs, dict(absent=('Address Unresolved',)))
+                self.assertEqual(seen['record'], theme == 'dark')
+                if theme == 'dark':
+                    # The row's own button, then the PR page's confirmation.
+                    self.assertEqual(actions[7:], [('content', 'Approve…'), ('wait_content', 'Confirm action'),
+                        ('content', 'Confirm action'), ('wait_content', 'Commit approved'),
+                        ('capture', 'pr-list-approve-dark')])
+                    self.assertEqual(check.call_args_list[1].args[0].name, 'pr-list-approve-dark.png')
+                    self.assertEqual(check.call_args_list[1].args[1:], (desktop.LIST_ROW, 'Approved', 'Commit approved'))
+                else:
+                    self.assertEqual(len(actions), 7)
+                    self.assertEqual(check.call_count, 1)
+
+    def test_the_dark_pass_needs_exactly_one_approval_of_the_row_at_its_head(self):
+        # An approval from before the scene does not count; the scene's must.
+        for requests in ([], [self.approval(account='fixture-two')],
+                [self.approval(body=dict(event='APPROVE', body='Approved', commit_id='b' * 40))],
+                [self.approval(), self.approval()],
+                [self.approval(), self.approval(path='/repos/fixture-org/native-demo/pulls/9/reviews')]):
+            with self.subTest(requests=requests):
+                _, _, raised, restored = self.run_list_actions('dark', requests)
+                self.assertIsInstance(raised, RuntimeError)
+                self.assertIn('approv', str(raised))
+                self.assertTrue(restored)
+
+    def test_a_failed_list_drive_still_restores_the_configuration(self):
+        failure = RuntimeError('menu did not open')
+        _, check, raised, restored = self.run_list_actions('dark', failure=failure)
+        self.assertIs(raised, failure)
+        self.assertTrue(restored)
+        check.assert_not_called()
+
     def test_activity_requires_exact_deltas_and_does_not_reset_existing_totals(self):
         before = dict(tabsOpened=12, prsViewed=30, prsReviewed=4)
         backend = Mock()
@@ -902,6 +980,54 @@ class InstalledEvidence(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Another account"):
                     desktop.check(image, "My PRs", "Second private", absent=("First private",))
 
+
+
+# What tesseract read from pr-list-context-menu-dark.png on Ubuntu in run
+# 45812387690 (psm 11; the open menu covers the end of the row title).
+UBUNTU_MENU_READING = """needs review
+cards
+list
+#8 paginated fivtre follows san
+2
+request al review...
+fixture-orginative-demo - open - @fixture-author - feature/nay
+request copilot review...
+@fixture-author
+open link
+approve...
+approve...
+copy link
+unbookmark native-demo
+"""
+
+
+class ListMenuReading(unittest.TestCase):
+    def check(self, reading, *markers):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "pr-list-context-menu-dark.png"
+            with patch.object(desktop, "analysis_images", lambda image: iter([image])), \
+                    patch.object(desktop.settings, "run", return_value=reading):
+                desktop.check(path, *markers, absent=desktop.LIST_MENU_ABSENT)
+
+    def test_the_real_ubuntu_reading_of_the_open_menu_passes(self):
+        self.check(UBUNTU_MENU_READING, desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+
+    def test_the_whole_row_title_is_not_required_under_the_open_menu(self):
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING, desktop.LIST_ROW, *desktop.LIST_MENU)
+
+    def test_an_alternative_counts_but_a_missing_entry_still_fails(self):
+        self.check("request ai review copy link", "Request AI Review|Request al Review", "Copy Link")
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING.replace("copy link", ""), desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING.replace("request al review", "request review"),
+                desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+
+    def test_the_left_out_entry_must_stay_absent(self):
+        with self.assertRaisesRegex(RuntimeError, "remained visible"):
+            self.check(UBUNTU_MENU_READING + "address unresolved comments\n",
+                desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
 
 if __name__ == "__main__":
     unittest.main()
