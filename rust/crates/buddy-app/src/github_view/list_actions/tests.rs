@@ -42,6 +42,8 @@ fn summary(state: &str, i_approved: bool) -> PullSummary {
 struct Fixture {
     calls: Mutex<Vec<github::ApiRequest>>,
     reject: bool,
+    /// The write's outcome is lost, as when the connection drops after it.
+    unknown: bool,
 }
 
 impl github::Transport for Fixture {
@@ -54,6 +56,9 @@ impl github::Transport for Fixture {
     > {
         Box::pin(async move {
             self.calls.lock().unwrap().push(request.clone());
+            if request.is_write && self.unknown {
+                return Err(GitHubError::UnknownWriteResult);
+            }
             let (status, body) = if request.is_write && self.reject {
                 (
                     422,
@@ -130,6 +135,11 @@ fn listed(view: &GitHubView) -> ListedPull {
     view.listed(row).unwrap().clone()
 }
 
+/// The row's identity, as its open menu holds it.
+fn row(view: &GitHubView) -> RowTarget {
+    view.row_target(&listed(view)).unwrap()
+}
+
 fn writes(transport: &Fixture) -> Vec<github::ApiRequest> {
     transport
         .calls
@@ -156,7 +166,7 @@ fn a_row_approves_its_listed_head_only_after_the_confirmation(cx: &mut gpui_kit:
         view.update(cx, |view, cx| {
             let pull = listed(view);
             assert_eq!(view.approve_control(&pull), ("Approve…", true));
-            view.run_row_action(&pull, RowAction::Approve, cx);
+            view.run_row_action(&row(view), RowAction::Approve, cx);
             // The PR page's confirmation, pinned to the head the list showed.
             match view.pending.as_ref().unwrap().action() {
                 WriteAction::Approve { pull, head_sha } => {
@@ -229,8 +239,7 @@ fn a_rejected_row_approval_is_shown_on_its_row_and_leaves_it_unapproved(
     let view = list_view(cx, transport.clone(), summary("OPEN", false));
     cx.update(|cx| {
         view.update(cx, |view, cx| {
-            let pull = listed(view);
-            view.run_row_action(&pull, RowAction::Approve, cx);
+            view.run_row_action(&row(view), RowAction::Approve, cx);
             view.confirm(cx);
         })
     });
@@ -257,7 +266,7 @@ fn a_row_confirmation_is_refused_once_its_list_is_read_again(cx: &mut gpui_kit::
     cx.update(|cx| {
         view.update(cx, |view, cx| {
             let pull = listed(view);
-            view.run_row_action(&pull, RowAction::Approve, cx);
+            view.run_row_action(&row(view), RowAction::Approve, cx);
             // A newer read of the list: the reviewed row may no longer be shown.
             view.selection.begin();
             view.confirm(cx);
@@ -281,8 +290,7 @@ fn a_page_confirmation_after_a_row_one_is_confirmed_as_a_page_write(
     let view = list_view(cx, transport, summary("OPEN", false));
     cx.update(|cx| {
         view.update(cx, |view, cx| {
-            let pull = listed(view);
-            view.run_row_action(&pull, RowAction::RequestCopilot, cx);
+            view.run_row_action(&row(view), RowAction::RequestCopilot, cx);
             assert!(view.pending_list.is_some());
             view.navigate(Route::Pull(target(), PullTab::Conversation), cx);
             assert!(view.pending.is_none());
@@ -370,8 +378,10 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
             assert_eq!(labels(&view.menu_entries(&pull))[2], ("Approve…", true));
             view.view_mode = ViewMode::Card;
             // A disabled entry does nothing even when reached directly.
-            view.run_row_action(&merged, RowAction::Approve, cx);
+            shown(view, vec![data::pull_row(summary("MERGED", false))]);
+            view.run_row_action(&row(view), RowAction::Approve, cx);
             assert!(view.pending.is_none());
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
 
             view.write_busy = true;
             let entries = view.menu_entries(&pull);
@@ -389,8 +399,7 @@ fn copy_link_puts_the_pull_requests_address_on_the_clipboard(cx: &mut gpui_kit::
     let view = list_view(cx, Arc::new(Fixture::default()), summary("OPEN", false));
     cx.update(|cx| {
         view.update(cx, |view, cx| {
-            let pull = listed(view);
-            view.run_row_action(&pull, RowAction::CopyLink, cx);
+            view.run_row_action(&row(view), RowAction::CopyLink, cx);
             assert_eq!(
                 view.status.as_deref(),
                 Some("Link copied · team/private #7")
@@ -411,8 +420,7 @@ fn request_copilot_review_from_the_menu_confirms_then_requests_the_bot(
     let view = list_view(cx, transport.clone(), summary("OPEN", false));
     cx.update(|cx| {
         view.update(cx, |view, cx| {
-            let pull = listed(view);
-            view.run_row_action(&pull, RowAction::RequestCopilot, cx);
+            view.run_row_action(&row(view), RowAction::RequestCopilot, cx);
             assert!(matches!(
                 view.pending.as_ref().unwrap().action(),
                 WriteAction::RequestCopilot { .. }
@@ -449,8 +457,7 @@ fn another_accounts_row_write_never_marks_the_shown_list(cx: &mut gpui_kit::Test
     let view = list_view(cx, transport, summary("OPEN", false));
     cx.update(|cx| {
         view.update(cx, |view, cx| {
-            let pull = listed(view);
-            view.run_row_action(&pull, RowAction::Approve, cx);
+            view.run_row_action(&row(view), RowAction::Approve, cx);
             view.confirm(cx);
             // Another account's list shows the same PR before the write ends.
             view.change_account(Some(account("Second")), cx);
@@ -519,4 +526,254 @@ fn right_clicking_a_row_opens_its_menu_and_request_ai_review_hands_it_over(
     visual.simulate_click(item, Default::default());
     visual.run_until_parked();
     assert_eq!(*handed.borrow(), vec![target()]);
+}
+
+/// A successful forced read of the shown route, as its Refresh button gives.
+fn forced_reload(view: &mut GitHubView) {
+    let request = LoadContext {
+        ticket: view.selection.begin().unwrap(),
+        force: true,
+        more: false,
+        write_key: view.current_write_key(),
+        can_unlock: true,
+    };
+    view.receive_load(request, Ok(PageData::default()));
+}
+
+/// Whether the row offers its GitHub writes, through every way to start one.
+fn row_writes_enabled(view: &mut GitHubView, cx: &mut Context<GitHubView>) -> bool {
+    let pull = listed(view);
+    let entries = view.menu_entries(&pull);
+    let approve = view.approve_control(&pull).1;
+    assert_eq!(entries[1].enabled, approve, "Copilot follows Approve");
+    assert_eq!(entries[2].enabled, approve, "the menu follows the button");
+    assert_eq!(view.row_locked(&pull).is_none(), approve);
+    view.prepare_listed(WriteAction::RequestCopilot { pull: target() }, cx);
+    let prepared = view.pending.take().is_some();
+    view.pending_list = None;
+    assert_eq!(prepared, approve, "the last guard agrees with the controls");
+    approve
+}
+
+/// Run a row write to its end, then check that only the PR page's recovery,
+/// a forced read of the PR's Reviews tab, lets the row write again.
+fn assert_locked_until_the_reviews_tab_is_reloaded(
+    cx: &mut gpui_kit::TestAppContext,
+    transport: Fixture,
+    action: RowAction,
+    outcome: RowWrite,
+) {
+    let transport = Arc::new(transport);
+    let view = list_view(cx, transport.clone(), summary("OPEN", false));
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.run_row_action(&row(view), action, cx);
+            view.confirm(cx);
+        })
+    });
+    wait_for_write(cx, &view);
+    assert_eq!(writes(&transport).len(), 1);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            let pull = listed(view);
+            assert!(!pull.i_approved);
+            assert_eq!(view.row_write(&pull), Some(&outcome));
+            assert_eq!(view.row_locked(&pull), Some(ROW_LOCKED));
+            assert_eq!(view.approve_control(&pull), ("Approve…", false));
+            assert!(!row_writes_enabled(view, cx));
+            // Reached directly, the entries still send nothing.
+            view.run_row_action(&row(view), RowAction::Approve, cx);
+            view.run_row_action(&row(view), RowAction::RequestCopilot, cx);
+            assert!(view.pending.is_none());
+
+            // Reloading the list cannot tell whether the write landed.
+            forced_reload(view);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            assert!(!row_writes_enabled(view, cx));
+            // Nor can the PR's conversation: the page keeps its lock too.
+            view.navigate(Route::Pull(target(), PullTab::Conversation), cx);
+            assert!(view.must_reload);
+            forced_reload(view);
+            assert!(view.must_reload);
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            assert!(!row_writes_enabled(view, cx));
+
+            // The Reviews tab shows the approval or request: it unlocks both.
+            view.navigate(Route::Pull(target(), PullTab::Reviews), cx);
+            forced_reload(view);
+            assert!(!view.must_reload);
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            assert!(row_writes_enabled(view, cx));
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(writes(&transport).len(), 1, "nothing was sent again");
+}
+
+#[gpui_kit::test]
+fn an_uncertain_row_approval_locks_the_rows_writes_until_the_reviews_tab_is_reloaded(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    assert_locked_until_the_reviews_tab_is_reloaded(
+        cx,
+        Fixture {
+            unknown: true,
+            ..Default::default()
+        },
+        RowAction::Approve,
+        RowWrite::Failed(GitHubError::UnknownWriteResult.to_string()),
+    );
+}
+
+#[gpui_kit::test]
+fn an_uncertain_row_copilot_request_locks_the_rows_writes_until_the_reviews_tab_is_reloaded(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    assert_locked_until_the_reviews_tab_is_reloaded(
+        cx,
+        Fixture {
+            unknown: true,
+            ..Default::default()
+        },
+        RowAction::RequestCopilot,
+        RowWrite::Failed(GitHubError::UnknownWriteResult.to_string()),
+    );
+}
+
+#[gpui_kit::test]
+fn a_requested_copilot_review_locks_the_rows_writes_until_the_reviews_tab_is_reloaded(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // The request leaves the PR unapproved, so only the lock holds Copilot back.
+    assert_locked_until_the_reviews_tab_is_reloaded(
+        cx,
+        Fixture::default(),
+        RowAction::RequestCopilot,
+        RowWrite::Done("Copilot review requested"),
+    );
+}
+
+#[gpui_kit::test]
+fn a_write_locked_on_the_pr_page_is_honoured_by_its_list_row(cx: &mut gpui_kit::TestAppContext) {
+    let transport = Arc::new(Fixture::default());
+    let view = list_view(cx, transport.clone(), summary("OPEN", false));
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            view.navigate(Route::Pull(target(), PullTab::Reviews), cx);
+            view.prepare(
+                WriteAction::Approve {
+                    pull: target(),
+                    head_sha: HEAD.into(),
+                },
+                cx,
+            );
+            view.confirm(cx);
+        })
+    });
+    wait_for_write(cx, &view);
+    assert_eq!(writes(&transport).len(), 1);
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            assert!(view.must_reload);
+            // Back on the list, read before the approval: the row still shows
+            // the PR unapproved, and only the lock holds its writes back.
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            let pull = listed(view);
+            assert!(!pull.i_approved);
+            assert!(view.row_write(&pull).is_none(), "the write was the page's");
+            assert!(!row_writes_enabled(view, cx));
+            view.run_row_action(&row(view), RowAction::Approve, cx);
+            assert!(view.pending.is_none());
+            // Another account's list is not held back by this account's lock.
+            view.change_account(Some(account("Second")), cx);
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            assert!(row_writes_enabled(view, cx));
+            view.change_account(Some(account("First")), cx);
+            view.navigate(Route::Pull(target(), PullTab::Reviews), cx);
+            forced_reload(view);
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            assert!(row_writes_enabled(view, cx));
+        })
+    });
+}
+
+#[gpui_kit::test]
+fn an_open_menu_acts_on_the_row_as_the_list_shows_it_now(cx: &mut gpui_kit::TestAppContext) {
+    let transport = Arc::new(Fixture::default());
+    let view = list_view(cx, transport.clone(), summary("OPEN", false));
+    let handed = Rc::new(RefCell::new(Vec::new()));
+    cx.update(|cx| {
+        let handed = handed.clone();
+        cx.subscribe(&view, move |_, event: &GitHubEvent, _| {
+            if let GitHubEvent::PrepareAssistantReview(client, pull) = event {
+                handed
+                    .borrow_mut()
+                    .push((client.account.clone(), pull.clone()));
+            }
+        })
+        .detach();
+    });
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            // The menu opened on this row; the list is read again before a click.
+            let open = row(view);
+            shown(view, vec![data::pull_row(summary("OPEN", true))]);
+            view.run_row_action(&open, RowAction::Approve, cx);
+            assert!(view.pending.is_none(), "approved since the menu opened");
+            shown(view, vec![data::pull_row(summary("MERGED", false))]);
+            view.run_row_action(&open, RowAction::RequestCopilot, cx);
+            assert!(view.pending.is_none(), "merged since the menu opened");
+            // A newer head is the one approved.
+            let newer = "1111111111111111111111111111111111111111";
+            shown(
+                view,
+                vec![data::pull_row(PullSummary {
+                    head_sha: newer.into(),
+                    ..summary("OPEN", false)
+                })],
+            );
+            view.run_row_action(&open, RowAction::Approve, cx);
+            match view.pending.take().unwrap().action() {
+                WriteAction::Approve { head_sha, .. } => assert_eq!(head_sha, newer),
+                other => panic!("unexpected {other:?}"),
+            }
+            view.pending_list = None;
+            // Gone from the list: nothing is done, and the row says why.
+            shown(view, Vec::new());
+            view.run_row_action(&open, RowAction::CopyLink, cx);
+            assert_eq!(
+                view.status.as_deref(),
+                Some("This pull request is no longer in the shown list.")
+            );
+            // Another account's list holds the same PR: the menu is refused,
+            // so the AI review never pairs this PR with that account.
+            view.change_account(Some(account("Second")), cx);
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            view.status = None;
+            for action in [RowAction::AiReview, RowAction::Approve, RowAction::Bookmark] {
+                view.run_row_action(&open, action, cx);
+            }
+            assert!(view.pending.is_none());
+            assert!(view.status.is_some());
+            // The PR's page is no list: its rows' menus no longer act.
+            view.change_account(Some(account("First")), cx);
+            view.navigate(Route::Pull(target(), PullTab::Conversation), cx);
+            view.status = None;
+            view.run_row_action(&open, RowAction::AiReview, cx);
+            assert!(view.status.is_some());
+            // Shown again for its own account, it acts.
+            view.navigate(Route::Pulls(PrMode::NeedsReview), cx);
+            shown(view, vec![data::pull_row(summary("OPEN", false))]);
+            view.run_row_action(&open, RowAction::AiReview, cx);
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(*handed.borrow(), vec![(account("First"), target())]);
+    assert!(writes(&transport).is_empty());
 }

@@ -10,7 +10,7 @@ mod tests;
 mod workbench;
 
 use buddy_core::github::{
-    self, AccountScope, GitHubClients, GitHubError, PageCursor, PendingWrite, PrMode,
+    self, AccountScope, GitHubClients, GitHubError, PageCursor, PendingWrite, PrMode, PullRef,
     SelectionState, ViewMode, WriteAction,
 };
 use futures::future::{AbortHandle, Abortable};
@@ -33,6 +33,12 @@ use buddy_core::stats::github_activity::GitHubOpen;
 use data::{PageData, PullTab, RepoTab, Route, UserTab};
 
 /// The counter an explicit open records, as the Electron equivalent does.
+/// The key of a PR's write lock: one per account and PR, shared by the PR
+/// page and the PR list rows.
+fn write_lock_key(account: &AccountScope, pull: &PullRef) -> String {
+    format!("{}:{}", account.key(), pull.key())
+}
+
 /// Electron counts every `openTab` call, including a repeated one. PR lists
 /// record their own combined increment through `open_pr_list`.
 fn open_activity(from: &Route, to: &Route) -> Option<GitHubOpen> {
@@ -777,7 +783,7 @@ impl GitHubView {
         };
         self.cancel_read();
         self.write_busy = true;
-        let write_key = format!("{}:{}", account.key(), resource.key());
+        let write_key = write_lock_key(&account, &resource);
         self.write_locks.insert(write_key.clone(), recovery);
         if listed {
             self.start_row_write(&write_key, &action);
@@ -843,19 +849,36 @@ impl GitHubView {
         cx.notify();
     }
 
+    /// The PR the shown page writes to, if it is a PR's page or thread.
+    fn current_pull(&self) -> Option<&PullRef> {
+        match &self.route {
+            Route::Pull(pull, _) => Some(pull),
+            Route::Thread(thread) => Some(thread.0.pull()),
+            _ => None,
+        }
+    }
+
     fn current_write_key(&self) -> Option<String> {
-        let pull = match &self.route {
-            Route::Pull(pull, _) => pull,
-            Route::Thread(thread) => thread.0.pull(),
-            _ => return None,
-        };
-        Some(format!("{}:{}", self.account.as_ref()?.key(), pull.key()))
+        self.write_key(self.current_pull()?)
+    }
+
+    /// The key a write to `pull` is locked under for the shown account.
+    fn write_key(&self, pull: &PullRef) -> Option<String> {
+        Some(write_lock_key(self.account.as_ref()?, pull))
+    }
+
+    /// Whether a write to `pull` for the shown account succeeded or ended
+    /// uncertainly and waits for a forced reload of its recovery route. The
+    /// PR page and the PR list rows both refuse writes to it until then.
+    fn write_locked(&self, pull: &PullRef) -> bool {
+        self.write_key(pull)
+            .is_some_and(|key| self.write_locks.contains_key(&key))
     }
 
     fn update_write_guard(&mut self) {
         self.must_reload = self
-            .current_write_key()
-            .is_some_and(|key| self.write_locks.contains_key(&key));
+            .current_pull()
+            .is_some_and(|pull| self.write_locked(pull));
     }
 
     fn top(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

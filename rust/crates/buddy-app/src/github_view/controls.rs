@@ -500,8 +500,8 @@ impl GitHubView {
         let listed = self.listed(row).cloned();
         if let Some(pull) = &listed
             && let Some((label, enabled)) = self.row_approve(pull)
+            && let Some(target) = self.row_target(pull)
         {
-            let target = pull.clone();
             links = links.child(
                 Button::new(format!("github-item-approve-{index}"))
                     .label(label)
@@ -564,21 +564,32 @@ impl GitHubView {
                     .child(write.text().to_string()),
             );
         }
+        if let Some(locked) = self.row_locked(&pull) {
+            item = item.child(
+                div()
+                    .whitespace_normal()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(locked),
+            );
+        }
+        let target = self.row_target(&pull);
         let view = cx.entity().downgrade();
         item.id(format!("github-item-row-{index}"))
             .debug_selector(move || format!("github-item-row-{index}"))
             .context_menu(move |mut menu, _, cx| {
-                let Some(entity) = view.upgrade() else {
+                let (Some(entity), Some(target)) = (view.upgrade(), target.clone()) else {
                     return menu;
                 };
-                for entry in entity.read(cx).menu_entries(&pull) {
-                    let (view, pull) = (view.clone(), pull.clone());
+                let this = entity.read(cx);
+                let shown = this.current_listed(&target).unwrap_or_else(|| pull.clone());
+                for entry in this.menu_entries(&shown) {
+                    let (view, target) = (view.clone(), target.clone());
                     menu = menu.item(
                         PopupMenuItem::new(entry.label)
                             .disabled(!entry.enabled)
                             .on_click(move |_, _, cx| {
                                 let _ = view.update(cx, |this, cx| {
-                                    this.run_row_action(&pull, entry.action, cx)
+                                    this.run_row_action(&target, entry.action, cx)
                                 });
                             }),
                     );

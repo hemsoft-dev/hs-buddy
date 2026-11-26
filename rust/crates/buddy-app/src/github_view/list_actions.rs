@@ -58,6 +58,20 @@ pub(super) enum RowAction {
     Bookmark,
 }
 
+/// Shown on a row whose PR is write-locked: the PR page's rule, so only a
+/// reload of the PR's Reviews tab, the approval's and Copilot request's
+/// recovery route, re-enables its writes. Reloading the list does not.
+pub(super) const ROW_LOCKED: &str =
+    "Reload the item before trying again: refresh this pull request's Reviews tab.";
+
+/// What an open row menu acts on: the PR and the account its list showed.
+/// Each entry looks the PR up again in the list shown when it is clicked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RowTarget {
+    account: AccountScope,
+    pull: PullRef,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MenuEntry {
     pub label: String,
@@ -76,12 +90,8 @@ impl GitHubView {
         }
     }
 
-    fn row_key(&self, pull: &PullRef) -> Option<String> {
-        Some(format!("{}:{}", self.account.as_ref()?.key(), pull.key()))
-    }
-
     pub(super) fn row_write(&self, pull: &ListedPull) -> Option<&RowWrite> {
-        self.row_key(&pull.target)
+        self.write_key(&pull.target)
             .and_then(|key| self.row_writes.get(&key))
     }
 
@@ -91,6 +101,41 @@ impl GitHubView {
         self.write_busy || self.loading || self.pending.is_some()
     }
 
+    /// Whether the row may start a GitHub write to its PR: open, nothing
+    /// else running, and not locked by an earlier write from the row or the
+    /// PR page, which [`GitHubView::write_locked`] decides for both.
+    fn row_writable(&self, pull: &ListedPull) -> bool {
+        pull.open && !self.rows_busy() && !self.write_locked(&pull.target)
+    }
+
+    /// Why the row's writes are disabled after an earlier write.
+    pub(super) fn row_locked(&self, pull: &ListedPull) -> Option<&'static str> {
+        self.write_locked(&pull.target).then_some(ROW_LOCKED)
+    }
+
+    /// The identity an open row menu acts on.
+    pub(super) fn row_target(&self, pull: &ListedPull) -> Option<RowTarget> {
+        Some(RowTarget {
+            account: self.account.clone()?,
+            pull: pull.target.clone(),
+        })
+    }
+
+    /// The row as the list shows it now, if the list is still a PR list for
+    /// the menu's account and still holds its PR.
+    pub(super) fn current_listed(&self, target: &RowTarget) -> Option<ListedPull> {
+        if self.account.as_ref() != Some(&target.account) {
+            return None;
+        }
+        self.data
+            .as_ref()?
+            .rows
+            .iter()
+            .filter_map(|row| self.listed(row))
+            .find(|listed| listed.target == target.pull)
+            .cloned()
+    }
+
     /// Electron's card button: "Approved" once you approved, otherwise
     /// "Approve". Native confirms first, as the PR page does, and, like the
     /// PR page, does not offer to approve a closed or merged PR.
@@ -98,7 +143,7 @@ impl GitHubView {
         if pull.i_approved {
             ("Approved", false)
         } else {
-            ("Approve…", pull.open && !self.rows_busy())
+            ("Approve…", self.row_writable(pull))
         }
     }
 
@@ -117,12 +162,12 @@ impl GitHubView {
     }
 
     pub(super) fn menu_entries(&self, pull: &ListedPull) -> Vec<MenuEntry> {
-        let busy = self.rows_busy();
+        let writable = self.row_writable(pull);
         let repo = &pull.target.repository;
         let (approve, approve_enabled) = if pull.i_approved {
             ("Already Approved", false)
         } else {
-            ("Approve…", pull.open && !busy)
+            ("Approve…", writable)
         };
         let bookmark = if self.bookmarked(repo) {
             format!("Unbookmark {}", repo.name())
@@ -137,7 +182,7 @@ impl GitHubView {
             },
             MenuEntry {
                 label: "Request Copilot Review…".into(),
-                enabled: pull.open && !busy,
+                enabled: writable,
                 action: RowAction::RequestCopilot,
             },
             MenuEntry {
@@ -159,12 +204,22 @@ impl GitHubView {
         ]
     }
 
+    /// Run a menu entry on the PR as the list shows it now. The menu was
+    /// built from the row when it opened; if the list was reloaded, left or
+    /// shown for another account since, the entry is checked against the
+    /// current row, or refused when the PR is no longer listed.
     pub(super) fn run_row_action(
         &mut self,
-        pull: &ListedPull,
+        target: &RowTarget,
         action: RowAction,
         cx: &mut Context<Self>,
     ) {
+        let Some(pull) = self.current_listed(target) else {
+            self.status = Some("This pull request is no longer in the shown list.".into());
+            cx.notify();
+            return;
+        };
+        let pull = &pull;
         if !self
             .menu_entries(pull)
             .iter()
@@ -209,7 +264,10 @@ impl GitHubView {
 
     /// Open the PR page's confirmation for a write from a list row.
     pub(super) fn prepare_listed(&mut self, action: WriteAction, cx: &mut Context<Self>) {
-        if self.rows_busy() || !matches!(self.route, Route::Pulls(_)) {
+        if self.rows_busy()
+            || !matches!(self.route, Route::Pulls(_))
+            || self.write_locked(action.pull())
+        {
             return;
         }
         let Some(list) = self.selection.ticket() else {
