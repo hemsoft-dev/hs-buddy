@@ -162,6 +162,8 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   // Since #918 every installed Mac scene runs again (#930). Its green head
   // qualified ARM in 79m after 51m at most of build/test, and Intel in 114m
   // after 84m. Main's next ARM run was stopped at the old 90m scene budget.
+  // By 2026-11-26 green ARM runs qualified in 108-112m after 51-55m of
+  // build/test, and a run that added scene steps ran out at 120m (#1026).
   const native = readFileSync('.github/workflows/rust.yml', 'utf8')
   const limit = native.match(
     /^ {4}timeout-minutes: \$\{\{ matrix\.os == 'macos-15-intel' && (\d+) \|\| matrix\.os == 'macos-15' && (\d+) \|\| (\d+) \}\}/m
@@ -169,8 +171,8 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   const [intel, arm, other] = limit?.slice(1).map(Number) ?? []
   expect(intel).toBeGreaterThanOrEqual(270)
   expect(intel).toBeLessThanOrEqual(300)
-  expect(arm).toBeGreaterThanOrEqual(180)
-  expect(arm).toBeLessThanOrEqual(210)
+  expect(arm).toBeGreaterThanOrEqual(220)
+  expect(arm).toBeLessThanOrEqual(240)
   // Green Ubuntu and Windows jobs took up to 115m; a slow apt mirror pushed
   // Ubuntu past the old 120m limit (#931).
   expect(other).toBeGreaterThanOrEqual(Math.ceil(115 * 1.25))
@@ -185,9 +187,9 @@ it('gives native jobs measured headroom with a bounded hang limit', () => {
   // whole scene budget still leaves time for evidence staging/upload before
   // the job's hard kill.
   const [intelSuite, armSuite, linuxSuite] = budget?.slice(1).map(Number) ?? []
-  expect(armSuite).toBeGreaterThanOrEqual(Math.ceil(79 * 1.25))
+  expect(armSuite).toBeGreaterThanOrEqual(Math.ceil(112 * 1.25))
   expect(intelSuite).toBeGreaterThanOrEqual(Math.ceil(114 * 1.25))
-  expect(51 + armSuite + 5).toBeLessThan(arm)
+  expect(55 + armSuite + 5).toBeLessThan(arm)
   expect(84 + intelSuite + 5).toBeLessThan(intel)
   // Linux keeps its own shorter budget, so a hang in install-unix.sh fails
   // the step before the job's hard kill and evidence upload still runs.

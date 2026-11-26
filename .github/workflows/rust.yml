@@ -69,7 +69,9 @@ jobs:
     # suite with 25% headroom plus evidence upload. Ubuntu and Windows jobs took
     # 82-115m when green, and a slow apt mirror pushed Ubuntu past 120m (#931).
     # Unix qualification and each Mac scene have separate, shorter budgets.
-    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 275 || matrix.os == 'macos-15' && 190 || 160 }}
+    # By 2026-11-26 the ARM job took 168-169m when green (qualification
+    # 109-112m), so its limit is 230m.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 275 || matrix.os == 'macos-15' && 230 || 160 }}
     strategy:
       fail-fast: false
       matrix:
@@ -322,7 +324,10 @@ jobs:
 
       - name: Install and qualify Unix package
         if: runner.os != 'Windows' && github.event_name != 'pull_request'
-        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 180 || matrix.os == 'macos-15' && 120 || 90 }}
+        # ARM qualification took 109-112m in three green runs on 2026-11-26
+        # (45765302050, 45817682123, 45858657336), and a PR adding Tempo and
+        # Todoist steps ran out at 120m (45867660942): 150m gives it room again.
+        timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 180 || matrix.os == 'macos-15' && 150 || 90 }}
         working-directory: .
         shell: bash
         env:
