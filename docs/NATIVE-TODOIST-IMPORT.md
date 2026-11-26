@@ -32,6 +32,12 @@ On Windows it reads the Machine value with the read-only
 On macOS and Linux, run it from a shell that exports the variable, since an app
 started from the Dock or a desktop launcher may not inherit it.
 
+The import reads the variable when it runs. A running Electron app does not:
+its resolver caches the first value it finds and keeps it until Electron
+restarts. If the variable changed after Electron started, the import can save a
+different token from the one Electron is still using. Restart Electron to make
+the two match.
+
 ## Profile and existing choices
 
 The import uses the same configuration profile as the app: `BUDDY_CONFIG_PATH`
