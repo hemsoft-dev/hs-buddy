@@ -1,5 +1,7 @@
-use super::form::{model_choices, repository_path, review_model_choices, whole};
-use super::render::{branch, duration, progress, stats, title};
+use super::form::{
+    model_choices, offers_no_pr, offers_skip_review, repository_path, review_model_choices, whole,
+};
+use super::render::{advanced_summary, branch, duration, progress, stats, title};
 use super::*;
 use buddy_core::ralph::launch::{Plan, Script};
 use buddy_core::ralph::progress::{Phase, Progress};
@@ -379,6 +381,71 @@ fn the_launch_form_keeps_launch_visible_and_reports_input_errors(
 }
 
 #[gpui_kit::test]
+fn advanced_options_open_on_demand_and_reach_the_launch(cx: &mut gpui_kit::TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let (window, view) = open(cx, 1200., 820.);
+    let mut visual = VisualTestContext::from_window(window, cx);
+    attach(&view, root.path(), &mut visual);
+    visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.new_form(Script::Ralph, None, window, cx)
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("ralph-advanced").is_some());
+    let launch = visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            let form = view.form.as_mut().unwrap();
+            // Closed and off by default: a loop runs silent, as before.
+            assert!(!form.advanced);
+            let launch = form.launch(cx).unwrap();
+            assert!(launch.work_until.is_empty());
+            assert!(!launch.skip_review && !launch.no_pr && !launch.announce);
+            form.advanced = true;
+            form.fields["work_until"]
+                .update(cx, |input, cx| input.set_value(" 08:00 ", window, cx));
+            form.skip_review = true;
+            form.no_pr = true;
+            form.announce = true;
+            form.launch(cx).unwrap()
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(launch.work_until, "08:00");
+    assert!(launch.skip_review && launch.no_pr && launch.announce);
+    // A retried run reopens its options; Ralph Issues drops the two it has no use for.
+    let retried = visual.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.new_form(Script::Issues, Some(&launch), window, cx);
+            let form = view.form.as_ref().unwrap();
+            assert!(form.advanced);
+            assert!(!form.offers_skip_review() && !form.offers_no_pr());
+            form.launch(cx).unwrap()
+        })
+    });
+    assert_eq!(retried.work_until, "08:00");
+    assert!(!retried.skip_review && !retried.no_pr && retried.announce);
+}
+
+#[test]
+fn the_detail_names_the_advanced_options_a_run_used() {
+    let mut launch = Launch::default();
+    assert_eq!(advanced_summary(&launch), None);
+    launch.work_until = "08:00".into();
+    launch.no_pr = true;
+    assert_eq!(
+        advanced_summary(&launch).as_deref(),
+        Some("Options: work until 08:00 · no pull request")
+    );
+    launch.skip_review = true;
+    launch.announce = true;
+    assert_eq!(
+        advanced_summary(&launch).as_deref(),
+        Some("Options: work until 08:00 · skip review · no pull request · announce")
+    );
+}
+
+#[gpui_kit::test]
 fn provider_model_and_agent_share_one_row_at_the_windows_runner_width(
     cx: &mut gpui_kit::TestAppContext,
 ) {
@@ -696,4 +763,34 @@ fn a_start_or_stop_notice_goes_once_its_run_settles(cx: &mut gpui_kit::TestAppCo
     visual.run_until_parked();
     assert!(view.read_with(&visual, |view, _| view.notice.is_none()
         && view.notice_run.is_none()));
+}
+
+/// The form offers Skip review and No pull request exactly for the bundled scripts whose
+/// `param(...)` block declares them, so no checkbox leads to a launch that is refused.
+#[test]
+fn advanced_options_are_offered_only_where_the_script_declares_them() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/ralph-loops");
+    let mut scripts = vec![Script::Ralph, Script::Pr, Script::Issues];
+    let mut templates: Vec<_> = std::fs::read_dir(root.join("scripts"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".ps1"))
+        .collect();
+    templates.sort();
+    assert!(templates.len() >= 6, "bundled templates: {templates:?}");
+    scripts.extend(templates.into_iter().map(Script::Template));
+    for script in scripts {
+        let text = std::fs::read_to_string(root.join(script.relative_path())).unwrap();
+        let declared = buddy_core::ralph::scripts::declared_parameters(&text);
+        assert_eq!(
+            offers_skip_review(&script),
+            declared.contains("SkipReview"),
+            "Skip review for {script:?}"
+        );
+        assert_eq!(
+            offers_no_pr(&script),
+            declared.contains("NoPR"),
+            "No pull request for {script:?}"
+        );
+    }
 }

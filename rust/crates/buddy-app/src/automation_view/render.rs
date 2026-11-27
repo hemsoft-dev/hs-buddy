@@ -3,6 +3,7 @@ use buddy_core::automation::{
     engine::Phase,
     models::{Job, MissedPolicy, Run, Schedule, Shell, WorkerType, schedule_time},
 };
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::select::Select;
 use gpui_kit::component::tab::{Tab, TabBar};
@@ -1172,6 +1173,245 @@ impl AutomationView {
             .into_any_element()
     }
 
+    /// Electron's `ViewModeToggle`: Card view and List view, the chosen one selected.
+    fn render_view_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.run_view(cx);
+        h_flex()
+            .gap_1()
+            .debug_selector(|| "automation-run-view".into())
+            .children(
+                [
+                    (ViewMode::Card, IconName::LayoutGrid, "Card view"),
+                    (ViewMode::List, IconName::List, "List view"),
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(index, (view, icon, label))| {
+                    Button::new(("automation-run-view", index))
+                        .icon(icon)
+                        .label(label)
+                        .selected(current == view)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.choose_run_view(view, None, cx)),
+                        )
+                }),
+            )
+            .into_any_element()
+    }
+
+    /// The run's output as Show output reveals it: the end of stdout and stderr, live for
+    /// the active run.
+    fn render_run_output(&self, run: &Run, cx: &App) -> gpui_kit::Div {
+        let live = self
+            .snapshot
+            .output
+            .as_ref()
+            .filter(|(id, _)| id == &run.id)
+            .map(|(_, text)| text.clone());
+        let text = live.or_else(|| run_output(run)).unwrap_or_default();
+        let (shown, cut) = bounded_output(&text);
+        v_flex()
+            .gap_1()
+            .p_2()
+            .rounded_md()
+            .bg(cx.theme().muted)
+            .debug_selector(|| "automation-run-output".into())
+            .children(cut.then(|| {
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Earlier output is not shown.")
+            }))
+            .child(if shown.is_empty() {
+                div()
+                    .whitespace_normal()
+                    .child(SharedString::from(if run.status.is_active() {
+                        "Waiting for output…"
+                    } else {
+                        "No output."
+                    }))
+            } else {
+                // Shell output is data: show it in the theme's monospace face.
+                div()
+                    .whitespace_normal()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .child(SharedString::from(shown))
+            })
+    }
+
+    fn status_color(status: RunStatus, cx: &App) -> gpui_kit::Hsla {
+        match status {
+            RunStatus::Failed => cx.theme().danger,
+            RunStatus::Completed => cx.theme().success,
+            RunStatus::Running | RunStatus::Pending => cx.theme().info,
+            RunStatus::Cancelled => cx.theme().warning,
+        }
+    }
+
+    pub(super) fn toggle_output(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.selected_run = (self.selected_run.as_deref() != Some(id)).then(|| id.to_owned());
+        cx.notify();
+    }
+
+    /// One run in the card layout (Electron's `RunCard`): status and job, how and when it
+    /// started, any error, Show output and Cancel run.
+    fn render_run_card(&self, index: usize, run: &Run, cx: &mut Context<Self>) -> gpui_kit::Div {
+        let selected = self.selected_run.as_deref() == Some(run.id.as_str());
+        let trigger = match run.extra.get("triggeredBy").and_then(Value::as_str) {
+            Some("schedule") => "Scheduled",
+            Some("api") => "API",
+            _ if run.schedule_id.is_some() => "Scheduled",
+            _ => "Manual",
+        };
+        let duration = run_duration(run)
+            .map(|text| format!(" · {text}"))
+            .unwrap_or_default();
+        let (toggle, cancel) = (run.id.clone(), run.id.clone());
+        let mut buttons = h_flex().flex_wrap().gap_2().child(
+            Button::new(("automation-run-details", index))
+                .label(if selected {
+                    "Hide output"
+                } else {
+                    "Show output"
+                })
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_output(&toggle, cx))),
+        );
+        if run.status.is_active() {
+            buttons = buttons.child(
+                Button::new(("automation-run-cancel", index))
+                    .label("Cancel run")
+                    .disabled(self.locked())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.operate(Command::Cancel(cancel.clone()), false, cx)
+                    })),
+            );
+        }
+        let mut row = v_flex()
+            .debug_selector(move || format!("automation-run-row-{index}"))
+            .gap_1()
+            .p_3()
+            .border_1()
+            .rounded_md()
+            .border_color(cx.theme().border)
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_color(Self::status_color(run.status, cx))
+                            .child(status_label(run.status)),
+                    )
+                    .child(div().child(self.job_name(&run.job_id).to_owned())),
+            )
+            .child(
+                div()
+                    .whitespace_normal()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "{trigger} · started {}{duration}",
+                        local_time(run.started_at)
+                    )),
+            );
+        if let Some(error) = &run.error {
+            row = row.child(
+                div()
+                    .whitespace_normal()
+                    .text_color(cx.theme().danger)
+                    .child(error.clone()),
+            );
+        }
+        row = row.child(buttons);
+        if selected {
+            row = row.child(self.render_run_output(run, cx));
+        }
+        row
+    }
+
+    /// The list layout's column header (Electron's `RunListTable`).
+    fn render_run_list_header(cx: &App) -> gpui_kit::Div {
+        Self::run_list_columns(
+            div().child("Name"),
+            div().child("Status"),
+            div().child("Duration"),
+            div().child("Triggered"),
+        )
+        .debug_selector(|| "automation-run-list-header".into())
+        .pb_1()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .text_color(cx.theme().muted_foreground)
+    }
+
+    fn run_list_columns(
+        name: impl IntoElement,
+        status: impl IntoElement,
+        duration: impl IntoElement,
+        triggered: impl IntoElement,
+    ) -> gpui_kit::Div {
+        h_flex()
+            .w_full()
+            .gap_3()
+            .items_center()
+            .child(div().flex_1().min_w(zpx(160.)).child(name))
+            .child(div().w(zpx(100.)).flex_none().child(status))
+            .child(div().w(zpx(90.)).flex_none().child(duration))
+            .child(div().w(zpx(170.)).flex_none().child(triggered))
+    }
+
+    /// One run in the list layout (Electron's table row): the job name, which shows or
+    /// hides the run's error and output beneath, its status, duration and start time.
+    fn render_run_list_row(
+        &self,
+        index: usize,
+        run: &Run,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Div {
+        let selected = self.selected_run.as_deref() == Some(run.id.as_str());
+        let toggle = run.id.clone();
+        let name = self.job_name(&run.job_id).to_owned();
+        let mut row = v_flex()
+            .debug_selector(move || format!("automation-run-list-row-{index}"))
+            .gap_1()
+            .py_1()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(Self::run_list_columns(
+                Button::new(("automation-run-list-toggle", index))
+                    .ghost()
+                    .icon(if selected {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .label(name.clone())
+                    .tooltip(if selected {
+                        format!("Collapse details for {name}")
+                    } else {
+                        format!("Expand details for {name}")
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_output(&toggle, cx))),
+                div()
+                    .text_color(Self::status_color(run.status, cx))
+                    .child(status_label(run.status)),
+                div().child(run_duration(run).unwrap_or_else(|| "—".into())),
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(local_time(run.started_at)),
+            ));
+        if selected {
+            if let Some(error) = &run.error {
+                row = row.child(
+                    div()
+                        .whitespace_normal()
+                        .text_color(cx.theme().danger)
+                        .child(error.clone()),
+                );
+            }
+            row = row.child(self.render_run_output(run, cx));
+        }
+        row
+    }
+
     fn render_history(&self, cx: &mut Context<Self>) -> AnyElement {
         let runs: Vec<Run> = self
             .snapshot
@@ -1184,19 +1424,25 @@ impl AutomationView {
             .cloned()
             .collect();
         let page = page_bounds(runs.len(), self.page);
-        // `RunList`'s header action; the server keeps active runs.
+        let view = self.run_view(cx);
+        // `RunList`'s header actions; the server keeps active runs.
         let mut list = v_flex().gap_3().child(
-            h_flex().child(
-                Button::new("automation-runs-cleanup")
-                    .label("Cleanup old runs (7+ days)")
-                    .disabled(self.locked() || self.cleanup_confirm)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.cleanup_confirm = true;
-                        this.deletion = None;
-                        this.run_target = None;
-                        cx.notify();
-                    })),
-            ),
+            h_flex()
+                .flex_wrap()
+                .gap_2()
+                .items_center()
+                .child(self.render_view_toggle(cx))
+                .child(
+                    Button::new("automation-runs-cleanup")
+                        .label("Cleanup old runs (7+ days)")
+                        .disabled(self.locked() || self.cleanup_confirm)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.cleanup_confirm = true;
+                            this.deletion = None;
+                            this.run_target = None;
+                            cx.notify();
+                        })),
+                ),
         );
         if runs.is_empty() {
             list = list.child(div().child(if self.snapshot.runs.is_empty() {
@@ -1205,123 +1451,37 @@ impl AutomationView {
                 "No runs match the filter."
             }));
         }
-        for (index, run) in runs.iter().skip(page * PAGE).take(PAGE).enumerate() {
-            let selected = self.selected_run.as_deref() == Some(run.id.as_str());
-            let trigger = match run.extra.get("triggeredBy").and_then(Value::as_str) {
-                Some("schedule") => "Scheduled",
-                Some("api") => "API",
-                _ if run.schedule_id.is_some() => "Scheduled",
-                _ => "Manual",
-            };
-            let duration = run
-                .extra
-                .get("duration")
-                .and_then(Value::as_f64)
-                .map(|ms| format!(" · {:.1} s", ms / 1000.0))
-                .unwrap_or_default();
-            let (toggle, cancel) = (run.id.clone(), run.id.clone());
-            let status_color = match run.status {
-                RunStatus::Failed => cx.theme().danger,
-                RunStatus::Completed => cx.theme().success,
-                RunStatus::Running | RunStatus::Pending => cx.theme().info,
-                RunStatus::Cancelled => cx.theme().warning,
-            };
-            let mut buttons = h_flex().flex_wrap().gap_2().child(
-                Button::new(("automation-run-details", index))
-                    .label(if selected {
-                        "Hide output"
-                    } else {
-                        "Show output"
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.selected_run = (this.selected_run.as_deref() != Some(toggle.as_str()))
-                            .then(|| toggle.clone());
-                        cx.notify();
-                    })),
-            );
-            if run.status.is_active() {
-                buttons = buttons.child(
-                    Button::new(("automation-run-cancel", index))
-                        .label("Cancel run")
-                        .disabled(self.locked())
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.operate(Command::Cancel(cancel.clone()), false, cx)
-                        })),
-                );
+        let shown = runs.iter().skip(page * PAGE).take(PAGE).enumerate();
+        match view {
+            ViewMode::Card => {
+                for (index, run) in shown {
+                    list = list.child(self.render_run_card(index, run, cx));
+                }
             }
-            let mut row = Self::row(index, "automation-run-row", cx)
-                .child(
-                    h_flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_color(status_color)
-                                .child(status_label(run.status)),
-                        )
-                        .child(div().child(self.job_name(&run.job_id).to_owned())),
-                )
-                .child(
-                    div()
-                        .whitespace_normal()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "{trigger} · started {}{duration}",
-                            local_time(run.started_at)
-                        )),
-                );
-            if let Some(error) = &run.error {
-                row = row.child(
-                    div()
-                        .whitespace_normal()
-                        .text_color(cx.theme().danger)
-                        .child(error.clone()),
-                );
+            ViewMode::List => {
+                let mut table = v_flex()
+                    .debug_selector(|| "automation-run-list".into())
+                    .gap_1();
+                if !runs.is_empty() {
+                    table = table.child(Self::render_run_list_header(cx));
+                }
+                for (index, run) in shown {
+                    table = table.child(self.render_run_list_row(index, run, cx));
+                }
+                list = list.child(table);
             }
-            row = row.child(buttons);
-            if selected {
-                let live = self
-                    .snapshot
-                    .output
-                    .as_ref()
-                    .filter(|(id, _)| id == &run.id)
-                    .map(|(_, text)| text.clone());
-                let text = live.or_else(|| run_output(run)).unwrap_or_default();
-                let (shown, cut) = bounded_output(&text);
-                row = row.child(
-                    v_flex()
-                        .gap_1()
-                        .p_2()
-                        .rounded_md()
-                        .bg(cx.theme().muted)
-                        .debug_selector(|| "automation-run-output".into())
-                        .children(cut.then(|| {
-                            div()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Earlier output is not shown.")
-                        }))
-                        .child(if shown.is_empty() {
-                            div().whitespace_normal().child(SharedString::from(
-                                if run.status.is_active() {
-                                    "Waiting for output…"
-                                } else {
-                                    "No output."
-                                },
-                            ))
-                        } else {
-                            // Shell output is data: show it in the theme's monospace face.
-                            div()
-                                .whitespace_normal()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .child(SharedString::from(shown))
-                        }),
-                );
-            }
-            list = list.child(row);
         }
         list.children(self.pager("automation-history", runs.len(), page, cx))
             .into_any_element()
     }
+}
+
+/// The run's duration in seconds, when the server recorded one.
+pub(super) fn run_duration(run: &Run) -> Option<String> {
+    run.extra
+        .get("duration")
+        .and_then(Value::as_f64)
+        .map(|ms| format!("{:.1} s", ms / 1000.0))
 }
 
 impl Render for AutomationView {

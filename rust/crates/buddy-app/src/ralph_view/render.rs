@@ -2,6 +2,7 @@
 use buddy_core::ralph::launch::Script;
 use buddy_core::ralph::progress::{Phase, Stats};
 use buddy_core::ralph::store::{Run, RunState};
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
@@ -435,6 +436,71 @@ impl RalphView {
             })
     }
 
+    /// Electron's launch accepts work-until, skip-review, no-PR and no-audio options its
+    /// form never shows; native puts them behind this disclosure so they can be set.
+    fn render_advanced(&self, form: &Form, cx: &mut Context<Self>) -> AnyElement {
+        let busy = self.busy;
+        let open = form.advanced;
+        let mut section = v_flex()
+            .gap_2()
+            .debug_selector(|| "ralph-advanced".into())
+            .child(
+                h_flex().child(
+                    Button::new("ralph-advanced-toggle")
+                        .ghost()
+                        .icon(if open {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        })
+                        .label("Advanced options")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(form) = &mut this.form {
+                                form.advanced = !form.advanced;
+                            }
+                            cx.notify();
+                        })),
+                ),
+            );
+        if !open {
+            return section.into_any_element();
+        }
+        section = section.child(div().w(zpx(200.)).child(labeled(
+            "Work until (optional)",
+            Input::new(&form.fields["work_until"]).disabled(busy),
+        )));
+        let mut options = v_flex().gap_2();
+        if form.offers_skip_review() {
+            options = options.child(Self::option(
+                "ralph-skip-review",
+                "Skip review: request no Copilot review (chosen review agents still run)",
+                form.skip_review,
+                busy,
+                cx,
+                |form, on| form.skip_review = on,
+            ));
+        }
+        if form.offers_no_pr() {
+            options = options.child(Self::option(
+                "ralph-no-pr",
+                "No pull request: work on the branch only, with no Ralph PR handoff",
+                form.no_pr,
+                busy,
+                cx,
+                |form, on| form.no_pr = on,
+            ));
+        }
+        options = options.child(Self::option(
+            "ralph-announce",
+            "Announce: run without -NoAudio. The loop needs the repository's assets/ralph-loop/<repo>.mp3, or edge-tts to write it there, and stops without either",
+            form.announce,
+            busy,
+            cx,
+            |form, on| form.announce = on,
+        ));
+        section.child(options).into_any_element()
+    }
+
     fn render_form(&self, form: &Form, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.busy;
         let script = form.script.clone();
@@ -609,7 +675,7 @@ impl RalphView {
                 |form, on| form.merge = on,
             ));
         }
-        body = body.child(options);
+        body = body.child(options).child(self.render_advanced(form, cx));
         if let Some(account) = &form.account {
             body = body.child(muted(
                 format!("Runs on GitHub as {account}, the account the GitHub view showed."),
@@ -762,7 +828,8 @@ impl RalphView {
             .child(muted(
                 format!("Started {} · {}", local_time(started), progress(run)),
                 cx,
-            ));
+            ))
+            .children(advanced_summary(launch).map(|text| muted(text, cx)));
         if let Some(status) = &run.status {
             let counters = stats(&status.progress.stats);
             if !counters.is_empty() {
@@ -875,6 +942,24 @@ pub(super) fn branch(run: &Run) -> String {
         "" => "created by the loop".into(),
         prefix => format!("{prefix}-… (suffix added by the loop)"),
     }
+}
+
+/// The Advanced options a run was launched with, or `None` when it used none.
+pub(super) fn advanced_summary(launch: &buddy_core::ralph::launch::Launch) -> Option<String> {
+    let mut parts = vec![];
+    if !launch.work_until.is_empty() {
+        parts.push(format!("work until {}", launch.work_until));
+    }
+    if launch.skip_review {
+        parts.push("skip review".into());
+    }
+    if launch.no_pr {
+        parts.push("no pull request".into());
+    }
+    if launch.announce {
+        parts.push("announce".into());
+    }
+    (!parts.is_empty()).then(|| format!("Options: {}", parts.join(" · ")))
 }
 
 fn or_default(value: &str) -> &str {

@@ -1227,3 +1227,182 @@ fn a_long_forecast_draws_a_page_of_runs_and_is_not_rebuilt_on_every_redraw(
             .is_some()
     );
 }
+
+/// Ten finished runs of the sample job, so the history has two pages.
+fn many_runs() -> Snapshot {
+    let mut snapshot = sample();
+    snapshot.output = None;
+    snapshot.runs = (0..10)
+        .map(|index| {
+            serde_json::from_value(json!({"_id":format!("run-{index}"),"jobId":"job-1",
+                "status":"completed","startedAt":1.0 + f64::from(index),"duration":1500.0}))
+            .unwrap()
+        })
+        .collect();
+    snapshot
+}
+
+fn open_with_settings(
+    cx: &mut gpui_kit::TestAppContext,
+    config: buddy_core::config::AppConfig,
+) -> (gpui_kit::AnyWindowHandle, Entity<AutomationView>) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&config, cx);
+        cx.set_global(Settings::new(config));
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| AutomationView::new(window, cx))
+        })
+        .unwrap()
+    })
+}
+
+#[gpui_kit::test]
+fn run_history_shows_cards_or_a_list_and_pages_both(cx: &mut gpui_kit::TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    std::fs::write(
+        &path,
+        r#"{"native":{"automation":{"future":1}},"ui":{"future":7}}"#,
+    )
+    .unwrap();
+    let (window, view) = open_with_settings(cx, buddy_core::config::AppConfig::default());
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = many_runs();
+            view.select_pane(Pane::History, cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    // Electron's default is the card layout.
+    assert!(visual.debug_bounds("automation-run-view").is_some());
+    assert!(visual.debug_bounds("automation-run-row-7").is_some());
+    assert!(visual.debug_bounds("automation-run-list").is_none());
+
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.choose_run_view(ViewMode::List, Some(&path), cx);
+            assert_eq!(view.run_view(cx), ViewMode::List);
+        })
+    });
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["native"]["automation"]["viewModes"][RUN_LIST], "list");
+    assert_eq!(saved["native"]["automation"]["future"], 1);
+    assert_eq!(saved["ui"]["future"], 7);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-run-list-header").is_some());
+    assert!(visual.debug_bounds("automation-run-list-row-7").is_some());
+    assert!(visual.debug_bounds("automation-run-list-row-8").is_none());
+    assert!(visual.debug_bounds("automation-run-row-0").is_none());
+
+    // The list pages like the cards: the second page holds the last two runs.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.page = 1;
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-run-list-row-1").is_some());
+    assert!(visual.debug_bounds("automation-run-list-row-2").is_none());
+
+    // The name opens the run's output beneath its row, as Electron's list row does.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.toggle_output("run-9", cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-run-output").is_some());
+
+    // Back to cards: the same page and output stay shown.
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.choose_run_view(ViewMode::Card, Some(&path), cx)
+        })
+    });
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["native"]["automation"]["viewModes"][RUN_LIST], "card");
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-run-row-1").is_some());
+    assert!(visual.debug_bounds("automation-run-list").is_none());
+    assert!(visual.debug_bounds("automation-run-output").is_some());
+}
+
+#[gpui_kit::test]
+fn a_later_layout_save_takes_back_only_its_own_error(cx: &mut gpui_kit::TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    std::fs::write(&path, "{}").unwrap();
+    // A config.json under a plain file cannot be locked or written.
+    let blocker = directory.path().join("blocker");
+    std::fs::write(&blocker, "").unwrap();
+    let unwritable = blocker.join("config.json");
+    let (window, view) = open_with_settings(cx, buddy_core::config::AppConfig::default());
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.choose_run_view(ViewMode::List, Some(&unwritable), cx);
+            assert_eq!(view.error.as_deref(), Some(LAYOUT_NOT_SAVED));
+            let other = if view.run_view(cx) == ViewMode::List {
+                ViewMode::Card
+            } else {
+                ViewMode::List
+            };
+            view.choose_run_view(other, Some(&path), cx);
+            assert_eq!(view.run_view(cx), other);
+            assert_eq!(view.error, None);
+
+            // Another error stays: the layout save only takes back its own.
+            view.error = Some("The runs could not be loaded.".into());
+            let back = if other == ViewMode::List {
+                ViewMode::Card
+            } else {
+                ViewMode::List
+            };
+            view.choose_run_view(back, Some(&path), cx);
+            assert_eq!(view.error.as_deref(), Some("The runs could not be loaded."));
+        })
+    });
+}
+
+#[gpui_kit::test]
+fn a_saved_list_choice_is_shown_from_the_start(cx: &mut gpui_kit::TestAppContext) {
+    let mut config = buddy_core::config::AppConfig::default();
+    buddy_core::view_modes::set_local(&mut config, "automation", RUN_LIST, ViewMode::List);
+    let (window, view) = open_with_settings(cx, config);
+    let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+    visual.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.snapshot = sample();
+            view.select_pane(Pane::History, cx);
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("automation-run-list-row-0").is_some());
+}
+
+#[gpui_kit::test]
+fn the_synced_choice_seeds_only_a_device_without_one(cx: &mut gpui_kit::TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    std::fs::write(&path, "{}").unwrap();
+    let (_, view) = open_with_settings(cx, buddy_core::config::AppConfig::default());
+    cx.update(|cx| {
+        view.update(cx, |view, cx| {
+            // No local choice: Convex's is adopted and nothing is written back.
+            assert_eq!(view.adopt_run_view(ViewMode::List, Some(&path), cx), None);
+            assert_eq!(view.run_view(cx), ViewMode::List);
+            // A local choice wins; one that differs is returned to be written back.
+            assert_eq!(
+                view.adopt_run_view(ViewMode::Card, Some(&path), cx),
+                Some(ViewMode::List)
+            );
+            assert_eq!(view.run_view(cx), ViewMode::List);
+            assert_eq!(view.adopt_run_view(ViewMode::List, Some(&path), cx), None);
+        })
+    });
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["native"]["automation"]["viewModes"][RUN_LIST], "list");
+}

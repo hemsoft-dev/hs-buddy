@@ -94,6 +94,20 @@ pub struct Launch {
     /// `gh auth token` as `GH_TOKEN`. `None` leaves gh's active account in charge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// `-WorkUntil HH:mm`: the script stops after this local time. Empty sets no deadline.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub work_until: String,
+    /// `-SkipReview`: no Copilot review requests (explicit review agents still run).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skip_review: bool,
+    /// `-NoPR`: ralph.ps1 opens no pull request and hands nothing to ralph-pr.ps1.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_pr: bool,
+    /// Leaves out `-NoAudio`, as Electron's launch always did. The bundled scripts ship no
+    /// clips, so nothing plays; ralph.ps1 and ralph-pr.ps1 then need the repository's
+    /// `assets/ralph-loop/<repo>.mp3`, write it there with `edge-tts`, or exit. Off unless chosen.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub announce: bool,
 }
 
 impl Default for Launch {
@@ -114,8 +128,25 @@ impl Default for Launch {
             dry_run: false,
             merge: false,
             account: None,
+            work_until: String::new(),
+            skip_review: false,
+            no_pr: false,
+            announce: false,
         }
     }
+}
+
+/// `HH:mm` on a 24-hour clock, as Electron's launch validation and the scripts' `-WorkUntil`
+/// parsing (`[DateTime]::ParseExact($WorkUntil, 'HH:mm', $null)`) accept it.
+fn valid_work_until(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 5
+        && bytes[2] == b':'
+        && [0, 1, 3, 4]
+            .iter()
+            .all(|&index| bytes[index].is_ascii_digit())
+        && value[..2].parse::<u8>().is_ok_and(|hour| hour < 24)
+        && value[3..].parse::<u8>().is_ok_and(|minute| minute < 60)
 }
 
 /// The external programs a loop needs, resolved before anything starts.
@@ -723,6 +754,15 @@ impl Launch {
                 "Repeat cycles must be a whole number from 1 through {MAX_CYCLES}."
             ));
         }
+        if !self.work_until.is_empty() && !valid_work_until(&self.work_until) {
+            return Err("Work until must be a 24-hour time such as 08:00 (HH:mm).".into());
+        }
+        if self.no_pr && self.merge {
+            return Err(
+                "Without a pull request there is nothing to merge. Turn off merging, or let the loop open its pull request."
+                    .into(),
+            );
+        }
         if self.cycles > 1 && !self.merge {
             return Err("Repeat cycles build on each merged pull request. Turn on merging, or run one cycle.".into());
         }
@@ -743,7 +783,22 @@ impl Launch {
         if self.prompt.len() > MAX_PROMPT || self.prompt.contains('\0') {
             return Err("The prompt must be under 64 KB.".into());
         }
-        Ok((script, declared_parameters(&text)))
+        let declared = declared_parameters(&text);
+        // PowerShell refuses a parameter the script does not declare, so Electron's launch
+        // failed there; native says which option the chosen script lacks before starting.
+        for (chosen, parameter, option) in [
+            (!self.work_until.is_empty(), "WorkUntil", "Work until"),
+            (self.skip_review, "SkipReview", "Skip review"),
+            (self.no_pr, "NoPR", "No pull request"),
+        ] {
+            if chosen && !declared.contains(parameter) {
+                return Err(format!(
+                    "{} has no -{parameter} parameter. Turn off {option}.",
+                    self.script.relative_path()
+                ));
+            }
+        }
+        Ok((script, declared))
     }
 
     /// The arguments for `script`, limited to the parameters it declares. The prompt
@@ -793,6 +848,9 @@ impl Launch {
         if self.script.uses_iterations() {
             add("Max", Some(self.iterations.to_string()));
         }
+        if !self.work_until.is_empty() {
+            add("WorkUntil", Some(self.work_until.clone()));
+        }
         if !self.branch.is_empty() {
             add("Branch", Some(self.branch.clone()));
         }
@@ -818,9 +876,15 @@ impl Launch {
                 add("DryRun", None);
             }
         }
-        // The scripts' audio clips are not shipped, and `edge-tts` would write an mp3 into
-        // the repository, so loops always run silent.
-        add("NoAudio", None);
+        // The scripts' audio clips are not shipped, and without -NoAudio ralph.ps1 and
+        // ralph-pr.ps1 need the repository's mp3 or write one with `edge-tts`, so a loop
+        // runs silent unless Announce was chosen (Electron never passed -NoAudio).
+        if !self.announce {
+            add("NoAudio", None);
+        }
+        if self.skip_review {
+            add("SkipReview", None);
+        }
         // ralph-pr.ps1 merges with -AutoApprove; ralph.ps1 passes -MergeWhenClean on as that.
         if self.merge {
             match self.script {
@@ -832,6 +896,10 @@ impl Launch {
                 Script::Ralph => add("MergeWhenClean", None),
                 _ => {}
             }
+        }
+        // Electron appends -NoPR last; validation keeps it away from merging and cycles.
+        if self.no_pr {
+            add("NoPR", None);
         }
         arguments
     }
@@ -1067,6 +1135,167 @@ mod tests {
                 "-NoAudio"
             ]
         );
+    }
+
+    #[test]
+    fn advanced_options_pass_electrons_flags_only_where_the_script_declares_them() {
+        let repository = repository();
+        let scripts = scripts();
+        let catalog = scripts.catalog().unwrap();
+        let mut launch = launch(repository.path());
+        launch.work_until = "08:00".into();
+        launch.skip_review = true;
+        launch.no_pr = true;
+        let (_, declared) = launch.validate(&catalog, &scripts).unwrap();
+        // Electron's order: -Max, -WorkUntil, then -NoAudio, -SkipReview and last -NoPR.
+        assert_eq!(
+            launch.arguments(&declared, None),
+            [
+                "-Autopilot",
+                "-Max",
+                "3",
+                "-WorkUntil",
+                "08:00",
+                "-NoAudio",
+                "-SkipReview",
+                "-NoPR",
+            ]
+        );
+        // Each flag is off unless chosen.
+        let plain = self::launch(repository.path());
+        let arguments = plain.arguments(&declared, None);
+        for flag in ["-WorkUntil", "-SkipReview", "-NoPR"] {
+            assert!(!arguments.contains(&flag.into()), "{flag}");
+        }
+        // ralph-pr.ps1 takes -WorkUntil and -SkipReview but has no -NoPR.
+        launch.script = Script::Pr;
+        launch.pr_number = Some(7);
+        launch.no_pr = false;
+        let (_, declared) = launch.validate(&catalog, &scripts).unwrap();
+        assert_eq!(
+            launch.arguments(&declared, None),
+            [
+                "-Autopilot",
+                "-WorkUntil",
+                "08:00",
+                "-PRNumber",
+                "7",
+                "-NoAudio",
+                "-SkipReview",
+            ]
+        );
+        // A script that does not declare a parameter never receives it.
+        let declared: BTreeSet<String> = ["Autopilot".to_string(), "Max".to_string()].into();
+        launch.script = Script::Ralph;
+        launch.no_pr = true;
+        assert_eq!(
+            launch.arguments(&declared, None),
+            ["-Autopilot", "-Max", "3"]
+        );
+    }
+
+    #[test]
+    fn advanced_options_are_validated_against_the_script_and_each_other() {
+        let repository = repository();
+        let base = launch(repository.path());
+        let check = |change: &dyn Fn(&mut Launch)| {
+            let mut launch = base.clone();
+            change(&mut launch);
+            let scripts = scripts();
+            launch.validate(&scripts.catalog().unwrap(), &scripts)
+        };
+        for time in [
+            "8:00",
+            "24:00",
+            "12:60",
+            "ab:cd",
+            "08-00",
+            "08:00 ",
+            "０８:00",
+        ] {
+            assert_eq!(
+                check(&|l| l.work_until = time.into()).unwrap_err(),
+                "Work until must be a 24-hour time such as 08:00 (HH:mm).",
+                "{time}"
+            );
+        }
+        for time in ["00:00", "08:30", "23:59"] {
+            assert!(check(&|l| l.work_until = time.into()).is_ok(), "{time}");
+        }
+        assert!(
+            check(&|l| {
+                l.no_pr = true;
+                l.merge = true;
+            })
+            .unwrap_err()
+            .starts_with("Without a pull request there is nothing to merge.")
+        );
+        assert_eq!(
+            check(&|l| {
+                l.script = Script::Issues;
+                l.skip_review = true;
+            })
+            .unwrap_err(),
+            "ralph-issues.ps1 has no -SkipReview parameter. Turn off Skip review."
+        );
+        assert_eq!(
+            check(&|l| {
+                l.script = Script::Pr;
+                l.pr_number = Some(3);
+                l.no_pr = true;
+            })
+            .unwrap_err(),
+            "ralph-pr.ps1 has no -NoPR parameter. Turn off No pull request."
+        );
+        assert!(
+            check(&|l| {
+                l.script = Script::Issues;
+                l.work_until = "07:15".into();
+                l.announce = true;
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn announce_alone_drops_no_audio_from_every_script() {
+        let repository = repository();
+        let scripts = scripts();
+        let catalog = scripts.catalog().unwrap();
+        for script in [Script::Ralph, Script::Pr, Script::Issues] {
+            let mut launch = launch(repository.path());
+            launch.script = script.clone();
+            launch.pr_number = (script == Script::Pr).then_some(5);
+            let (_, declared) = launch.validate(&catalog, &scripts).unwrap();
+            assert!(declared.contains("NoAudio"), "{script:?}");
+            assert!(
+                launch
+                    .arguments(&declared, None)
+                    .contains(&"-NoAudio".into())
+            );
+            launch.announce = true;
+            assert!(
+                !launch
+                    .arguments(&declared, None)
+                    .contains(&"-NoAudio".into())
+            );
+        }
+    }
+
+    #[test]
+    fn runs_recorded_before_the_advanced_options_still_load() {
+        let mut stored = serde_json::to_value(Launch::default()).unwrap();
+        for key in ["workUntil", "skipReview", "noPr", "announce"] {
+            assert!(
+                stored.get(key).is_none(),
+                "{key} is only written when chosen"
+            );
+        }
+        stored["noPr"] = serde_json::json!(true);
+        stored["workUntil"] = serde_json::json!("06:45");
+        let launch: Launch = serde_json::from_value(stored).unwrap();
+        assert!(launch.no_pr && !launch.skip_review && !launch.announce);
+        assert_eq!(launch.work_until, "06:45");
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::{runtime::Runtime, settings::Settings, zoom::zpx};
 use buddy_core::automation::{
     backend::ChangeKind, journal::Context as WorkerContext, models::RunStatus,
 };
+use buddy_core::view_modes::{self, ViewMode};
 use forms::{Form, FormKind};
 use gpui_kit::base::{Disableable, Selectable};
 use gpui_kit::component::{
@@ -25,6 +26,14 @@ use gpui_kit::{
 };
 use serde_json::Value;
 use service::{Command, Completion, Handle, Snapshot};
+
+/// Where the run history's card / list choice is kept: config.json
+/// `native.automation.viewModes`, under Electron's `useViewMode` page key.
+const VIEW_SECTION: &str = "automation";
+pub(super) const RUN_LIST: &str = "run-list";
+
+/// Shown when the run history layout cannot be written to config.json.
+const LAYOUT_NOT_SAVED: &str = "The run history layout could not be saved on this device.";
 
 impl gpui_kit::Global for Handle {}
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,6 +104,108 @@ impl AutomationView {
         self.form = None;
         self.selected_run = None;
         self.select_pane(pane, cx);
+    }
+
+    /// The run history's layout: this device's choice, else Electron's default (cards).
+    pub(super) fn run_view(&self, cx: &gpui_kit::App) -> ViewMode {
+        if !cx.has_global::<Settings>() {
+            return ViewMode::default();
+        }
+        view_modes::local(&Settings::global(cx).config, VIEW_SECTION, RUN_LIST).unwrap_or_default()
+    }
+
+    /// Saves the layout on this device, then to Convex `settings.viewModes`, as
+    /// Electron's toggle does. `path` replaces the profile's config.json in tests.
+    pub(super) fn choose_run_view(
+        &mut self,
+        view: ViewMode,
+        path: Option<&std::path::Path>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.run_view(cx) == view {
+            return;
+        }
+        let edit = |config: &mut buddy_core::config::AppConfig| {
+            view_modes::set_local(config, VIEW_SECTION, RUN_LIST, view)
+        };
+        let saved = match path {
+            Some(path) => Settings::update_at(cx, path, edit),
+            None => Settings::update(cx, edit),
+        };
+        if !saved {
+            self.error = Some(LAYOUT_NOT_SAVED.into());
+            cx.notify();
+            return;
+        }
+        // A later save that works takes back this save's own error, and only that one.
+        if self.error.as_deref() == Some(LAYOUT_NOT_SAVED) {
+            self.error = None;
+        }
+        if cx.has_global::<Runtime>() {
+            // Fire-and-forget like Electron's `updateViewMode`: the local copy already wins.
+            let url = buddy_core::convex_data::convex_url();
+            let rx = Runtime::global(cx)
+                .spawn(async move { view_modes::save(&url, RUN_LIST, view).await });
+            cx.spawn(async move |_, _| {
+                if let Ok(Err(error)) = rx.await {
+                    log::info!("run history layout not synced to Convex: {error}");
+                }
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    /// Reconciles with Convex once per start, as Electron's `useViewMode` does: a device
+    /// with no choice yet adopts the synced one, and a local choice that differs from it
+    /// is written back, because the local copy wins.
+    fn reconcile_run_view(&mut self, cx: &mut Context<Self>) {
+        if !cx.has_global::<Settings>() {
+            return;
+        }
+        let url = buddy_core::convex_data::convex_url();
+        let rx = Runtime::global(cx).spawn(async move { view_modes::load(&url).await });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(modes)) = rx.await else {
+                return;
+            };
+            let Some(synced) = modes.get(RUN_LIST).copied() else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                if let Some(stale) = this.adopt_run_view(synced, None, cx) {
+                    let url = buddy_core::convex_data::convex_url();
+                    Runtime::global(cx).spawn_detached(async move {
+                        let _ = view_modes::save(&url, RUN_LIST, stale).await;
+                    });
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Takes the synced choice while this device has none of its own; returns the local
+    /// choice when it differs from `synced` and should be written back.
+    pub(super) fn adopt_run_view(
+        &mut self,
+        synced: ViewMode,
+        path: Option<&std::path::Path>,
+        cx: &mut Context<Self>,
+    ) -> Option<ViewMode> {
+        if let Some(local) = view_modes::local(&Settings::global(cx).config, VIEW_SECTION, RUN_LIST)
+        {
+            return (local != synced).then_some(local);
+        }
+        let edit = |config: &mut buddy_core::config::AppConfig| {
+            view_modes::set_local(config, VIEW_SECTION, RUN_LIST, synced)
+        };
+        if match path {
+            Some(path) => Settings::update_at(cx, path, edit),
+            None => Settings::update(cx, edit),
+        } {
+            cx.notify();
+        }
+        None
     }
 
     fn select_pane(&mut self, pane: Pane, cx: &mut Context<Self>) {
@@ -191,6 +302,7 @@ impl AutomationView {
         if self.handle.is_some() || !cx.has_global::<Runtime>() {
             return;
         }
+        self.reconcile_run_view(cx);
         if cx.has_global::<Handle>() {
             self.handle = Some(cx.global::<Handle>().clone());
         } else {
