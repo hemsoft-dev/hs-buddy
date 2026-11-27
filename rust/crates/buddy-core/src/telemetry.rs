@@ -56,6 +56,18 @@ impl Config {
     }
 }
 
+/// Electron turns on OpenTelemetry's DEBUG diagnostic logger when telemetry
+/// is configured and `OTEL_LOG_LEVEL` is exactly `debug` (`telemetry.ts`).
+/// The app's logger owns what those diagnostics may contain.
+pub fn diagnostics_requested() -> bool {
+    diagnostics_requested_with(|k| std::env::var(k).ok())
+}
+
+/// [`diagnostics_requested`] over a given environment.
+pub fn diagnostics_requested_with(env: impl Fn(&str) -> Option<String>) -> bool {
+    env("OTEL_LOG_LEVEL").as_deref() == Some("debug") && Config::read(&env, "").is_some()
+}
+
 struct Enabled {
     stopped: AtomicBool,
     traces: SdkTracerProvider,

@@ -7,9 +7,11 @@ publish.workspace = true
 description = "Buddy domain models, configuration, and data providers (no UI)"
 
 [dependencies]
-opentelemetry = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs", "http-proto", "reqwest-blocking-client"] }
+# `internal-logs` emits the SDK's own diagnostics as `tracing` events; the app's
+# logger forwards only their names, and only under OTEL_LOG_LEVEL=debug.
+opentelemetry = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs", "http-proto", "reqwest-blocking-client", "internal-logs"] }
 
 # OTLP 0.33 requires reqwest 0.13; other clients remain on workspace reqwest.
 reqwest-otel = { package = "reqwest", version = "0.13", default-features = false, features = ["blocking", "rustls-no-provider"] }

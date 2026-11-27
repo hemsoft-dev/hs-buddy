@@ -24,8 +24,17 @@ Resources contain only `service.name` and `service.version`, with no automatic
 host/process/environment detectors. Service name accepts `buddy` and
 `buddy-native`, falling back to `buddy` for other values; this intentional
 allowlist prevents arbitrary environment strings becoming exported attributes.
-The version comes from the app's embedded package version. Native deliberately
-does not enable verbose exporter diagnostics through `OTEL_LOG_LEVEL`.
+The version comes from the app's embedded package version.
+
+With telemetry configured and `OTEL_LOG_LEVEL` exactly `debug`, as Electron
+checks it, native turns on the SDK's own diagnostics: the
+[app logger](../rust/crates/buddy-app/src/logging.rs) logs each OpenTelemetry
+diagnostic event at its level under the `buddy::otel_diagnostics` target,
+which is raised to DEBUG unless `RUST_LOG` names it. Only the crate and static
+event name are logged (`OpenTelemetry opentelemetry-otlp:
+HttpClient.ExportStarted`). The events' fields, which can hold export URLs,
+error text and response bodies, are never read, and headers are never logged.
+Without `debug` the SDK's diagnostics are dropped.
 
 Native records startup/window opening and GitHub CLI service operations.
 `buddy.ipc.calls`, `buddy.ipc.errors`, and `buddy.ipc.duration` use static
