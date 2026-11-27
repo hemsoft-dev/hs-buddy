@@ -17,8 +17,8 @@ The remaining work is tracked per area in #988 to #995.
 ## Result
 
 Of 622 capabilities found in the Electron app, 362 are ported,
-186 are partly ported, 43 are missing natively, 5 are a
-placeholder natively and 26 do not apply to a native app.
+187 are partly ported, 41 are missing natively, 5 are a
+placeholder natively and 27 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -26,11 +26,11 @@ placeholder natively and 26 do not apply to a native app.
 | [GitHub repositories and pull requests](parity/github.md) | 82 | 12 | 0 | 43 | 26 | 1 |
 | [Terminal workspaces, prompt tools and folder explorer](parity/terminal.md) | 47 | 0 | 0 | 9 | 36 | 2 |
 | [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 10 | 0 | 28 | 33 | 3 |
-| [Todoist and Tempo](parity/planning.md) | 71 | 3 | 0 | 18 | 49 | 1 |
+| [Todoist and Tempo](parity/planning.md) | 71 | 1 | 0 | 19 | 49 | 2 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 3 | 0 | 24 | 59 | 3 |
 | [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 2 | 4 | 21 | 30 | 2 |
 | [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 10 | 0 | 27 | 57 | 7 |
-| **All areas** | **622** | **43** | **5** | **186** | **362** | **26** |
+| **All areas** | **622** | **41** | **5** | **187** | **362** | **27** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
@@ -82,7 +82,7 @@ for gaps.
 | Create a task with description, priority and project (the IPC and hook accept them; the Electron UI only sends name and due date) | [Todoist and Tempo](parity/planning.md) | Label only | [todoistHandlers.ts:62](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/todoistHandlers.ts#L62)<br>[useTodoist.ts:143](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/hooks/useTodoist.ts#L143)<br>[TaskPlannerView.tsx:270](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/planner/TaskPlannerView.tsx#L270) | Ported |
 | IPC todoist:update-task (edit name, due date, priority, description); no Electron component calls it | [Todoist and Tempo](parity/planning.md) | Label only | [todoistHandlers.ts:84](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/todoistHandlers.ts#L84)<br>[preload.ts:192](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/preload.ts#L192) | Ported |
 | IPC todoist:delete-task; the useTaskActions 'remove' wrapper exists but no component uses it | [Todoist and Tempo](parity/planning.md) | Label only | [todoistHandlers.ts:100](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/todoistHandlers.ts#L100)<br>[useTodoist.ts:158](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/hooks/useTodoist.ts#L158) | Ported |
-| IPC todoist:reopen-task; the useTaskActions 'reopen' wrapper exists but no component uses it | [Todoist and Tempo](parity/planning.md) | Label only | [todoistHandlers.ts:54](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/todoistHandlers.ts#L54)<br>[useTodoist.ts:134](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/hooks/useTodoist.ts#L134) | Missing natively |
+| IPC todoist:reopen-task; the useTaskActions 'reopen' wrapper exists but no component uses it | [Todoist and Tempo](parity/planning.md) | Label only | [todoistHandlers.ts:54](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/todoistHandlers.ts#L54)<br>[useTodoist.ts:134](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/hooks/useTodoist.ts#L134) | Not applicable to the native app |
 | IPC todoist:get-today; no Electron renderer code calls it | [Todoist and Tempo](parity/planning.md) | Label only | [todoistHandlers.ts:28](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/todoistHandlers.ts#L28)<br>[preload.ts:182](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/preload.ts#L182) | Not applicable to the native app |
 | IPC tempo:get-range (arbitrary date range read); no Electron renderer code calls it | [Todoist and Tempo](parity/planning.md) | Label only | [tempoHandlers.ts:29](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/ipc/tempoHandlers.ts#L29)<br>[preload.ts:145](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/electron/preload.ts#L145) | Ported |
 | Create schedule (Electron: ScheduleEditor has a create mode and a 'Create Schedule' title, but its only mount passes an existing scheduleId, so there is no entry point) | [Automation, Ralph and Crew](parity/automation.md) | Label only | [ScheduleEditor.tsx:236](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/automation/ScheduleEditor.tsx#L236)<br>[ScheduleEditor.tsx:218](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/automation/ScheduleEditor.tsx#L218)<br>[ScheduleDetailPanel.tsx:248](https://github.com/hemsoft-dev/hs-buddy/blob/55e4ee0653124c0aa52d3d354d2eba246356bb41/src/components/automation/ScheduleDetailPanel.tsx#L248) | Ported |
