@@ -306,3 +306,48 @@ fn an_unsaved_turn_cannot_carry_a_category_or_re_run_a_saved_result() {
     }
     assert!(!root.exists());
 }
+
+#[tokio::test]
+async fn a_storage_retry_merged_by_the_watch_channel_still_reads_as_changed() {
+    // PR #1028 round 3: the retry sets `busy` and clears it again. A watcher
+    // that reads only after both updates sees one change, with a record and
+    // not busy before and after, and must still know the retry finished.
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("must-remain-absent");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut input = options(root.clone());
+    input.saved = true;
+    input.backend = Some(CopilotBackend::new(&format!("http://127.0.0.1:{port}")).unwrap());
+    let (handle, future) = start(input).unwrap();
+    drop(future);
+    {
+        let mut state = lock(&handle.shared.state);
+        let key = state.execution.key();
+        assert!(state.execution.record_created(key, "saved-answer".into()));
+        state.captured = Some(Arc::new(CapturedOutcome {
+            id: "saved-answer".into(),
+            output: "Captured answer".into(),
+            failure: None,
+        }));
+        state.save = SaveState::Unconfirmed;
+        state.settle();
+    }
+    let mut updates = handle.subscribe();
+    updates.borrow_and_update();
+    let seen = handle.activity();
+    assert!(seen.record && !seen.busy);
+    let retry = handle.retry_save().unwrap();
+    tokio::time::timeout(Duration::from_secs(20), retry)
+        .await
+        .unwrap();
+    // Several sends, one pending change for the watcher.
+    assert!(updates.has_changed().unwrap());
+    updates.borrow_and_update();
+    assert!(!updates.has_changed().unwrap());
+    let now = handle.activity();
+    assert_eq!((now.record, now.busy), (seen.record, seen.busy));
+    assert_ne!(now, seen);
+    assert!(!root.exists());
+}

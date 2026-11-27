@@ -5,7 +5,7 @@ use super::recent::{self, Recent};
 use gpui_kit::EventEmitter;
 use gpui_kit::StatefulInteractiveElement as _;
 
-use buddy_core::copilot_assistant::{self, Progress, RunHandle, RunOptions, SaveState};
+use buddy_core::copilot_assistant::{self, Activity, Progress, RunHandle, RunOptions, SaveState};
 use buddy_core::copilot_backend::{CopilotBackend, RecordOptions};
 use buddy_core::copilot_results::Category;
 use buddy_core::copilot_runs::{Context as RunContext, Phase};
@@ -481,7 +481,7 @@ impl ChatView {
         cx.spawn(async move |this, cx| {
             // A saved run refreshes Recent and the badge when its record is
             // created and again when it finishes.
-            let mut seen = (false, true);
+            let mut seen = Activity::STARTED;
             while updates.changed().await.is_ok() {
                 if this
                     .update(cx, |this, cx| {
@@ -490,7 +490,7 @@ impl ChatView {
                                 this.conversation_scroll.scroll_to_bottom();
                             }
                             let now = saved
-                                .then(|| this.run.as_ref().map(RunHandle::record_and_busy))
+                                .then(|| this.run.as_ref().map(RunHandle::activity))
                                 .flatten();
                             if let Some(now) = now.filter(|now| *now != seen) {
                                 seen = now;

@@ -67,7 +67,15 @@ struct State {
     save: SaveState,
     captured: Option<Arc<CapturedOutcome>>,
     busy: bool,
+    /// Bumped each time the run or a storage retry stops being busy.
+    settled: u64,
     cleanup_warning: bool,
+}
+impl State {
+    fn settle(&mut self) {
+        self.busy = false;
+        self.settled += 1;
+    }
 }
 struct Shared {
     fixture: Option<Arc<crate::copilot_fixture::Fixture>>,
@@ -140,6 +148,26 @@ impl Shared {
     }
 }
 
+/// What a Recent watcher acts on. The watch channel keeps only the latest
+/// change, so a storage retry that sets `busy` and clears it before the
+/// watcher reads can look unchanged by `record` and `busy` alone; `settled`
+/// counts every time the run or a retry finishes, so that one still differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Activity {
+    pub record: bool,
+    pub busy: bool,
+    pub settled: u64,
+}
+
+impl Activity {
+    /// A run that has just started: no record yet, busy, never finished.
+    pub const STARTED: Self = Self {
+        record: false,
+        busy: true,
+        settled: 0,
+    };
+}
+
 pub struct RunHandle {
     shared: Arc<Shared>,
     cancelled: watch::Sender<bool>,
@@ -160,10 +188,14 @@ impl RunHandle {
         }
     }
     /// Whether the run has a saved record and is still busy, without copying
-    /// its output.
-    pub fn record_and_busy(&self) -> (bool, bool) {
+    /// its output. A watcher compares it with the last one it acted on.
+    pub fn activity(&self) -> Activity {
         let state = lock(&self.shared.state);
-        (state.execution.result_id().is_some(), state.busy)
+        Activity {
+            record: state.execution.result_id().is_some(),
+            busy: state.busy,
+            settled: state.settled,
+        }
     }
     pub fn subscribe(&self) -> watch::Receiver<()> {
         self.shared.updates.subscribe()
@@ -194,7 +226,7 @@ impl RunHandle {
             } else {
                 reconcile(&shared).await;
             }
-            lock(&shared.state).busy = false;
+            lock(&shared.state).settle();
             shared.changed();
         }))
     }
@@ -262,6 +294,7 @@ pub fn start_with(
             },
             captured: None,
             busy: true,
+            settled: 0,
             cleanup_warning: false,
         }),
         runtime: Mutex::new(None),
@@ -319,7 +352,7 @@ async fn drive(
                 let mut state = lock(&shared.state);
                 state.execution.record_rejected(key);
                 state.save = SaveState::NotRequested;
-                state.busy = false;
+                state.settle();
                 state.progress = Progress::Finished;
                 drop(state);
                 shared.changed();
@@ -332,7 +365,7 @@ async fn drive(
                     state.execution.record_created(key, receipt.id);
                 }
                 state.save = SaveState::Unconfirmed;
-                state.busy = false;
+                state.settle();
                 state.progress = Progress::Finished;
                 drop(state);
                 shared.changed();
@@ -381,7 +414,7 @@ async fn drive(
     }
     {
         let mut state = lock(&shared.state);
-        state.busy = false;
+        state.settle();
         state.progress = Progress::Finished;
     }
     shared.changed();

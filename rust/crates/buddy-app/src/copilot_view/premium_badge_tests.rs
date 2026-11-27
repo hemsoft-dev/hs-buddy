@@ -1,5 +1,5 @@
 //! Electron's `PremiumUsageBadge` beside the prompt box's account picker.
-use super::premium_badge::{Quota, State, TTL};
+use super::premium_badge::{Quota, State, TTL, colors, js_fixed};
 use super::*;
 use buddy_core::config::GitHubAccount;
 use buddy_core::copilot_usage::{PremiumQuota, parse_personal_quota, parse_premium_quota};
@@ -367,5 +367,86 @@ fn a_late_answer_for_the_previous_account_is_dropped(cx: &mut gpui_kit::TestAppC
             view.sync_badge(true, cx);
             assert_eq!(view.badge.state, State::Hidden);
         })
+    });
+}
+
+#[test]
+fn the_tooltip_rounds_the_binary_value_as_tofixed_does() {
+    // PR #1028 round 3: 100 - 10.45 is 89.5499… in binary. Scaling first
+    // reached an exact 895.5 and showed 89.6%; Electron's toFixed shows 89.5%.
+    let used = |percent_remaining: f64| {
+        Quota::from_premium(&PremiumQuota {
+            entitlement: 100.0,
+            remaining: percent_remaining,
+            percent_remaining,
+        })
+    };
+    assert_eq!(
+        used(10.45).tooltip(),
+        "Premium: 10.45 of 100 remaining (89.5% used)"
+    );
+    // Each expected value is what Node 22's toFixed returns for the same f64.
+    let cases: [(f64, usize, &str); 18] = [
+        (100.0 - 10.45, 1, "89.5"),
+        (100.0 - 10.4, 1, "89.6"),
+        (100.0 - 87.5, 1, "12.5"),
+        (100.0 - 87.5, 0, "13"),
+        (100.0 - 58.0, 1, "42.0"),
+        (100.0 - 0.05, 1, "100.0"),
+        (100.0 - 99.95, 1, "0.0"),
+        (100.0 - 33.35, 1, "66.7"),
+        (100.0 - 66.65, 1, "33.3"),
+        (100.0 + 10.0, 1, "110.0"),
+        (100.0 - 100.04, 1, "-0.0"),
+        (100.0 - 100.0, 1, "0.0"),
+        (0.5, 0, "1"),
+        (2.5, 0, "3"),
+        (-2.5, 0, "-3"),
+        (0.25, 1, "0.3"),
+        (99.96, 0, "100"),
+        (9.995, 2, "9.99"),
+    ];
+    for (value, digits, expected) in cases {
+        assert_eq!(
+            js_fixed(value, digits),
+            expected,
+            "{value}.toFixed({digits})"
+        );
+    }
+}
+
+#[gpui_kit::test]
+fn the_figures_keep_text_contrast_and_the_bar_keeps_the_quota_colour(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // PR #1028 round 3: the quota colours measured 1.41-3.07:1 as 11 px text
+    // on Buddy Light's `secondary`. The figures use the badge's foreground;
+    // the icon and bar keep the colour, as non-text needing 3:1.
+    use crate::theme::wcag::{contrast, over};
+    use buddy_core::application_settings::LocalEdit;
+    use buddy_core::config::{AppConfig, ThemeName};
+    use gpui_kit::component::theme::Theme;
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        for mode in [ThemeName::Light, ThemeName::Dark] {
+            // Selecting a theme applies its incumbent color preset.
+            let mut config = AppConfig::default();
+            LocalEdit::Theme(mode).apply(&mut config).unwrap();
+            crate::theme::install(&config, cx);
+            let theme = Theme::global(cx);
+            for percent_remaining in [60.0, 40.0, 20.0, 5.0] {
+                let quota = quota(percent_remaining, 100.0, percent_remaining);
+                let colors = colors(&quota, theme);
+                assert_eq!(colors.tier, gpui_kit::rgb(quota.color()).into());
+                let badge = over(colors.background, theme.background);
+                let ratio = contrast(colors.figures, badge);
+                assert!(
+                    ratio >= 4.5,
+                    "{mode:?} figure contrast at {:#x} is {ratio:.2}:1",
+                    quota.color()
+                );
+                assert_ne!(colors.figures, colors.tier);
+            }
+        }
     });
 }
