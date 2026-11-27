@@ -227,9 +227,18 @@ fn the_prompt_header_shows_the_active_count_only_while_prompts_are_active(
     )));
     assert_eq!(recent.badge().as_deref(), Some("3 active"));
     assert!(!recent.unavailable);
-    // A failed count read keeps the last count and says the list is stale.
+    // A failed count read leaves the fresh rows fresh; only the count is
+    // unknown, so it is not shown.
     recent.apply(Some(recent::fetched(Vec::new(), None)));
-    assert_eq!(recent.badge().as_deref(), Some("3 active"));
+    assert_eq!(recent.badge(), None);
+    assert!(!recent.unavailable);
+    // A failed rows read says the list is stale, and a count read with it
+    // still shows.
+    recent.apply(Some(recent::failed_rows(Some(ActiveCounts {
+        pending: 2,
+        running: 0,
+    }))));
+    assert_eq!(recent.badge().as_deref(), Some("2 active"));
     assert!(recent.unavailable);
     recent.apply(Some(recent::fetched(
         Vec::new(),

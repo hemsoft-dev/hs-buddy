@@ -2,6 +2,7 @@ import { convexTest } from 'convex-test'
 import { makeFunctionReference, type ApiFromModules, type FunctionReturnType } from 'convex/server'
 import { expect, test } from 'vitest'
 import schema from '../schema'
+import type { Id } from '../_generated/dataModel'
 import type * as nativeModule from '../copilotNative'
 
 const modules = import.meta.glob('../**/*.*s')
@@ -257,6 +258,74 @@ test('only pr-review summaries carry their reviewed PR title, as a preview', asy
     undefined,
   ])
   expect(JSON.stringify(result)).not.toContain('must-not-appear')
+})
+
+test('a review saved before metadata.prTitle takes its title from the linked review run', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async ctx => {
+    const run = (resultId: Id<'copilotResults'>, prTitle: string) =>
+      ctx.db.insert('prReviewRuns', {
+        owner: 'acme',
+        repo: 'repo',
+        prNumber: 7,
+        prUrl: 'https://github.com/acme/repo/pull/7',
+        prTitle,
+        status: 'completed',
+        resultId,
+        prompt: 'review',
+        createdAt: 1,
+        updatedAt: 1,
+      })
+    // Inserted oldest first, so every index lists them newest first.
+    const general = await ctx.db.insert('copilotResults', {
+      prompt: 'general',
+      status: 'completed',
+      category: 'general',
+      createdAt: 1,
+    })
+    await run(general, 'Not a review')
+    await ctx.db.insert('copilotResults', {
+      prompt: 'unlinked',
+      status: 'completed',
+      category: 'pr-review',
+      createdAt: 2,
+    })
+    const legacy = await ctx.db.insert('copilotResults', {
+      prompt: 'legacy',
+      status: 'completed',
+      category: 'pr-review',
+      metadata: { prUrl: 'https://github.com/acme/repo/pull/7' },
+      createdAt: 3,
+    })
+    await run(legacy, 'Legacy\ntitle')
+    const stored = await ctx.db.insert('copilotResults', {
+      prompt: 'stored',
+      status: 'completed',
+      category: 'pr-review',
+      metadata: { prTitle: 'Stored title' },
+      createdAt: 4,
+    })
+    await run(stored, 'Run title must not win')
+  })
+  const titles = (page: { prTitle?: string }[]) => page.map(row => row.prTitle)
+  const paging = { paginationOpts: { numItems: 25, cursor: null } }
+  expect(titles((await t.query(list, paging)).page)).toEqual([
+    'Stored title',
+    'Legacy title',
+    undefined,
+    undefined,
+  ])
+  expect(titles((await t.query(byStatus, { ...paging, status: 'completed' })).page)).toEqual([
+    'Stored title',
+    'Legacy title',
+    undefined,
+    undefined,
+  ])
+  expect(titles((await t.query(byCategory, { ...paging, category: 'pr-review' })).page)).toEqual([
+    'Stored title',
+    'Legacy title',
+    undefined,
+  ])
 })
 
 test('only pr-review summaries carry their reviewed PR link', async () => {

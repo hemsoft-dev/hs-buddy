@@ -297,19 +297,61 @@ struct QuotaSnapshots {
 #[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 struct PremiumSnapshot {
-    entitlement: f64,
-    remaining: f64,
+    /// Absent or `null` means GitHub did not say: the quota is unknown, never zero.
+    entitlement: Option<f64>,
+    remaining: Option<f64>,
+    percent_remaining: Option<f64>,
     /// May be absent or an explicit `null`; both mean "derive from remaining".
     overage_count: Option<f64>,
 }
 
-/// `/copilot_internal/user` for a personal namespace (username == org).
-pub fn parse_personal_quota(json: &str, now: Timestamp) -> Result<UsagePool, String> {
+const INCOMPLETE_QUOTA: &str = "The Copilot quota response is incomplete.";
+
+/// A figure GitHub must have sent; a missing one makes the whole reading unknown.
+fn known(value: Option<f64>) -> Result<f64, String> {
+    value
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| INCOMPLETE_QUOTA.to_string())
+}
+
+/// `quota_snapshots.premium_interactions` exactly as `getCopilotQuota` returns
+/// it, unrounded: what Electron's premium usage badge reads.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PremiumQuota {
+    pub entitlement: f64,
+    pub remaining: f64,
+    pub percent_remaining: f64,
+}
+
+fn premium_snapshot(json: &str) -> Result<(Option<String>, PremiumSnapshot), String> {
     let response: QuotaResponse =
         serde_json::from_str(json).map_err(|_| "Unreadable Copilot quota response".to_string())?;
-    let premium = response.quota_snapshots.premium_interactions;
-    let reset_at = response
-        .quota_reset_date_utc
+    Ok((
+        response.quota_reset_date_utc,
+        response.quota_snapshots.premium_interactions,
+    ))
+}
+
+/// The badge's reading. Electron computes `100 - percent_remaining`, so a
+/// response without the entitlement, the remaining count or the percentage is
+/// no reading at all, as a failed read is.
+pub fn parse_premium_quota(json: &str) -> Result<PremiumQuota, String> {
+    let (_, premium) = premium_snapshot(json)?;
+    Ok(PremiumQuota {
+        entitlement: known(premium.entitlement)?,
+        remaining: known(premium.remaining)?,
+        percent_remaining: known(premium.percent_remaining)?,
+    })
+}
+
+/// `/copilot_internal/user` for a personal namespace (username == org). A
+/// response without the entitlement or the remaining count is an error, so
+/// the Usage pane never shows an unknown quota as zero.
+pub fn parse_personal_quota(json: &str, now: Timestamp) -> Result<UsagePool, String> {
+    let (reset, premium) = premium_snapshot(json)?;
+    let entitlement = known(premium.entitlement)?;
+    let remaining = known(premium.remaining)?;
+    let reset_at = reset
         .as_deref()
         .and_then(crate::wire_time::rfc3339)
         .map(|parsed| parsed.value.timestamp())
@@ -318,8 +360,8 @@ pub fn parse_personal_quota(json: &str, now: Timestamp) -> Result<UsagePool, Str
             first_of_next_month_utc(year, month)
         });
     Ok(UsagePool {
-        used: (premium.entitlement - premium.remaining).round() as i64,
-        allotment: premium.entitlement.round() as i64,
+        used: (entitlement - remaining).round() as i64,
+        allotment: entitlement.round() as i64,
         overage_count: premium.overage_count.unwrap_or(0.0).round().max(0.0) as i64,
         reset_at,
     })
@@ -457,27 +499,23 @@ async fn fetch_billing_inner(
 
 /// `getCopilotQuota`: the account's own `premium_interactions` quota, which
 /// Electron's premium usage badge shows whatever the account's organization.
-pub async fn fetch_personal_quota(
-    account: &GitHubAccount,
-    now: Timestamp,
-) -> Result<UsagePool, String> {
+pub async fn fetch_personal_quota(account: &GitHubAccount) -> Result<PremiumQuota, String> {
     gh::assert_valid_slug(&account.username).map_err(|e| e.to_string())?;
     let reader = transport::Reader::new(account).await?;
-    personal_quota(&reader, now).await
+    parse_premium_quota(&personal_quota_body(&reader).await?)
 }
 
-async fn personal_quota(reader: &transport::Reader, now: Timestamp) -> Result<UsagePool, String> {
+async fn personal_quota_body(reader: &transport::Reader) -> Result<String, String> {
     // `/copilot_internal/user` answers for whoever the token belongs to, so it
     // must use the account's own credential; never fall back to the active
     // login and show another user's quota (`getCopilotQuota`).
     if !reader.selected() {
         return Err("Sign in with GitHub CLI for the selected account.".into());
     }
-    let body = reader
+    reader
         .api("/copilot_internal/user", &[])
         .await
-        .map_err(|e| e.to_string())?;
-    parse_personal_quota(&body, now)
+        .map_err(|e| e.to_string())
 }
 
 /// One account's AI Credit pool (`doFetchQuota`).
@@ -494,7 +532,7 @@ pub async fn fetch_account_pool(
     let reader = transport::Reader::new(account).await?;
 
     if is_personal_namespace(account) {
-        return personal_quota(&reader, now).await;
+        return parse_personal_quota(&personal_quota_body(&reader).await?, now);
     }
 
     // Org billing: like `tryGetCliToken`, a missing per-account token falls
@@ -697,6 +735,46 @@ mod tests {
         assert_eq!(
             crate::wire_time::rfc3339_utc(pool.reset_at),
             "2026-11-01T00:00:00+00:00"
+        );
+    }
+
+    #[test]
+    fn an_incomplete_quota_is_unknown_never_zero() {
+        let now = utc(2026, 10, 7, 0);
+        let snapshot = |premium: &str| {
+            format!(r#"{{"quota_snapshots":{{"premium_interactions":{premium}}}}}"#)
+        };
+        for premium in [
+            "{}",
+            r#"{"remaining":10}"#,
+            r#"{"entitlement":100}"#,
+            r#"{"entitlement":null,"remaining":10,"percent_remaining":10}"#,
+            r#"{"entitlement":100,"remaining":null,"percent_remaining":10}"#,
+        ] {
+            let json = snapshot(premium);
+            assert!(parse_personal_quota(&json, now).is_err(), "{premium}");
+            assert!(parse_premium_quota(&json).is_err(), "{premium}");
+        }
+        // The badge also needs the percentage Electron subtracts from 100.
+        let no_percent = snapshot(r#"{"entitlement":100,"remaining":10}"#);
+        assert!(parse_premium_quota(&no_percent).is_err());
+        assert_eq!(parse_personal_quota(&no_percent, now).unwrap().used, 90);
+        for json in [
+            "{}",
+            r#"{"quota_snapshots":{}}"#,
+            r#"{"quota_snapshots":{"premium_interactions":null}}"#,
+        ] {
+            assert!(parse_premium_quota(json).is_err(), "{json}");
+        }
+        assert_eq!(
+            parse_premium_quota(&snapshot(
+                r#"{"entitlement":100,"remaining":10.4,"percent_remaining":10.4}"#
+            )),
+            Ok(PremiumQuota {
+                entitlement: 100.0,
+                remaining: 10.4,
+                percent_remaining: 10.4
+            })
         );
     }
 

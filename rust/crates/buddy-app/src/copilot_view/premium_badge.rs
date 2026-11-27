@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use buddy_core::config::GitHubAccount;
-use buddy_core::copilot_usage::UsagePool;
+use buddy_core::copilot_usage::PremiumQuota;
 use futures::future::BoxFuture;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex};
@@ -20,27 +20,23 @@ use crate::zoom::zpx;
 /// `CACHE_TTL` in `PremiumUsageBadge.tsx`.
 pub(super) const TTL: Duration = Duration::from_secs(5 * 60);
 
-/// The `premium_interactions` figures the badge shows.
+/// The `premium_interactions` figures the badge shows, unrounded as
+/// Electron keeps them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Quota {
-    pub remaining: i64,
-    pub entitlement: i64,
+    pub remaining: f64,
+    pub entitlement: f64,
     pub percent_used: f64,
 }
 
 impl Quota {
-    pub fn from_pool(pool: &UsagePool) -> Self {
-        // GitHub's percent_remaining is remaining over entitlement, and 100
-        // for an unlimited (zero) entitlement.
-        let percent_used = if pool.allotment > 0 {
-            pool.used as f64 / pool.allotment as f64 * 100.0
-        } else {
-            0.0
-        };
+    /// Electron's `percentUsed: 100 - p.percent_remaining`, with GitHub's
+    /// own counts.
+    pub fn from_premium(premium: &PremiumQuota) -> Self {
         Self {
-            remaining: pool.allotment - pool.used,
-            entitlement: pool.allotment,
-            percent_used,
+            remaining: premium.remaining,
+            entitlement: premium.entitlement,
+            percent_used: 100.0 - premium.percent_remaining,
         }
     }
 
@@ -50,8 +46,8 @@ impl Quota {
         format!(
             "{}% · {}/{}",
             js_fixed(self.percent_used, 0),
-            self.remaining,
-            self.entitlement
+            js_number(self.remaining),
+            js_number(self.entitlement)
         )
     }
 
@@ -59,8 +55,8 @@ impl Quota {
     pub fn tooltip(&self) -> String {
         format!(
             "Premium: {} of {} remaining ({}% used)",
-            self.remaining,
-            self.entitlement,
+            js_number(self.remaining),
+            js_number(self.entitlement),
             js_fixed(self.percent_used, 1)
         )
     }
@@ -86,6 +82,17 @@ fn js_fixed(value: f64, digits: i32) -> String {
     let scale = 10f64.powi(digits);
     let rounded = (value * scale).round() / scale;
     format!("{rounded:.*}", digits as usize)
+}
+
+/// A number interpolated into a JS template string: the shortest text that
+/// reads back as the same value, as Rust's `Display` gives, with `-0` as `0`.
+/// Quota counts never reach the 1e21 where JS switches to exponents.
+fn js_number(value: f64) -> String {
+    if value == 0.0 {
+        "0".into()
+    } else {
+        format!("{value}")
+    }
 }
 
 /// Electron's module-level `quotaCache`, keyed by the account's login.
@@ -116,15 +123,15 @@ pub(super) enum State {
     Shown(Quota),
 }
 
-pub(super) type Fetch = Rc<dyn Fn(GitHubAccount) -> BoxFuture<'static, Result<UsagePool, String>>>;
+pub(super) type Fetch =
+    Rc<dyn Fn(GitHubAccount) -> BoxFuture<'static, Result<PremiumQuota, String>>>;
 
 /// The production read: the same `/copilot_internal/user` quota the Usage
-/// pane reads for a personal account, with the account's own credential.
+/// pane reads for a personal account, with the account's own credential. An
+/// incomplete response fails like any other read.
 pub(super) fn fetch() -> Fetch {
     Rc::new(|account| {
-        Box::pin(async move {
-            buddy_core::copilot_usage::fetch_personal_quota(&account, jiff::Timestamp::now()).await
-        })
+        Box::pin(async move { buddy_core::copilot_usage::fetch_personal_quota(&account).await })
     })
 }
 

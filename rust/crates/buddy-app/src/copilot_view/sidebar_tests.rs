@@ -269,3 +269,53 @@ fn an_empty_or_failed_read_says_so_and_a_clicked_row_opens_its_result(
         assert_eq!(view.results.read(cx).pending_open(), Some("result-1"));
     });
 }
+
+#[gpui_kit::test]
+fn fresh_rows_with_an_unknown_active_count_are_shown_as_fresh(cx: &mut gpui_kit::TestAppContext) {
+    let (handle, view) = open(cx);
+    cx.update(|cx| view.update(cx, |view, cx| view.toggle_recent(cx)));
+    let now = recent::now_ms();
+    let apply = |fetched: recent::Fetched, cx: &mut gpui_kit::TestAppContext| {
+        cx.update(|cx| {
+            let chat = view.read(cx).chat.clone();
+            chat.update(cx, |chat, cx| {
+                chat.recent_mut().apply(Some(fetched));
+                cx.emit(chat::ChatEvent::RecentChanged);
+            });
+        });
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            window.try_find("copilot-sidebar-not-refreshed").is_some()
+        })
+        .unwrap()
+    };
+    // The history read succeeded and only the count failed: the rows are
+    // fresh, nothing says otherwise, and no count is shown.
+    let stale = apply(
+        recent::fetched(rows(&[("Newest", "running", "general", None, now)]), None),
+        cx,
+    );
+    assert!(!stale);
+    cx.update(|cx| {
+        let chat = view.read(cx).chat.clone();
+        let chat = chat.read(cx);
+        assert_eq!(chat.recent().rows.len(), 1);
+        assert!(!chat.recent().unavailable);
+        assert_eq!(chat.recent().badge(), None);
+    });
+    // A failed history read keeps the rows and says they were not refreshed.
+    let stale = apply(
+        recent::failed_rows(Some(ActiveCounts {
+            pending: 0,
+            running: 1,
+        })),
+        cx,
+    );
+    assert!(stale);
+    cx.update(|cx| {
+        let chat = view.read(cx).chat.clone();
+        assert_eq!(chat.read(cx).recent().rows.len(), 1);
+        assert_eq!(chat.read(cx).recent().badge().as_deref(), Some("1 active"));
+    });
+}

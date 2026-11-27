@@ -240,7 +240,7 @@ impl ChatView {
     pub(super) fn badge_fetched(
         &mut self,
         generation: u64,
-        result: Option<Result<buddy_core::copilot_usage::UsagePool, String>>,
+        result: Option<Result<buddy_core::copilot_usage::PremiumQuota, String>>,
         now: std::time::Instant,
         cx: &mut Context<Self>,
     ) {
@@ -248,8 +248,8 @@ impl ChatView {
             return;
         }
         self.badge.state = match result {
-            Some(Ok(pool)) => {
-                let quota = premium_badge::Quota::from_pool(&pool);
+            Some(Ok(premium)) => {
+                let quota = premium_badge::Quota::from_premium(&premium);
                 cx.default_global::<QuotaCache>()
                     .store(&self.badge.login, quota, now);
                 premium_badge::State::Shown(quota)

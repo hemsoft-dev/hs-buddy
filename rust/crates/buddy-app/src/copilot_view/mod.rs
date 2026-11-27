@@ -16,7 +16,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::{
     AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement as _, Styled, Window, div,
+    StatefulInteractiveElement as _, Styled, TestSupportExt as _, Window, div,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -186,9 +186,12 @@ impl CopilotView {
         if recent.rows.is_empty() {
             list = list.child(div().px_2().text_color(muted).child("No results yet"));
         }
+        // Only a failed rows read; an unknown active count is simply not shown.
         if recent.unavailable {
             list = list.child(
                 div()
+                    .id("copilot-sidebar-not-refreshed")
+                    .test_support()
                     .px_2()
                     .text_color(muted)
                     .child("Recent results could not be refreshed."),

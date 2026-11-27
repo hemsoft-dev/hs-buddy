@@ -18,10 +18,14 @@ pub(super) struct Recent {
     /// The newest results, up to [`SIDEBAR_LIMIT`]; the prompt box lists the
     /// first [`LIMIT`].
     pub rows: Vec<ResultSummary>,
-    pub active: ActiveCounts,
+    /// The last count read, or `None` while it is unknown: never read, or its
+    /// latest read failed. Electron shows no count it does not have.
+    pub active: Option<ActiveCounts>,
     pub loading: bool,
     /// Another refresh was asked for while one was loading.
     pub stale: bool,
+    /// The rows could not be read again, so the list shown is the last one.
+    /// The active count has no bearing on it.
     pub unavailable: bool,
     /// The read stopped early (a split page), so newer results may be missing
     /// from the prompt box's ten.
@@ -51,28 +55,32 @@ pub(super) async fn fetch(backend: CopilotBackend) -> Fetched {
 }
 
 impl Recent {
-    /// A failed read keeps the last rows and count rather than showing none.
+    /// A failed rows read keeps the last rows, marked as not refreshed. A
+    /// failed count read leaves fresh rows fresh and only the count unknown.
     pub fn apply(&mut self, fetched: Option<Fetched>) {
         self.loading = false;
         let Some(fetched) = fetched else {
             self.unavailable = true;
+            self.active = None;
             return;
         };
-        self.unavailable = fetched.rows.is_err() || fetched.active.is_err();
-        if let Ok((rows, partial, sidebar_partial)) = fetched.rows {
-            self.rows = rows;
-            self.rows.truncate(SIDEBAR_LIMIT.into());
-            self.partial = partial;
-            self.sidebar_partial = sidebar_partial;
+        match fetched.rows {
+            Ok((rows, partial, sidebar_partial)) => {
+                self.rows = rows;
+                self.rows.truncate(SIDEBAR_LIMIT.into());
+                self.partial = partial;
+                self.sidebar_partial = sidebar_partial;
+                self.unavailable = false;
+            }
+            Err(_) => self.unavailable = true,
         }
-        if let Ok(active) = fetched.active {
-            self.active = active;
-        }
+        self.active = fetched.active.ok();
     }
 
-    /// `{totalActive} active`, shown only while something is pending or running.
+    /// `{totalActive} active`, shown only while something is known to be
+    /// pending or running.
     pub fn badge(&self) -> Option<String> {
-        let total = self.active.total();
+        let total = self.active?.total();
         (total > 0).then(|| format!("{total} active"))
     }
 
@@ -146,6 +154,14 @@ pub(super) fn now_ms() -> f64 {
 #[cfg(test)]
 pub(super) fn fetched(rows: Vec<ResultSummary>, active: Option<ActiveCounts>) -> Fetched {
     fetched_page(rows, false, active)
+}
+
+#[cfg(test)]
+pub(super) fn failed_rows(active: Option<ActiveCounts>) -> Fetched {
+    Fetched {
+        rows: Err(Error::Unavailable),
+        active: active.ok_or(Error::Unavailable),
+    }
 }
 
 #[cfg(test)]
