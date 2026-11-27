@@ -16,8 +16,8 @@ The remaining work is tracked per area in #988 to #995.
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 362 are ported,
-187 are partly ported, 41 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 368 are ported,
+187 are partly ported, 35 are missing natively, 5 are a
 placeholder natively and 27 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
@@ -29,8 +29,8 @@ placeholder natively and 27 do not apply to a native app.
 | [Todoist and Tempo](parity/planning.md) | 71 | 1 | 0 | 19 | 49 | 2 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 3 | 0 | 24 | 59 | 3 |
 | [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 2 | 4 | 21 | 30 | 2 |
-| [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 10 | 0 | 27 | 57 | 7 |
-| **All areas** | **622** | **41** | **5** | **187** | **362** | **27** |
+| [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 4 | 0 | 27 | 63 | 7 |
+| **All areas** | **622** | **35** | **5** | **187** | **368** | **27** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
