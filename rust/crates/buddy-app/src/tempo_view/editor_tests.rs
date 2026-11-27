@@ -61,7 +61,7 @@ fn reauthentication_requires_a_fresh_lookup_and_retains_exact_draft_inputs_and_b
                     let row = worklog();
                     let mut editor = Editor::new(Some(row.clone()), row.date, next_start_time(0), window, cx);
                     editor.accept_lookup("19".into(), details(), cx).unwrap();
-                    editor.billing.as_mut().unwrap().select(selected).unwrap();
+                    editor.choose(selected).unwrap();
                     editor.hours.update(cx, |field, cx| field.set_value("2:15:01", window, cx));
                     editor.date.update(cx, |field, cx| field.set_value("2026-10-22", window, cx));
                     editor.start.update(cx, |field, cx| field.set_value("09:10:11", window, cx));
@@ -70,7 +70,7 @@ fn reauthentication_requires_a_fresh_lookup_and_retains_exact_draft_inputs_and_b
                     let old_id = editor.id;
                     editor.invalidate_connection();
                     assert_ne!(editor.id, old_id, "Late old-connection lookups cannot match this editor");
-                    assert!(editor.resolved.is_none() && editor.billing.is_none());
+                    assert!(editor.resolved().is_none() && editor.billing().is_none());
                     assert!(!editor.has_current_issue(cx));
                     assert!(editor.draft(&row.author, cx).is_err());
                     assert_eq!(editor.hours.read(cx).value(), "2:15:01");
@@ -81,7 +81,7 @@ fn reauthentication_requires_a_fresh_lookup_and_retains_exact_draft_inputs_and_b
                     assert_eq!(editor.original.as_ref().unwrap().updated_at, row.updated_at);
                     editor.accept_lookup("19".into(), details(), cx).unwrap();
                     assert!(editor.has_current_issue(cx));
-                    assert_eq!(editor.billing.as_ref().unwrap().selected_key(), selected);
+                    assert_eq!(editor.billing().unwrap().selected_key(), selected);
                     let body: Value = serde_json::from_slice(&editor.draft(&row.author, cx).unwrap().encode().unwrap()).unwrap();
                     assert_eq!(body["timeSpentSeconds"], 8101);
                     assert_eq!(body["billableSeconds"], 600);
@@ -117,7 +117,7 @@ fn editing_retains_unavailable_billing_custom_attributes_and_input_after_failed_
                 let mut editor =
                     Editor::new(Some(row.clone()), row.date, next_start_time(0), window, cx);
                 editor.accept_lookup("19".into(), details(), cx).unwrap();
-                assert!(!editor.billing.as_ref().unwrap().selection_is_listed());
+                assert!(!editor.billing().unwrap().selection_is_listed());
                 editor
                     .hours
                     .update(cx, |field, cx| field.set_value("2:15:01", window, cx));
@@ -185,7 +185,7 @@ fn an_obsolete_issue_lookup_cannot_enable_a_create_and_activation_without_runtim
                         .is_err()
                 );
                 assert!(!editor.has_current_issue(cx));
-                assert!(editor.resolved.is_none());
+                assert!(editor.resolved().is_none());
                 editor
                     .issue
                     .update(cx, |field, cx| field.set_value("SYNTH-19", window, cx));
@@ -253,7 +253,7 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
                         }];
                     }
                     editor.accept_lookup("19".into(), info, cx).unwrap();
-                    assert_eq!(editor.billing.as_ref().unwrap().selected_key(), selected);
+                    assert_eq!(editor.billing().unwrap().selected_key(), selected);
                     let draft = editor.draft(&source.author, cx).unwrap();
                     assert_eq!(draft.kind(), buddy_core::tempo::DraftKind::Create);
                     assert!(draft.worklog_id().is_none() && draft.observed_update().is_none());
@@ -283,7 +283,7 @@ fn a_template_opens_a_new_one_hour_draft_with_the_selected_date_description_and_
                 let mut editor =
                     Editor::from_template(&source, date, next_start_time(0), window, cx).unwrap();
                 editor.accept_lookup("19".into(), details(), cx).unwrap();
-                assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                assert!(editor.billing().unwrap().is_unchosen());
                 let body: Value = serde_json::from_slice(
                     &editor.draft(&source.author, cx).unwrap().encode().unwrap(),
                 )
@@ -423,11 +423,11 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
                     editor
                         .hours
                         .update(cx, |field, cx| field.set_value("1.5", window, cx));
-                    assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                    assert!(editor.billing().unwrap().is_unchosen());
                     // A connection re-check and a new lookup keep it unchosen.
                     editor.invalidate_connection();
                     editor.accept_lookup("19".into(), issue(), cx).unwrap();
-                    assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                    assert!(editor.billing().unwrap().is_unchosen());
                     let value = body(&editor, cx);
                     assert_eq!(value["description"], format!("Working on issue {key}"));
                     assert_eq!(
@@ -438,13 +438,13 @@ fn a_create_defaults_an_empty_description_and_infers_an_unchosen_account_from_th
                     editor
                         .description
                         .update(cx, |field, cx| field.set_value("Typed work", window, cx));
-                    editor.billing.as_mut().unwrap().select(None).unwrap();
+                    editor.choose(None).unwrap();
                     let value = body(&editor, cx);
                     assert_eq!(value["description"], "Typed work");
                     assert_eq!(value["attributes"], serde_json::json!([]));
                     // Looking the same project up again keeps that choice.
                     editor.accept_lookup("19".into(), issue(), cx).unwrap();
-                    assert!(!editor.billing.as_ref().unwrap().is_unchosen());
+                    assert!(!editor.billing().unwrap().is_unchosen());
                     assert_eq!(body(&editor, cx)["attributes"], serde_json::json!([]));
                 }
                 // An edit never gains either default.
@@ -497,7 +497,7 @@ pub(super) fn catalog() -> buddy_core::tempo::BillingCatalog {
     }
 }
 /// The lookup result. `linked` is the project's one linked account, if any.
-fn project_lookup(linked: bool) -> EditorIssue {
+pub(super) fn project_lookup(linked: bool) -> EditorIssue {
     let mut info = details();
     info.billing.catalog = every_account();
     if linked {
@@ -510,8 +510,7 @@ fn project_lookup(linked: bool) -> EditorIssue {
 }
 fn listed(editor: &Editor) -> Vec<String> {
     editor
-        .billing
-        .as_ref()
+        .billing()
         .unwrap()
         .choices()
         .iter()
@@ -544,9 +543,9 @@ fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_acco
                 // with nothing chosen. Saving still needs the lookup.
                 let mut editor = open(window, cx);
                 assert!(!editor.accept_catalog(uuid::Uuid::new_v4(), Ok(catalog())));
-                assert!(editor.billing.is_none());
+                assert!(editor.billing().is_none());
                 assert!(editor.accept_catalog(editor.id, Ok(catalog())));
-                let billing = editor.billing.as_ref().unwrap();
+                let billing = editor.billing().unwrap();
                 assert!(billing.lists_every_account() && billing.project().is_none());
                 assert!(billing.is_unchosen());
                 assert_eq!(listed(&editor), ["SYNTH-LINKED", "SYNTH-UNLINKED"]);
@@ -559,7 +558,7 @@ fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_acco
                 editor
                     .accept_lookup("19".into(), project_lookup(true), cx)
                     .unwrap();
-                let billing = editor.billing.as_ref().unwrap();
+                let billing = editor.billing().unwrap();
                 assert!(!billing.lists_every_account());
                 assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
                 assert_eq!(billing.selected_key(), Some("SYNTH-LINKED"));
@@ -574,7 +573,7 @@ fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_acco
                 editor
                     .accept_lookup("19".into(), project_lookup(false), cx)
                     .unwrap();
-                let billing = editor.billing.as_ref().unwrap();
+                let billing = editor.billing().unwrap();
                 assert!(billing.lists_every_account() && billing.project().is_some());
                 assert!(billing.is_unchosen());
                 assert_eq!(listed(&editor), ["SYNTH-LINKED", "SYNTH-UNLINKED"]);
@@ -585,12 +584,7 @@ fn every_account_is_listed_before_a_lookup_and_for_a_project_without_linked_acco
                     serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap())
                         .unwrap();
                 assert_eq!(body["attributes"], serde_json::json!([]));
-                editor
-                    .billing
-                    .as_mut()
-                    .unwrap()
-                    .select(Some("SYNTH-UNLINKED"))
-                    .unwrap();
+                editor.choose(Some("SYNTH-UNLINKED")).unwrap();
                 let body: Value =
                     serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap())
                         .unwrap();
@@ -629,12 +623,12 @@ fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_u
                 let mut editor = open(window, cx);
                 let problem = "Tempo is limiting requests. Wait before refreshing.";
                 assert!(!editor.accept_catalog(editor.id, Err(problem.into())));
-                assert!(editor.billing.is_none());
-                assert_eq!(editor.catalog_problem.as_deref(), Some(problem));
+                assert!(editor.billing().is_none());
+                assert_eq!(editor.catalog_problem(), Some(problem));
                 editor
                     .accept_lookup("19".into(), project_lookup(true), cx)
                     .unwrap();
-                assert!(editor.catalog_problem.is_none());
+                assert!(editor.catalog_problem().is_none());
                 assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
 
                 // A pick the project doesn't list gives way to its default;
@@ -647,33 +641,31 @@ fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_u
                 ] {
                     let mut editor = open(window, cx);
                     assert!(editor.accept_catalog(editor.id, Ok(catalog())));
-                    editor.billing.as_mut().unwrap().select(pick).unwrap();
+                    editor.choose(pick).unwrap();
                     editor
                         .accept_lookup("19".into(), project_lookup(linked), cx)
                         .unwrap();
-                    let billing = editor.billing.as_ref().unwrap();
+                    let billing = editor.billing().unwrap();
                     assert_eq!(billing.selected_key(), kept, "{pick:?} {linked}");
                     assert!(billing.selection_is_listed(), "{pick:?} {linked}");
                 }
 
-                // A reconnect drops a pick made from the old connection's
-                // catalog along with the catalog itself.
+                // A reconnect drops the old connection's catalog, but not the
+                // person's pick from it (I2): the fresh list decides whether
+                // it is sent. Here it lists the account open, so it is.
                 let mut editor = open(window, cx);
                 assert!(editor.accept_catalog(editor.id, Ok(catalog())));
-                editor
-                    .billing
-                    .as_mut()
-                    .unwrap()
-                    .select(Some("SYNTH-UNLINKED"))
-                    .unwrap();
+                editor.choose(Some("SYNTH-UNLINKED")).unwrap();
                 let old = editor.id;
                 editor.invalidate_connection();
-                assert!(editor.billing.is_none());
+                assert!(editor.billing().is_none());
                 assert!(!editor.accept_catalog(old, Ok(catalog())));
                 editor
                     .accept_lookup("19".into(), project_lookup(false), cx)
                     .unwrap();
-                assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                let billing = editor.billing().unwrap();
+                assert!(billing.is_chosen());
+                assert_eq!(billing.selected_key(), Some("SYNTH-UNLINKED"));
                 view
             })
         })
@@ -682,7 +674,7 @@ fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_u
 }
 
 /// The project links SYNTH-LINKED (its default) and SYNTH-UNLINKED with `status`.
-fn both_linked(status: buddy_core::tempo::BillingAccountStatus) -> EditorIssue {
+pub(super) fn both_linked(status: buddy_core::tempo::BillingAccountStatus) -> EditorIssue {
     let mut info = project_lookup(true);
     info.billing
         .choices
@@ -692,7 +684,7 @@ fn both_linked(status: buddy_core::tempo::BillingAccountStatus) -> EditorIssue {
         });
     info
 }
-fn sent_account(editor: &Editor, cx: &Context<TempoView>) -> Value {
+pub(super) fn sent_account(editor: &Editor, cx: &Context<TempoView>) -> Value {
     let author = AccountId::parse("synthetic-user").unwrap();
     let body: Value =
         serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap()).unwrap();
@@ -731,17 +723,12 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                 editor
                     .accept_lookup("19".into(), project_lookup(false), cx)
                     .unwrap();
-                editor
-                    .billing
-                    .as_mut()
-                    .unwrap()
-                    .select(Some("SYNTH-UNLINKED"))
-                    .unwrap();
+                editor.choose(Some("SYNTH-UNLINKED")).unwrap();
                 assert_eq!(sent_account(&editor, cx), unlinked);
                 editor
                     .accept_lookup("19".into(), project_lookup(true), cx)
                     .unwrap();
-                let billing = editor.billing.as_ref().unwrap();
+                let billing = editor.billing().unwrap();
                 assert_eq!(billing.selected_key(), Some("SYNTH-LINKED"));
                 assert!(!billing.is_chosen(), "the project default, not a choice");
                 assert_eq!(sent_account(&editor, cx), linked);
@@ -755,12 +742,7 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                         editor
                             .accept_lookup("19".into(), both_linked(Open), cx)
                             .unwrap();
-                        editor
-                            .billing
-                            .as_mut()
-                            .unwrap()
-                            .select(Some("SYNTH-UNLINKED"))
-                            .unwrap();
+                        editor.choose(Some("SYNTH-UNLINKED")).unwrap();
                         if recheck {
                             editor.invalidate_connection();
                         }
@@ -777,12 +759,7 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                 for (status, kept) in [(Closed, false), (Archived, false), (Open, true)] {
                     let mut editor = open(window, cx);
                     assert!(editor.accept_catalog(editor.id, Ok(catalog())));
-                    editor
-                        .billing
-                        .as_mut()
-                        .unwrap()
-                        .select(Some("SYNTH-UNLINKED"))
-                        .unwrap();
+                    editor.choose(Some("SYNTH-UNLINKED")).unwrap();
                     editor
                         .accept_lookup("19".into(), both_linked(status), cx)
                         .unwrap();
@@ -797,13 +774,7 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                     .accept_lookup("19".into(), both_linked(Closed), cx)
                     .unwrap();
                 for refused in ["SYNTH-UNLINKED", "SYNTH-GONE"] {
-                    let error = editor
-                        .billing
-                        .as_mut()
-                        .unwrap()
-                        .select(Some(refused))
-                        .err()
-                        .unwrap();
+                    let error = editor.choose(Some(refused)).err().unwrap();
                     assert!(
                         error.to_string().contains("open billing account"),
                         "{error}"
@@ -848,7 +819,7 @@ fn a_catalog_arriving_during_or_after_an_issue_lookup_is_ignored(
                     };
                     let editor = view.editor.as_mut().unwrap();
                     assert!(!editor.accept_catalog(id, late()));
-                    assert!(editor.billing.is_none() && editor.catalog_problem.is_none());
+                    assert!(editor.billing().is_none() && editor.catalog_problem().is_none());
                     if succeeds {
                         view.settle(
                             Ok(actions::Update::Lookup(Box::new((
@@ -867,11 +838,11 @@ fn a_catalog_arriving_during_or_after_an_issue_lookup_is_ignored(
                     // error and no list; a successful one keeps the project's.
                     let editor = view.editor.as_mut().unwrap();
                     assert!(!editor.accept_catalog(id, late()));
-                    assert!(editor.catalog_problem.is_none());
+                    assert!(editor.catalog_problem().is_none());
                     if succeeds {
                         assert_eq!(listed(editor), ["SYNTH-LINKED"]);
                     } else {
-                        assert!(editor.billing.is_none());
+                        assert!(editor.billing().is_none());
                     }
                     assert!(!view.busy);
                 }

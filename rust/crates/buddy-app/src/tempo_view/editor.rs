@@ -1,7 +1,10 @@
+use super::draft_billing::{CarrySource, DraftBilling, Resolution};
 use super::*;
+#[cfg(test)]
+use buddy_core::tempo::JiraIssue;
 use buddy_core::tempo::{
-    AccountId, BillingCatalog, BillingSelection, Draft, EditorIssue, JiraError, JiraIssue, Worklog,
-    create_description, inferred_account,
+    AccountId, BillingCatalog, BillingSelection, Draft, EditorIssue, Worklog, create_description,
+    inferred_account,
 };
 use jiff::civil::{Date, Time};
 #[cfg(test)]
@@ -13,6 +16,9 @@ mod behavior_tests;
 #[cfg(test)]
 #[path = "editor_escape_tests.rs"]
 mod keyboard_tests;
+#[cfg(test)]
+#[path = "draft_billing_tests.rs"]
+mod state_model_tests;
 use gpui_kit::component::input::{InputEvent, TextareaState};
 
 pub(super) struct Editor {
@@ -24,18 +30,9 @@ pub(super) struct Editor {
     pub start: Entity<InputState>,
     pub description: Entity<TextareaState>,
     pub billing_filter: Entity<InputState>,
-    pub resolved: Option<JiraIssue>,
-    pub billing: Option<BillingSelection>,
-    pub capitalization: Option<Result<Option<bool>, JiraError>>,
-    resolved_query: Option<String>,
-    retained_billing: Option<Option<String>>,
-    /// Why every account could not be listed before a lookup. The list then
-    /// stays unknown instead of looking empty.
-    catalog_problem: Option<String>,
-    /// An issue lookup began for this draft. From then on the project's own
-    /// result (or its failure) decides the list, so a late catalog is
-    /// ignored even while the lookup is still in flight.
-    lookup_began: bool,
+    /// The lookup and the billing choice, with their invariants
+    /// (`draft_billing`). Nothing else holds billing state.
+    billing_state: DraftBilling,
 }
 impl Editor {
     pub fn new(
@@ -127,6 +124,12 @@ impl Editor {
             cx.notify()
         })
         .detach();
+        // An existing account that cannot be read fails the lookup
+        // (`settle_lookup`), so this placeholder is never saved.
+        let billing_state = match original.as_ref().map(Worklog::billing_account) {
+            Some(existing) => DraftBilling::edit(existing.ok().flatten().map(str::to_owned)),
+            None => DraftBilling::create(),
+        };
         Self {
             id: uuid::Uuid::new_v4(),
             original,
@@ -136,13 +139,7 @@ impl Editor {
             start: time,
             description,
             billing_filter,
-            resolved: None,
-            billing: None,
-            capitalization: None,
-            resolved_query: None,
-            retained_billing: None,
-            catalog_problem: None,
-            lookup_began: false,
+            billing_state,
         }
     }
     pub fn from_template(
@@ -164,151 +161,121 @@ impl Editor {
         editor.description.update(cx, |input, cx| {
             input.set_value(source.description.clone().unwrap_or_default(), window, cx)
         });
-        editor.retained_billing = Some(selected);
+        editor
+            .billing_state
+            .carry(selected, CarrySource::Template)?;
         Ok(editor)
     }
     /// Drop client-bound lookup state without changing any entered values.
+    /// The billing choice stays; the next lookup's list decides whether it
+    /// is sent.
     pub fn invalidate_connection(&mut self) {
-        // Only a choice survives: an unchosen account is inferred again and a
-        // project default comes from the fresh lookup, never a stale one.
-        // A pick from every account, made before any project was known, is
-        // client-bound like the catalog it came from.
-        if let Some(billing) = &self.billing {
-            self.retained_billing = (billing.is_chosen() && billing.project().is_some())
-                .then(|| billing.selected_key().map(str::to_owned));
-        }
-        self.catalog_problem = None;
         self.id = uuid::Uuid::new_v4();
-        self.resolved = None;
-        self.resolved_query = None;
-        self.billing = None;
-        self.capitalization = None;
+        self.billing_state.invalidate();
     }
-    /// A new draft whose issue was never looked up lists every account, so
-    /// it needs the catalog read again: when it opens, and after a
-    /// connection recheck drops the old connection's catalog.
+    #[cfg(test)]
+    pub fn billing_state(&self) -> &DraftBilling {
+        &self.billing_state
+    }
+    #[cfg(test)]
+    pub fn billing_state_mut(&mut self) -> &mut DraftBilling {
+        &mut self.billing_state
+    }
+    /// The list a person chooses from: every account before a lookup, the
+    /// project's once one resolved, nothing while one is pending or failed.
+    pub fn billing(&self) -> Option<&BillingSelection> {
+        self.billing_state.shown()
+    }
+    /// The issue the current lookup resolved.
+    #[cfg(test)]
+    pub fn resolved(&self) -> Option<&JiraIssue> {
+        self.billing_state.resolved().map(|lookup| &lookup.issue)
+    }
+    /// Why every account could not be listed before a lookup. The list then
+    /// stays unknown instead of looking empty.
+    pub fn catalog_problem(&self) -> Option<&str> {
+        self.billing_state.catalog_problem()
+    }
+    /// A person's pick from the shown list.
+    pub fn choose(&mut self, key: Option<&str>) -> Result<(), buddy_core::tempo::Error> {
+        self.billing_state.choose(key)
+    }
+    /// See `DraftBilling::wants_catalog`.
     pub fn wants_catalog(&self) -> bool {
-        self.original.is_none()
-            && !self.lookup_began
-            && self.billing.is_none()
-            && self.resolved.is_none()
+        self.billing_state.wants_catalog()
     }
-    /// An issue lookup for this draft is starting. Called before it is sent.
-    pub fn lookup_beginning(&mut self) {
-        self.lookup_began = true;
+    /// An issue lookup for this draft is being sent. Its response must
+    /// carry the returned generation.
+    pub fn begin_lookup(&mut self) -> u64 {
+        self.billing_state.begin_lookup()
     }
     /// Every account, offered until a lookup narrows the list, as Electron's
     /// editor lists `tempo:get-accounts` before a project is known. A catalog
-    /// that arrives once a lookup began, or a foreign one, changes nothing; a
-    /// failed read keeps the list unknown. True means this draft now lists
-    /// every account.
+    /// for another draft or connection, or one that arrives once a lookup
+    /// began, changes nothing; a failed read keeps the list unknown. True
+    /// means this draft now lists every account.
     pub fn accept_catalog(
         &mut self,
         editor_id: uuid::Uuid,
         result: Result<BillingCatalog, String>,
     ) -> bool {
-        if editor_id != self.id
-            || self.lookup_began
-            || self.billing.is_some()
-            || self.resolved.is_some()
-        {
-            return false;
-        }
-        let catalog = match result {
-            Ok(catalog) => catalog,
-            Err(error) => {
-                self.catalog_problem = Some(error);
-                return false;
-            }
-        };
-        let offered = BillingSelection::new(catalog.connection, None).and_then(|mut billing| {
-            billing.offer_catalog(catalog)?;
-            Ok(billing)
-        });
-        match offered {
-            Ok(billing) => {
-                self.catalog_problem = None;
-                self.billing = Some(billing);
-                true
-            }
-            Err(error) => {
-                self.catalog_problem = Some(error.to_string());
-                false
-            }
-        }
+        editor_id == self.id && self.billing_state.accept_catalog(result)
     }
+    /// A lookup's issue and accounts that arrive with the editor (a template
+    /// or an edit) take the same path as one the person starts: a new
+    /// generation, then its settlement.
     pub fn accept_lookup(
         &mut self,
         query: String,
         info: EditorIssue,
         cx: &Context<TempoView>,
     ) -> Result<(), String> {
-        if self.issue.read(cx).value().as_ref() != query.as_str() {
-            return Err("The issue changed while loading. Look up the current issue again.".into());
+        let generation = self.begin_lookup();
+        self.settle_lookup(generation, query, Ok(info), cx)
+    }
+    /// The response to the lookup `generation` began. A response for an
+    /// older generation changes nothing. One that cannot be used, and a
+    /// failure, leave the draft unsavable until a new lookup resolves.
+    pub fn settle_lookup(
+        &mut self,
+        generation: u64,
+        query: String,
+        result: Result<EditorIssue, String>,
+        cx: &Context<TempoView>,
+    ) -> Result<(), String> {
+        let checked = result.and_then(|info| {
+            if self.issue.read(cx).value().as_ref() != query.as_str() {
+                return Err(
+                    "The issue changed while loading. Look up the current issue again.".into(),
+                );
+            }
+            if let Some(row) = &self.original {
+                if row.issue != Some(info.issue.id) {
+                    return Err("This edit belongs to the original worklog issue.".into());
+                }
+                row.billing_account().map_err(|e| e.to_string())?;
+            }
+            Ok(info)
+        });
+        match checked {
+            Ok(info) => self
+                .billing_state
+                .resolve(
+                    generation,
+                    info.issue,
+                    query,
+                    info.capitalization,
+                    info.billing,
+                )
+                .map(|_| ()),
+            Err(error) => {
+                if self.billing_state.fail(generation, error.clone()) {
+                    Err(error)
+                } else {
+                    Ok(())
+                }
+            }
         }
-        if self
-            .original
-            .as_ref()
-            .is_some_and(|row| row.issue != Some(info.issue.id))
-        {
-            return Err("This edit belongs to the original worklog issue.".into());
-        }
-        let initial = self
-            .original
-            .as_ref()
-            .map(Worklog::billing_account)
-            .transpose()
-            .map_err(|e| e.to_string())?
-            .flatten();
-        // Looking the same project up again keeps a choice someone made,
-        // including "No billing account". A project default is not a choice:
-        // the fresh lookup picks the current one.
-        if self.retained_billing.is_none()
-            && let Some(previous) = &self.billing
-            && previous.is_chosen()
-            && previous.project() == Some(info.billing.project)
-        {
-            self.retained_billing = Some(previous.selected_key().map(str::to_owned));
-        }
-        // A pick from every account, made before any project was known, is
-        // provisional the same way.
-        let provisional = self
-            .billing
-            .as_ref()
-            .filter(|previous| previous.is_chosen() && previous.project().is_none())
-            .map(|previous| previous.selected_key().map(str::to_owned));
-        let mut billing = if self.original.is_some() {
-            BillingSelection::for_edit(info.billing.connection, initial)
-        } else {
-            BillingSelection::new(info.billing.connection, None)
-        }
-        .map_err(|e| e.to_string())?;
-        // Either pick is made before the lookup result loads, so `loaded`
-        // keeps it only where the fresh list has it as open. Otherwise the
-        // draft falls back as a fresh one would: an edit to its existing
-        // account, a create to the project's default or to no choice, as
-        // when Electron's issue key changes.
-        if let Some(selected) = self.retained_billing.as_ref().or(provisional.as_ref()) {
-            billing
-                .select(selected.as_deref())
-                .map_err(|e| e.to_string())?;
-        }
-        let lookup = billing.begin(info.billing.project);
-        if !billing
-            .loaded(lookup, info.billing)
-            .map_err(|e| e.to_string())?
-        {
-            return Err(
-                "The billing account lookup became obsolete. Look up the issue again.".into(),
-            );
-        }
-        self.retained_billing = None;
-        self.catalog_problem = None;
-        self.billing = Some(billing);
-        self.resolved = Some(info.issue);
-        self.capitalization = Some(info.capitalization);
-        self.resolved_query = Some(query);
-        Ok(())
     }
     /// Whether a field that submits on Enter belongs to this draft.
     fn submits_from(&self, input: gpui_kit::EntityId) -> bool {
@@ -317,19 +284,18 @@ impl Editor {
             .any(|field| field.entity_id() == input)
             || self.description.entity_id() == input
     }
+    /// I1: only a resolved lookup of the issue as now typed can be saved.
     pub fn has_current_issue(&self, cx: &Context<TempoView>) -> bool {
-        self.resolved.is_some()
-            && self.billing.is_some()
-            && self.resolved_query.as_deref() == Some(self.issue.read(cx).value().as_ref())
+        self.billing_state
+            .resolved()
+            .is_some_and(|lookup| lookup.query == self.issue.read(cx).value().as_ref())
     }
     pub fn draft(&self, account: &AccountId, cx: &Context<TempoView>) -> Result<Draft, String> {
         if !self.has_current_issue(cx) {
             return Err(LOOKUP_BEFORE_SAVING.into());
         }
-        let issue = self
-            .resolved
-            .as_ref()
-            .ok_or("Look up the issue before saving.")?;
+        let lookup = self.billing_state.resolved().ok_or(LOOKUP_BEFORE_SAVING)?;
+        let issue = &lookup.issue;
         let seconds = parse_duration(self.hours.read(cx).value().as_ref())?;
         let text = self.date.read(cx).value().to_string();
         let date = buddy_core::wire_time::date(&text)
@@ -372,14 +338,11 @@ impl Editor {
         draft
             .set_description(description)
             .map_err(|e| e.to_string())?;
-        // The only way an account key reaches the request: whatever chose
-        // or inferred it, `request_account` sends it only where the current
-        // list has it open (or it is an edit's existing account), and
-        // otherwise sends what a fresh draft would.
-        let account = self
-            .billing
-            .as_ref()
-            .and_then(|billing| billing.request_account(&issue.key));
+        // I3, the only way an account key reaches the request: the resolved
+        // list with the current choice applied, through `request_account`,
+        // which sends a key only where that list has it open (or it is an
+        // edit's existing account) and otherwise what a fresh draft would.
+        let account = lookup.selection.request_account(&issue.key);
         draft
             .set_billing_account(account)
             .map_err(|e| e.to_string())?;
@@ -573,14 +536,15 @@ impl Editor {
                         .on_click(cx.listener(|this, _, _, cx| this.lookup_editor(cx))),
                 ),
             );
-        if let Some(issue) = &self.resolved {
+        let resolved = self.billing_state.resolved();
+        if let Some(issue) = resolved.map(|lookup| &lookup.issue) {
             body = body.child(div().whitespace_normal().child(format!(
                 "{} · {}",
                 issue.key,
                 issue.summary.as_deref().unwrap_or("Summary unavailable")
             )));
         }
-        if let Some(value) = &self.capitalization {
+        if let Some(value) = resolved.map(|lookup| &lookup.capitalization) {
             body = body.child(div().whitespace_normal().child(match value {
                 Ok(Some(true)) => "Capitalization: CapEx".into(),
                 Ok(Some(false)) => "Capitalization: non-CapEx".into(),
@@ -603,7 +567,7 @@ impl Editor {
                 .max_w(zpx(640.))
                 .child(Textarea::new(&self.description).disabled(busy)),
         );
-        if let Some(billing) = &self.billing {
+        if let Some(billing) = self.billing() {
             body = body.child(div().child("Billing account")).child(
                 div()
                     .w(zpx(320.))
@@ -615,6 +579,16 @@ impl Editor {
                 } else {
                     "Every Tempo account is listed until the issue lookup narrows it to the project's accounts."
                 }));
+            }
+            // The choice stays the person's even where this list refuses
+            // it; say what is sent instead.
+            if let Some(key) = self.billing_state.choice().key()
+                && billing.selected_key() != Some(key)
+                && !self.billing_state.is_edit()
+            {
+                body = body.child(div().whitespace_normal().child(format!(
+                    "{key} is not open in this list, so it is not sent."
+                )));
             }
             if !billing.selection_is_listed() {
                 body=body.child(div().whitespace_normal().child(format!("The existing account {} is unavailable. It will be preserved unless you explicitly choose another account.",billing.selected_key().unwrap_or_default())));
@@ -629,8 +603,7 @@ impl Editor {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(editor) = &mut this.editor
                                 && editor.id == editor_id
-                                && let Some(billing) = &mut editor.billing
-                                && let Err(error) = billing.select(None)
+                                && let Err(error) = editor.choose(None)
                             {
                                 this.error = Some(error.to_string());
                             }
@@ -640,7 +613,7 @@ impl Editor {
             );
             if self.original.is_none()
                 && billing.is_unchosen()
-                && let Some(issue) = &self.resolved
+                && let Some(issue) = resolved.map(|lookup| &lookup.issue)
             {
                 body = body.child(div().whitespace_normal().child(
                     match billing.request_account(&issue.key) {
@@ -690,8 +663,7 @@ impl Editor {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if let Some(editor) = &mut this.editor
                                         && editor.id == editor_id
-                                        && let Some(billing) = &mut editor.billing
-                                        && let Err(error) = billing.select(Some(&key))
+                                        && let Err(error) = editor.choose(Some(&key))
                                     {
                                         this.error = Some(error.to_string());
                                     }
@@ -706,16 +678,30 @@ impl Editor {
                 );
             }
         } else {
-            if let Some(problem) = &self.catalog_problem {
-                body = body.child(div().whitespace_normal().child(format!(
-                    "Every Tempo account could not be listed. {problem}"
-                )));
+            match self.billing_state.resolution() {
+                Resolution::Pending { .. } => {
+                    body = body.child(
+                        div()
+                            .whitespace_normal()
+                            .child("Looking up the issue and its billing accounts…"),
+                    );
+                }
+                Resolution::Failed { error, .. } => {
+                    body = body.child(div().whitespace_normal().child(format!(
+                        "The last lookup failed, so this draft cannot be saved. {error} Look up the issue again."
+                    )));
+                }
+                _ => {
+                    if let Some(problem) = self.catalog_problem() {
+                        body = body.child(div().whitespace_normal().child(format!(
+                            "Every Tempo account could not be listed. {problem}"
+                        )));
+                    }
+                    body = body.child(div().whitespace_normal().child(
+                        "Look up the issue to load complete billing choices before saving.",
+                    ));
+                }
             }
-            body = body.child(
-                div()
-                    .whitespace_normal()
-                    .child("Look up the issue to load complete billing choices before saving."),
-            );
         }
         body.child(
             h_flex()

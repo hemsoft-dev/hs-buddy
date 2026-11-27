@@ -2,6 +2,7 @@
 mod actions;
 mod copy;
 mod delete_bar;
+mod draft_billing;
 mod editor;
 mod grid;
 mod io;
@@ -59,6 +60,10 @@ pub struct TempoView {
         jiff::civil::Date,
     )>,
     editor: Option<editor::Editor>,
+    /// The draft and generation of the issue lookup in flight. Set and
+    /// cleared with `busy`, so `settle` pairs a lookup's response, or its
+    /// failure, with the lookup that began it.
+    lookup_in_flight: Option<(uuid::Uuid, u64)>,
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
@@ -127,6 +132,7 @@ impl TempoView {
             templates: None,
             pending_template: None,
             editor: None,
+            lookup_in_flight: None,
             editor_binding: None,
             pending_editor: None,
             delete_target: None,

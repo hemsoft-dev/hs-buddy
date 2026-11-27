@@ -92,10 +92,9 @@ impl BillingSelection {
     /// listed, else nothing.
     ///
     /// Every source of a key goes through here: a person's pick (`select`),
-    /// a pick carried into a new lookup (retained, provisional, template or
-    /// kept across a connection recheck, via `readmit`), the project
-    /// default (`fallback`), and inference and the final save
-    /// (`request_account`).
+    /// the native editor's current choice applied to a list (`apply`, via
+    /// `readmit`), the project default (`fallback`), and inference and the
+    /// final save (`request_account`).
     fn admit<'a>(&'a self, candidate: Option<&'a str>) -> Admission<'a> {
         if self.offers(candidate) {
             Admission::Admitted(candidate)
@@ -129,6 +128,27 @@ impl BillingSelection {
             || self.choices.iter().any(|choice| {
                 choice.account.key() == key && choice.account.status() == BillingAccountStatus::Open
             })
+    }
+    /// Make the selection the editor's current choice against this list:
+    /// `None` is no choice (a fresh draft: an edit's existing account, else
+    /// the open project default), `Some(key)` a choice of `key` (`None`: "No
+    /// billing account"). A choice `admit` refuses gives way to that same
+    /// fresh-draft fallback, so the selection is always a function of the
+    /// list and the choice. The editor keeps the choice itself and calls this
+    /// whenever either changes.
+    pub fn apply(&mut self, choice: Option<Option<&str>>) -> Result<(), Error> {
+        match choice {
+            None => {
+                self.manual = self.existing.is_some();
+                self.selected = self.fallback().map(str::to_owned);
+            }
+            Some(value) => {
+                self.selected = selection(value)?;
+                self.manual = true;
+                self.readmit();
+            }
+        }
+        Ok(())
     }
     /// Re-check the selection against a new list. A pick made before it (a
     /// person's, a retained or provisional one, a template's) stays only if

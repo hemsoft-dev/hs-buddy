@@ -114,7 +114,7 @@ fn drive(
     };
     let pick = |editor: &mut Editor| {
         // Refused or not, the request decides; a refusal leaves it as it was.
-        let _ = editor.billing.as_mut().unwrap().select(Some(TARGET));
+        let _ = editor.choose(Some(TARGET));
     };
     let earlier = fresh(linked, Some(Open), false);
     let default = matches!(source, Source::ProjectDefault);
@@ -227,12 +227,7 @@ fn a_dropped_catalog_pick_is_not_inferred_back_into_the_request(cx: &mut gpui_ki
                         .issue
                         .update(cx, |field, cx| field.set_value("19", window, cx));
                     assert!(editor.accept_catalog(editor.id, Ok(catalog_with_target())));
-                    editor
-                        .billing
-                        .as_mut()
-                        .unwrap()
-                        .select(Some(TARGET))
-                        .unwrap();
+                    editor.choose(Some(TARGET)).unwrap();
                     let mut info = fresh(true, None, false);
                     if let Some(status) = default {
                         info.billing.choices.push(ProjectBillingAccount {
@@ -242,7 +237,7 @@ fn a_dropped_catalog_pick_is_not_inferred_back_into_the_request(cx: &mut gpui_ki
                     }
                     editor.accept_lookup("19".into(), info, cx).unwrap();
                     assert!(
-                        editor.billing.as_ref().unwrap().is_unchosen(),
+                        editor.billing().unwrap().is_unchosen(),
                         "{}",
                         label(default)
                     );
@@ -275,7 +270,7 @@ fn inference_sends_an_account_only_where_the_fresh_list_has_it_open(
                         (Some(Open), Some(TARGET.to_owned())),
                     ] {
                         let editor = drive(Source::Inference, linked, status, window, cx);
-                        assert!(editor.billing.as_ref().unwrap().is_unchosen());
+                        assert!(editor.billing().unwrap().is_unchosen());
                         assert_eq!(sent(&editor, cx), expected, "{linked} {}", label(status));
                     }
                 }
@@ -304,7 +299,7 @@ fn a_recheck_asks_a_blank_draft_to_read_every_account_again(cx: &mut gpui_kit::T
                 assert!(!editor.wants_catalog());
                 let old = editor.id;
                 editor.invalidate_connection();
-                assert!(editor.billing.is_none());
+                assert!(editor.billing().is_none());
                 assert!(
                     editor.wants_catalog(),
                     "the recheck must restart the catalog"
@@ -312,11 +307,11 @@ fn a_recheck_asks_a_blank_draft_to_read_every_account_again(cx: &mut gpui_kit::T
                 // The restarted read lands; the old connection's never does.
                 assert!(!editor.accept_catalog(old, Ok(catalog())));
                 assert!(editor.accept_catalog(editor.id, Ok(catalog())));
-                assert_eq!(editor.billing.as_ref().unwrap().choices().len(), 2);
+                assert_eq!(editor.billing().unwrap().choices().len(), 2);
 
                 // Once an issue lookup began, the project's list decides.
                 let mut looked_up = Editor::new(None, date, next_start_time(0), window, cx);
-                looked_up.lookup_beginning();
+                looked_up.begin_lookup();
                 looked_up.invalidate_connection();
                 assert!(!looked_up.wants_catalog());
                 // An edit never lists every account before its lookup.
