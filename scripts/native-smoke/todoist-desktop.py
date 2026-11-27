@@ -9,7 +9,7 @@ from pathlib import Path
 import struct
 import sys
 
-from desktop import fixture
+from desktop import finish_cleanup, fixture
 
 HERE = Path(__file__).resolve().parent
 
@@ -152,6 +152,148 @@ def check_task(api, identifier, **expected):
     for key, value in expected.items():
         if task[key] != value:
             raise RuntimeError(f'Todoist UI did not apply the expected synthetic {key}')
+
+
+CARRY_IMPORTED = "Electron Todoist token imported into this profile's protected store."
+CARRY_KEPT = 'The existing native Todoist token was kept.'
+# Spaces make it a value the import could never save, so a repeat succeeds
+# only by keeping the native token without reading the environment.
+UNREADABLE_REPEAT_TOKEN = 'synthetic repeat value never read'
+
+
+def set_ui(config, ui):
+    value = json.loads(config.read_text())
+    value['ui'] = dict(ui)
+    config.write_text(json.dumps(value), encoding='utf-8')
+
+
+def check_carry_outputs(imported, kept):
+    """Each run printed its own static outcome and neither value."""
+    for text, expected in ((imported, CARRY_IMPORTED), (kept, CARRY_KEPT)):
+        if expected not in text or todoist.TOKEN in text or UNREADABLE_REPEAT_TOKEN in text:
+            raise RuntimeError('The Electron Todoist import did not report its expected static outcome')
+
+
+FORGET_STEPS = (('content', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'))
+
+# Electron, and so the native import, prefers a nonblank Windows Machine-scope
+# TODOIST_API_TOKEN over the process value the scene sets.
+MACHINE_ENVIRONMENT = r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+MACHINE_TOKEN_REFUSED = ('This runner has a Machine-scope TODOIST_API_TOKEN, which the import would prefer '
+    'over the synthetic token, so the carry-over was not attempted and nothing was launched or captured.')
+MACHINE_UNREADABLE = ('The Windows Machine-scope environment could not be read, so the carry-over was not '
+    'attempted and nothing was launched or captured.')
+CARRIED_UNVERIFIED = ('The carried Todoist credential did not reach the synthetic fixture, so it may not be '
+    'the synthetic token. No Tasks view was captured.')
+CLEANUP_UNVERIFIED = ('No launch reached the synthetic fixture, so the Todoist vault was not opened in the UI '
+    'for cleanup and nothing was captured.')
+# A no-capture launch long enough for the Tasks view to connect at start.
+PROBE_SECONDS = 8
+
+
+def read_machine_token():
+    """The raw Machine-scope value, or None. Never printed or returned upward."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, MACHINE_ENVIRONMENT) as key:
+            return winreg.QueryValueEx(key, 'TODOIST_API_TOKEN')[0]
+    except FileNotFoundError:
+        return None
+
+
+def machine_token_present(platform=None, read=read_machine_token):
+    """Whether Windows has a Machine-scope TODOIST_API_TOKEN the import could load.
+
+    Only a blank string is ignored, as the import ignores it; any other value,
+    of any registry type, counts. Other platforms have no Machine scope. The
+    value itself never leaves this function.
+    """
+    if (sys.platform if platform is None else platform) != 'win32':
+        return False
+    try:
+        value = read()
+    except OSError:
+        raise RuntimeError(MACHINE_UNREADABLE) from None
+    return value is not None and not (isinstance(value, str) and not value.strip())
+
+
+def reached_fixture(driver, api, name):
+    """Launch once with no capture. True when the app sent the fixture any request.
+
+    The Tasks view picks the fixture client only for the synthetic fixture
+    token; any other stored value goes to the production client and never
+    reaches this loopback fixture. So fixture traffic during this launch
+    proves the stored credential is the synthetic one, without reading it.
+    """
+    before = len(api.snapshot()['traffic'])
+    driver.drive(name, [('sleep', PROBE_SECONDS)])
+    return len(api.snapshot()['traffic']) > before
+
+
+def forget_carried_token(driver, api, verified):
+    """Remove the synthetic token an import may have written.
+
+    Forget deletes an absent entry too, so this runs whenever the import was
+    attempted, including one that wrote the token and then failed read-back.
+    The UI is opened only once a launch reached the fixture (`verified`, or a
+    probe here), so a value that is not the synthetic token is never shown.
+    The launch then shows tasks, with Forget behind Connection, or the
+    connection form when the fixture connection fails; both are tried.
+    """
+    if not verified and not reached_fixture(driver, api, 'forget-probe-light'):
+        raise RuntimeError(CLEANUP_UNVERIFIED)
+    connected = [('wait_text', 'Synthetic today task'), ('content', 'Connection'), *FORGET_STEPS]
+    try:
+        driver.drive('carried-token-forget-light', connected)
+    except Exception:
+        driver.drive('carried-token-forget-form-light', list(FORGET_STEPS))
+
+
+def carry_over(executable, driver, api, config, dark, check_carried):
+    """Import the Electron token into the empty vault once, then repeat.
+
+    A Machine-scope token refuses the step before anything runs. After the
+    imports, a no-capture launch must reach the fixture before the Tasks view
+    is captured. The cleanup leaves the vault empty and the light theme, as
+    before, even when an import fails part-way. Each cleanup has its own
+    guard, so a failed theme restore cannot skip the Forget, and neither
+    cleanup can replace an earlier failure: a later one is added to it as a
+    note.
+    """
+    if machine_token_present():
+        raise RuntimeError(MACHINE_TOKEN_REFUSED)
+    ui = json.loads(config.read_text())['ui']
+    attempted = verified = False
+    failure = None
+    try:
+        set_ui(config, dark)
+        attempted = True
+        with environment(dict(TODOIST_API_TOKEN=todoist.TOKEN)):
+            imported = settings.run(executable, '--import-electron-todoist')
+        # The vault now holds a token, so a repeat keeps it without reading
+        # the environment: even a value that could never be saved succeeds,
+        # and nothing is sent anywhere.
+        with environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN)):
+            kept = settings.run(executable, '--import-electron-todoist')
+        check_carry_outputs(imported, kept)
+        verified = reached_fixture(driver, api, 'credential-probe-dark')
+        if not verified:
+            raise RuntimeError(CARRIED_UNVERIFIED)
+        check_carried()
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        restore_failure = None
+        try:
+            finish_cleanup(lambda: set_ui(config, ui), failure, 'Restoring the fixture theme')
+        except Exception as error:
+            restore_failure = error
+        if attempted:
+            finish_cleanup(lambda: forget_carried_token(driver, api, verified), failure or restore_failure,
+                'Forgetting the carried Todoist token')
+        if restore_failure is not None:
+            raise restore_failure
 
 
 def captures(output):
@@ -386,6 +528,23 @@ def qualify(executable, output, session, version, backend):
             if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
                 raise RuntimeError('Removing the local credential changed service tasks')
 
+            # Electron keeps no Todoist store of its own: it reads
+            # TODOIST_API_TOKEN. The explicit headless import carries that
+            # value into this now-empty native vault once, and the next
+            # launch connects with it. The capture uses the dark theme.
+            dark = json.loads(fixture(output / 'dark-template', 'dark').read_text())['ui']
+
+            def check_carried():
+                carried = driver.drive('credential-carried-dark', [
+                    ('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark'),
+                ])
+                github.check(carried / 'todoist-credential-carried-dark.png', 'Synthetic today task',
+                    absent=('No API token is saved',))
+                if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
+                    raise RuntimeError('Carrying the Electron token over changed service tasks')
+
+            carry_over(executable, driver, api, config, dark, check_carried)
+
             for path in output.glob('*/app.log'):
                 text = path.read_text(encoding='utf-8', errors='replace')
                 if any(private in text for private in (todoist.TOKEN, 'Synthetic created task', 'Synthetic undated task')):
@@ -412,6 +571,13 @@ def qualify(executable, output, session, version, backend):
                 realOsCredentialStore=True, secureTokenSurvivedProcessRestart=True,
                 secureTokenRemovalVerifiedAfterRestart=True,
                 initialConnectionErrorRecheckedWithoutTokenEntry=True,
+                electronTokenCarriedOnce=True, machineScopeTokenAbsent=True,
+                carriedTokenReachedFixtureBeforeCapture=True,
+                # The repeat's exit outcome and the retained credential. That the
+                # repeat never reads the source is a Rust unit test, not this scene.
+                repeatImportKeptOutcomeAndCredential=True,
+                repeatImportNoSourceReadTest='buddy-core todoist::credentials::electron_import::tests::'
+                    'an_existing_native_token_is_kept_and_the_source_is_never_read',
                 expiredAndOfflineReadRetainedTasks=True, privateTraceContentAbsent=True,
                 dataSource='Owned numeric loopback Todoist fixture and isolated anonymous Convex')
         except BaseException as failure:
@@ -422,7 +588,6 @@ def qualify(executable, output, session, version, backend):
                 failure.add_note('Todoist request diagnostics failed: ' + type(diagnostic).__name__)
             raise
         finally:
-            from desktop import finish_cleanup
             finish_cleanup(api.close, primary, 'Todoist fixture shutdown')
         (output / 'qualification.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
 

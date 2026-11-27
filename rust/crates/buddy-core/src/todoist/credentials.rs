@@ -1,6 +1,9 @@
 //! Todoist tokens use the existing OS vault and config-profile identity.
 //! Callers retain immutable clients and resolve uncertain writes before
-//! replacing a connection. This module never falls back to an environment key.
+//! replacing a connection. Loading never falls back to an environment key;
+//! only the explicit Electron import reads one, into an empty entry.
+#[path = "credentials/electron_import.rs"]
+pub mod electron_import;
 use std::path::Path;
 
 use keyring::Entry;

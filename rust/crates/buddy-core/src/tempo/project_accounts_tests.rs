@@ -85,7 +85,7 @@ fn links_resolve_against_the_catalog_and_preserve_closed_account_status() {
     assert!(complete);
     let choices = ProjectLinks::parse(&body(vec![link(1, true)]), project())
         .unwrap()
-        .resolve(catalog.finish())
+        .resolve(&catalog.finish())
         .unwrap();
     assert_eq!(choices[0].account.key(), "SYNTHETIC");
     assert!(
@@ -95,7 +95,7 @@ fn links_resolve_against_the_catalog_and_preserve_closed_account_status() {
     assert!(matches!(
         ProjectLinks::parse(&body(vec![link(2, false)]), project())
             .unwrap()
-            .resolve(Vec::new()),
+            .resolve(&[]),
         Err(Error::ChangedWhileLoading)
     ));
 }
@@ -112,7 +112,7 @@ fn link_envelopes_enforce_count_size_and_required_fields() {
     assert!(
         ProjectLinks::parse(&body(vec![]), project())
             .unwrap()
-            .resolve(vec![])
+            .resolve(&[])
             .unwrap()
             .is_empty()
     );

@@ -18,6 +18,16 @@ pub struct ProjectBillingAccounts {
     pub connection: WriteScope,
     pub project: JiraProjectId,
     pub choices: Vec<ProjectBillingAccount>,
+    /// The complete catalog this lookup read to resolve the links, in
+    /// Tempo's order. Electron lists it when a project links no account.
+    pub catalog: Vec<BillingAccount>,
+}
+/// Every Tempo account from one complete catalog read, in Tempo's order,
+/// captured with the connection that read it. Electron's editor offers this
+/// list until a project's linked accounts narrow it.
+pub struct BillingCatalog {
+    pub connection: WriteScope,
+    pub accounts: Vec<BillingAccount>,
 }
 
 #[derive(Deserialize)]
@@ -87,16 +97,19 @@ impl ProjectLinks {
     }
     pub(super) fn resolve(
         self,
-        accounts: Vec<BillingAccount>,
+        accounts: &[BillingAccount],
     ) -> Result<Vec<ProjectBillingAccount>, Error> {
         let mut catalog: HashMap<_, _> = accounts
-            .into_iter()
+            .iter()
             .map(|account| (account.id(), account))
             .collect();
         self.0
             .into_iter()
             .map(|(id, is_default)| {
-                let account = catalog.remove(&id).ok_or(Error::ChangedWhileLoading)?;
+                let account = catalog
+                    .remove(&id)
+                    .cloned()
+                    .ok_or(Error::ChangedWhileLoading)?;
                 Ok(ProjectBillingAccount {
                     account,
                     is_default,

@@ -24,6 +24,7 @@ pub mod copilot_sessions;
 pub mod copilot_usage;
 pub mod crew;
 pub mod dashboard;
+mod electron_env;
 mod file_lock;
 pub mod finance;
 pub mod format;

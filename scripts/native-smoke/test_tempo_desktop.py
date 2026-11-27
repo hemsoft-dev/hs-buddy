@@ -46,17 +46,20 @@ class FixtureScenarios(unittest.TestCase):
                     return response.status
                 finally:
                     connection.close()
+            # The catalog read alone never arms the preflight fault.
             self.assertEqual(request('GET', '/4/accounts?limit=50&offset=0', tempo_auth), 200)
+            self.assertTrue(api.preflight_after_lookup)
+            self.assertEqual(request('GET', f'/4/account-links/project/{desktop.tempo.PROJECT_ID}?includeGlobalAccounts=true', tempo_auth), 200)
             for expected in [200, 200, 503, 200]:
                 self.assertEqual(request('GET', '/rest/api/3/myself', jira_auth), expected)
-            self.assertEqual(len(api.snapshot()['attempts']), 5)
+            self.assertEqual(len(api.snapshot()['attempts']), 6)
             self.assertEqual(api.snapshot()['preflightFailures'], [dict(writes=0, mutationAttempts=0)])
             self.assertTrue(all(row['method'] == 'GET' for row in api.snapshot()['attempts']))
             body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
                 startDate='2026-10-14', timeSpentSeconds=3600, attributes=[])
             self.assertEqual(request('POST', '/4/worklogs', tempo_auth, body), 200)
             state = desktop.require_writes(api, 1)
-            self.assertEqual(len(state['attempts']), 6)
+            self.assertEqual(len(state['attempts']), 7)
             self.assertEqual(desktop.write_body(state['writes'][0]), body)
 
     def test_installed_scenario_requires_the_regional_connection_including_its_template(self):
@@ -176,6 +179,42 @@ class FixtureScenarios(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'changed worklogs before its confirmation'):
                 desktop.assert_cell_kept(api, before, 2)
 
+    def test_account_fallback_requires_a_catalog_read_without_a_lookup_or_write(self):
+        with desktop.ScenarioFixture() as api:
+            tempo_auth = 'Bearer ' + desktop.tempo.TEMPO_TOKEN
+            address = urlsplit(api.url)
+            def request(method, path, body=None):
+                connection = HTTPConnection(address.hostname, address.port, timeout=3)
+                try:
+                    connection.request(method, path, body=json.dumps(body) if body is not None else None,
+                        headers={'Authorization': tempo_auth})
+                    response = connection.getresponse()
+                    response.read()
+                    return response.status
+                finally:
+                    connection.close()
+            records = api.snapshot()['records']
+            before = api.snapshot()['attempts']
+            # Opening the draft alone read nothing: the catalog is required.
+            with self.assertRaisesRegex(RuntimeError, 'did not read the Tempo account catalog'):
+                desktop.assert_account_fallback(api, before, records)
+            self.assertEqual(request('GET', '/4/accounts?limit=50&offset=0'), 200)
+            state = desktop.assert_account_fallback(api, before, records)
+            self.assertEqual(state['writes'], [])
+            # A project lookup is not the every-account list.
+            links = f'/4/account-links/project/{desktop.tempo.PROJECT_ID}?includeGlobalAccounts=true'
+            self.assertEqual(request('GET', links), 200)
+            with self.assertRaisesRegex(RuntimeError, 'project lookup'):
+                desktop.assert_account_fallback(api, before, records)
+            # Any write, or a changed worklog, fails the step too.
+            after_lookup = api.snapshot()['attempts']
+            self.assertEqual(request('GET', '/4/accounts?limit=50&offset=0'), 200)
+            body = dict(authorAccountId=desktop.tempo.ACCOUNT, issueId=desktop.tempo.ISSUE_ID,
+                startDate='2026-10-14', timeSpentSeconds=3600, attributes=[])
+            self.assertEqual(request('POST', '/4/worklogs', body), 200)
+            with self.assertRaisesRegex(RuntimeError, 'changed worklogs or sent a write'):
+                desktop.assert_account_fallback(api, after_lookup, records)
+
     def test_public_entrypoint_refuses_home_before_parsing_or_launching_anything(self):
         with patch.dict(os.environ, {}, clear=True), \
                 patch.object(desktop.github, 'installed_binary') as installed, \
@@ -199,8 +238,12 @@ class FixtureScenarios(unittest.TestCase):
                     (desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode(), b'')
                 self.assertEqual(first[0], 200)
                 self.assertFalse(api.reject_identity)
+                # A new draft's catalog read is not a lookup and arms nothing.
                 catalog = api.respond('GET', '/4/accounts?limit=50&offset=0', 'Bearer ' + desktop.tempo.TEMPO_TOKEN, b'')
                 self.assertEqual(catalog[0], 200)
+                self.assertFalse(api.reject_identity)
+                links = api.respond('GET', f'/4/account-links/project/{desktop.tempo.PROJECT_ID}?includeGlobalAccounts=true', 'Bearer ' + desktop.tempo.TEMPO_TOKEN, b'')
+                self.assertEqual(links[0], 200)
                 authorization = 'Basic ' + base64.b64encode((desktop.tempo.JIRA_EMAIL + ':' + desktop.tempo.JIRA_TOKEN).encode()).decode()
                 self.assertEqual(api.respond('GET', '/rest/api/3/myself', authorization, b'')[0], 401)
                 self.assertEqual(api.respond('GET', '/rest/api/3/myself', authorization, b'')[0], 200)
@@ -226,7 +269,7 @@ class ReadyEscapeIntegration(unittest.TestCase):
     def capture_ready(self, api, config):
         api.checkpoint_config = config
         api.preflight_after_lookup = True
-        self.assertEqual(self.request(api, 'GET', '/4/accounts?limit=50&offset=0'), 200)
+        self.assertEqual(self.request(api, 'GET', f'/4/account-links/project/{desktop.tempo.PROJECT_ID}?includeGlobalAccounts=true'), 200)
         for status in (200, 200, 503):
             self.assertEqual(self.request(api, 'GET', '/rest/api/3/myself'), status)
         self.assertEqual(len(api.snapshot()['readyCheckpoints']), 1)
@@ -449,6 +492,30 @@ class CellInput(unittest.TestCase):
         self.assertIn('api.records.setdefault(target, removed)', scene)
         for capture in ('tempo-holiday-capex-dark', 'tempo-cell-delete-dark'):
             self.assertIn(f"'cell-delete-prompt-dark/{capture}.png'", source)
+
+    def test_the_account_fallback_capture_waits_for_the_unlinked_account_before_any_lookup(self):
+        source = Path(desktop.__file__).read_text(encoding='utf-8')
+        for session in ('windows', 'macos', 'x11'):
+            with self.subTest(session=session):
+                actions = self.stage_actions('account-fallback-dark', session)
+                opened = actions.index(('click', 'Log time'))
+                unlinked = actions.index(('wait_scroll_text', desktop.tempo.UNLINKED_ACCOUNT_KEY, 'Description'))
+                # The list arrives after the draft opens, so its own row is
+                # awaited (it settles the layout) before the capture.
+                self.assertLess(opened, unlinked)
+                self.assertEqual(actions[unlinked + 1], ('capture', 'tempo-account-fallback-dark'))
+                self.assertEqual(actions[-1], ('capture', 'tempo-account-fallback-dark'))
+                # No lookup, input or choice: the project stays unknown.
+                self.assertNotIn(('click', 'Look up issue and billing accounts'), actions)
+                self.assertFalse(any(action[0] in ('input', 'cell', 'key') for action in actions))
+                self.assertEqual([action for action in actions if action[0] == 'click'], [('click', 'Log time')])
+        self.assertNotIn(desktop.tempo.UNLINKED_ACCOUNT_ID, (17, 18, 19))
+        self.assertIn("'account-fallback-dark/tempo-account-fallback-dark.png'", source)
+        self.assertIn("github.check(fallback / 'tempo-account-fallback-dark.png', tempo.UNLINKED_ACCOUNT_KEY,", source)
+        self.assertIn('assert_account_fallback(api, reads_before, before_denied)', source)
+        order = [source.index(f"driver.drive('{stage}'") for stage in
+            ('denied-write-dark', 'account-fallback-dark', 'escape-cancel-dark')]
+        self.assertEqual(order, sorted(order))
 
     def test_timeline_pager_gets_a_coarse_owned_scroll_before_expensive_ocr_waits(self):
         actions = self.stage_actions('grid-navigation-dark', 'windows')

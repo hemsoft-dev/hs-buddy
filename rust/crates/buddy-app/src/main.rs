@@ -411,6 +411,9 @@ fn main() {
         Ok(command_line::Command::ImportElectronTempo) => {
             std::process::exit(buddy_core::tempo::credentials::electron_import::run());
         }
+        Ok(command_line::Command::ImportElectronTodoist) => {
+            std::process::exit(buddy_core::todoist::credentials::electron_import::run());
+        }
         Ok(command_line::Command::TerminalHost) => {
             std::process::exit(buddy_core::terminal::run_terminal_host());
         }

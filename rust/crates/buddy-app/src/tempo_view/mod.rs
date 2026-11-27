@@ -2,6 +2,7 @@
 mod actions;
 mod copy;
 mod delete_bar;
+mod draft_billing;
 mod editor;
 mod grid;
 mod io;
@@ -59,6 +60,10 @@ pub struct TempoView {
         jiff::civil::Date,
     )>,
     editor: Option<editor::Editor>,
+    /// The draft and generation of the issue lookup in flight. Set and
+    /// cleared with `busy`, so `settle` pairs a lookup's response, or its
+    /// failure, with the lookup that began it.
+    lookup_in_flight: Option<(uuid::Uuid, u64)>,
     editor_binding: Option<io::Binding>,
     pending_editor: Option<(buddy_core::tempo::Worklog, buddy_core::tempo::EditorIssue)>,
     delete_target: Option<buddy_core::tempo::Worklog>,
@@ -127,6 +132,7 @@ impl TempoView {
             templates: None,
             pending_template: None,
             editor: None,
+            lookup_in_flight: None,
             editor_binding: None,
             pending_editor: None,
             delete_target: None,
@@ -250,6 +256,10 @@ impl TempoView {
                             this.set_notice(Tone::Warning,"Connection checked. Your draft was retained. Look up its issue and billing accounts again before saving.");
                         } else {this.editor_binding=None;}
                         this.connection=Some(connection);this.saved=Some(true);this.connection_form=false;this.clear_credentials=true;this.populate_range=true;this.scroll_to_today=true;this.page=0;
+                        // The recheck dropped the old connection's catalog.
+                        // A draft that never looked up its issue reads it
+                        // again, as when it opened.
+                        if this.editor.as_ref().is_some_and(editor::Editor::wants_catalog) {this.load_billing_catalog(cx);}
                     },
                     Ok(Ok(None))=>{this.connection_form=true;this.saved=Some(false);this.set_notice(Tone::Info,if retained {"No connection is saved. The displayed timesheet was retained. Reconnect to continue."} else {"Connect Tempo and Jira. No connection is saved for this profile."});},
                     Ok(Err(error))=>this.error=Some(error),

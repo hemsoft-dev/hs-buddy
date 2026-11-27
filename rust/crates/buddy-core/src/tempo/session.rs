@@ -119,6 +119,28 @@ impl Session {
             capitalization,
         })
     }
+    /// Every Tempo account, for a draft whose project is not known yet. The
+    /// read owns a handle to this session's client, so it needs no exclusive
+    /// session and changes nothing; a failed read is an error, never an
+    /// empty list.
+    pub fn billing_catalog(
+        &self,
+    ) -> impl std::future::Future<Output = Result<super::BillingCatalog, SessionError>>
+    + Send
+    + 'static
+    + use<> {
+        let client = Arc::clone(&self.client);
+        async move {
+            let accounts = client
+                .billing_accounts()
+                .await
+                .map_err(PlannerError::from)?;
+            Ok(super::BillingCatalog {
+                connection: client.write_scope(),
+                accounts,
+            })
+        }
+    }
     pub async fn worklog_for_edit(
         &self,
         id: super::WorklogId,

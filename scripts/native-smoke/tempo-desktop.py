@@ -105,10 +105,14 @@ class ScenarioFixture(tempo.TempoFixture):
             self.reject_identity = False
             return 401, dict(error='Synthetic one-shot expired connection')
         status, value = super().respond(method, target, authorization, raw)
-        if method == 'GET' and path == '/4/accounts' and status == 200 and self.preflight_after_lookup:
+        # Only an issue lookup reads its project's account links. A new draft
+        # also reads the whole account catalog before any lookup, so the
+        # catalog read cannot arm these one-shot faults.
+        lookup = method == 'GET' and path == f'/4/account-links/project/{tempo.PROJECT_ID}' and status == 200
+        if lookup and self.preflight_after_lookup:
             self.preflight_after_lookup = False
             self.preflight_identity_reads = 2
-        if method == 'GET' and path == '/4/accounts' and status == 200 and self.expire_after_lookup:
+        if lookup and self.expire_after_lookup:
             self.expire_after_lookup = False
             self.reject_identity = True
         if method == 'POST' and status == 200 and self.drop_after is not None:
@@ -462,6 +466,20 @@ def week_actions():
     ]
 
 
+def assert_account_fallback(api, reads_before, records):
+    """The draft read the catalog without a lookup and changed nothing."""
+    state = api.snapshot()
+    new = state['attempts'][len(reads_before):]
+    if any(row['method'] != 'GET' for row in new) or state['records'] != records:
+        raise RuntimeError('Listing every billing account changed worklogs or sent a write')
+    paths = [row['path'] for row in new]
+    if not any(path.startswith('/4/accounts?') for path in paths):
+        raise RuntimeError('The new draft did not read the Tempo account catalog')
+    if any(path.startswith('/4/account-links/') for path in paths):
+        raise RuntimeError('The every-account list came from a project lookup instead of the catalog')
+    return state
+
+
 def evidence_inventory(output):
     required = {
         'connect-dark/missing-connection-dark.png', 'connect-dark/regional-connection-dark.png',
@@ -473,6 +491,7 @@ def evidence_inventory(output):
         'template-dark/ready-editor-after-escape-dark.png',
         'denied-write-dark/invalid-duration-dark.png', 'denied-write-dark/permission-denied-dark.png',
         'denied-write-dark/denied-hours-retained-dark.png', 'denied-write-dark/denied-description-retained-dark.png',
+        'account-fallback-dark/tempo-account-fallback-dark.png',
         'escape-cancel-dark/escape-draft-open-dark.png', 'escape-cancel-dark/escape-draft-cancelled-dark.png',
         'copy-dark/copy-confirmation-dark.png', 'copy-dark/copy-confirmed-dark.png',
         'move-dark/exact-original-editor-dark.png', 'move-dark/moved-worklog-dark.png',
@@ -666,6 +685,20 @@ def qualify(executable, output, session, version, source, backend):
                 github.check(denied / 'permission-denied-dark.png', 'Tempo rejected the worklog change', 'draft was retained')
                 github.check(denied / 'denied-hours-retained-dark.png', 'Hours or H:MM:SS', '1:30:01')
                 github.check(denied / 'denied-description-retained-dark.png', 'Description', 'Denied native draft')
+                # Before any issue lookup, a new draft lists every Tempo
+                # account, as Electron's editor does, including the open
+                # fixture account that no project links.
+                reads_before = api.snapshot()['attempts']
+                fallback = driver.drive('account-fallback-dark', [
+                    ('wait_text', 'Tempo timesheet'), ('click', 'Log time'),
+                    ('wait_scroll_text', 'Issue key or ID', 'Tempo timesheet'),
+                    ('wait_scroll_text', 'Description', 'Issue key or ID'),
+                    ('wait_scroll_text', tempo.UNLINKED_ACCOUNT_KEY, 'Description'),
+                    ('capture', 'tempo-account-fallback-dark'),
+                ])
+                assert_account_fallback(api, reads_before, before_denied)
+                github.check(fallback / 'tempo-account-fallback-dark.png', tempo.UNLINKED_ACCOUNT_KEY,
+                    'Every Tempo account is listed')
                 # An idle create draft closes on Escape from a focused editor
                 # control (#963). The editor has no visible state that only
                 # appears once it is gone, so the capture follows a fixed wait

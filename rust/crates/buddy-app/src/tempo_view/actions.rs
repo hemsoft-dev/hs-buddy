@@ -61,6 +61,38 @@ impl TempoView {
         }
         self.operate(Operation::Lookup(id, query), cx);
     }
+    /// List every Tempo account in a new draft before its issue is looked up.
+    /// The read shares the session's client but not the session, so the
+    /// draft stays editable while it loads; the result applies only to the
+    /// same draft on the same connection.
+    pub(super) fn load_billing_catalog(&mut self, cx: &mut Context<Self>) {
+        let (Some(editor), Some(connection)) = (&self.editor, &self.connection) else {
+            return;
+        };
+        if !cx.has_global::<Runtime>() {
+            return;
+        }
+        let editor_id = editor.id;
+        let generation = self.generation;
+        let rx = Runtime::global(cx).spawn(connection.session.billing_catalog());
+        cx.spawn(async move |this, cx| {
+            let result = match rx.await {
+                Ok(result) => result.map_err(|e| e.to_string()),
+                Err(_) => Err("The worker stopped before the accounts loaded.".into()),
+            };
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                if let Some(editor) = &mut this.editor {
+                    editor.accept_catalog(editor_id, result);
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
     pub(super) fn load_edit(&mut self, id: WorklogId, cx: &mut Context<Self>) {
         if !self.can_submit() || self.editor.is_some() || self.copy_plan.is_some() {
             return;
@@ -180,6 +212,16 @@ impl TempoView {
     /// in-flight state is the operation's own. `pending` is the captured
     /// change that `Operation::RetryPrepared` sends.
     pub(super) fn begin(&mut self, operation: &Operation, pending: Option<&Draft>) {
+        // A lookup moves its draft to a new generation; only the response
+        // `settle` pairs with it can resolve the draft.
+        self.lookup_in_flight = match operation {
+            Operation::Lookup(id, _) => self
+                .editor
+                .as_mut()
+                .filter(|editor| editor.id == *id)
+                .map(|editor| (*id, editor.begin_lookup())),
+            _ => None,
+        };
         self.busy = true;
         self.deleting = deletes(operation, pending);
         self.error = None;
@@ -190,6 +232,7 @@ impl TempoView {
     pub(super) fn settle(&mut self, outcome: Result<Update, String>, cx: &mut Context<Self>) {
         self.busy = false;
         self.notice = None;
+        let lookup = self.lookup_in_flight.take();
         match outcome {
             Ok(Update::Message(tone, message)) => {
                 self.set_notice(tone, message);
@@ -206,9 +249,11 @@ impl TempoView {
             Ok(Update::Editor(value)) => self.pending_editor = Some(*value),
             Ok(Update::Lookup(value)) => {
                 let (id, query, info) = *value;
-                if let Some(editor) = &mut self.editor
+                if let Some((sent_for, generation)) = lookup
+                    && sent_for == id
+                    && let Some(editor) = &mut self.editor
                     && editor.id == id
-                    && let Err(error) = editor.accept_lookup(query, info, cx)
+                    && let Err(error) = editor.settle_lookup(generation, query, Ok(info), cx)
                 {
                     self.error = Some(error);
                 }
@@ -220,7 +265,17 @@ impl TempoView {
                 message,
                 problem,
             }) => self.wrote(confirmed, unconfirmed, tone, message, problem),
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                // A failed lookup takes away the draft's earlier resolution
+                // (I1): nothing it listed can be saved now.
+                if let Some((id, generation)) = lookup
+                    && let Some(editor) = &mut self.editor
+                    && editor.id == id
+                {
+                    let _ = editor.settle_lookup(generation, String::new(), Err(error.clone()), cx);
+                }
+                self.error = Some(error);
+            }
         }
         self.deleting = None;
         cx.notify();

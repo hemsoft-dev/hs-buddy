@@ -82,13 +82,18 @@ class TempoFixtureTests(unittest.TestCase):
             self.assertEqual(links['metadata']['count'], 3)
             self.assertTrue(all(item['scope'] == dict(id=tempo.PROJECT_ID, type='PROJECT') for item in links['results']))
             self.assertEqual([item['default'] for item in links['results']], [True, False, False])
-            self.assertEqual([item['id'] for item in catalog['results']], [17, 18, 19])
-            self.assertEqual([item['status'] for item in catalog['results']], ['OPEN', 'CLOSED', 'OPEN'])
-            self.assertEqual([item['global'] for item in catalog['results']], [False, False, True])
+            self.assertEqual([item['id'] for item in catalog['results']], [17, 18, 19, tempo.UNLINKED_ACCOUNT_ID])
+            self.assertEqual([item['status'] for item in catalog['results']], ['OPEN', 'CLOSED', 'OPEN', 'OPEN'])
+            self.assertEqual([item['global'] for item in catalog['results']], [False, False, True, False])
+            # The open account the project does not link, for the editor's
+            # every-account list before a lookup.
+            linked = {int(item['account']['self'].rsplit('/', 1)[1]) for item in links['results']}
+            self.assertNotIn(tempo.UNLINKED_ACCOUNT_ID, linked)
+            self.assertEqual(catalog['results'][-1]['key'], tempo.UNLINKED_ACCOUNT_KEY)
             fixture.missing_billing_account = True
             missing = self.request(fixture, '/4/accounts?limit=50&offset=0')
-            self.assertEqual(missing['metadata']['count'], 2)
-            self.assertEqual([item['id'] for item in missing['results']], [18, 19])
+            self.assertEqual(missing['metadata']['count'], 3)
+            self.assertEqual([item['id'] for item in missing['results']], [18, 19, tempo.UNLINKED_ACCOUNT_ID])
             fixture.fail_project_accounts = True
             with self.assertRaises(HTTPError) as error:
                 self.request(fixture, links_path)

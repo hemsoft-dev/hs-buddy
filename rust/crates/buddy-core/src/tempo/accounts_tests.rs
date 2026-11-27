@@ -214,3 +214,35 @@ fn page_budget_rejects_an_unbounded_catalog() {
         Err(Error::ReadLimit)
     ));
 }
+
+#[test]
+fn a_single_account_is_validated_like_a_catalog_row() {
+    let open = BillingAccountStatus::Open;
+    let account = BillingAccount::new(7, "SYNTHETIC-7", "Synthetic 雪", true, open).unwrap();
+    assert_eq!(account.id().get(), 7);
+    assert_eq!(
+        (account.key(), account.name()),
+        ("SYNTHETIC-7", "Synthetic 雪")
+    );
+    assert!(account.is_global() && account.status() == open);
+    let long_key = "k".repeat(257);
+    let long_name = "n".repeat(1025);
+    for (case, (id, key, name)) in [
+        (0, "KEY", "Name"),
+        (i32::MAX as u64 + 1, "KEY", "Name"),
+        (7, " ", "Name"),
+        (7, "KEY", ""),
+        (7, "bad\nkey", "Name"),
+        (7, long_key.as_str(), "Name"),
+        (7, "KEY", long_name.as_str()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // The case index only: account keys stay out of test output.
+        assert!(
+            BillingAccount::new(id, key, name, false, open).is_err(),
+            "case {case}"
+        );
+    }
+}
