@@ -51,9 +51,14 @@ started from the Dock or a desktop launcher may not inherit it.
 
 The import reads the variable when it runs. A running Electron app does not:
 its resolver caches the first value it finds and keeps it until Electron
-restarts. If the variable changed after Electron started, the import can save a
-different token from the one Electron is still using. Restart Electron to make
-the two match.
+restarts. A restart clears that value, but Electron then reads the environment
+of whatever starts it, such as the desktop session or a shell, which can differ
+from the one the import saw. To make the two use the same token, set the
+variable where Electron's launcher reads it, then restart Electron from there:
+
+- Windows: the Machine-scope variable, which both prefer.
+- macOS: `launchctl setenv` or the login environment.
+- Linux: the desktop session's environment.
 
 ## Profile and existing choices
 
