@@ -440,11 +440,13 @@ class CopilotQualificationTests(unittest.TestCase):
         [(name, actions, record)] = driver.runs
         self.assertEqual((name, record), ('recent-results-dark', True))
         self.assertIn(name, copilot.STARTUP_SCENES)
-        self.assertEqual(copilot.RECENT_REVIEW_LABEL, 'PR Review: Second')
+        self.assertEqual(copilot.RECENT_REVIEW_LABEL, 'PR Review')
         order = [
             ('input', 'GitHub account', 'synthetic-account'),
             ('wait_text', '174/300'),
             ('capture', 'copilot-usage-badge-dark'),
+            # Chat's category button would win over the row; Sessions has none.
+            ('content', 'Sessions'),
             ('content', 'Recent Results'),
             ('wait_text', copilot.RECENT_REVIEW_LABEL),
             ('capture', 'copilot-recent-results-dark'),
@@ -455,12 +457,107 @@ class CopilotQualificationTests(unittest.TestCase):
         positions = [actions.index(action) for action in order]
         self.assertEqual(positions, sorted(positions))
         # The row is clicked only after the list has settled.
-        self.assertIn(('sleep', 1), actions[positions[4]:positions[6]])
+        self.assertIn(('sleep', 1), actions[positions[5]:positions[7]])
+        # Nothing returns to Chat before the row is clicked.
+        self.assertNotIn(('content', 'Chat'), actions)
         self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
             ('copilot-usage-badge-dark.png', 'GitHub account', '174/300'),
-            ('copilot-recent-results-dark.png', 'Recent Results', 'PR Review: Second'),
-            ('copilot-recent-result-opened-dark.png', 'PR Review: Second', 'Captured review'),
+            ('copilot-recent-results-dark.png', 'Recent Results', 'PR Review:|PR Review.'),
+            ('copilot-recent-result-opened-dark.png', 'PR Review:|PR Review.', 'Captured review'),
         ])
+
+    # Tesseract (mode 11) of the opened re-run result in Ubuntu run
+    # 46007700214, 1200x820: the results list, the detail's first lines and
+    # the failure notice above the clipped answer.
+    UBUNTU_OPENED_RERUN = [
+        dict(text='Failed:', left=364, top=270, width=43, height=11, line='26/1/1'),
+        dict(text='BUDDYCANCEL73429', left=414, top=271, width=147, height=10, line='26/1/1'),
+        dict(text='R...', left=567, top=271, width=18, height=10, line='26/1/1'),
+        dict(text='Refresh', left=843, top=270, width=51, height=11, line='27/1/1'),
+        dict(text='this', left=899, top=270, width=26, height=11, line='27/1/1'),
+        dict(text='result', left=930, top=270, width=39, height=11, line='27/1/1'),
+        dict(text='Completed:', left=363, top=306, width=80, height=14, line='28/1/1'),
+        dict(text='BUDDYSTREAM61527', left=449, top=307, width=150, height=10, line='28/1/1'),
+        dict(text='Answer', left=628, top=313, width=67, height=13, line='29/1/1'),
+        dict(text='using', left=701, top=312, width=47, height=18, line='29/1/1'),
+        dict(text='Completed:', left=363, top=378, width=80, height=14, line='33/1/1'),
+        dict(text='BUDDYSTREAM61527', left=449, top=379, width=150, height=10, line='33/1/1'),
+        dict(text='User:', left=629, top=400, width=44, height=13, line='35/1/1'),
+        dict(text='BUDDYCANCEL73429', left=682, top=400, width=190, height=13, line='35/1/1'),
+        dict(text='RECENTROW', left=879, top=400, width=116, height=13, line='35/1/1'),
+        dict(text='This', left=628, top=697, width=26, height=11, line='46/1/1'),
+        dict(text='saved', left=659, top=697, width=38, height=11, line='46/1/1'),
+        dict(text='run', left=702, top=701, width=20, height=7, line='46/1/1'),
+        dict(text='failed.', left=728, top=697, width=35, height=11, line='46/1/1'),
+        dict(text='Any', left=772, top=699, width=24, height=12, line='46/1/1'),
+        dict(text='captured', left=801, top=697, width=57, height=14, line='46/1/1'),
+        dict(text='partial', left=864, top=697, width=40, height=14, line='46/1/1'),
+        dict(text='answer', left=909, top=701, width=47, height=7, line='46/1/1'),
+        dict(text='appears', left=961, top=701, width=51, height=10, line='46/1/1'),
+        dict(text='below.', left=1017, top=697, width=40, height=11, line='46/1/1'),
+    ]
+
+    def test_the_opened_rerun_answer_is_scrolled_over_the_result_not_the_list(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions = actions
+                return Path('unused-' + name)
+
+        driver = Driver()
+        with patch.object(copilot.github, 'check'):
+            copilot.rerun_turns(driver)
+        opened = driver.actions.index(('content', 'Open re-run result'))
+        self.assertEqual(driver.actions[opened + 1],
+            ('wait_scroll_text', 'Partial synthetic answer', copilot.RESULT_TOP))
+        ocr = copilot.settings.ocr
+        words = self.UBUNTU_OPENED_RERUN
+        # The answer is below the window; only the notice's "partial answer" shows.
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(words, 'Partial synthetic answer')
+        detail_left = min(word['left'] for word in words if word['line'] in ('29/1/1', '35/1/1', '46/1/1'))
+        list_right = max(word['left'] + word['width'] for word in words if word['text'] in ('Completed:', 'BUDDYSTREAM61527'))
+        # The anchorless wheel at x=600 is over the list column, left of the result.
+        self.assertTrue(list_right <= 600 < detail_left)
+        # The anchor is on this frame once, inside the result.
+        top = ocr.locate_label(words, copilot.RESULT_TOP)
+        self.assertGreater(top['left'] + top['width'] / 2, detail_left)
+
+    # Windows OCR (win32 engine) of the failing frame in run 46007700214,
+    # 1044x788: the expanded sidebar's first row, and Chat's category row.
+    WINDOWS_SIDEBAR_ROW = [
+        dict(text='PR', left=95, top=124, width=15, height=10, line='12'),
+        dict(text='Review.', left=115, top=124, width=45, height=10, line='12'),
+        dict(text='Se...', left=165, top=124, width=24, height=10, line='12'),
+        dict(text='1', left=201, top=124, width=4, height=10, line='19'),
+        dict(text='minute', left=212, top=124, width=43, height=10, line='19'),
+        dict(text='ago', left=259, top=127, width=23, height=10, line='19'),
+    ]
+    # Windows OCR reads each category button as its own line.
+    WINDOWS_CHAT_CATEGORIES = [
+        dict(text='PR', left=467, top=585, width=15, height=10, line='40'),
+        dict(text='Review', left=487, top=585, width=43, height=10, line='40'),
+    ]
+
+    def test_the_cut_windows_row_is_found_by_its_prefix_only_away_from_chat(self):
+        ocr = copilot.settings.ocr
+        sidebar, chat = self.WINDOWS_SIDEBAR_ROW, self.WINDOWS_CHAT_CATEGORIES
+        # The row reads "PR Review: Se...", so the full title never appears.
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(sidebar + chat, 'PR Review: Second')
+        # Beside Chat the prefix resolves to the complete category button,
+        # which would select a category instead of opening the result.
+        self.assertEqual(ocr.locate_label(sidebar + chat, copilot.RECENT_REVIEW_LABEL)['top'], 585)
+        # In Sessions the row is the only "PR Review".
+        row = ocr.locate_label(sidebar, copilot.RECENT_REVIEW_LABEL)
+        self.assertEqual((row['left'], row['top']), (95, 124))
+
+    def test_the_review_row_marker_reads_the_row_and_not_the_results_filter(self):
+        has_marker = copilot.github.has_marker
+        self.assertTrue(has_marker('PR Review: Se... 1 minute ago', copilot.RECENT_REVIEW_MARKER))
+        self.assertTrue(has_marker('PR Review. Se...', copilot.RECENT_REVIEW_MARKER))
+        self.assertTrue(has_marker('PR Review: Second private navigation review', copilot.RECENT_REVIEW_MARKER))
+        self.assertFalse(has_marker('All Pending Running Completed Failed PR reviews', copilot.RECENT_REVIEW_MARKER))
+        self.assertFalse(has_marker('Category General PR Review Code Analysis', copilot.RECENT_REVIEW_MARKER))
 
     def test_a_failed_recent_results_check_stops_the_scene(self):
         class Driver:

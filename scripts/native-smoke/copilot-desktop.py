@@ -178,9 +178,17 @@ def assert_private_content_not_logged(output):
 USAGE_ENTITLEMENT, USAGE_REMAINING = 300, 174
 # The badge reads "42% · 174/300"; only the figures are matched.
 USAGE_BADGE = f'{USAGE_REMAINING}/{USAGE_ENTITLEMENT}'
-# The sidebar row of the review-dark result. The label is cut to the sidebar
-# width, so only its start is matched; the Chat Recent list shows the prompt.
-RECENT_REVIEW_LABEL = 'PR Review: Second'
+# The sidebar row of the review-dark result, "PR Review: <title>". The sidebar
+# cuts the title to its width, as Electron's does: the 1044 px Windows window
+# shows "PR Review: Se..." (run 46007700214), so only the prefix is matched.
+# Chat's "PR Review" category button is a complete label and would win over
+# this row, so the scene opens the section from a pane without it.
+RECENT_REVIEW_LABEL = 'PR Review'
+# The colon tells the row from Saved results' "PR reviews" filter. Windows OCR
+# reads it as a full stop.
+RECENT_REVIEW_MARKER = 'PR Review:|PR Review.'
+# The opened result's first control, above everything it scrolls.
+RESULT_TOP = 'Refresh this result'
 CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
 UNCONFIRMED_ENDING = 'will not resend'
@@ -268,7 +276,12 @@ def rerun_turns(driver):
         ('content', 'Re-run this prompt'), ('wait_text', 'Re-running this prompt'), ('sleep', 3),
         ('content', 'Cancel re-run'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
         # The saved answer sits below the failure notice and its actions.
-        ('content', 'Open re-run result'), ('wait_scroll_text', 'Partial synthetic answer'), ('capture', 'rerun-opened-dark'),
+        # Wheel over the opened result, measured by its top button: beside
+        # the Copilot sidebar the default point (600, 400) of a 1200 px
+        # window is on the short results list, which does not scroll
+        # (Ubuntu, run 46007700214).
+        ('content', 'Open re-run result'), ('wait_scroll_text', 'Partial synthetic answer', RESULT_TOP),
+        ('capture', 'rerun-opened-dark'),
     ], record=True)
     github.check(rerun / 'recent-opened-dark.png', 'RECENTROW', 'Re-run this prompt')
     github.check(rerun / 'rerun-saved-dark.png', 'Re-run cancelled', 'Re-run saved as a new result', 'Open re-run result')
@@ -330,6 +343,9 @@ def recent_results(driver):
     scene = driver.drive('recent-results-dark', [
         ('input', 'GitHub account', 'synthetic-account'), ('wait_text', USAGE_BADGE),
         ('capture', 'copilot-usage-badge-dark'),
+        # Sessions has no "PR Review" label, so the sidebar row is the only
+        # one. A row still opens its result in Saved results from any pane.
+        ('content', 'Sessions'),
         # Electron's section starts collapsed. Wait for the row before
         # clicking it: the list is read again when the section opens.
         ('content', 'Recent Results'), ('wait_text', RECENT_REVIEW_LABEL), ('sleep', 1),
@@ -338,8 +354,8 @@ def recent_results(driver):
         ('capture', 'copilot-recent-result-opened-dark'),
     ], record=True)
     github.check(scene / 'copilot-usage-badge-dark.png', 'GitHub account', USAGE_BADGE)
-    github.check(scene / 'copilot-recent-results-dark.png', 'Recent Results', RECENT_REVIEW_LABEL)
-    github.check(scene / 'copilot-recent-result-opened-dark.png', RECENT_REVIEW_LABEL, 'Captured review')
+    github.check(scene / 'copilot-recent-results-dark.png', 'Recent Results', RECENT_REVIEW_MARKER)
+    github.check(scene / 'copilot-recent-result-opened-dark.png', RECENT_REVIEW_MARKER, 'Captured review')
 
 
 def review_pull_request(driver):
