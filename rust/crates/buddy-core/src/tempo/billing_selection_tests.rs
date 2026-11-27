@@ -360,8 +360,11 @@ fn invalid_manual_selection_preserves_the_existing_choice() {
 fn an_unchosen_create_account_is_inferred_from_the_issue_key_prefix() {
     assert_eq!(inferred_account("INT-12"), "INT");
     assert_eq!(inferred_account("INT"), "INT");
-    for key in ["FIX-17", "INTX-1", "PE-992", "int-12", ""] {
-        assert_eq!(inferred_account(key), "GEN-DEV", "{key:?}");
+    for (case, key) in ["FIX-17", "INTX-1", "PE-992", "int-12", ""]
+        .into_iter()
+        .enumerate()
+    {
+        assert!(inferred_account(key) == "GEN-DEV", "case {case}");
     }
     let connection = WriteScope::new();
     let mut state = BillingSelection::new(connection, None).unwrap();

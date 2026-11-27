@@ -22,16 +22,22 @@ fn label(status: Option<BillingAccountStatus>) -> &'static str {
         None => "unlisted",
     }
 }
-/// The `_Account_` value the request carries, if any.
-fn sent(editor: &Editor, cx: &Context<TempoView>) -> Option<String> {
+/// The `_Account_` value the request carries, if any, or why it cannot be
+/// saved.
+fn sent(editor: &Editor, cx: &Context<TempoView>) -> Result<Option<String>, String> {
     let body: Value =
-        serde_json::from_slice(&editor.draft(&author(), cx).unwrap().encode().unwrap()).unwrap();
-    body["attributes"]
+        serde_json::from_slice(&editor.draft(&author(), cx)?.encode().unwrap()).unwrap();
+    Ok(body["attributes"]
         .as_array()
         .unwrap()
         .iter()
         .find(|attribute| attribute["key"] == "_Account_")
-        .and_then(|attribute| attribute["value"].as_str().map(str::to_owned))
+        .and_then(|attribute| attribute["value"].as_str().map(str::to_owned)))
+}
+/// I5's message for a refused pick of TARGET, as a create shows it.
+fn refused_target(error: &str) -> bool {
+    error.starts_with(&format!("{TARGET} is not open for this issue"))
+        && error.ends_with("choose another account or No billing account.")
 }
 /// Every Tempo account, with TARGET open: what a draft lists before a lookup.
 fn catalog_with_target() -> BillingCatalog {
@@ -164,7 +170,8 @@ fn drive(
 
 /// Across every source and every state of TARGET in the fresh list, the
 /// request carries TARGET only where that list has it open, and then it
-/// always does. Otherwise it carries what a fresh draft would: the edit's
+/// always does. Otherwise a pick the person made earlier blocks saving (I5),
+/// and every other source carries what a fresh draft would: the edit's
 /// existing account, or nothing (no other account here is a default).
 #[gpui_kit::test]
 fn no_source_sends_an_account_the_fresh_list_does_not_hold_open(cx: &mut gpui_kit::TestAppContext) {
@@ -185,16 +192,27 @@ fn no_source_sends_an_account_the_fresh_list_does_not_hold_open(cx: &mut gpui_ki
                             let editor = drive(source, linked, status, window, cx);
                             let case = format!("{source:?} linked={linked} {}", label(status));
                             let open = status == Some(Open);
-                            let fallback = match source {
-                                Source::Edit => Some("SYNTH-EXISTING".to_owned()),
-                                _ => None,
-                            };
-                            let expected = if open {
-                                Some(TARGET.to_owned())
+                            let sent = sent(&editor, cx);
+                            if open {
+                                assert!(sent == Ok(Some(TARGET.to_owned())), "{case}");
+                            } else if matches!(
+                                source,
+                                Source::Retained | Source::Provisional | Source::Recheck
+                            ) {
+                                // I5: the person's pick, made where it was
+                                // open, blocks saving instead of falling back.
+                                assert!(sent.is_err_and(|error| refused_target(&error)), "{case}");
                             } else {
-                                fallback
-                            };
-                            assert_eq!(sent(&editor, cx), expected, "{case}");
+                                // Nothing the person chose is refused: a
+                                // carried value, inference or the default
+                                // fall back; a pick after the lookup was
+                                // refused outright and changed nothing.
+                                let fallback = match source {
+                                    Source::Edit => Some("SYNTH-EXISTING".to_owned()),
+                                    _ => None,
+                                };
+                                assert!(sent == Ok(fallback), "{case}");
+                            }
                         }
                     }
                 }
@@ -207,6 +225,8 @@ fn no_source_sends_an_account_the_fresh_list_does_not_hold_open(cx: &mut gpui_ki
 
 /// The round-3 review case: pick GEN-DEV from every account, then look up a
 /// non-INT issue whose project links other accounts and no open default.
+/// Inference never brings the dropped pick back; since round 5 the pick
+/// blocks saving instead (I5).
 #[gpui_kit::test]
 fn a_dropped_catalog_pick_is_not_inferred_back_into_the_request(cx: &mut gpui_kit::TestAppContext) {
     cx.update(|cx| {
@@ -241,7 +261,13 @@ fn a_dropped_catalog_pick_is_not_inferred_back_into_the_request(cx: &mut gpui_ki
                         "{}",
                         label(default)
                     );
-                    assert_eq!(sent(&editor, cx), None, "{}", label(default));
+                    // The pick is still the person's, so nothing is inferred
+                    // in its place: saving is blocked (I5).
+                    assert!(
+                        sent(&editor, cx).is_err_and(|error| refused_target(&error)),
+                        "{}",
+                        label(default)
+                    );
                 }
                 view
             })
@@ -271,7 +297,11 @@ fn inference_sends_an_account_only_where_the_fresh_list_has_it_open(
                     ] {
                         let editor = drive(Source::Inference, linked, status, window, cx);
                         assert!(editor.billing().unwrap().is_unchosen());
-                        assert_eq!(sent(&editor, cx), expected, "{linked} {}", label(status));
+                        assert!(
+                            sent(&editor, cx) == Ok(expected),
+                            "{linked} {}",
+                            label(status)
+                        );
                     }
                 }
                 view

@@ -1,7 +1,11 @@
 //! The draft billing state model (`draft_billing`) under random event
-//! sequences, plus the round-4 review scenarios by name. Every step drives
-//! the real editor (and, for some lookups, the view's begin/settle), and an
-//! independent oracle checks I1-I4 after it.
+//! sequences, plus the round-4 and round-5 review scenarios by name. Every
+//! step drives the real editor (and, for some lookups, the view's
+//! begin/settle), and an independent oracle checks I1-I5 after it.
+//!
+//! Failure messages name the seed, sequence, step, event kinds and the
+//! invariant, never an account key, a list or the billing state: account
+//! keys are private provider data, and test output reaches CI logs.
 use super::behavior_tests::{account_with, both_linked, catalog, details, project_lookup, worklog};
 use super::draft_billing::{CarrySource, Choice, Resolution};
 use super::*;
@@ -41,13 +45,6 @@ impl Rng {
     }
 }
 
-fn label(status: BillingAccountStatus) -> &'static str {
-    match status {
-        Open => "open",
-        Closed => "closed",
-        Archived => "archived",
-    }
-}
 fn account_id(key: &str) -> u64 {
     100 + KEYS.iter().position(|k| *k == key).unwrap() as u64
 }
@@ -117,6 +114,16 @@ fn catalog_response(rng: &mut Rng) -> (buddy_core::tempo::BillingCatalog, List) 
     (catalog, list)
 }
 
+/// What saving the draft must do now.
+enum Expected {
+    /// I1: no resolved lookup, so nothing can be saved.
+    NeedsLookup,
+    /// I5: the person's pick is not open in the current list.
+    RefusedPick,
+    /// I3: the request carries this account.
+    Sends(Option<String>),
+}
+
 #[derive(Clone, PartialEq)]
 enum OracleResolution {
     NotLookedUp(Option<Option<List>>),
@@ -167,21 +174,27 @@ impl Oracle {
             .map(|(key, ..)| key.clone())
             .or_else(|| open_in(list, "GEN-DEV").then(|| "GEN-DEV".to_owned()))
     }
-    /// I3: the request from the current list and the current choice only.
-    fn request(&self) -> Option<Option<String>> {
+    /// I1, I3 and I5: whether the draft saves, and what the request sends,
+    /// from the current list and the current choice only.
+    fn request(&self) -> Expected {
         let OracleResolution::Resolved(_, _, list) = &self.resolution else {
-            return None;
+            return Expected::NeedsLookup;
         };
-        Some(match &self.choice {
-            Choice::Untouched => self.fresh(list),
-            Choice::User { key, .. } | Choice::Carried { key, .. } => {
+        match &self.choice {
+            Choice::Untouched => Expected::Sends(self.fresh(list)),
+            Choice::User { key, .. } => {
                 if self.admits(list, key.as_deref()) {
-                    key.clone()
+                    Expected::Sends(key.clone())
                 } else {
-                    self.fresh(list)
+                    Expected::RefusedPick
                 }
             }
-        })
+            Choice::Carried { key, .. } => Expected::Sends(if self.admits(list, key.as_deref()) {
+                key.clone()
+            } else {
+                self.fresh(list)
+            }),
+        }
     }
     fn resolve(&mut self, generation: u64, project: JiraProjectId, list: List) {
         if self.resolution != OracleResolution::Pending(generation) {
@@ -223,6 +236,12 @@ fn sent(editor: &Editor, cx: &Context<TempoView>) -> Result<Option<String>, Stri
         .find(|attribute| attribute["key"] == "_Account_")
         .and_then(|attribute| attribute["value"].as_str().map(str::to_owned)))
 }
+/// Whether the request carries `expected`. The caller's message names the
+/// case only: neither value is formatted.
+fn sends(editor: &Editor, cx: &Context<TempoView>, expected: Option<&str>) -> bool {
+    sent(editor, cx).is_ok_and(|account| account.as_deref() == expected)
+}
+
 fn keys_of(selection: &buddy_core::tempo::BillingSelection) -> Vec<String> {
     selection
         .choices()
@@ -230,46 +249,36 @@ fn keys_of(selection: &buddy_core::tempo::BillingSelection) -> Vec<String> {
         .map(|choice| choice.account.key().to_owned())
         .collect()
 }
-fn describe(choice: &Choice) -> String {
-    match choice {
-        Choice::Untouched => "untouched".into(),
-        Choice::User { key, project } => format!("user({key:?}, {})", project.is_some()),
-        Choice::Carried { key, project, .. } => {
-            format!("carried({key:?}, {})", project.is_some())
-        }
-    }
-}
 
-/// I1-I4 and the request property, checked after every step.
+/// I1-I5 and the request property, checked after every step. `trail` names
+/// the seed, sequence, step and event kinds only; no message here formats
+/// an account key, a list or the billing state.
 fn check(editor: &Editor, oracle: &Oracle, cx: &Context<TempoView>, trail: &str) {
     let state = editor.billing_state();
-    assert_eq!(state.generation(), oracle.generation, "{trail}");
+    assert_eq!(state.generation(), oracle.generation, "generation. {trail}");
     let kind = match (state.resolution(), &oracle.resolution) {
         (Resolution::NotLookedUp { catalog }, OracleResolution::NotLookedUp(expected)) => {
-            assert_eq!(
-                catalog.as_ref().map(|c| c.is_ok()),
-                expected.as_ref().map(Option::is_some),
-                "{trail}"
+            assert!(
+                catalog.as_ref().map(|c| c.is_ok()) == expected.as_ref().map(Option::is_some),
+                "I4: the catalog state differs. {trail}"
             );
             "not looked up"
         }
         (Resolution::Pending { generation }, OracleResolution::Pending(expected))
         | (Resolution::Failed { generation, .. }, OracleResolution::Failed(expected)) => {
-            assert_eq!(generation, expected, "{trail}");
+            assert_eq!(generation, expected, "I1: generation. {trail}");
             "pending or failed"
         }
         (Resolution::Resolved { generation, .. }, OracleResolution::Resolved(expected, ..)) => {
-            assert_eq!(generation, expected, "{trail}");
+            assert_eq!(generation, expected, "I1: generation. {trail}");
             "resolved"
         }
-        _ => panic!("the resolution differs from the oracle's. {trail}"),
+        _ => panic!("I1: the resolution differs from the oracle's. {trail}"),
     };
     // I2: the choice is exactly the oracle's.
     assert!(
         state.choice() == &oracle.choice,
-        "choice {} expected {}. {trail}",
-        describe(state.choice()),
-        describe(&oracle.choice)
+        "I2: the choice differs from the oracle's ({kind}). {trail}"
     );
     // I4: the catalog is shown only before a lookup; the shown list is the
     // oracle's in every state.
@@ -277,37 +286,77 @@ fn check(editor: &Editor, oracle: &Oracle, cx: &Context<TempoView>, trail: &str)
     let expected: Option<Vec<String>> = oracle
         .shown()
         .map(|list| list.iter().map(|(key, ..)| key.clone()).collect());
-    assert_eq!(shown, expected, "{kind}. {trail}");
-    // I1: savable exactly in Resolved.
+    assert!(
+        shown == expected,
+        "I4: the shown list differs from the oracle's ({kind}). {trail}"
+    );
+    // I1: a resolved lookup of the issue as typed exactly in Resolved.
     let resolved = matches!(oracle.resolution, OracleResolution::Resolved(..));
-    assert_eq!(editor.has_current_issue(cx), resolved, "{kind}. {trail}");
-    match (sent(editor, cx), oracle.request()) {
-        (Err(error), None) => assert_eq!(error, LOOKUP_BEFORE_SAVING, "{trail}"),
-        (Ok(account), Some(expected)) => {
+    assert_eq!(
+        editor.has_current_issue(cx),
+        resolved,
+        "I1 ({kind}). {trail}"
+    );
+    let expected = oracle.request();
+    // I5: a refused pick is reported exactly when the oracle expects one.
+    assert_eq!(
+        state.refused_pick().is_some(),
+        matches!(expected, Expected::RefusedPick),
+        "I5: refused pick ({kind}). {trail}"
+    );
+    // Save and Enter are blocked exactly when saving fails.
+    let blocker = editor.save_blocker(cx);
+    match (sent(editor, cx), expected) {
+        (Err(error), Expected::NeedsLookup) => {
+            assert!(
+                error == LOOKUP_BEFORE_SAVING,
+                "I1: the save error differs. {trail}"
+            );
+            assert!(
+                blocker.as_deref() == Some(LOOKUP_BEFORE_SAVING),
+                "I1: Save. {trail}"
+            );
+        }
+        (Err(error), Expected::RefusedPick) => {
+            let key = state.choice().key().unwrap_or_default();
+            assert!(
+                error != LOOKUP_BEFORE_SAVING && !key.is_empty() && error.starts_with(key),
+                "I5: the save error does not name the refused pick. {trail}"
+            );
+            assert!(
+                blocker.as_deref() == Some(error.as_str()),
+                "I5: Save. {trail}"
+            );
+        }
+        (Ok(account), Expected::Sends(expected)) => {
+            assert!(blocker.is_none(), "I1/I5: Save is blocked. {trail}");
             // I3: the request from the current list and choice only.
-            assert_eq!(account, expected, "{trail}");
+            assert!(
+                account == expected,
+                "I3: the request differs from the oracle's. {trail}"
+            );
             // Never a key the current list does not hold open, except an
             // edit's existing account.
-            if let (Some(key), OracleResolution::Resolved(_, _, list)) =
+            if let (Some(sent), OracleResolution::Resolved(_, _, list)) =
                 (&account, &oracle.resolution)
             {
                 assert!(
-                    open_in(list, key)
+                    open_in(list, sent)
                         || oracle
                             .existing
                             .as_ref()
-                            .is_some_and(|existing| existing.as_deref() == Some(key)),
-                    "sent {key}, not open. {trail}"
+                            .is_some_and(|existing| existing.as_deref() == Some(sent.as_str())),
+                    "I3: the request carries a key the list does not hold open. {trail}"
                 );
             }
         }
-        (sent, request) => panic!(
-            "saving {:?} while the oracle expects {}. {trail}",
-            sent.map(|_| "succeeded"),
-            if request.is_some() {
-                "a request"
-            } else {
-                "no request"
+        (sent, expected) => panic!(
+            "saving {} while the oracle expects {}. {trail}",
+            if sent.is_ok() { "succeeded" } else { "failed" },
+            match expected {
+                Expected::NeedsLookup => "I1 to block it",
+                Expected::RefusedPick => "I5 to block it",
+                Expected::Sends(_) => "a request",
             }
         ),
     }
@@ -328,6 +377,7 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                 let mut steps = 0;
                 for sequence in 0..SEQUENCES {
                     let mut trail = format!("seed {SEED:#x} sequence {sequence}:");
+                    let mut step = 0;
                     // Start: a blank create, a template, or an edit.
                     let start = rng.below(3);
                     let (mut editor, mut oracle) = match start {
@@ -353,7 +403,7 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                                     .unwrap()
                                     .retain(|attribute| attribute.key != "_Account_"),
                             }
-                            trail += &format!(" template({key:?})");
+                            trail += " template";
                             (
                                 Editor::from_template(&row, date, next_start_time(0), window, cx)
                                     .unwrap(),
@@ -382,7 +432,7 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                                     .unwrap()
                                     .retain(|attribute| attribute.key != "_Account_"),
                             }
-                            trail += &format!(" edit({existing:?})");
+                            trail += " edit";
                             let editor =
                                 Editor::new(Some(row), date, next_start_time(0), window, cx);
                             let existing = existing.map(str::to_owned);
@@ -408,6 +458,9 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                     editor
                         .hours
                         .update(cx, |field, cx| field.set_value("1", window, cx));
+                    if start == 0 {
+                        trail += " create";
+                    }
                     let edit = oracle.existing.is_some();
                     // Before its first lookup any create asks for every
                     // account; a template's lookup arrives with it at once.
@@ -428,6 +481,8 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                     let mut older_ids = Vec::new();
                     for _ in 0..rng.below(MAX_STEPS) + 1 {
                         steps += 1;
+                        step += 1;
+                        trail += &format!(" [{step}]");
                         // A response may answer the current lookup, an older
                         // one, or one never sent.
                         let pick_generation = |rng: &mut Rng, oracle: &Oracle| match rng.below(4) {
@@ -479,17 +534,7 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                             4 => {
                                 let generation = pick_generation(&mut rng, &oracle);
                                 let (info, list) = lookup_response(&mut rng);
-                                trail += &format!(
-                                    " lookup-ok(g{generation}, {list:?})",
-                                    list = list
-                                        .iter()
-                                        .map(|(k, s, d)| format!(
-                                            "{k}:{}{}",
-                                            label(*s),
-                                            if *d { "*" } else { "" }
-                                        ))
-                                        .collect::<Vec<_>>()
-                                );
+                                trail += &format!(" lookup-ok(g{generation})");
                                 let project = info.billing.project;
                                 editor
                                     .settle_lookup(generation, "19".into(), Ok(info), cx)
@@ -545,12 +590,12 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                                 } else {
                                     rng.key().map(str::to_owned)
                                 };
-                                trail += &format!(" pick({key:?})");
+                                trail += if key.is_some() { " pick" } else { " pick-none" };
                                 let result = editor.choose(key.as_deref());
                                 let allowed = oracle
                                     .shown()
                                     .is_some_and(|list| oracle.admits(list, key.as_deref()));
-                                assert_eq!(result.is_ok(), allowed, "{trail}");
+                                assert_eq!(result.is_ok(), allowed, "pick admission. {trail}");
                                 if allowed {
                                     oracle.choice = Choice::User {
                                         key,
@@ -563,7 +608,7 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
                                     continue;
                                 }
                                 let key = rng.key().map(str::to_owned);
-                                trail += &format!(" carry({key:?})");
+                                trail += " carry";
                                 editor
                                     .billing_state_mut()
                                     .carry(key.clone(), CarrySource::Template)
@@ -602,7 +647,9 @@ fn random_billing_event_sequences_keep_every_invariant(cx: &mut gpui_kit::TestAp
 /// Round 4, finding 1. A project with no linked accounts lists every
 /// account, and the person picks one. The project then links accounts that
 /// exclude it, and the repeat lookup fails. Create must be disabled, and no
-/// request may carry the pick; the next successful lookup decides.
+/// request may carry the pick; the next successful lookup decides. Since
+/// round 5 (I5) that lookup, which refuses the pick, keeps Create disabled
+/// until the person chooses again.
 #[gpui_kit::test]
 fn a_failed_repeat_lookup_cannot_save_a_pick_from_the_earlier_fallback_list(
     cx: &mut gpui_kit::TestAppContext,
@@ -633,7 +680,7 @@ fn a_failed_repeat_lookup_cannot_save_a_pick_from_the_earlier_fallback_list(
                 let editor = view.editor.as_mut().unwrap();
                 assert!(editor.billing().unwrap().lists_every_account());
                 editor.choose(Some("SYNTH-UNLINKED")).unwrap();
-                assert_eq!(sent(editor, cx).unwrap().as_deref(), Some("SYNTH-UNLINKED"));
+                assert!(sends(editor, cx, Some("SYNTH-UNLINKED")));
 
                 // The project now links only SYNTH-LINKED, but the repeat
                 // lookup fails before it can say so.
@@ -647,7 +694,7 @@ fn a_failed_repeat_lookup_cannot_save_a_pick_from_the_earlier_fallback_list(
                     editor.billing_state().resolution(),
                     Resolution::Failed { .. }
                 ));
-                assert_eq!(sent(editor, cx).unwrap_err(), LOOKUP_BEFORE_SAVING);
+                assert!(sent(editor, cx).err().as_deref() == Some(LOOKUP_BEFORE_SAVING));
                 // Enter refuses too.
                 view.submit_editor_on_enter(view.editor.as_ref().unwrap().hours.entity_id(), cx);
                 assert_eq!(view.error.as_deref(), Some(LOOKUP_BEFORE_SAVING));
@@ -664,8 +711,8 @@ fn a_failed_repeat_lookup_cannot_save_a_pick_from_the_earlier_fallback_list(
                 assert!(!view.editor.as_ref().unwrap().has_current_issue(cx));
 
                 // The next lookup succeeds and links only SYNTH-LINKED: the
-                // pick stays the person's, but the request sends what that
-                // list allows.
+                // pick stays the person's, and since that list refuses it,
+                // Create stays disabled with the reason (I5).
                 view.begin(&Operation::Lookup(id, "19".into()), None);
                 view.settle(
                     Ok(actions::Update::Lookup(Box::new((
@@ -675,13 +722,21 @@ fn a_failed_repeat_lookup_cannot_save_a_pick_from_the_earlier_fallback_list(
                     )))),
                     cx,
                 );
-                let editor = view.editor.as_ref().unwrap();
+                let editor = view.editor.as_mut().unwrap();
                 assert!(editor.has_current_issue(cx));
-                assert_eq!(sent(editor, cx).unwrap().as_deref(), Some("SYNTH-LINKED"));
-                assert_eq!(
-                    editor.billing_state().choice().key(),
-                    Some("SYNTH-UNLINKED")
+                assert!(editor.billing_state().choice().key() == Some("SYNTH-UNLINKED"));
+                // Not `unwrap_err`: a panic must not print an account.
+                let Err(blocked) = sent(editor, cx) else {
+                    panic!("Create stays blocked")
+                };
+                assert!(
+                    blocked
+                        == "SYNTH-UNLINKED is not open for this issue (its project does not \
+                            link it); choose another account or No billing account."
                 );
+                // Choosing again from this list saves it.
+                editor.choose(Some("SYNTH-LINKED")).unwrap();
+                assert!(sends(editor, cx, Some("SYNTH-LINKED")));
                 view
             })
         })
@@ -706,7 +761,10 @@ fn a_template_recheck_never_overrides_the_persons_newer_choice(cx: &mut gpui_kit
                 // The template bills SYNTH-UNLINKED; the project links it and
                 // SYNTH-LINKED (its default), both open.
                 let template = "SYNTH-UNLINKED";
-                for (pick, expected) in [(Some("SYNTH-LINKED"), Some("SYNTH-LINKED")), (None, None)]
+                for (case, (pick, expected)) in
+                    [(Some("SYNTH-LINKED"), Some("SYNTH-LINKED")), (None, None)]
+                        .into_iter()
+                        .enumerate()
                 {
                     for catalog_after_recheck in [true, false] {
                         let mut row = worklog();
@@ -721,19 +779,18 @@ fn a_template_recheck_never_overrides_the_persons_newer_choice(cx: &mut gpui_kit
                         editor
                             .accept_lookup("19".into(), both_linked(Open), cx)
                             .unwrap();
-                        assert_eq!(sent(&editor, cx).unwrap().as_deref(), Some(template));
+                        assert!(sends(&editor, cx, Some(template)));
 
                         editor.invalidate_connection();
                         // The template was looked up, so no catalog is read.
                         assert!(!editor.wants_catalog());
-                        let case = format!("{pick:?} catalog={catalog_after_recheck}");
+                        let case = format!("case {case} catalog={catalog_after_recheck}");
                         if catalog_after_recheck {
                             // The round-4 path: the catalog lands anyway and
                             // the person picks from it.
                             assert!(editor.accept_catalog(editor.id, Ok(catalog())));
-                            assert_eq!(
-                                editor.billing().unwrap().selected_key(),
-                                Some(template),
+                            assert!(
+                                editor.billing().unwrap().selected_key() == Some(template),
                                 "{case}"
                             );
                             editor.choose(pick).unwrap();
@@ -750,15 +807,179 @@ fn a_template_recheck_never_overrides_the_persons_newer_choice(cx: &mut gpui_kit
                                 .accept_lookup("19".into(), both_linked(Open), cx)
                                 .unwrap();
                         }
-                        assert_eq!(sent(&editor, cx).unwrap().as_deref(), expected, "{case}");
+                        assert!(sends(&editor, cx, expected), "{case}");
                         // Carrying the template again changes nothing.
                         editor
                             .billing_state_mut()
                             .carry(Some(template.into()), CarrySource::Template)
                             .unwrap();
-                        assert_eq!(sent(&editor, cx).unwrap().as_deref(), expected, "{case}");
+                        assert!(sends(&editor, cx, expected), "{case}");
                     }
                 }
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+/// Round 5, finding 2. An edit bills SYNTH-A. The person filters the list to
+/// SYNTH-B, which hides SYNTH-A, and chooses SYNTH-B. A repeat lookup then
+/// finds SYNTH-B closed, or no longer linked. Update must be disabled with
+/// a message naming SYNTH-B and why, never a silent save that keeps
+/// SYNTH-A. Keeping SYNTH-A, or choosing another open account, saves again.
+#[gpui_kit::test]
+fn an_edit_whose_new_pick_closes_blocks_update_instead_of_keeping_the_original(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut view = TempoView::new(window, cx);
+                let date = "2026-10-16".parse().unwrap();
+                // SYNTH-A and SYNTH-B linked; `b` is SYNTH-B's status, `None`
+                // for no longer linked. SYNTH-C stays open.
+                let lookup = |b: Option<BillingAccountStatus>| {
+                    let mut info = details();
+                    for (key, status) in [("SYNTH-A", Some(Open)), ("SYNTH-B", b), ("SYNTH-C", Some(Open))] {
+                        if let Some(status) = status {
+                            info.billing.choices.push(ProjectBillingAccount {
+                                account: account_with(account_id(key), key, status),
+                                is_default: false,
+                            });
+                        }
+                    }
+                    info
+                };
+                for (case, (closed, why)) in [
+                    (Some(Closed), "it is closed"),
+                    (Some(Archived), "it is archived"),
+                    (None, "its project does not link it"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let mut row = worklog();
+                    row.attributes.as_mut().unwrap()[0].value = Some("SYNTH-A".into());
+                    let mut editor = Editor::new(Some(row), date, next_start_time(0), window, cx);
+                    editor
+                        .hours
+                        .update(cx, |field, cx| field.set_value("1", window, cx));
+                    editor.accept_lookup("19".into(), lookup(Some(Open)), cx).unwrap();
+                    let id = editor.id;
+                    view.editor = Some(editor);
+                    let editor = view.editor.as_mut().unwrap();
+                    // The filter hides SYNTH-A; SYNTH-B is chosen.
+                    editor
+                        .billing_filter
+                        .update(cx, |field, cx| field.set_value("SYNTH-B", window, cx));
+                    editor.choose(Some("SYNTH-B")).unwrap();
+                    assert!(sends(editor, cx, Some("SYNTH-B")), "case {case}");
+
+                    // The repeat lookup, through the view's own path.
+                    view.begin(&Operation::Lookup(id, "19".into()), None);
+                    view.settle(
+                        Ok(actions::Update::Lookup(Box::new((id, "19".into(), lookup(closed))))),
+                        cx,
+                    );
+                    let message = format!(
+                        "SYNTH-B is not open for this issue ({why}); choose another account or keep SYNTH-A."
+                    );
+                    let editor = view.editor.as_ref().unwrap();
+                    assert!(editor.has_current_issue(cx), "case {case}: the lookup resolved");
+                    assert!(editor.billing_state().choice().key() == Some("SYNTH-B"), "case {case}");
+                    // Update is disabled with the reason, and a save refuses.
+                    assert!(editor.save_blocker(cx) == Some(message.clone()), "case {case}");
+                    assert!(sent(editor, cx).err() == Some(message.clone()), "case {case}");
+                    // Enter says the same.
+                    view.error = None;
+                    view.submit_editor_on_enter(view.editor.as_ref().unwrap().hours.entity_id(), cx);
+                    assert!(view.error.as_deref() == Some(message.as_str()), "case {case}");
+                    assert!(!view.busy, "case {case}: nothing was sent");
+
+                    // Keeping the original account (the editor's Keep button)
+                    // or choosing another open account saves again.
+                    let editor = view.editor.as_mut().unwrap();
+                    editor.choose(Some("SYNTH-A")).unwrap();
+                    assert!(editor.save_blocker(cx).is_none(), "case {case}");
+                    assert!(sends(editor, cx, Some("SYNTH-A")), "case {case}");
+                    editor.choose(Some("SYNTH-C")).unwrap();
+                    assert!(sends(editor, cx, Some("SYNTH-C")), "case {case}");
+                    view.editor = None;
+                }
+
+                // An untouched edit keeps its account, which the list closed
+                // or unlinked: a carried value still falls back.
+                let mut row = worklog();
+                row.attributes.as_mut().unwrap()[0].value = Some("SYNTH-B".into());
+                let mut editor = Editor::new(Some(row), date, next_start_time(0), window, cx);
+                editor
+                    .hours
+                    .update(cx, |field, cx| field.set_value("1", window, cx));
+                editor.accept_lookup("19".into(), lookup(Some(Closed)), cx).unwrap();
+                assert!(editor.save_blocker(cx).is_none());
+                assert!(sends(&editor, cx, Some("SYNTH-B")));
+                view
+            })
+        })
+        .unwrap();
+    });
+}
+
+/// Round 5, finding 2, for a create. A pick that a repeat lookup closes
+/// blocks Create with the reason (round 4 fell back and only said so). A
+/// carried template value that the list refuses still falls back.
+#[gpui_kit::test]
+fn a_create_whose_pick_closes_blocks_create_until_the_person_chooses_again(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let view = TempoView::new(window, cx);
+                let date = "2026-10-16".parse().unwrap();
+                let mut editor = Editor::new(None, date, next_start_time(0), window, cx);
+                editor
+                    .issue
+                    .update(cx, |field, cx| field.set_value("19", window, cx));
+                editor
+                    .hours
+                    .update(cx, |field, cx| field.set_value("1", window, cx));
+                // SYNTH-LINKED is the open default; SYNTH-UNLINKED is open.
+                editor
+                    .accept_lookup("19".into(), both_linked(Open), cx)
+                    .unwrap();
+                editor.choose(Some("SYNTH-UNLINKED")).unwrap();
+                assert!(sends(&editor, cx, Some("SYNTH-UNLINKED")));
+                editor
+                    .accept_lookup("19".into(), both_linked(Closed), cx)
+                    .unwrap();
+                let message = "SYNTH-UNLINKED is not open for this issue (it is closed); \
+                    choose another account or No billing account.";
+                assert!(editor.save_blocker(cx).as_deref() == Some(message));
+                assert!(sent(&editor, cx).err().as_deref() == Some(message));
+                // "No billing account" saves without an account.
+                editor.choose(None).unwrap();
+                assert!(sends(&editor, cx, None));
+
+                // A template's account, refused the same way, is carried, not
+                // chosen: it falls back to the open default.
+                let mut row = worklog();
+                row.attributes.as_mut().unwrap()[0].value = Some("SYNTH-UNLINKED".into());
+                let mut editor =
+                    Editor::from_template(&row, date, next_start_time(0), window, cx).unwrap();
+                editor
+                    .issue
+                    .update(cx, |field, cx| field.set_value("19", window, cx));
+                editor
+                    .accept_lookup("19".into(), both_linked(Closed), cx)
+                    .unwrap();
+                assert!(editor.save_blocker(cx).is_none());
+                assert!(sends(&editor, cx, Some("SYNTH-LINKED")));
                 view
             })
         })

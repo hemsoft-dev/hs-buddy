@@ -227,7 +227,7 @@ fn a_single_account_is_validated_like_a_catalog_row() {
     assert!(account.is_global() && account.status() == open);
     let long_key = "k".repeat(257);
     let long_name = "n".repeat(1025);
-    for (id, key, name) in [
+    for (case, (id, key, name)) in [
         (0, "KEY", "Name"),
         (i32::MAX as u64 + 1, "KEY", "Name"),
         (7, " ", "Name"),
@@ -235,10 +235,14 @@ fn a_single_account_is_validated_like_a_catalog_row() {
         (7, "bad\nkey", "Name"),
         (7, long_key.as_str(), "Name"),
         (7, "KEY", long_name.as_str()),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // The case index only: account keys stay out of test output.
         assert!(
             BillingAccount::new(id, key, name, false, open).is_err(),
-            "{key:?}"
+            "case {case}"
         );
     }
 }

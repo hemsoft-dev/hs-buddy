@@ -26,14 +26,23 @@
 //! - **I3** The account a request carries is computed only from the current
 //!   `Resolved` list and the current choice, through the single gate
 //!   `BillingSelection::request_account`. It sends a key only where that list
-//!   holds it open, or an edit's existing account; otherwise the fallback (an
-//!   edit's existing account, else the open project default, else the key
-//!   inferred from the issue if it is open, else none).
+//!   holds it open, or an edit's existing account; otherwise, for an
+//!   `Untouched` or `Carried` choice, the fallback (an edit's existing
+//!   account, else the open project default, else the key inferred from the
+//!   issue if it is open, else none). A refused `User` choice never falls
+//!   back: see I5.
 //! - **I4** Every Tempo account (the catalog) is shown only in `NotLookedUp`.
 //!   It is never used to save: saving needs `Resolved`.
+//! - **I5** A `User` choice of an account the current `Resolved` list does
+//!   not hold open (and that is not an edit's existing account) blocks
+//!   saving, for a create and an edit alike, until the person chooses again.
+//!   The editor names the account and why ([`DraftBilling::refused_pick`]).
+//!   Saving never silently sends something other than the person's latest
+//!   explicit choice. Only `Untouched` and `Carried` choices take I3's
+//!   fallback.
 use buddy_core::tempo::{
-    BillingCatalog, BillingSelection, Error, JiraError, JiraIssue, JiraProjectId,
-    ProjectBillingAccounts,
+    BillingAccountStatus, BillingCatalog, BillingSelection, Error, JiraError, JiraIssue,
+    JiraProjectId, ProjectBillingAccounts,
 };
 
 /// Whether, and how, this draft's issue was looked up.
@@ -132,6 +141,46 @@ impl Choice {
     }
 }
 
+/// Why the current list refuses a pick (I5).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refusal {
+    Closed,
+    Archived,
+    /// The project links accounts, and not this one.
+    NotLinked,
+    /// The project links none, and every Tempo account is listed without it.
+    NotATempoAccount,
+}
+
+/// A pick that blocks saving (I5), with what the person can do instead.
+pub(super) struct RefusedPick<'a> {
+    pub key: &'a str,
+    pub why: Refusal,
+    /// An edit's existing account, which the person may keep; `None` for a
+    /// create.
+    pub existing: Option<Option<&'a str>>,
+}
+impl RefusedPick<'_> {
+    /// The message the editor shows, and the error a save returns.
+    pub fn message(&self) -> String {
+        let why = match self.why {
+            Refusal::Closed => "it is closed",
+            Refusal::Archived => "it is archived",
+            Refusal::NotLinked => "its project does not link it",
+            Refusal::NotATempoAccount => "Tempo does not list it",
+        };
+        let instead = match self.existing {
+            Some(Some(existing)) => format!("keep {existing}"),
+            Some(None) => "keep no billing account".into(),
+            None => "No billing account".into(),
+        };
+        format!(
+            "{} is not open for this issue ({why}); choose another account or {instead}.",
+            self.key
+        )
+    }
+}
+
 pub(super) struct DraftBilling {
     /// The latest lookup's generation. 0: this draft was never looked up.
     generation: u64,
@@ -182,6 +231,40 @@ impl DraftBilling {
     }
     pub fn is_edit(&self) -> bool {
         self.existing.is_some()
+    }
+    /// An edit's existing account (`Some(None)`: it has none); `None` for a
+    /// create.
+    pub fn existing(&self) -> Option<Option<&str>> {
+        self.existing.as_ref().map(Option::as_deref)
+    }
+    /// I5: the person's explicit pick, when the current `Resolved` list does
+    /// not hold it open (and it is not an edit's existing account). Saving is
+    /// blocked while this is `Some`.
+    pub fn refused_pick(&self) -> Option<RefusedPick<'_>> {
+        let Choice::User { key: Some(key), .. } = &self.choice else {
+            return None;
+        };
+        let selection = &self.resolved()?.selection;
+        if selection.offers(Some(key)) {
+            return None;
+        }
+        let why = match selection
+            .choices()
+            .iter()
+            .find(|choice| choice.account.key() == key)
+            .map(|choice| choice.account.status())
+        {
+            Some(BillingAccountStatus::Closed) => Refusal::Closed,
+            Some(BillingAccountStatus::Archived) => Refusal::Archived,
+            // Not listed: `offers` admits every open listed account.
+            _ if selection.lists_every_account() => Refusal::NotATempoAccount,
+            _ => Refusal::NotLinked,
+        };
+        Some(RefusedPick {
+            key,
+            why,
+            existing: self.existing(),
+        })
     }
     /// The settled lookup. Saving needs it (I1), and the request account
     /// comes only from its list (I3).

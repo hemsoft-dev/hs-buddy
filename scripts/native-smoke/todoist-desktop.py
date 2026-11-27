@@ -176,49 +176,109 @@ def check_carry_outputs(imported, kept):
 
 FORGET_STEPS = (('content', 'Forget saved token'), ('wait_text', 'The saved Todoist token was removed'))
 
+# Electron, and so the native import, prefers a nonblank Windows Machine-scope
+# TODOIST_API_TOKEN over the process value the scene sets.
+MACHINE_ENVIRONMENT = r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+MACHINE_TOKEN_REFUSED = ('This runner has a Machine-scope TODOIST_API_TOKEN, which the import would prefer '
+    'over the synthetic token, so the carry-over was not attempted and nothing was launched or captured.')
+MACHINE_UNREADABLE = ('The Windows Machine-scope environment could not be read, so the carry-over was not '
+    'attempted and nothing was launched or captured.')
+CARRIED_UNVERIFIED = ('The carried Todoist credential did not reach the synthetic fixture, so it may not be '
+    'the synthetic token. No Tasks view was captured.')
+CLEANUP_UNVERIFIED = ('No launch reached the synthetic fixture, so the Todoist vault was not opened in the UI '
+    'for cleanup and nothing was captured.')
+# A no-capture launch long enough for the Tasks view to connect at start.
+PROBE_SECONDS = 8
 
-def forget_carried_token(driver, confirmed):
+
+def read_machine_token():
+    """The raw Machine-scope value, or None. Never printed or returned upward."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, MACHINE_ENVIRONMENT) as key:
+            return winreg.QueryValueEx(key, 'TODOIST_API_TOKEN')[0]
+    except FileNotFoundError:
+        return None
+
+
+def machine_token_present(platform=None, read=read_machine_token):
+    """Whether Windows has a Machine-scope TODOIST_API_TOKEN the import could load.
+
+    Only a blank string is ignored, as the import ignores it; any other value,
+    of any registry type, counts. Other platforms have no Machine scope. The
+    value itself never leaves this function.
+    """
+    if (sys.platform if platform is None else platform) != 'win32':
+        return False
+    try:
+        value = read()
+    except OSError:
+        raise RuntimeError(MACHINE_UNREADABLE) from None
+    return value is not None and not (isinstance(value, str) and not value.strip())
+
+
+def reached_fixture(driver, api, name):
+    """Launch once with no capture. True when the app sent the fixture any request.
+
+    The Tasks view picks the fixture client only for the synthetic fixture
+    token; any other stored value goes to the production client and never
+    reaches this loopback fixture. So fixture traffic during this launch
+    proves the stored credential is the synthetic one, without reading it.
+    """
+    before = len(api.snapshot()['traffic'])
+    driver.drive(name, [('sleep', PROBE_SECONDS)])
+    return len(api.snapshot()['traffic']) > before
+
+
+def forget_carried_token(driver, api, verified):
     """Remove the synthetic token an import may have written.
 
     Forget deletes an absent entry too, so this runs whenever the import was
     attempted, including one that wrote the token and then failed read-back.
-    A confirmed import connects at launch, which puts Forget behind
-    Connection. After an unconfirmed one the launch may show tasks or the
-    connection form, so both are tried.
+    The UI is opened only once a launch reached the fixture (`verified`, or a
+    probe here), so a value that is not the synthetic token is never shown.
+    The launch then shows tasks, with Forget behind Connection, or the
+    connection form when the fixture connection fails; both are tried.
     """
+    if not verified and not reached_fixture(driver, api, 'forget-probe-light'):
+        raise RuntimeError(CLEANUP_UNVERIFIED)
     connected = [('wait_text', 'Synthetic today task'), ('content', 'Connection'), *FORGET_STEPS]
-    if confirmed:
-        driver.drive('carried-token-forget-light', connected)
-        return
     try:
-        driver.drive('unconfirmed-token-forget-light', connected)
+        driver.drive('carried-token-forget-light', connected)
     except Exception:
-        driver.drive('unconfirmed-token-forget-form-light', list(FORGET_STEPS))
+        driver.drive('carried-token-forget-form-light', list(FORGET_STEPS))
 
 
-def carry_over(executable, driver, config, dark, check_carried):
+def carry_over(executable, driver, api, config, dark, check_carried):
     """Import the Electron token into the empty vault once, then repeat.
 
-    The cleanup leaves the vault empty and the light theme, as before, even
-    when an import fails part-way. Each cleanup has its own guard, so a
-    failed theme restore cannot skip the Forget, and neither cleanup can
-    replace an earlier failure: a later one is added to it as a note.
+    A Machine-scope token refuses the step before anything runs. After the
+    imports, a no-capture launch must reach the fixture before the Tasks view
+    is captured. The cleanup leaves the vault empty and the light theme, as
+    before, even when an import fails part-way. Each cleanup has its own
+    guard, so a failed theme restore cannot skip the Forget, and neither
+    cleanup can replace an earlier failure: a later one is added to it as a
+    note.
     """
+    if machine_token_present():
+        raise RuntimeError(MACHINE_TOKEN_REFUSED)
     ui = json.loads(config.read_text())['ui']
-    attempted = confirmed = False
+    attempted = verified = False
     failure = None
     try:
         set_ui(config, dark)
         attempted = True
         with environment(dict(TODOIST_API_TOKEN=todoist.TOKEN)):
             imported = settings.run(executable, '--import-electron-todoist')
-        confirmed = True
         # The vault now holds a token, so a repeat keeps it without reading
         # the environment: even a value that could never be saved succeeds,
         # and nothing is sent anywhere.
         with environment(dict(TODOIST_API_TOKEN=UNREADABLE_REPEAT_TOKEN)):
             kept = settings.run(executable, '--import-electron-todoist')
         check_carry_outputs(imported, kept)
+        verified = reached_fixture(driver, api, 'credential-probe-dark')
+        if not verified:
+            raise RuntimeError(CARRIED_UNVERIFIED)
         check_carried()
     except BaseException as error:
         failure = error
@@ -230,7 +290,7 @@ def carry_over(executable, driver, config, dark, check_carried):
         except Exception as error:
             restore_failure = error
         if attempted:
-            finish_cleanup(lambda: forget_carried_token(driver, confirmed), failure or restore_failure,
+            finish_cleanup(lambda: forget_carried_token(driver, api, verified), failure or restore_failure,
                 'Forgetting the carried Todoist token')
         if restore_failure is not None:
             raise restore_failure
@@ -483,7 +543,7 @@ def qualify(executable, output, session, version, backend):
                 if api.snapshot()['tasks'] != before_forget or len(posts(api)) != 7:
                     raise RuntimeError('Carrying the Electron token over changed service tasks')
 
-            carry_over(executable, driver, config, dark, check_carried)
+            carry_over(executable, driver, api, config, dark, check_carried)
 
             for path in output.glob('*/app.log'):
                 text = path.read_text(encoding='utf-8', errors='replace')
@@ -511,7 +571,13 @@ def qualify(executable, output, session, version, backend):
                 realOsCredentialStore=True, secureTokenSurvivedProcessRestart=True,
                 secureTokenRemovalVerifiedAfterRestart=True,
                 initialConnectionErrorRecheckedWithoutTokenEntry=True,
-                electronTokenCarriedOnce=True, carriedTokenKeptWithoutRereading=True,
+                electronTokenCarriedOnce=True, machineScopeTokenAbsent=True,
+                carriedTokenReachedFixtureBeforeCapture=True,
+                # The repeat's exit outcome and the retained credential. That the
+                # repeat never reads the source is a Rust unit test, not this scene.
+                repeatImportKeptOutcomeAndCredential=True,
+                repeatImportNoSourceReadTest='buddy-core todoist::credentials::electron_import::tests::'
+                    'an_existing_native_token_is_kept_and_the_source_is_never_read',
                 expiredAndOfflineReadRetainedTasks=True, privateTraceContentAbsent=True,
                 dataSource='Owned numeric loopback Todoist fixture and isolated anonymous Convex')
         except BaseException as failure:

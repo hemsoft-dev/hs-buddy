@@ -631,14 +631,19 @@ fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_u
                 assert!(editor.catalog_problem().is_none());
                 assert_eq!(listed(&editor), ["SYNTH-LINKED"]);
 
-                // A pick the project doesn't list gives way to its default;
-                // one it lists, or "No billing account", is kept.
-                for (pick, linked, kept) in [
-                    (Some("SYNTH-UNLINKED"), true, Some("SYNTH-LINKED")),
-                    (Some("SYNTH-LINKED"), true, Some("SYNTH-LINKED")),
-                    (None, true, None),
-                    (Some("SYNTH-UNLINKED"), false, Some("SYNTH-UNLINKED")),
-                ] {
+                // A pick the project doesn't list is never sent: the list
+                // shows its default, and saving is blocked (I5) until the
+                // person chooses again. One it lists, or "No billing
+                // account", is kept.
+                for (case, (pick, linked, kept, blocked)) in [
+                    (Some("SYNTH-UNLINKED"), true, Some("SYNTH-LINKED"), true),
+                    (Some("SYNTH-LINKED"), true, Some("SYNTH-LINKED"), false),
+                    (None, true, None, false),
+                    (Some("SYNTH-UNLINKED"), false, Some("SYNTH-UNLINKED"), false),
+                ]
+                .into_iter()
+                .enumerate()
+                {
                     let mut editor = open(window, cx);
                     assert!(editor.accept_catalog(editor.id, Ok(catalog())));
                     editor.choose(pick).unwrap();
@@ -646,8 +651,13 @@ fn a_failed_account_list_stays_unknown_and_a_pick_before_lookup_never_bills_an_u
                         .accept_lookup("19".into(), project_lookup(linked), cx)
                         .unwrap();
                     let billing = editor.billing().unwrap();
-                    assert_eq!(billing.selected_key(), kept, "{pick:?} {linked}");
-                    assert!(billing.selection_is_listed(), "{pick:?} {linked}");
+                    assert!(billing.selected_key() == kept, "case {case}");
+                    assert!(billing.selection_is_listed(), "case {case}");
+                    assert_eq!(
+                        editor.billing_state().refused_pick().is_some(),
+                        blocked,
+                        "case {case}"
+                    );
                 }
 
                 // A reconnect drops the old connection's catalog, but not the
@@ -686,8 +696,12 @@ pub(super) fn both_linked(status: buddy_core::tempo::BillingAccountStatus) -> Ed
 }
 pub(super) fn sent_account(editor: &Editor, cx: &Context<TempoView>) -> Value {
     let author = AccountId::parse("synthetic-user").unwrap();
-    let body: Value =
-        serde_json::from_slice(&editor.draft(&author, cx).unwrap().encode().unwrap()).unwrap();
+    // Not `unwrap`: a save error can name an account (I5), so a panic must
+    // not print it.
+    let Ok(draft) = editor.draft(&author, cx) else {
+        panic!("the draft saves")
+    };
+    let body: Value = serde_json::from_slice(&draft.encode().unwrap()).unwrap();
     body["attributes"].clone()
 }
 
@@ -717,25 +731,28 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                 let unlinked = serde_json::json!([{"key": "_Account_", "value": "SYNTH-UNLINKED"}]);
 
                 // A project with no links lists every account; a pick from
-                // that list is dropped when the same project, looked up
-                // again, now links accounts that exclude it.
+                // that list is never sent once the same project, looked up
+                // again, links accounts that exclude it. Saving is blocked
+                // (I5), naming the pick, until the person chooses again.
                 let mut editor = open(window, cx);
                 editor
                     .accept_lookup("19".into(), project_lookup(false), cx)
                     .unwrap();
                 editor.choose(Some("SYNTH-UNLINKED")).unwrap();
-                assert_eq!(sent_account(&editor, cx), unlinked);
+                assert!(sent_account(&editor, cx) == unlinked);
                 editor
                     .accept_lookup("19".into(), project_lookup(true), cx)
                     .unwrap();
-                let billing = editor.billing().unwrap();
-                assert_eq!(billing.selected_key(), Some("SYNTH-LINKED"));
-                assert!(!billing.is_chosen(), "the project default, not a choice");
-                assert_eq!(sent_account(&editor, cx), linked);
+                let author = AccountId::parse("synthetic-user").unwrap();
+                let blocked = editor.draft(&author, cx).err().unwrap();
+                assert!(blocked.starts_with("SYNTH-UNLINKED is not open for this issue"));
+                assert!(editor.save_blocker(cx) == Some(blocked));
+                editor.choose(Some("SYNTH-LINKED")).unwrap();
+                assert!(sent_account(&editor, cx) == linked);
 
                 // The same through a connection recheck, and for each way an
-                // account stops being open: dropped to the project default.
-                // An account still open and listed is kept.
+                // account stops being open: blocked. An account still open
+                // and listed is kept.
                 for (status, kept) in [(Closed, false), (Archived, false), (Open, true)] {
                     for recheck in [false, true] {
                         let mut editor = open(window, cx);
@@ -749,13 +766,17 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                         editor
                             .accept_lookup("19".into(), both_linked(status), cx)
                             .unwrap();
-                        let expected = if kept { &unlinked } else { &linked };
-                        assert_eq!(&sent_account(&editor, cx), expected, "{recheck}");
+                        if kept {
+                            assert!(sent_account(&editor, cx) == unlinked, "recheck {recheck}");
+                        } else {
+                            assert!(editor.draft(&author, cx).is_err(), "recheck {recheck}");
+                            assert!(editor.save_blocker(cx).is_some(), "recheck {recheck}");
+                        }
                     }
                 }
 
                 // A pick from the pre-lookup catalog that the lookup returns
-                // closed or archived is dropped; still open, it is kept.
+                // closed or archived blocks saving; still open, it is kept.
                 for (status, kept) in [(Closed, false), (Archived, false), (Open, true)] {
                     let mut editor = open(window, cx);
                     assert!(editor.accept_catalog(editor.id, Ok(catalog())));
@@ -763,8 +784,13 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                     editor
                         .accept_lookup("19".into(), both_linked(status), cx)
                         .unwrap();
-                    let expected = if kept { &unlinked } else { &linked };
-                    assert_eq!(&sent_account(&editor, cx), expected);
+                    if kept {
+                        assert!(sent_account(&editor, cx) == unlinked);
+                    } else {
+                        assert!(
+                            editor.draft(&author, cx).is_err() && editor.save_blocker(cx).is_some()
+                        );
+                    }
                 }
 
                 // A pick the settled list doesn't offer as open is refused:
@@ -775,11 +801,8 @@ fn an_earlier_pick_survives_a_fresh_lookup_only_where_it_lists_the_account_as_op
                     .unwrap();
                 for refused in ["SYNTH-UNLINKED", "SYNTH-GONE"] {
                     let error = editor.choose(Some(refused)).err().unwrap();
-                    assert!(
-                        error.to_string().contains("open billing account"),
-                        "{error}"
-                    );
-                    assert_eq!(sent_account(&editor, cx), linked);
+                    assert!(error.to_string().contains("open billing account"));
+                    assert!(sent_account(&editor, cx) == linked);
                 }
                 view
             })

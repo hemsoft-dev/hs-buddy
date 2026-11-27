@@ -86,14 +86,48 @@ class ElectronCarryOver(unittest.TestCase):
         order = [source.index(marker) for marker in (
             "driver.drive('forgotten-restart-light'",
             "('wait_text', 'Synthetic today task'), ('capture', 'todoist-credential-carried-dark')",
-            '\n            carry_over(executable, driver, config, dark, check_carried)',
+            '\n            carry_over(executable, driver, api, config, dark, check_carried)',
         )]
         self.assertEqual(order, sorted(order))
         self.assertEqual(source.count("'--import-electron-todoist'"), 2)
         self.assertIn("absent=('No API token is saved',)", source[order[0]:order[-1]])
 
-    def carry(self, runs, drives=(), check=None):
-        """Run carry_over against mocks. Returns (driver, config, environments, error)."""
+    def test_the_receipt_claims_only_what_the_scene_checks_and_names_the_no_reread_test(self):
+        source = Path(desktop.__file__).read_text(encoding='utf-8')
+        self.assertNotIn('carriedTokenKeptWithoutRereading', source)
+        self.assertIn('repeatImportKeptOutcomeAndCredential=True', source)
+        test = 'an_existing_native_token_is_kept_and_the_source_is_never_read'
+        self.assertIn(test, source)
+        rust = (Path(__file__).resolve().parents[2] / 'rust/crates/buddy-core/src/todoist/credentials'
+            / 'electron_import/tests.rs').read_text(encoding='utf-8')
+        body = rust[rust.index('fn ' + test):]
+        body = body[:body.index('\n}\n')]
+        # The source callback panics, so the kept outcome proves no read.
+        self.assertIn('panic!', body)
+
+    def probing_driver(self, api, reach=True, drives=()):
+        """A driver whose no-capture probes reach the fixture when `reach`
+        says so (a bool, or the set of probe names that reach it). Every other
+        drive takes the next of `drives`: None succeeds, an exception fails."""
+        others = list(drives)
+        self.events = []
+
+        def drive(name, actions):
+            self.events.append(name)
+            if actions == [('sleep', desktop.PROBE_SECONDS)]:
+                if reach is True or (reach is not False and name in reach):
+                    api.traffic.append(dict(method='GET', path='/api/v1/user'))
+                return None
+            result = others.pop(0) if others else None
+            if isinstance(result, BaseException):
+                raise result
+            return None
+        driver = Mock()
+        driver.drive.side_effect = drive
+        return driver
+
+    def carry(self, runs, drives=(), check=None, reach=True, machine=False):
+        """Run carry_over against mocks. Returns (driver, environments, error)."""
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         config = Path(directory.name) / 'config.json'
@@ -107,26 +141,113 @@ class ElectronCarryOver(unittest.TestCase):
             if isinstance(result, BaseException):
                 raise result
             return result
-        driver = Mock()
-        driver.drive.side_effect = list(drives) or None
+        api = Mock(traffic=[])
+        api.snapshot.side_effect = lambda: dict(traffic=list(api.traffic))
+        driver = self.probing_driver(api, reach, drives)
         error = None
-        with patch.object(desktop.settings, 'run', side_effect=run):
+        with patch.object(desktop.settings, 'run', side_effect=run), \
+                patch.object(desktop, 'machine_token_present', return_value=machine):
             try:
-                desktop.carry_over('buddy', driver, config, dict(theme='dark'), check or Mock())
+                desktop.carry_over('buddy', driver, api, config, dict(theme='dark'), check or Mock())
             except BaseException as raised:
                 error = raised
         self.assertEqual(json.loads(config.read_text())['ui'], dict(theme='light'))
         return driver, environments, error
 
-    def test_a_confirmed_carry_over_forgets_through_the_connected_view(self):
-        check = Mock()
+    @staticmethod
+    def names(driver):
+        return [call.args[0] for call in driver.drive.call_args_list]
+
+    def test_a_confirmed_carry_over_reaches_the_fixture_before_capturing_then_forgets(self):
+        check = Mock(side_effect=lambda: self.events.append('check'))
         driver, environments, error = self.carry(
             [desktop.CARRY_IMPORTED, desktop.CARRY_KEPT], check=check)
         self.assertIsNone(error)
         self.assertEqual(environments, [desktop.todoist.TOKEN, desktop.UNREADABLE_REPEAT_TOKEN])
         check.assert_called_once_with()
-        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['carried-token-forget-light'])
+        # The probe ran, with no capture, before the Tasks view was captured.
+        self.assertEqual(self.events, ['credential-probe-dark', 'check', 'carried-token-forget-light'])
+        self.assertEqual(driver.drive.call_args_list[0].args[1], [('sleep', desktop.PROBE_SECONDS)])
+        self.assertEqual(self.names(driver), ['credential-probe-dark', 'carried-token-forget-light'])
         self.assertEqual(driver.drive.call_args.args[1][-2:], list(desktop.FORGET_STEPS))
+
+    def test_a_carried_value_that_never_reaches_the_fixture_is_never_captured_or_opened(self):
+        # Any value but the synthetic token uses the production client, so
+        # the fixture sees nothing: the run fails before the Tasks capture,
+        # and the cleanup does not open the UI either.
+        check = Mock()
+        driver, _, error = self.carry([desktop.CARRY_IMPORTED, desktop.CARRY_KEPT], check=check, reach=False)
+        self.assertEqual(str(error), desktop.CARRIED_UNVERIFIED)
+        check.assert_not_called()
+        self.assertEqual(self.names(driver), ['credential-probe-dark', 'forget-probe-light'])
+        for call in driver.drive.call_args_list:
+            self.assertEqual(call.args[1], [('sleep', desktop.PROBE_SECONDS)])
+        self.assertTrue(any('Forgetting the carried Todoist token also failed' in note
+            for note in getattr(error, '__notes__', [])))
+
+    def test_a_machine_scope_token_refuses_the_carry_over_before_anything_runs(self):
+        check = Mock()
+        driver, environments, error = self.carry([], check=check, machine=True)
+        self.assertEqual(str(error), desktop.MACHINE_TOKEN_REFUSED)
+        self.assertEqual(environments, [])
+        driver.drive.assert_not_called()
+        check.assert_not_called()
+
+    def test_machine_scope_check_reads_only_on_windows_and_ignores_only_blank_text(self):
+        never = Mock(side_effect=AssertionError('read outside Windows'))
+        for platform in ('linux', 'darwin'):
+            self.assertFalse(desktop.machine_token_present(platform, never))
+        never.assert_not_called()
+        for value, present in ((None, False), ('', False), (' \r\n', False), ('value', True),
+                (' value ', True), ('%VALUE%', True), (0, True), (b'', True)):
+            with self.subTest(value=value):
+                self.assertIs(desktop.machine_token_present('win32', lambda: value), present)
+        denied = Mock(side_effect=PermissionError('denied'))
+        with self.assertRaises(RuntimeError) as failure:
+            desktop.machine_token_present('win32', denied)
+        self.assertEqual(str(failure.exception), desktop.MACHINE_UNREADABLE)
+        self.assertIsNone(failure.exception.__cause__)
+
+    def test_machine_scope_read_uses_the_environment_key_and_treats_a_missing_name_as_none(self):
+        opened = []
+
+        class Key:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exception):
+                return False
+        values = {}
+
+        def query(key, name):
+            opened.append(name)
+            if name not in values:
+                raise FileNotFoundError(name)
+            return values[name], 1
+        winreg = Mock(HKEY_LOCAL_MACHINE='HKLM')
+        winreg.OpenKey.side_effect = lambda root, path: opened.append((root, path)) or Key()
+        winreg.QueryValueEx.side_effect = query
+        with patch.dict(sys.modules, winreg=winreg):
+            self.assertIsNone(desktop.read_machine_token())
+            values['TODOIST_API_TOKEN'] = 'synthetic machine value'
+            self.assertEqual(desktop.read_machine_token(), 'synthetic machine value')
+            winreg.OpenKey.side_effect = FileNotFoundError('no key')
+            self.assertIsNone(desktop.read_machine_token())
+        self.assertEqual(opened[:2], [('HKLM', desktop.MACHINE_ENVIRONMENT), 'TODOIST_API_TOKEN'])
+        self.assertEqual(desktop.MACHINE_ENVIRONMENT,
+            'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment')
+
+    def test_a_confirmed_import_whose_fixture_connection_fails_forgets_on_the_form(self):
+        # The probe reached the fixture, but the connection then failed, so
+        # the launch shows the connection form and no synthetic task.
+        failed = RuntimeError('no synthetic task')
+        driver, _, error = self.carry([desktop.CARRY_IMPORTED, desktop.CARRY_KEPT],
+            check=Mock(side_effect=failed), drives=[RuntimeError('no tasks'), None])
+        self.assertIs(error, failed)
+        self.assertEqual(self.names(driver),
+            ['credential-probe-dark', 'carried-token-forget-light', 'carried-token-forget-form-light'])
+        self.assertEqual(driver.drive.call_args.args[1], list(desktop.FORGET_STEPS))
+        self.assertFalse(getattr(error, '__notes__', []))
 
     def test_a_failed_read_back_after_the_write_still_forgets_the_token(self):
         # Exit 1 after the vault write: settings.run raises before the import
@@ -135,24 +256,28 @@ class ElectronCarryOver(unittest.TestCase):
         driver, environments, error = self.carry([failed])
         self.assertIs(error, failed)
         self.assertEqual(environments, [desktop.todoist.TOKEN])
-        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['unconfirmed-token-forget-light'])
+        self.assertEqual(self.names(driver), ['forget-probe-light', 'carried-token-forget-light'])
         # The connection form is tried when the launch shows no tasks.
         driver, _, error = self.carry([RuntimeError('import exited 1')], drives=[RuntimeError('no tasks'), None])
         self.assertIsInstance(error, RuntimeError)
         self.assertEqual(str(error), 'import exited 1')
-        self.assertEqual([call.args[0] for call in driver.drive.call_args_list],
-            ['unconfirmed-token-forget-light', 'unconfirmed-token-forget-form-light'])
+        self.assertEqual(self.names(driver),
+            ['forget-probe-light', 'carried-token-forget-light', 'carried-token-forget-form-light'])
         self.assertEqual(driver.drive.call_args.args[1], list(desktop.FORGET_STEPS))
+        # A vault the launch cannot connect with is not opened in the UI.
+        driver, _, error = self.carry([RuntimeError('import exited 1')], reach=False)
+        self.assertEqual(str(error), 'import exited 1')
+        self.assertEqual(self.names(driver), ['forget-probe-light'])
 
     def test_a_failed_forget_cannot_hide_the_import_failure(self):
         driver, _, error = self.carry([RuntimeError('import exited 1')],
             drives=[RuntimeError('no tasks'), RuntimeError('no form')])
         self.assertEqual(str(error), 'import exited 1')
-        self.assertEqual(driver.drive.call_count, 2)
+        self.assertEqual(driver.drive.call_count, 3)
         # Without an earlier failure, a failed forget fails the run.
         driver, _, error = self.carry([desktop.CARRY_IMPORTED, desktop.CARRY_KEPT],
-            drives=[RuntimeError('forget failed')])
-        self.assertEqual(str(error), 'forget failed')
+            drives=[RuntimeError('forget failed'), RuntimeError('form failed')])
+        self.assertEqual(str(error), 'form failed')
 
     def carry_with_failed_restore(self, runs, drives=()):
         """Run carry_over where restoring the light theme raises."""
@@ -167,13 +292,15 @@ class ElectronCarryOver(unittest.TestCase):
             if ui == dict(theme='light'):
                 raise restore
             real(path, ui)
-        driver = Mock()
-        driver.drive.side_effect = list(drives) or None
+        api = Mock(traffic=[])
+        api.snapshot.side_effect = lambda: dict(traffic=list(api.traffic))
+        driver = self.probing_driver(api, True, drives)
         error = None
         with patch.object(desktop.settings, 'run', side_effect=list(runs)), \
-                patch.object(desktop, 'set_ui', side_effect=set_ui):
+                patch.object(desktop, 'set_ui', side_effect=set_ui), \
+                patch.object(desktop, 'machine_token_present', return_value=False):
             try:
-                desktop.carry_over('buddy', driver, config, dict(theme='dark'), Mock())
+                desktop.carry_over('buddy', driver, api, config, dict(theme='dark'), Mock())
             except BaseException as raised:
                 error = raised
         return driver, restore, error
@@ -181,13 +308,14 @@ class ElectronCarryOver(unittest.TestCase):
     def test_a_failed_theme_restore_still_forgets_the_token(self):
         driver, restore, error = self.carry_with_failed_restore([desktop.CARRY_IMPORTED, desktop.CARRY_KEPT])
         # The Forget ran, then the restore failure fails the run.
-        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['carried-token-forget-light'])
+        self.assertEqual(self.names(driver), ['credential-probe-dark', 'carried-token-forget-light'])
         self.assertIs(error, restore)
         # A failed Forget too is reported on the restore failure, not instead of it.
         driver, restore, error = self.carry_with_failed_restore(
-            [desktop.CARRY_IMPORTED, desktop.CARRY_KEPT], drives=[RuntimeError('forget failed')])
+            [desktop.CARRY_IMPORTED, desktop.CARRY_KEPT],
+            drives=[RuntimeError('forget failed'), RuntimeError('form failed')])
         self.assertIs(error, restore)
-        self.assertEqual(driver.drive.call_count, 1)
+        self.assertEqual(driver.drive.call_count, 3)
         self.assertTrue(any('Forgetting the carried Todoist token also failed' in note
             for note in getattr(error, '__notes__', [])))
 
@@ -195,7 +323,7 @@ class ElectronCarryOver(unittest.TestCase):
         failed = RuntimeError('import exited 1')
         driver, _, error = self.carry_with_failed_restore([failed], drives=[None])
         self.assertIs(error, failed)
-        self.assertEqual([call.args[0] for call in driver.drive.call_args_list], ['unconfirmed-token-forget-light'])
+        self.assertEqual(self.names(driver), ['forget-probe-light', 'carried-token-forget-light'])
         self.assertTrue(any('Restoring the fixture theme also failed' in note
             for note in getattr(error, '__notes__', [])))
 
@@ -204,8 +332,9 @@ class ElectronCarryOver(unittest.TestCase):
             config = Path(directory) / 'config.json'
             config.write_text('not json')
             driver = Mock()
-            with self.assertRaises(ValueError):
-                desktop.carry_over('buddy', driver, config, dict(theme='dark'), Mock())
+            with patch.object(desktop, 'machine_token_present', return_value=False), \
+                    self.assertRaises(ValueError):
+                desktop.carry_over('buddy', driver, Mock(), config, dict(theme='dark'), Mock())
             driver.drive.assert_not_called()
 
     def test_set_ui_replaces_only_the_theme_section(self):

@@ -290,9 +290,20 @@ impl Editor {
             .resolved()
             .is_some_and(|lookup| lookup.query == self.issue.read(cx).value().as_ref())
     }
-    pub fn draft(&self, account: &AccountId, cx: &Context<TempoView>) -> Result<Draft, String> {
+    /// Why this draft cannot be saved now, as the editor and a save say it:
+    /// no resolved lookup of the issue as typed (I1), or a pick the current
+    /// list refuses (I5). `None`: Save and Enter may proceed.
+    pub fn save_blocker(&self, cx: &Context<TempoView>) -> Option<String> {
         if !self.has_current_issue(cx) {
-            return Err(LOOKUP_BEFORE_SAVING.into());
+            return Some(LOOKUP_BEFORE_SAVING.into());
+        }
+        self.billing_state
+            .refused_pick()
+            .map(|refused| refused.message())
+    }
+    pub fn draft(&self, account: &AccountId, cx: &Context<TempoView>) -> Result<Draft, String> {
+        if let Some(blocker) = self.save_blocker(cx) {
+            return Err(blocker);
         }
         let lookup = self.billing_state.resolved().ok_or(LOOKUP_BEFORE_SAVING)?;
         let issue = &lookup.issue;
@@ -341,7 +352,8 @@ impl Editor {
         // I3, the only way an account key reaches the request: the resolved
         // list with the current choice applied, through `request_account`,
         // which sends a key only where that list has it open (or it is an
-        // edit's existing account) and otherwise what a fresh draft would.
+        // edit's existing account) and otherwise what a fresh draft would. A
+        // refused pick never gets here (I5, `save_blocker`).
         let account = lookup.selection.request_account(&issue.key);
         draft
             .set_billing_account(account)
@@ -415,8 +427,8 @@ pub(super) fn next_start_time(seconds: u64) -> Time {
 }
 
 impl TempoView {
-    /// Enter in a draft field submits it as the save button would. Before the
-    /// issue lookup, native has no billing choices, so Enter explains why.
+    /// Enter in a draft field submits it as the save button would. When the
+    /// draft cannot be saved (I1, I5), Enter says why instead.
     fn submit_editor_on_enter(&mut self, input: gpui_kit::EntityId, cx: &mut Context<Self>) {
         let Some(editor) = &self.editor else {
             return;
@@ -424,8 +436,8 @@ impl TempoView {
         if self.busy || !editor.submits_from(input) {
             return;
         }
-        if !editor.has_current_issue(cx) {
-            self.error = Some(LOOKUP_BEFORE_SAVING.into());
+        if let Some(blocker) = editor.save_blocker(cx) {
+            self.error = Some(blocker);
             cx.notify();
             return;
         }
@@ -580,17 +592,46 @@ impl Editor {
                     "Every Tempo account is listed until the issue lookup narrows it to the project's accounts."
                 }));
             }
-            // The choice stays the person's even where this list refuses
-            // it; say what is sent instead.
-            if let Some(key) = self.billing_state.choice().key()
+            // I5: a pick this list refuses blocks saving. Say which and why,
+            // and offer an edit's existing account back, since the filter
+            // or the list may hide it.
+            let refused = self.billing_state.refused_pick();
+            if let Some(refused) = &refused {
+                body = body.child(div().whitespace_normal().child(refused.message()));
+                if let Some(Some(existing)) = refused.existing {
+                    let existing = existing.to_owned();
+                    let editor_id = self.id;
+                    body = body.child(
+                        h_flex().child(
+                            Button::new("tempo-editor-keep-existing")
+                                .label(format!("Keep {existing}"))
+                                .disabled(busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(editor) = &mut this.editor
+                                        && editor.id == editor_id
+                                        && let Err(error) = editor.choose(Some(&existing))
+                                    {
+                                        this.error = Some(error.to_string());
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                    );
+                }
+            } else if let Some(key) = self.billing_state.choice().key()
                 && billing.selected_key() != Some(key)
                 && !self.billing_state.is_edit()
             {
+                // A carried value, or a pick before the lookup, that this
+                // list does not hold open: say what is sent instead.
                 body = body.child(div().whitespace_normal().child(format!(
                     "{key} is not open in this list, so it is not sent."
                 )));
             }
-            if !billing.selection_is_listed() {
+            // While a pick is refused, nothing in the list is what saving
+            // would send, so nothing shows as selected.
+            let blocked = refused.is_some();
+            if !blocked && !billing.selection_is_listed() {
                 body=body.child(div().whitespace_normal().child(format!("The existing account {} is unavailable. It will be preserved unless you explicitly choose another account.",billing.selected_key().unwrap_or_default())));
             }
             let editor_id = self.id;
@@ -598,7 +639,9 @@ impl Editor {
                 h_flex().child(
                     Button::new("tempo-editor-no-billing")
                         .label("No billing account")
-                        .selected(billing.selected_key().is_none() && !billing.is_unchosen())
+                        .selected(
+                            !blocked && billing.selected_key().is_none() && !billing.is_unchosen(),
+                        )
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(editor) = &mut this.editor
@@ -612,6 +655,7 @@ impl Editor {
                 ),
             );
             if self.original.is_none()
+                && !blocked
                 && billing.is_unchosen()
                 && let Some(issue) = resolved.map(|lookup| &lookup.issue)
             {
@@ -642,7 +686,7 @@ impl Editor {
             )));
             for choice in choices.into_iter().take(30) {
                 let key = choice.account.key().to_owned();
-                let selected = billing.selected_key() == Some(key.as_str());
+                let selected = !blocked && billing.selected_key() == Some(key.as_str());
                 let editor_id = self.id;
                 let status = match choice.account.status() {
                     BillingAccountStatus::Open => "Open",
@@ -713,7 +757,7 @@ impl Editor {
                         } else {
                             "Create worklog"
                         })
-                        .disabled(busy || !can_save || !self.has_current_issue(cx))
+                        .disabled(busy || !can_save || self.save_blocker(cx).is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.submit_editor(cx))),
                 )
                 .child(
