@@ -440,3 +440,116 @@ fn a_result_confirmed_gone_after_a_lost_delete_acknowledgment_leaves_recent(
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn a_read_in_flight_when_a_result_is_deleted_cannot_list_it_again(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // PR #1028 round 5: the history read returns before the delete, the
+    // count is still pending, and the delete is confirmed. The read's late
+    // reply must not restore the row, nor may a failed follow-up read.
+    let (handle, view) = open(cx);
+    cx.update(|cx| view.update(cx, |view, cx| view.toggle_recent(cx)));
+    let now = recent::now_ms();
+    let before = rows(&[
+        ("Kept", "completed", "general", None, now),
+        ("Deleted", "completed", "general", None, now),
+    ]);
+    load(&view, before.clone(), cx);
+    let chat = cx.update(|cx| view.read(cx).chat.clone());
+    let results = cx.update(|cx| view.read(cx).results.clone());
+    // Both Recent lists: the sidebar's and the prompt box's.
+    let listed = |cx: &mut gpui_kit::TestAppContext| -> (Vec<String>, Vec<String>) {
+        cx.update(|cx| {
+            let recent = chat.read(cx).recent();
+            let ids = |rows: &mut dyn Iterator<Item = &ResultSummary>| {
+                rows.map(|row| row.id.clone()).collect::<Vec<_>>()
+            };
+            (ids(&mut recent.rows.iter()), ids(&mut recent.prompt_rows()))
+        })
+    };
+    let arrive = |generation: u64, fetched: recent::Fetched, cx: &mut gpui_kit::TestAppContext| {
+        cx.update(|cx| {
+            chat.update(cx, |chat, cx| {
+                chat.recent_arrived(generation, Some(fetched), cx)
+            })
+        });
+        cx.run_until_parked();
+    };
+    let in_flight = cx.update(|cx| chat.update(cx, |chat, _| chat.recent_mut().begin()));
+    cx.update(|cx| {
+        results.update(cx, |results, cx| {
+            results.removed("result-1".into(), Ok(()), cx)
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        listed(cx),
+        (vec!["result-0".into()], vec!["result-0".into()])
+    );
+    // The old reply, read before the delete, arrives now.
+    arrive(
+        in_flight,
+        recent::fetched(
+            before.clone(),
+            Some(ActiveCounts {
+                pending: 0,
+                running: 0,
+            }),
+        ),
+        cx,
+    );
+    assert_eq!(
+        listed(cx),
+        (vec!["result-0".into()], vec!["result-0".into()])
+    );
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find(("copilot-sidebar-result", 0usize))
+                .is_some()
+        );
+        assert!(
+            window
+                .try_find(("copilot-sidebar-result", 1usize))
+                .is_none()
+        );
+    })
+    .unwrap();
+    // The follow-up read fails: the last list stays, without the row.
+    let follow_up = cx.update(|cx| chat.update(cx, |chat, _| chat.recent_mut().begin()));
+    arrive(follow_up, recent::failed_rows(None), cx);
+    assert_eq!(
+        listed(cx),
+        (vec!["result-0".into()], vec!["result-0".into()])
+    );
+    cx.update(|cx| assert!(chat.read(cx).recent().unavailable));
+    // A normal refresh still applies, rows and count alike.
+    let mut fresh = rows(&[
+        ("Newer", "running", "general", None, now),
+        ("Kept", "completed", "general", None, now),
+    ]);
+    fresh[0].id = "result-2".into();
+    fresh[1].id = "result-0".into();
+    let refresh = cx.update(|cx| chat.update(cx, |chat, _| chat.recent_mut().begin()));
+    arrive(
+        refresh,
+        recent::fetched(
+            fresh,
+            Some(ActiveCounts {
+                pending: 0,
+                running: 1,
+            }),
+        ),
+        cx,
+    );
+    let ids = vec!["result-2".to_owned(), "result-0".to_owned()];
+    assert_eq!(listed(cx), (ids.clone(), ids));
+    cx.update(|cx| {
+        let recent = chat.read(cx).recent();
+        assert!(!recent.unavailable);
+        assert!(!recent.loading);
+        assert_eq!(recent.badge().as_deref(), Some("1 active"));
+    });
+}

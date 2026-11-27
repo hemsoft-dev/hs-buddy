@@ -34,6 +34,14 @@ pub(super) struct Recent {
     pub partial: bool,
     /// The same for the sidebar's fifteen.
     pub sidebar_partial: bool,
+    /// Bumped by every read that starts and every local removal. A reply
+    /// applies only if it carries the current one, so a read that was in
+    /// flight when a result went away cannot list it again.
+    generation: u64,
+    /// Results known to be gone, each with the generation current when it
+    /// went. A reply from a read started at or before that generation never
+    /// lists it; the first successful read started after it drops the entry.
+    removed: Vec<(String, u64)>,
 }
 
 pub(super) struct Fetched {
@@ -57,17 +65,38 @@ pub(super) async fn fetch(backend: CopilotBackend) -> Fetched {
 }
 
 impl Recent {
-    /// A failed rows read keeps the last rows, marked as not refreshed. A
-    /// failed count read leaves fresh rows fresh and only the count unknown.
-    pub fn apply(&mut self, fetched: Option<Fetched>) {
+    /// Starts a read: marks the list loading and returns the generation the
+    /// read's reply must carry to be applied.
+    pub fn begin(&mut self) -> u64 {
+        self.loading = true;
+        self.stale = false;
+        self.generation += 1;
+        self.generation
+    }
+
+    /// Applies the reply of the read started at `generation`, and returns
+    /// whether it applied. A reply from an older generation is dropped
+    /// whole: something changed after its read began, so it may list a
+    /// result that is gone. A failed rows read keeps the last rows, marked as
+    /// not refreshed. A failed count read leaves fresh rows fresh and only
+    /// the count unknown.
+    pub fn finish(&mut self, generation: u64, fetched: Option<Fetched>) -> bool {
+        // Only one read is in flight at a time, so its reply ends the load
+        // whether or not it applies.
         self.loading = false;
+        if generation != self.generation {
+            return false;
+        }
         let Some(fetched) = fetched else {
             self.unavailable = true;
             self.active = None;
-            return;
+            return true;
         };
         match fetched.rows {
-            Ok((rows, partial, sidebar_partial)) => {
+            Ok((mut rows, partial, sidebar_partial)) => {
+                // A read started after a removal is authoritative for it.
+                self.removed.retain(|(_, gone)| generation <= *gone);
+                rows.retain(|row| !self.removed.iter().any(|(id, _)| *id == row.id));
                 self.rows = rows;
                 self.rows.truncate(SIDEBAR_LIMIT.into());
                 self.partial = partial;
@@ -77,6 +106,14 @@ impl Recent {
             Err(_) => self.unavailable = true,
         }
         self.active = fetched.active.ok();
+        true
+    }
+
+    /// Starts and finishes a read at once, for tests that only need a list.
+    #[cfg(test)]
+    pub fn apply(&mut self, fetched: Option<Fetched>) {
+        let generation = self.begin();
+        self.finish(generation, fetched);
     }
 
     /// `{totalActive} active`, shown only while something is known to be
@@ -92,8 +129,13 @@ impl Recent {
     }
 
     /// Drops a result that is known to be gone, before the list is read
-    /// again, so neither list offers a record that no longer exists.
+    /// again, so neither list offers a record that no longer exists. Any
+    /// read already in flight is outdated, and until a read started after
+    /// this one succeeds, no reply lists the result.
     pub fn forget(&mut self, id: &str) -> bool {
+        self.removed.retain(|(gone, _)| gone != id);
+        self.removed.push((id.to_owned(), self.generation));
+        self.generation += 1;
         let before = self.rows.len();
         self.rows.retain(|row| row.id != id);
         self.rows.len() != before
@@ -221,5 +263,65 @@ pub(super) fn fetched_page(
     Fetched {
         rows: Ok((rows, partial, partial)),
         active: active.ok_or(Error::Unavailable),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use buddy_core::copilot_results::summaries::parse_results;
+
+    fn rows(ids: &[&str]) -> Vec<ResultSummary> {
+        let page: Vec<_> = ids
+            .iter()
+            .map(|id| {
+                serde_json::json!({"_id": id, "promptPreview": id, "status": "completed",
+                    "categoryLabel": "general", "createdAt": 0.0, "hasOutput": false})
+            })
+            .collect();
+        let wire = serde_json::json!({"page": page, "isDone": true, "continueCursor": ""});
+        parse_results(&serde_json::to_vec(&wire).unwrap())
+            .unwrap()
+            .rows
+    }
+
+    fn ids(recent: &Recent) -> Vec<&str> {
+        recent.rows.iter().map(|row| row.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_removed_result_stays_out_until_a_read_started_after_it_succeeds() {
+        let mut recent = Recent::default();
+        recent.apply(Some(fetched(rows(&["kept", "gone"]), None)));
+        let in_flight = recent.begin();
+        recent.forget("gone");
+        // Even a reply that slipped past the generation check, as if from
+        // the same generation, does not list the removed result again.
+        recent.generation = in_flight;
+        assert!(recent.finish(in_flight, Some(fetched(rows(&["kept", "gone"]), None))));
+        assert_eq!(ids(&recent), ["kept"]);
+        // A failed read keeps the entry.
+        recent.apply(Some(failed_rows(None)));
+        assert_eq!(recent.removed.len(), 1);
+        // The first successful read started after the removal settles it.
+        recent.apply(Some(fetched(rows(&["new", "kept"]), None)));
+        assert_eq!(ids(&recent), ["new", "kept"]);
+        assert!(recent.removed.is_empty());
+    }
+
+    #[test]
+    fn a_reply_from_an_older_read_is_dropped_whole() {
+        let mut recent = Recent::default();
+        recent.apply(Some(fetched(rows(&["kept"]), None)));
+        let old = recent.begin();
+        recent.forget("other");
+        let counts = ActiveCounts {
+            pending: 2,
+            running: 0,
+        };
+        assert!(!recent.finish(old, Some(fetched(rows(&["older"]), Some(counts)))));
+        assert!(!recent.loading);
+        assert_eq!(ids(&recent), ["kept"]);
+        assert_eq!(recent.badge(), None);
     }
 }

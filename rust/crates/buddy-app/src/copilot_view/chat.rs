@@ -283,22 +283,31 @@ impl ChatView {
             self.recent.unavailable = true;
             return;
         };
-        self.recent.loading = true;
-        self.recent.stale = false;
+        let generation = self.recent.begin();
         let rx = Runtime::global(cx).spawn(recent::fetch(backend));
         cx.spawn(async move |this, cx| {
             let fetched = rx.await.ok();
-            this.update(cx, |this, cx| {
-                this.recent.apply(fetched);
-                if this.recent.stale {
-                    this.refresh_recent(cx);
-                }
-                cx.emit(ChatEvent::RecentChanged);
-                cx.notify();
-            })
-            .ok();
+            this.update(cx, |this, cx| this.recent_arrived(generation, fetched, cx))
+                .ok();
         })
         .detach();
+        cx.notify();
+    }
+
+    /// The reply of the Recent read started at `generation`. An outdated
+    /// reply is dropped and the lists are read again, as is a list that was
+    /// asked for while this read loaded.
+    pub(super) fn recent_arrived(
+        &mut self,
+        generation: u64,
+        fetched: Option<recent::Fetched>,
+        cx: &mut Context<Self>,
+    ) {
+        let applied = self.recent.finish(generation, fetched);
+        if !applied || self.recent.stale {
+            self.refresh_recent(cx);
+        }
+        cx.emit(ChatEvent::RecentChanged);
         cx.notify();
     }
 
