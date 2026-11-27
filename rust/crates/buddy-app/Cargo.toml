@@ -25,6 +25,8 @@ gpui-kit = { workspace = true, features = ["syntect"] }
 jiff = { version = "=0.2.43", default-features = false, features = ["std", "tz-system"] }
 env_logger = "0.11"
 log.workspace = true
+# OpenTelemetry's diagnostics under OTEL_LOG_LEVEL=debug (`logging.rs`).
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 tokio.workspace = true
 reqwest.workspace = true
 futures.workspace = true

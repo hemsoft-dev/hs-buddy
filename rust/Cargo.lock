@@ -924,6 +924,7 @@ dependencies = [
  "tao",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
  "webview2-com",
  "windows 0.62.2",
@@ -6605,6 +6606,7 @@ dependencies = [
  "js-sys",
  "pin-project-lite",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
