@@ -41,7 +41,8 @@ impl Message {
 }
 pub(super) enum ChatEvent {
     OpenResult(String),
-    /// A Recent read finished; the Copilot sidebar lists the same rows.
+    /// The Recent rows changed (a read finished or a gone result was
+    /// dropped); the Copilot sidebar lists the same rows.
     RecentChanged,
 }
 impl EventEmitter<ChatEvent> for ChatView {}
@@ -171,6 +172,14 @@ impl ChatView {
 
     pub(super) fn recent(&self) -> &Recent {
         &self.recent
+    }
+
+    /// Drops a result that is known to be gone from both Recent lists.
+    pub(super) fn forget_recent(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.recent.forget(id) {
+            cx.emit(ChatEvent::RecentChanged);
+            cx.notify();
+        }
     }
 
     #[cfg(test)]

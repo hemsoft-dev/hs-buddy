@@ -4,6 +4,8 @@ use buddy_core::copilot_backend::{ActiveCounts, CopilotBackend, Error, HistoryFi
 use buddy_core::copilot_results::Status;
 use buddy_core::copilot_results::status_emoji;
 use buddy_core::copilot_results::summaries::ResultSummary;
+use gpui_kit::Hsla;
+use gpui_kit::component::theme::Theme;
 
 /// `useCopilotResultsRecent(10)` in `CopilotPromptBox.tsx`.
 pub(super) const LIMIT: u8 = 10;
@@ -88,6 +90,14 @@ impl Recent {
     pub fn prompt_rows(&self) -> impl Iterator<Item = &ResultSummary> {
         self.rows.iter().take(LIMIT.into())
     }
+
+    /// Drops a result that is known to be gone, before the list is read
+    /// again, so neither list offers a record that no longer exists.
+    pub fn forget(&mut self, id: &str) -> bool {
+        let before = self.rows.len();
+        self.rows.retain(|row| row.id != id);
+        self.rows.len() != before
+    }
 }
 
 /// `getRecentResultLabel`: a pr-review result shows its PR title, any other
@@ -124,6 +134,44 @@ pub(super) fn status_icon(status: Status) -> Option<gpui_kit::assets::IconName> 
         Status::Failed => IconName::CircleX,
         Status::Unknown => return None,
     })
+}
+
+/// The status as words, for the row's accessible name: the icon alone
+/// tells a screen reader nothing.
+pub(super) fn status_word(status: Status) -> &'static str {
+    match status {
+        Status::Pending => "pending",
+        Status::Running => "running",
+        Status::Completed => "completed",
+        Status::Failed => "failed",
+        Status::Unknown => "status unknown",
+    }
+}
+
+/// The status icon's colour: Electron's hue, kept at 3:1 in both themes
+/// (see [`super::palette`]). Electron draws running in the accent colour;
+/// Buddy Dark's accent measured 2.6:1 on the sidebar, so running uses the
+/// theme's `info` blue.
+pub(super) fn status_color(status: Status, theme: &Theme) -> Hsla {
+    use super::palette::{ORANGE, RED, TEAL, legible};
+    match status {
+        Status::Pending => legible(ORANGE, theme),
+        Status::Running => theme.info,
+        Status::Completed => legible(TEAL, theme),
+        Status::Failed => legible(RED, theme),
+        Status::Unknown => theme.muted_foreground,
+    }
+}
+
+/// A sidebar row's accessible name: the whole label, the status and the
+/// age, as in "PR Review: Fix the build, completed, 1 minute ago".
+pub(super) fn accessible_name(row: &ResultSummary, now_ms: f64) -> String {
+    format!(
+        "{}, {}, {}",
+        sidebar_label(row),
+        status_word(row.status),
+        age(row, now_ms)
+    )
 }
 
 /// `formatDistanceToNow(createdAt)`.

@@ -13,7 +13,7 @@ use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex};
 use gpui_kit::{
     App, Hsla, InteractiveElement as _, IntoElement, ParentElement as _,
-    StatefulInteractiveElement as _, Styled as _, div, rgb,
+    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, div,
 };
 
 use crate::zoom::zpx;
@@ -64,15 +64,16 @@ impl Quota {
 
     /// `getQuotaColor(pct)` in `quotaUtils.ts`.
     pub fn color(&self) -> u32 {
+        use super::palette::{ORANGE, RED, TEAL, YELLOW};
         let pct = self.percent_used;
         if pct >= 90.0 {
-            0xe85d5d
+            RED
         } else if pct >= 75.0 {
-            0xe89b3c
+            ORANGE
         } else if pct >= 50.0 {
-            0xdcd34a
+            YELLOW
         } else {
-            0x4ec9b0
+            TEAL
         }
     }
 }
@@ -214,8 +215,9 @@ pub(super) fn configured(typed: &str, cx: &App) -> Option<GitHubAccount> {
 /// The badge's colours. Electron draws the figures in the quota colour too,
 /// but on Buddy Light's `secondary` that measured 1.41–3.07:1 for 11 px
 /// text, so the figures use `secondary.foreground`, which keeps 4.5:1 in
-/// both themes (`muted.foreground` measured 4.2:1 in Buddy Dark). The quota colour stays on the icon and the bar, where 3:1 for
-/// non-text applies.
+/// both themes (`muted.foreground` measured 4.2:1 in Buddy Dark). The quota
+/// colour stays on the icon and the bar, in its Buddy Light shade there
+/// (see [`super::palette`]), so both keep 3:1 for non-text.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Colors {
     pub background: Hsla,
@@ -228,7 +230,7 @@ pub(super) fn colors(quota: &Quota, theme: &Theme) -> Colors {
     Colors {
         background: theme.secondary,
         track: theme.muted,
-        tier: rgb(quota.color()).into(),
+        tier: super::palette::legible(quota.color(), theme),
         figures: theme.secondary_foreground,
     }
 }
@@ -238,6 +240,14 @@ pub(super) fn render(quota: Quota, cx: &App) -> impl IntoElement {
     let colors = colors(&quota, cx.theme());
     h_flex()
         .id("copilot-premium-usage")
+        // The tooltip is pointer-only, so its text is also the accessible
+        // name, and the share used is the meter's value.
+        .role(gpui_kit::Role::Meter)
+        .aria_label(quota.tooltip())
+        .aria_numeric_value(quota.percent_used.clamp(0.0, 100.0))
+        .aria_min_numeric_value(0.0)
+        .aria_max_numeric_value(100.0)
+        .test_support()
         .gap(zpx(5.0))
         .items_center()
         .px(zpx(6.0))

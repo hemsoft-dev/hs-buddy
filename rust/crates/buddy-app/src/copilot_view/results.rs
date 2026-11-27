@@ -31,10 +31,13 @@ enum Loading {
     Delete,
 }
 
-/// A saved result was deleted, or a re-run created or finished one, so the
-/// Recent lists read again.
+/// The saved results changed, so the Recent lists read again.
 pub(super) enum ResultsEvent {
+    /// A re-run created or finished a result.
     Changed,
+    /// This result is gone: deleted here, or found missing when its record
+    /// was read again (for example after a lost delete acknowledgment).
+    Removed(String),
 }
 impl gpui_kit::EventEmitter<ResultsEvent> for ResultsView {}
 
@@ -129,6 +132,14 @@ impl ResultsView {
     #[cfg(test)]
     pub(super) fn pending_open(&self) -> Option<&str> {
         self.pending_open.as_deref()
+    }
+    #[cfg(test)]
+    pub(super) fn detail_ticket(&self) -> uuid::Uuid {
+        self.detail_ticket
+    }
+    #[cfg(test)]
+    pub(super) fn detail_error(&self) -> Option<&str> {
+        self.detail_error.as_deref()
     }
     pub(super) fn inspect(&mut self, id: String, cx: &mut Context<Self>) {
         self.pending_open = Some(id);
@@ -288,24 +299,35 @@ impl ResultsView {
         self.run(
             cx,
             Loading::Detail(ticket),
-            async move { backend.detail(&id).await },
-            move |this, result, cx| {
-                if this.detail_ticket != ticket {
-                    return;
-                }
-                this.detail_loading = false;
-                match result {
-                    Ok(Some(result)) => this.selected = Some(result),
-                    Ok(None) => {
-                        this.selected = None;
-                        this.detail_error = Some("This saved result no longer exists.".into());
-                    }
-                    Err(error) => this.detail_error = Some(error.to_string()),
-                }
-                this.flush_open(cx);
-                cx.notify();
-            },
+            async move { (id.clone(), backend.detail(&id).await) },
+            move |this, (id, result), cx| this.detail_read(ticket, id, result, cx),
         );
+        cx.notify();
+    }
+    pub(super) fn detail_read(
+        &mut self,
+        ticket: uuid::Uuid,
+        id: String,
+        result: Result<Option<SavedResult>, Error>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.detail_ticket != ticket {
+            return;
+        }
+        self.detail_loading = false;
+        match result {
+            Ok(Some(result)) => self.selected = Some(result),
+            Ok(None) => {
+                // Deleted elsewhere, or by a delete whose acknowledgment was
+                // lost: no list keeps offering it.
+                self.selected = None;
+                self.rows.retain(|row| row.id != id);
+                self.detail_error = Some("This saved result no longer exists.".into());
+                cx.emit(ResultsEvent::Removed(id));
+            }
+            Err(error) => self.detail_error = Some(error.to_string()),
+        }
+        self.flush_open(cx);
         cx.notify();
     }
     fn remove(&mut self, cx: &mut Context<Self>) {
@@ -323,27 +345,32 @@ impl ResultsView {
             cx,
             Loading::Delete,
             async move { (id.clone(), backend.remove(&id).await) },
-            |this, (id, result), cx| {
-                this.write_loading = false;
-                match result {
-                    Ok(()) => {
-                        this.rows.retain(|row| row.id != id);
-                        this.selected = None;
-                        this.selected_id = None;
-                        this.notice = Some("Saved result deleted.".into());
-                        cx.emit(ResultsEvent::Changed);
-                    }
-                    Err(_) => {
-                        this.detail_error = Some(
-                            "Deletion is unconfirmed. Refresh this record before trying again."
-                                .into(),
-                        )
-                    }
-                }
-                this.flush_open(cx);
-                cx.notify();
-            },
+            |this, (id, result), cx| this.removed(id, result, cx),
         );
+        cx.notify();
+    }
+    pub(super) fn removed(
+        &mut self,
+        id: String,
+        result: Result<(), Error>,
+        cx: &mut Context<Self>,
+    ) {
+        self.write_loading = false;
+        match result {
+            Ok(()) => {
+                self.rows.retain(|row| row.id != id);
+                self.selected = None;
+                self.selected_id = None;
+                self.notice = Some("Saved result deleted.".into());
+                cx.emit(ResultsEvent::Removed(id));
+            }
+            // The refresh this asks for reads `None` once the record is gone.
+            Err(_) => {
+                self.detail_error =
+                    Some("Deletion is unconfirmed. Refresh this record before trying again.".into())
+            }
+        }
+        self.flush_open(cx);
         cx.notify();
     }
     fn detail(&self, cx: &mut Context<Self>) -> AnyElement {

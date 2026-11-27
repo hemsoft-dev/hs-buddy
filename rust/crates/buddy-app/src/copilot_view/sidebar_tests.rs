@@ -103,6 +103,21 @@ fn labels_follow_electron_for_reviews_and_prompts() {
             format!("{}…", "z".repeat(40)),
         ]
     );
+    // The accessible name adds the status the icon shows (PR #1028 round 4).
+    let names: Vec<_> = sample
+        .iter()
+        .map(|row| recent::accessible_name(row, now))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "PR Review: Fix the build, completed, just now".to_string(),
+            "PR Review: Untitled, failed, 1 minute ago".into(),
+            "PR Review: Untitled, running, just now".into(),
+            format!("{forty}, pending, 2 hours ago"),
+            format!("{}…, completed, 1 day and 2 hours ago", "z".repeat(40)),
+        ]
+    );
     // formatDistanceToNow: two units at most, "just now" under a minute.
     let ages: Vec<_> = sample.iter().map(|row| recent::age(row, now)).collect();
     assert_eq!(
@@ -161,7 +176,10 @@ fn the_section_starts_collapsed_and_lists_the_fifteen_newest_once_opened(
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         // Electron opens only the Prompt section at first.
-        assert!(window.try_find("copilot-sidebar-recent").is_some());
+        assert_eq!(
+            window.find("copilot-sidebar-recent").label(),
+            Some("Recent Results, collapsed")
+        );
         assert!(
             window
                 .try_find(("copilot-sidebar-result", 0usize))
@@ -173,10 +191,13 @@ fn the_section_starts_collapsed_and_lists_the_fifteen_newest_once_opened(
     cx.run_until_parked();
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        assert!(
-            window
-                .try_find(("copilot-sidebar-result", 14usize))
-                .is_some()
+        assert_eq!(
+            window.find("copilot-sidebar-recent").label(),
+            Some("Recent Results, expanded")
+        );
+        assert_eq!(
+            window.find(("copilot-sidebar-result", 14usize)).label(),
+            Some("Synthetic prompt, completed, 14 minutes ago")
         );
         assert!(
             window
@@ -227,6 +248,10 @@ fn an_empty_or_failed_read_says_so_and_a_clicked_row_opens_its_result(
                 .try_find(("copilot-sidebar-result", 0usize))
                 .is_none()
         );
+        // Plain GPUI text has no accessibility node; the note has one.
+        let empty = window.find("copilot-sidebar-empty");
+        assert_eq!(empty.role(), Some(gpui_kit::Role::Status));
+        assert_eq!(empty.label(), Some("No results yet"));
     })
     .unwrap();
     cx.update(|cx| {
@@ -259,6 +284,16 @@ fn an_empty_or_failed_read_says_so_and_a_clicked_row_opens_its_result(
     });
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
+        let stale = window.find("copilot-sidebar-not-refreshed");
+        assert_eq!(stale.role(), Some(gpui_kit::Role::Status));
+        assert_eq!(
+            stale.label(),
+            Some("Recent results could not be refreshed.")
+        );
+        assert_eq!(
+            window.find(("copilot-sidebar-result", 0usize)).label(),
+            Some("Newest, running, just now")
+        );
         window.click(("copilot-sidebar-result", 1usize), cx);
     })
     .unwrap();
@@ -318,4 +353,90 @@ fn fresh_rows_with_an_unknown_active_count_are_shown_as_fresh(cx: &mut gpui_kit:
         assert_eq!(chat.read(cx).recent().rows.len(), 1);
         assert_eq!(chat.read(cx).recent().badge().as_deref(), Some("1 active"));
     });
+}
+
+#[gpui_kit::test]
+fn a_result_confirmed_gone_after_a_lost_delete_acknowledgment_leaves_recent(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    // PR #1028 round 4: Convex commits a delete and its answer is lost, so
+    // nothing is known yet. The refresh the notice asks for reads no record;
+    // that row must not stay listed and open a missing-record error.
+    use buddy_core::copilot_backend::Error;
+    let (handle, view) = open(cx);
+    cx.update(|cx| view.update(cx, |view, cx| view.toggle_recent(cx)));
+    let now = recent::now_ms();
+    load(
+        &view,
+        rows(&[
+            ("Kept", "completed", "general", None, now),
+            ("Deleted", "completed", "general", None, now),
+        ]),
+        cx,
+    );
+    let results = cx.update(|cx| view.read(cx).results.clone());
+    let listed = |cx: &mut gpui_kit::TestAppContext| -> Vec<String> {
+        cx.update(|cx| {
+            let chat = view.read(cx).chat.clone();
+            let chat = chat.read(cx);
+            chat.recent()
+                .rows
+                .iter()
+                .map(|row| row.id.clone())
+                .collect()
+        })
+    };
+    cx.update(|cx| {
+        results.update(cx, |results, cx| {
+            results.removed("result-1".into(), Err(Error::Unavailable), cx)
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(listed(cx), ["result-0", "result-1"]);
+    cx.update(|cx| {
+        assert!(
+            results
+                .read(cx)
+                .detail_error()
+                .is_some_and(|error| error.contains("unconfirmed"))
+        )
+    });
+    // "Refresh this result" finds the record gone.
+    cx.update(|cx| {
+        results.update(cx, |results, cx| {
+            let ticket = results.detail_ticket();
+            results.detail_read(ticket, "result-1".into(), Ok(None), cx)
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(listed(cx), ["result-0"]);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            window.find(("copilot-sidebar-result", 0usize)).label(),
+            Some("Kept, completed, just now")
+        );
+        assert!(
+            window
+                .try_find(("copilot-sidebar-result", 1usize))
+                .is_none()
+        );
+    })
+    .unwrap();
+    // An acknowledged delete drops its row the same way.
+    cx.update(|cx| {
+        results.update(cx, |results, cx| {
+            results.removed("result-0".into(), Ok(()), cx)
+        })
+    });
+    cx.run_until_parked();
+    assert!(listed(cx).is_empty());
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("copilot-sidebar-empty").label(),
+            Some("No results yet")
+        );
+    })
+    .unwrap();
 }

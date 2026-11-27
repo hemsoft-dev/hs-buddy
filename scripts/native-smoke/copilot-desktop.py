@@ -185,8 +185,11 @@ USAGE_BADGE = f'{USAGE_REMAINING}/{USAGE_ENTITLEMENT}'
 # this row, so the scene opens the section from a pane without it.
 RECENT_REVIEW_LABEL = 'PR Review'
 # The colon tells the row from Saved results' "PR reviews" filter. Windows OCR
-# reads it as a full stop.
-RECENT_REVIEW_MARKER = 'PR Review:|PR Review.'
+# reads it as a full stop. The title's first letters, "Se", are on the row at
+# every width the scenes use, so a row that lost its title ("PR Review:
+# Untitled") fails the check.
+RECENT_REVIEW_MARKER = 'PR Review: Se|PR Review. Se'
+RECENT_REVIEW_ABSENT = ('Untitled',)
 # The opened result's first control, above everything it scrolls.
 RESULT_TOP = 'Refresh this result'
 CODE_MARKER = 'BUDDYCODE48213'
@@ -354,8 +357,10 @@ def recent_results(driver):
         ('capture', 'copilot-recent-result-opened-dark'),
     ], record=True)
     github.check(scene / 'copilot-usage-badge-dark.png', 'GitHub account', USAGE_BADGE)
-    github.check(scene / 'copilot-recent-results-dark.png', 'Recent Results', RECENT_REVIEW_MARKER)
-    github.check(scene / 'copilot-recent-result-opened-dark.png', RECENT_REVIEW_MARKER, 'Captured review')
+    github.check(scene / 'copilot-recent-results-dark.png', 'Recent Results', RECENT_REVIEW_MARKER,
+        absent=RECENT_REVIEW_ABSENT)
+    github.check(scene / 'copilot-recent-result-opened-dark.png', RECENT_REVIEW_MARKER, 'Captured review',
+        absent=RECENT_REVIEW_ABSENT)
 
 
 def review_pull_request(driver):

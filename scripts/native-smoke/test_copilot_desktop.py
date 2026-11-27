@@ -460,10 +460,12 @@ class CopilotQualificationTests(unittest.TestCase):
         self.assertIn(('sleep', 1), actions[positions[5]:positions[7]])
         # Nothing returns to Chat before the row is clicked.
         self.assertNotIn(('content', 'Chat'), actions)
-        self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
-            ('copilot-usage-badge-dark.png', 'GitHub account', '174/300'),
-            ('copilot-recent-results-dark.png', 'Recent Results', 'PR Review:|PR Review.'),
-            ('copilot-recent-result-opened-dark.png', 'PR Review:|PR Review.', 'Captured review'),
+        self.assertEqual([(call.args[0].name, *call.args[1:], call.kwargs) for call in screenshots.call_args_list], [
+            ('copilot-usage-badge-dark.png', 'GitHub account', '174/300', {}),
+            ('copilot-recent-results-dark.png', 'Recent Results', 'PR Review: Se|PR Review. Se',
+                dict(absent=('Untitled',))),
+            ('copilot-recent-result-opened-dark.png', 'PR Review: Se|PR Review. Se', 'Captured review',
+                dict(absent=('Untitled',))),
         ])
 
     # Tesseract (mode 11) of the opened re-run result in Ubuntu run
@@ -558,6 +560,31 @@ class CopilotQualificationTests(unittest.TestCase):
         self.assertTrue(has_marker('PR Review: Second private navigation review', copilot.RECENT_REVIEW_MARKER))
         self.assertFalse(has_marker('All Pending Running Completed Failed PR reviews', copilot.RECENT_REVIEW_MARKER))
         self.assertFalse(has_marker('Category General PR Review Code Analysis', copilot.RECENT_REVIEW_MARKER))
+
+    def check_text(self, text, *markers):
+        def recognize(*args, **kwargs):
+            return '' if args[0] == 'ffmpeg' else text
+        with TemporaryDirectory() as temporary, patch.object(copilot.github.settings, 'run', side_effect=recognize):
+            copilot.github.check(Path(temporary) / 'copilot-recent-results-dark.png', *markers,
+                absent=copilot.RECENT_REVIEW_ABSENT)
+
+    def test_an_untitled_review_row_fails_the_recent_results_captures(self):
+        # PR #1028 round 4: the row read as "PR Review: Untitled" when
+        # prTitle was lost, and the bare prefix still passed.
+        row = ' '.join(word['text'] for word in self.WINDOWS_SIDEBAR_ROW)
+        self.assertEqual(row, 'PR Review. Se... 1 minute ago')
+        self.check_text('Recent Results ' + row, 'Recent Results', copilot.RECENT_REVIEW_MARKER)
+        self.check_text('Recent Results PR Review: Second private navigation review 1 minute ago',
+            'Recent Results', copilot.RECENT_REVIEW_MARKER)
+        self.check_text('PR Review: Second private Captured review: owner/repo #7',
+            copilot.RECENT_REVIEW_MARKER, 'Captured review')
+        for untitled in ('PR Review: Untitled 1 minute ago', 'PR Review. Untitled 1 minute ago'):
+            with self.subTest(untitled), self.assertRaises(RuntimeError):
+                self.check_text('Recent Results ' + untitled, 'Recent Results', copilot.RECENT_REVIEW_MARKER)
+        # A titled row beside an untitled one still fails: the title is lost somewhere.
+        with self.assertRaises(RuntimeError):
+            self.check_text('Recent Results ' + row + ' PR Review: Untitled just now',
+                'Recent Results', copilot.RECENT_REVIEW_MARKER)
 
     def test_a_failed_recent_results_check_stops_the_scene(self):
         class Driver:

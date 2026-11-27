@@ -1,5 +1,5 @@
 //! Electron's `PremiumUsageBadge` beside the prompt box's account picker.
-use super::premium_badge::{Quota, State, TTL, colors, js_fixed};
+use super::premium_badge::{Quota, State, TTL, js_fixed};
 use super::*;
 use buddy_core::config::GitHubAccount;
 use buddy_core::copilot_usage::{PremiumQuota, parse_personal_quota, parse_premium_quota};
@@ -416,37 +416,27 @@ fn the_tooltip_rounds_the_binary_value_as_tofixed_does() {
 }
 
 #[gpui_kit::test]
-fn the_figures_keep_text_contrast_and_the_bar_keeps_the_quota_colour(
-    cx: &mut gpui_kit::TestAppContext,
-) {
-    // PR #1028 round 3: the quota colours measured 1.41-3.07:1 as 11 px text
-    // on Buddy Light's `secondary`. The figures use the badge's foreground;
-    // the icon and bar keep the colour, as non-text needing 3:1.
-    use crate::theme::wcag::{contrast, over};
-    use buddy_core::application_settings::LocalEdit;
-    use buddy_core::config::{AppConfig, ThemeName};
-    use gpui_kit::component::theme::Theme;
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        for mode in [ThemeName::Light, ThemeName::Dark] {
-            // Selecting a theme applies its incumbent color preset.
-            let mut config = AppConfig::default();
-            LocalEdit::Theme(mode).apply(&mut config).unwrap();
-            crate::theme::install(&config, cx);
-            let theme = Theme::global(cx);
-            for percent_remaining in [60.0, 40.0, 20.0, 5.0] {
-                let quota = quota(percent_remaining, 100.0, percent_remaining);
-                let colors = colors(&quota, theme);
-                assert_eq!(colors.tier, gpui_kit::rgb(quota.color()).into());
-                let badge = over(colors.background, theme.background);
-                let ratio = contrast(colors.figures, badge);
-                assert!(
-                    ratio >= 4.5,
-                    "{mode:?} figure contrast at {:#x} is {ratio:.2}:1",
-                    quota.color()
-                );
-                assert_ne!(colors.figures, colors.tier);
-            }
-        }
-    });
+fn the_badge_names_its_figures_to_assistive_technology(cx: &mut gpui_kit::TestAppContext) {
+    // PR #1028 round 4: the tooltip is pointer-only, so the badge's
+    // accessible name carries its text and the meter its share used.
+    let (handle, view, _) = open(cx, &[]);
+    choose(cx, handle, &view, "alice");
+    assert_eq!(shown(cx, handle, &view).as_deref(), Some("42% · 174/300"));
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let badge = window.find("copilot-premium-usage");
+        assert_eq!(badge.role(), Some(gpui_kit::Role::Meter));
+        assert_eq!(
+            badge.label(),
+            Some("Premium: 174 of 300 remaining (42.0% used)")
+        );
+    })
+    .unwrap();
+    // Hidden with no quota, so nothing is named either.
+    choose(cx, handle, &view, "stranger");
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("copilot-premium-usage").is_none());
+    })
+    .unwrap();
 }

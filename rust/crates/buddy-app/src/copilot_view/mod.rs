@@ -1,7 +1,10 @@
 //! Native assistant tools retain their own requests and selection state.
 pub(crate) mod chat;
+#[cfg(test)]
+mod contrast_tests;
 mod enterprise;
 pub(crate) mod markdown;
+mod palette;
 mod premium_badge;
 mod recent;
 mod results;
@@ -45,8 +48,15 @@ impl CopilotView {
         })
         .detach();
         let results = cx.new(|cx| results::ResultsView::new(window, cx));
-        cx.subscribe(&results, |this, _, _: &results::ResultsEvent, cx| {
-            this.chat.update(cx, |chat, cx| chat.refresh_recent(cx))
+        cx.subscribe(&results, |this, _, event: &results::ResultsEvent, cx| {
+            this.chat.update(cx, |chat, cx| {
+                // A result known to be gone leaves Recent at once, even if
+                // the read that follows fails.
+                if let results::ResultsEvent::Removed(id) = event {
+                    chat.forget_recent(id, cx);
+                }
+                chat.refresh_recent(cx)
+            })
         })
         .detach();
         let sessions = cx.new(|cx| sessions::SessionsView::new(window, cx));
@@ -156,8 +166,8 @@ impl CopilotView {
     /// Electron's sidebar "Recent Results" section: the 15 newest results,
     /// each with its status icon, label and age. A row opens its result.
     pub(crate) fn sidebar(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let primary = cx.theme().primary;
+        let quiet = palette::quiet_text(cx.theme());
+        let expanded = self.recent_expanded;
         let mut list = v_flex()
             .id("copilot-sidebar")
             .size_full()
@@ -168,15 +178,21 @@ impl CopilotView {
                 Button::new("copilot-sidebar-recent")
                     .ghost()
                     .w_full()
-                    .icon(if self.recent_expanded {
+                    .icon(if expanded {
                         IconName::ChevronDown
                     } else {
                         IconName::ChevronRight
                     })
                     .label("Recent Results")
+                    // A Kit button has no expanded state, so its name says it.
+                    .accessibility_label(if expanded {
+                        "Recent Results, expanded"
+                    } else {
+                        "Recent Results, collapsed"
+                    })
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_recent(cx))),
             );
-        if !self.recent_expanded {
+        if !expanded {
             return list.into_any_element();
         }
         let shown = (self.pane == Pane::Results)
@@ -184,18 +200,19 @@ impl CopilotView {
             .flatten();
         let recent = self.chat.read(cx).recent();
         if recent.rows.is_empty() {
-            list = list.child(div().px_2().text_color(muted).child("No results yet"));
+            list = list.child(sidebar_note(
+                "copilot-sidebar-empty",
+                "No results yet",
+                quiet,
+            ));
         }
         // Only a failed rows read; an unknown active count is simply not shown.
         if recent.unavailable {
-            list = list.child(
-                div()
-                    .id("copilot-sidebar-not-refreshed")
-                    .test_support()
-                    .px_2()
-                    .text_color(muted)
-                    .child("Recent results could not be refreshed."),
-            );
+            list = list.child(sidebar_note(
+                "copilot-sidebar-not-refreshed",
+                "Recent results could not be refreshed.",
+                quiet,
+            ));
         }
         let now = recent::now_ms();
         let mut rows = Vec::new();
@@ -203,18 +220,13 @@ impl CopilotView {
             let id = row.id.clone();
             let label = recent::sidebar_label(row);
             let age = recent::age(row, now);
-            let color = match row.status {
-                buddy_core::copilot_results::Status::Pending => gpui_kit::rgb(0xe89b3c).into(),
-                buddy_core::copilot_results::Status::Completed => gpui_kit::rgb(0x4ec9b0).into(),
-                buddy_core::copilot_results::Status::Failed => gpui_kit::rgb(0xe85d5d).into(),
-                _ => primary,
-            };
+            let color = recent::status_color(row.status, cx.theme());
             rows.push(
                 Button::new(("copilot-sidebar-result", index))
                     .ghost()
                     .w_full()
                     .selected(shown.as_deref() == Some(row.id.as_str()))
-                    .accessibility_label(format!("{label}, {age}"))
+                    .accessibility_label(recent::accessible_name(row, now))
                     .tooltip(row.prompt_preview.clone())
                     .child(
                         h_flex()
@@ -227,15 +239,17 @@ impl CopilotView {
                                     .map(|icon| Icon::new(icon).xsmall().text_color(color)),
                             )
                             .child(div().flex_1().min_w_0().truncate().child(label))
-                            .child(div().flex_none().text_color(muted).child(age)),
+                            .child(div().flex_none().text_color(quiet).child(age)),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.open_result(id.clone(), cx))),
             );
         }
         list = list.children(rows);
         if recent.sidebar_partial {
-            list = list.child(div().px_2().text_color(muted).child(
+            list = list.child(sidebar_note(
+                "copilot-sidebar-partial",
                 "Some recent results were too large to list here. Saved results has them all.",
+                quiet,
             ));
         }
         list.into_any_element()
@@ -273,4 +287,17 @@ impl CopilotView {
         });
         destination
     }
+}
+
+/// A note under the section, as text a screen reader also reads: plain
+/// GPUI text has no accessibility node.
+fn sidebar_note(id: &'static str, text: &'static str, color: gpui_kit::Hsla) -> impl IntoElement {
+    div()
+        .id(id)
+        .role(gpui_kit::Role::Status)
+        .aria_label(text)
+        .test_support()
+        .px_2()
+        .text_color(color)
+        .child(text)
 }
