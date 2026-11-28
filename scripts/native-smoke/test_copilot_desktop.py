@@ -89,6 +89,21 @@ class ReviewPublication(unittest.TestCase):
                         self.assertEqual(len(action), 3)
                         self.assertIn(action[2], (copilot.RESULT_PANE, copilot.RESULT_TOP))
 
+    def test_the_compact_pass_reaches_publish_with_a_coarse_step_at_the_pane(self):
+        class RecordingDriver:
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'):
+            copilot.review_publication_unconfirmed(driver)
+        resized = driver.actions.index(('resize', 900, 650))
+        publish = driver.actions.index(('content', 'Publish to PR'))
+        self.assertGreater(publish, resized)
+        self.assertEqual(driver.actions[publish - 1], ('wait_scroll_text', 'Publish to PR', copilot.RESULT_PANE))
+        self.assertNotIn('reveal_text', [action[0] for action in driver.actions[resized:publish]])
+
     def test_the_pane_anchor_takes_whichever_of_its_labels_is_in_view(self):
         def word(text, left, top):
             return dict(text=text, left=left, top=top, width=8 * len(text), height=14, line=str(top))

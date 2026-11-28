@@ -403,7 +403,12 @@ def review_publication_unconfirmed(driver):
         ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('resize', 900, 650),
-        ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
+        # In the compact pane beside the Copilot sidebar the saved answer
+        # wraps far longer than before. Fine reveal steps moved it about 190
+        # px in their whole wait and left the button at the bottom edge
+        # (Ubuntu, run 46091172351). The button ends the result, so a coarse
+        # step at the pane reaches it.
+        ('wait_scroll_text', 'Publish to PR', RESULT_PANE), ('content', 'Publish to PR'),
         ('wait_scroll_text', 'Confirm publication', RESULT_PANE), ('capture', 'publish-confirmation-compact-light'),
         ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed', RESULT_PANE),
         ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
