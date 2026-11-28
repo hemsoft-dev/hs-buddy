@@ -19,6 +19,7 @@ use crate::copilot_view::CopilotView;
 use crate::crew_view::CrewView;
 use crate::dashboard::{DashboardEvent, DashboardView};
 use crate::github_view::GitHubView;
+use crate::insights_view::InsightsView;
 use crate::platform_placement;
 use crate::ralph_view::RalphView;
 use crate::runtime::Runtime;
@@ -183,6 +184,7 @@ pub struct BuddyApp {
     crew_view: Entity<CrewView>,
     bookmarks_view: Entity<BookmarksView>,
     browser_view: Entity<BrowserView>,
+    insights_view: Entity<InsightsView>,
     explorer_view: Entity<crate::explorer_view::ExplorerView>,
     folder_open: bool,
     window_state: WindowPersistence,
@@ -380,15 +382,13 @@ impl BuddyApp {
     }
 
     /// An activity-bar click. Electron's `openTab` counts the Dashboard and
-    /// Bookmarks (`bookmarks-all`) opens; Insights has no sub-views here, so
-    /// its entry stands for Electron's Insights view opens. Other sections
-    /// count their own opens, or none, as their Electron views do.
+    /// Bookmarks (`bookmarks-all`) opens. Other sections count their own
+    /// opens, or none, as their Electron views do: Insights counts its
+    /// sidebar entries, as Electron's activity bar opens no Insights tab.
     pub(crate) fn open_section(&mut self, section: Option<Section>, cx: &mut Context<Self>) {
         self.set_section(section, cx);
         // Only an open that happened counts: a failed save keeps the old section.
-        if self.active_section == section
-            && matches!(section, None | Some(Section::Bookmarks | Section::Insights))
-        {
+        if self.active_section == section && matches!(section, None | Some(Section::Bookmarks)) {
             crate::view_activity::record(cx);
         }
     }
@@ -456,6 +456,10 @@ impl BuddyApp {
                 .crew_view
                 .read(cx)
                 .destination(self.crew_view.clone(), cx),
+            Some(Section::Insights) => self
+                .insights_view
+                .read(cx)
+                .destination(self.insights_view.clone()),
             Some(Section::Bookmarks) if self.browser_view.read(cx).is_home() => self
                 .bookmarks_view
                 .read(cx)
@@ -850,6 +854,7 @@ impl BuddyApp {
             crew_view,
             bookmarks_view,
             browser_view,
+            insights_view: cx.new(|_| InsightsView::default()),
             explorer_view,
             folder_open: false,
             window_state: WindowPersistence::new(),
@@ -1066,6 +1071,10 @@ impl BuddyApp {
                 .into_iter()
                 .map(crate::shell::navigation::SidebarLink::from)
                 .collect(),
+            Some(Section::Insights) => self
+                .insights_view
+                .read(cx)
+                .sidebar(self.insights_view.clone()),
             _ => Vec::new(),
         };
         if links.is_empty() || self.folder_open {
@@ -1406,12 +1415,8 @@ impl BuddyApp {
             Some(Section::Ralph) => container.child(self.ralph_view.clone()),
             Some(Section::Crew) => container.child(self.crew_view.clone()),
             Some(Section::Bookmarks) => container.child(self.browser_view.clone()),
-            Some(section) => container
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme.muted_foreground)
-                .child(format!("{} (not yet ported)", section.label())),
+            // Its pages have no route, so each shows the catch-all for its view id.
+            Some(Section::Insights) => container.child(self.insights_view.clone()),
         }
     }
 }
@@ -1610,6 +1615,7 @@ mod tests {
                         crew_view: cx.new(|cx| CrewView::new(window, cx)),
                         bookmarks_view: cx.new(|cx| BookmarksView::new(window, cx)),
                         browser_view: cx.new(|cx| BrowserView::new(window, cx)),
+                        insights_view: cx.new(|_| InsightsView::default()),
                         explorer_view: cx.new(|_| crate::explorer_view::ExplorerView::new()),
                         folder_open: false,
                         window_state: WindowPersistence::new(),
@@ -2636,6 +2642,88 @@ mod tests {
         });
     }
 
+    /// Electron's Insights sidebar: Productivity and Activity each open
+    /// their own tab, labelled as `appContentViewLabels.ts` names them, on
+    /// the router's coming-soon page. A second click selects the open tab
+    /// and, as Electron's `openTab`, counts again; the activity-bar entry
+    /// opens no Insights view in Electron, so it counts none.
+    #[gpui_kit::test]
+    fn insights_entries_open_their_own_coming_soon_tabs(cx: &mut gpui_kit::TestAppContext) {
+        if status_click_child("app::tests::insights_entries_open_their_own_coming_soon_tabs") {
+            return;
+        }
+        use crate::insights_view::COMING_SOON;
+        use gpui_kit::test::TestWindowExt as _;
+        let (window, shell) = status_click_shell(cx);
+        let opens = Rc::new(Cell::new(0));
+        let count = opens.clone();
+        cx.update(|cx| {
+            cx.set_global(crate::view_activity::ViewOpens(Rc::new(move |_| {
+                count.set(count.get() + 1)
+            })))
+        });
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        let tabs = |app: &BuddyApp| {
+            app.tabs
+                .items
+                .iter()
+                .map(|tab| (tab.key.clone(), tab.label.clone()))
+                .collect::<Vec<_>>()
+        };
+        visual.update(|window, cx| {
+            shell.update(cx, |app, cx| app.open_section(Some(Section::Insights), cx));
+            window.render_frame(cx);
+            assert_eq!(opens.get(), 0);
+            let entries: Vec<_> = (0..2usize)
+                .map(|i| {
+                    window
+                        .find(("navigation-item", i))
+                        .label()
+                        .map(str::to_owned)
+                })
+                .collect();
+            assert_eq!(
+                entries,
+                [Some("Productivity".to_owned()), Some("Activity".to_owned())]
+            );
+            assert!(window.try_find(("navigation-item", 2usize)).is_none());
+            assert_eq!(
+                window.find("coming-soon-heading").label(),
+                Some("Productivity")
+            );
+
+            window.click(("navigation-item", 1usize), cx);
+            window.render_frame(cx);
+            assert_eq!(opens.get(), 1);
+            let opened = vec![
+                (
+                    "insights-productivity".to_owned(),
+                    "Productivity".to_owned(),
+                ),
+                ("insights-activity".to_owned(), "Activity".to_owned()),
+            ];
+            shell.read_with(cx, |app, _| {
+                assert_eq!(app.tabs.active.as_deref(), Some("insights-activity"));
+                assert_eq!(tabs(app), opened);
+            });
+            assert_eq!(window.find("coming-soon-heading").label(), Some("Activity"));
+            assert_eq!(window.find("coming-soon-text").label(), Some(COMING_SOON));
+
+            window.click(("navigation-item", 0usize), cx);
+            window.render_frame(cx);
+            assert_eq!(opens.get(), 2);
+            shell.read_with(cx, |app, _| {
+                assert_eq!(app.tabs.active.as_deref(), Some("insights-productivity"));
+                assert_eq!(tabs(app), opened);
+            });
+            assert_eq!(
+                window.find("coming-soon-heading").label(),
+                Some("Productivity")
+            );
+            assert_eq!(window.find("coming-soon-text").label(), Some(COMING_SOON));
+        });
+    }
+
     struct HistoryShortcutProbe {
         focus: gpui_kit::FocusHandle,
         context: &'static str,
@@ -2750,6 +2838,7 @@ mod tests {
                         crew_view: cx.new(|cx| CrewView::new(window, cx)),
                         bookmarks_view: cx.new(|cx| BookmarksView::new(window, cx)),
                         browser_view: cx.new(|cx| BrowserView::new(window, cx)),
+                        insights_view: cx.new(|_| InsightsView::default()),
                         explorer_view: cx.new(|_| crate::explorer_view::ExplorerView::new()),
                         folder_open: false,
                         window_state: WindowPersistence::new(),

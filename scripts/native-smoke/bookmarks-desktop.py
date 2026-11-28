@@ -1,5 +1,9 @@
 """Installed Bookmarks on disposable CI desktops: categorized list, editor, delete, failure.
 
+The scene also opens the Insights pages, which share this area's parity page:
+Electron's Insights sidebar lists Productivity and Activity, and each opens its
+own tab on the router's coming-soon page.
+
 Bookmarks live in the same disposable anonymous Convex deployment the Settings and
 GitHub qualifications use, seeded through the incumbent `bookmarks:create` function.
 Nothing is opened in a browser and no page title is fetched: the editor is driven by
@@ -153,6 +157,79 @@ def failure(driver, theme, compact):
     github.check(flow / f"{name}.png", "Unable to load bookmarks", "Convex", "Retry")
 
 
+COMING_SOON = "This feature is coming soon"
+PAGES = ("Productivity", "Activity")
+
+
+def insights_actions(theme):
+    """Launch on Insights, then open each page from its sidebar entry.
+
+    Scenes start a section from the saved `native.activeSection`; the activity
+    bar is icons only, with nothing for OCR to find. The launch opens the
+    Productivity tab. Each click is content-scoped (below the tab row, above
+    the footer) and names the page that is not shown: the shown page's name
+    is also its heading, so only the other one is a single visible control.
+    Activity opens a second tab; Productivity then selects its open tab. The
+    dark pass also steps between both tabs by their labels in the tab row."""
+    actions = [("wait_text", COMING_SOON),
+        ("content", "Activity"), ("sleep", 1), ("wait_text", COMING_SOON), ("capture", f"insights-activity-{theme}"),
+        ("content", "Productivity"), ("sleep", 1), ("wait_text", COMING_SOON),
+        ("capture", f"insights-productivity-{theme}")]
+    if theme == "dark":
+        actions += [("workspace", "Activity"), ("sleep", 1), ("workspace", "Productivity"), ("sleep", 1),
+            ("wait_text", COMING_SOON)]
+    return actions
+
+
+def content_heading(words):
+    """The content pane's heading: the words above the coming-soon text, in its column.
+
+    The sidebar lists both page names left of that column, and the tab row and
+    footer are outside the content scope, so neither can stand in for it."""
+    scoped = settings.ocr.content_words(words)
+    body = settings.ocr.find_label(scoped, COMING_SOON)
+    left = body["left"] - max(4, body["height"])
+    above = [word for word in scoped if word["left"] >= left and word["top"] + word["height"] <= body["top"]
+        and settings.ocr.normalize(word["text"])]
+    return " ".join(word["text"] for word in sorted(above, key=lambda word: (word["top"], word["left"])))
+
+
+def heading_is(words, page):
+    heading = settings.ocr.normalize(content_heading(words))
+    return heading == settings.ocr.normalize(page)
+
+
+def check_heading(path, page):
+    """One OCR layout shows `page`, and only `page`, as the content heading."""
+    failure = None
+    for image in github.analysis_images(path):
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            image.with_suffix(f".heading-words-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+            try:
+                if heading_is(words, page):
+                    return
+                failure = RuntimeError(f"The content heading reads {content_heading(words)!r}")
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as error:
+                failure = error
+    raise RuntimeError(f"{path.name} does not show {page!r} as the content heading") from failure
+
+
+def insights(driver, config, theme):
+    terminal.write_config(config, lambda value: value["native"].update(activeSection="insights"))
+    try:
+        flow = driver.drive(f"insights-{theme}", insights_actions(theme), record=theme == "dark")
+    finally:
+        terminal.write_config(config, lambda value: value["native"].update(activeSection="bookmarks"))
+    for page in PAGES:
+        capture = flow / f"insights-{page.casefold()}-{theme}.png"
+        # Both names are sidebar entries; the heading check names the page shown.
+        github.check(capture, *PAGES, COMING_SOON)
+        check_heading(capture, page)
+
+
 def qualify(executable, output, session, version, backend):
     binary = github.installed_binary(executable, version)
     config = fixture(output, "dark")
@@ -162,16 +239,19 @@ def qualify(executable, output, session, version, backend):
     offline = settings.Driver(executable, output, session, types.SimpleNamespace(url=unreachable_url()), CHECKOUT)
     add_and_delete(driver, "dark", "Old dark link")
     failure(offline, "dark", compact=False)
+    insights(driver, config, "dark")
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
     terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
     add_and_delete(driver, "light", "Old light link")
     failure(offline, "light", compact=True)
+    insights(driver, config, "light")
     verify_backend(backend.query("bookmarks:list"), deleted={"Old dark link", "Old light link"})
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True,
         dataSource="Installed app with an isolated anonymous Convex deployment seeded through bookmarks:create",
         checks=["categorized list and tree", "category filter", "add through the editor", "search",
-            "delete confirm", "unreachable backend failure and retry", "compact window", "light/dark"]),
+            "delete confirm", "unreachable backend failure and retry", "compact window",
+            "Insights Productivity and Activity tabs on the coming-soon page", "light/dark"]),
         indent=2), encoding="utf-8")
 
 
