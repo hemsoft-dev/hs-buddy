@@ -269,20 +269,23 @@ class CachedFinance(unittest.TestCase):
     def test_the_seed_shows_only_finance_with_a_fresh_cache_for_its_watchlist(self):
         with TemporaryDirectory() as temporary:
             config = fixture(Path(temporary) / "dark", "dark")
-            cache = seed_finance_cache(config, now_ms=1_764_000_000_000)
+            cache_dir = Path(temporary) / "dark" / "cache"
+            cache = seed_finance_cache(config, cache_dir, now_ms=1_764_000_000_000)
             settings = json.loads(config.read_text())
             self.assertTrue(settings["ui"]["dashboardCards"]["finance"])
+            # Collapsed, so the failed refresh shows its fixed notice.
+            self.assertFalse(settings["native"]["expandedCards"]["finance"])
             self.assertFalse(settings["ui"]["dashboardCards"]["command-center"])
             self.assertEqual(settings["finance"]["watchlist"], [FINANCE_FIXTURE["symbol"]])
             self.assertEqual(settings["packageQualificationSentinel"], {"preserve": True})
-            self.assertEqual(cache, config.with_name("finance-cache.json"))
+            self.assertEqual(cache, cache_dir / "finance-quotes.json")
             document = json.loads(cache.read_text())
             self.assertEqual(document["version"], 3)
             self.assertEqual(document["timestamp"], 1_764_000_000_000)
             self.assertEqual(document["symbols"], [FINANCE_FIXTURE["symbol"]])
             [quote] = document["quotes"]
             self.assertEqual(quote["symbol"], FINANCE_FIXTURE["symbol"])
-            self.assertEqual(quote["price"], 987.65)
+            self.assertEqual((quote["price"], quote["changePercent"]), (987.65, 0.37))
             self.assertEqual(set(quote), {"symbol", "name", "price", "change", "changePercent", "previousClose", "marketOpen"})
 
     def test_the_relaunch_is_offline_and_the_environment_is_restored(self):
@@ -303,19 +306,18 @@ class CachedFinance(unittest.TestCase):
                 self.assertNotIn("no_proxy", os.environ)
             self.assertEqual({name: os.environ.get(name) for name in touched}, before)
 
-    def test_the_capture_needs_the_cached_name_price_and_version(self):
-        notice = "Showing the last successful quotes. Fetch failed"
-        require_cached_finance(f"Finance Qualification Quote OPEN 987.65 +1.25 (+0.13%) {notice} 0.1.2", "0.1.2")
-        require_cached_finance(f"Finance Qualification Quote 987,65 {notice} 0.1.2", "0.1.2")
+    def test_the_capture_needs_the_cached_name_change_notice_and_version(self):
+        notice = "Showing the last successful quotes. Could not connect"
+        require_cached_finance(f"Markets Finance 1 symbol tracked Qualification Quote ▲ 0.37% {notice} 0.1.2", "0.1.2")
+        require_cached_finance(f"Finance Qualification Quote 0,37 % {notice} 0.1.2", "0.1.2")
         for text in (
             f"Finance Qualification Quote {notice} 0.1.2",
-            f"Finance Qualification Quote 1987.65 {notice} 0.1.2",
-            f"Finance Qualification Quote 987.655 {notice} 0.1.2",
-            f"Finance 987.65 {notice} 0.1.2",
-            f"Qualification Quote 987.65 {notice} 0.1.2",
-            f"Finance Qualification Quote 987.65 {notice} 0.1.1",
+            f"Finance Qualification Quote 10.37% {notice} 0.1.2",
+            f"Finance 0.37% {notice} 0.1.2",
+            f"Qualification Quote 0.37% {notice} 0.1.2",
+            f"Finance Qualification Quote 0.37% {notice} 0.1.1",
             # The refresh has not finished yet.
-            "Finance Qualification Quote 987.65 0.1.2",
+            "Finance Qualification Quote 0.37% 0.1.2",
         ):
             with self.subTest(text=text), self.assertRaises(RuntimeError):
                 require_cached_finance(text, "0.1.2")
@@ -327,9 +329,13 @@ class CachedFinance(unittest.TestCase):
             self.assertEqual(ready_text, STALE_NOTICE)
             import os
             self.assertEqual(os.environ["HTTPS_PROXY"], OFFLINE_PROXY)
+            # The app's cache directory is the seeded one.
+            cache = Path(os.environ["BUDDY_CACHE_DIR"]) / "finance-quotes.json"
+            self.assertEqual(cache, config.parent / "cache" / "finance-quotes.json")
+            self.assertTrue(cache.exists())
             (directory / "dashboard.png").write_bytes(b"png")
             if rewrite:
-                config.with_name("finance-cache.json").write_text("{}")
+                cache.write_text("{}")
         for rewrite in (False, True):
             with self.subTest(rewrite=rewrite), TemporaryDirectory() as temporary:
                 directory = Path(temporary) / "dark"
@@ -343,6 +349,8 @@ class CachedFinance(unittest.TestCase):
                 capture = directory / "finance-cached" / "finance-cached-dark.png"
                 self.assertTrue(capture.exists())
                 inspect.assert_called_once_with(capture, "0.1.2", require=require_cached_finance)
+                import os
+                self.assertNotEqual(os.environ.get("BUDDY_CACHE_DIR"), str(directory / "cache"))
 
 
     def test_windows_waits_for_the_notice_before_its_capture(self):

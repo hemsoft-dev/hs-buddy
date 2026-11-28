@@ -4,59 +4,49 @@
 //! Electron stores `{quotes, timestamp, version: 3}` after each successful
 //! fetch and paints the card from it on mount while it is younger than 15
 //! minutes. Native keeps the same document, plus the watchlist the quotes were
-//! fetched for, in [`FILE_NAME`] next to `config.json`. Electron's
-//! localStorage is not readable here, so an Electron cache does not carry over.
+//! fetched for, in [`FILE_NAME`] in the app's own cache directory
+//! ([`cache_dir`]): never beside the settings, so no cache operation can reach
+//! a settings file. Electron's localStorage is not readable here, so an
+//! Electron cache does not carry over.
 //!
 //! - **Written** only for a complete batch: one finite quote for every
 //!   watchlist symbol, in watchlist order. Electron also stores a batch in
 //!   which some symbols failed; native never records a partial batch, so a
 //!   failure leaves the previous complete cache in place.
+//! - **Atomically**: through a new uniquely named staging file in the cache
+//!   directory, created exclusively, then a rename. It is owner-only on Unix;
+//!   on Windows the directory under `%LOCALAPPDATA%` is already per user.
 //! - **Read** only while younger than [`TTL_MS`], for exactly the watchlist
-//!   configured now. A missing, unreadable, oversized, corrupt or
-//!   other-version file, or one stamped in the future, is ignored and never
-//!   shown as current.
-//! - **Never the settings file**: [`path_beside`] picks a name that cannot be
-//!   the resolved `config.json` or a name its writer derives (its staging file
-//!   and lock directory), or no cache at all. An isolated `BUDDY_CONFIG_PATH`
-//!   may itself be named [`FILE_NAME`], or that name may link to it. A link
-//!   created there later is replaced or removed itself, never followed.
-//! - **Its own staging file**: each save stages in a new
-//!   `.finance-cache-staging.<pid>.<nonce>.tmp`, created exclusively, a name
-//!   the settings writer's `<name>.json.<pid>.tmp` can never be, so a save
-//!   never touches another writer's staging file.
-//! - **Only a regular file is read**: a link, directory or FIFO at the cache's
-//!   name is ignored without being opened for reading in a way that can block.
-//! - **Decided at each use**: the dashboard resolves the settings path and
-//!   picks the cache name again for every read, save and clear, the save and
-//!   clear inside the writer's lock just before touching the disk
-//!   ([`Writer::save_beside`], [`Writer::clear_beside`], [`load_fresh_beside`]),
-//!   so settings moved or linked onto a cache name while Buddy runs are
-//!   skipped, never replaced or deleted.
+//!   configured now, and only from a regular file that is not a link (a FIFO
+//!   is never opened in a way that can block). A missing, unreadable,
+//!   oversized, corrupt or other-version file, or one stamped in the future, is
+//!   ignored and never shown as current.
 //! - **Ordered off the UI thread**: [`Writer::shared`] gives every dashboard
-//!   of the process the same writer for a settings path, which serializes
-//!   saves and removals and drops one requested before a newer one that
-//!   already ran.
+//!   of the process the same writer, which serializes saves and clears, drops
+//!   one requested before a newer one that already ran, and remembers a clear
+//!   for the rest of the session.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 
 use super::QuoteData;
 use crate::config::{ConfigError, config_path, replace_with, strip_bom};
-use crate::config_lock::lock_dir;
 
-/// The cache file, beside `config.json`.
-pub const FILE_NAME: &str = "finance-cache.json";
-/// The cache's name when [`FILE_NAME`] could be the settings file itself.
-pub const FALLBACK_FILE_NAME: &str = "finance-cache.buddy.json";
-/// Every staging file of a save starts with this; a settings file whose name
-/// does is never written beside.
-pub const STAGING_PREFIX: &str = ".finance-cache-staging.";
+/// The cache file in [`cache_dir`].
+pub const FILE_NAME: &str = "finance-quotes.json";
+/// An isolated cache directory (smoke runs and tests), read like
+/// `BUDDY_CONFIG_PATH`.
+pub const CACHE_DIR_ENV: &str = "BUDDY_CACHE_DIR";
+/// The app's folder under the platform cache root, as for its settings.
+const APP_DIR: &str = "Buddy";
+/// Every staging file of a save starts with this.
+const STAGING_PREFIX: &str = ".finance-quotes.";
 /// `CACHE_VERSION`.
 pub const VERSION: u32 = 3;
 /// `CACHE_TTL_MS`: 15 minutes.
@@ -98,78 +88,50 @@ pub enum SaveError {
     Write(#[from] ConfigError),
 }
 
-/// The cache beside the resolved `config.json` ([`path_beside`]).
-pub fn path() -> Result<Option<PathBuf>, ConfigError> {
-    Ok(path_beside(&config_path()?))
-}
-
-/// [`FILE_NAME`] in the directory of `config`, or [`FALLBACK_FILE_NAME`] when
-/// that could be one of the settings writer's files; `None` when both could,
-/// or when the settings file is named like a cache staging file, so nothing
-/// is cached.
-pub fn path_beside(config: &Path) -> Option<PathBuf> {
-    safe_names_beside(config).into_iter().next()
-}
-
-/// Every cache name beside `config` that cannot be one of the settings
-/// writer's files right now, in order of preference.
-fn safe_names_beside(config: &Path) -> Vec<PathBuf> {
-    let staging_like = config.file_name().is_some_and(|name| {
-        name.to_string_lossy()
-            .to_ascii_lowercase()
-            .starts_with(STAGING_PREFIX)
-    });
-    if staging_like {
-        return Vec::new();
+/// The app's cache directory: `BUDDY_CACHE_DIR`, else `Buddy` under
+/// `%LOCALAPPDATA%` (Windows), `~/Library/Caches` (macOS), or an absolute
+/// `$XDG_CACHE_HOME` or `~/.cache` (elsewhere).
+pub fn cache_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os(CACHE_DIR_ENV) {
+        let dir = PathBuf::from(dir);
+        return Some(std::path::absolute(&dir).unwrap_or(dir));
     }
-    [FILE_NAME, FALLBACK_FILE_NAME]
-        .into_iter()
-        .map(|name| config.with_file_name(name))
-        .filter(|candidate| !may_collide(candidate, config))
-        .collect()
+    Some(platform_cache_root()?.join(APP_DIR))
 }
 
-/// [`load_fresh`] from the cache [`path_beside`] picks for `config` now.
-pub fn load_fresh_beside(config: &Path, symbols: &[String], now_ms: i64) -> Option<CachedQuotes> {
-    load_fresh(&path_beside(config)?, symbols, now_ms)
+fn platform_cache_root() -> Option<PathBuf> {
+    if cfg!(target_os = "windows") {
+        return std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    }
+    let home = || std::env::var_os("HOME").map(PathBuf::from);
+    if cfg!(target_os = "macos") {
+        return Some(home()?.join("Library").join("Caches"));
+    }
+    // The XDG spec says to ignore a relative value.
+    match std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from) {
+        Some(xdg) if xdg.is_absolute() => Some(xdg),
+        _ => Some(home()?.join(".cache")),
+    }
 }
 
-/// Whether `candidate`, a name in the directory of `config`, could be a file
-/// the settings writer uses: the settings file, its staging file
-/// (`save_config_body_at`) or its lock directory, by name ignoring ASCII case
-/// (Windows and macOS volumes usually ignore it), or the settings file once
-/// both resolve (a link).
-fn may_collide(candidate: &Path, config: &Path) -> bool {
-    let staging = config.with_extension(format!("json.{}.tmp", std::process::id()));
-    let same_name = |other: &Path| {
-        candidate
-            .file_name()
-            .zip(other.file_name())
-            .is_some_and(|(candidate, other)| candidate.eq_ignore_ascii_case(other))
-    };
-    [config, staging.as_path(), lock_dir(config).as_path()]
-        .into_iter()
-        .any(same_name)
-        || matches!(
-            (candidate.canonicalize(), config.canonicalize()),
-            (Ok(candidate), Ok(config)) if candidate == config
-        )
-        || same_inode(candidate, config)
+/// The cache file for the resolved settings and cache directory
+/// ([`path_in`]).
+pub fn path() -> Option<PathBuf> {
+    path_in(&cache_dir()?, config_path().ok().as_deref())
 }
 
-/// Whether both paths name one existing file (a hard link) on Unix.
-#[cfg(unix)]
-fn same_inode(candidate: &Path, config: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt as _;
-    matches!(
-        (std::fs::metadata(candidate), std::fs::metadata(config)),
-        (Ok(candidate), Ok(config)) if (candidate.dev(), candidate.ino()) == (config.dev(), config.ino())
-    )
-}
-
-#[cfg(not(unix))]
-fn same_inode(_: &Path, _: &Path) -> bool {
-    false
+/// [`FILE_NAME`] in `dir`, or `None` when the settings file `config` lies
+/// inside `dir`, so nothing is cached.
+pub fn path_in(dir: &Path, config: Option<&Path>) -> Option<PathBuf> {
+    let inside = config.is_some_and(|config| {
+        // Compared as given and, where they exist, resolved (a link).
+        let resolved = |path: &Path| path.canonicalize().ok();
+        let config_resolved = resolved(config)
+            .or_else(|| Some(resolved(config.parent()?)?.join(config.file_name()?)));
+        config.starts_with(dir)
+            || matches!((config_resolved, resolved(dir)), (Some(config), Some(dir)) if config.starts_with(&dir))
+    });
+    (!inside).then(|| dir.join(FILE_NAME))
 }
 
 /// The file at `path` opened for reading, only when it is a regular file and
@@ -218,7 +180,7 @@ pub fn load_fresh(path: &Path, symbols: &[String], now_ms: i64) -> Option<Cached
 }
 
 /// Write `quotes` for `symbols`, fetched at `fetched_at_ms`, atomically
-/// (owner-only temp file, then rename). Anything but one complete set is
+/// (a new staging file, then a rename). Anything but one complete set is
 /// refused before the file is touched.
 pub fn save(
     path: &Path,
@@ -253,8 +215,8 @@ pub fn save(
 
 /// A new staging file beside `path` holding `body`, owner-only on Unix. The
 /// name carries the process id and a random nonce and is created exclusively,
-/// so no existing entry (another writer's staging file) is ever reused or
-/// removed. A failed write removes only the file it created.
+/// so no existing entry is ever reused or removed. A failed write removes
+/// only the file it created.
 fn create_staging(path: &Path, body: &str) -> std::io::Result<PathBuf> {
     let mut attempts = 0;
     loop {
@@ -321,11 +283,9 @@ fn is_complete(symbols: &[String], quotes: &[QuoteData]) -> bool {
 pub enum Outcome {
     Applied,
     Superseded,
-    /// No cache name beside the settings was safe when the request ran.
-    Skipped,
 }
 
-/// Orders the cache's saves and removals when they run off the UI thread.
+/// Orders the cache's saves and clears when they run off the UI thread.
 /// Each takes a [`ticket`](Self::ticket) when it is requested and runs later
 /// with it. Runs are serialized, and one whose ticket is older than the newest
 /// that already ran is dropped, so a slow earlier save can neither replace a
@@ -340,61 +300,24 @@ struct WriterState {
     issued: AtomicU64,
     /// The newest ticket that ran; held while a request runs.
     applied: Mutex<u64>,
+    /// A clear was attempted this session.
+    cleared: AtomicBool,
 }
 
-/// One writer per settings path for the whole process.
+/// One writer per cache file for the whole process.
 static SHARED: LazyLock<Mutex<HashMap<PathBuf, Writer>>> = LazyLock::new(Default::default);
 
 impl Writer {
-    /// The process's writer for the cache beside `config`, so every dashboard
-    /// (a macOS window reopened after the last one closed included) shares one
-    /// order. Keyed by the settings path, not a cache name, which is picked
-    /// again for every request.
-    pub fn shared(config: &Path) -> Self {
+    /// The process's writer for the cache at `path`, so every dashboard (a
+    /// macOS window reopened after the last one closed included) shares one
+    /// order and one cleared state.
+    pub fn shared(path: &Path) -> Self {
         SHARED
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .entry(config.to_path_buf())
+            .entry(path.to_path_buf())
             .or_default()
             .clone()
-    }
-
-    /// [`save`] to the cache [`path_beside`] picks for `config` when the
-    /// request runs, unless a newer request already ran; skipped when no
-    /// name is safe then.
-    pub fn save_beside(
-        &self,
-        ticket: u64,
-        config: &Path,
-        symbols: &[String],
-        quotes: &[QuoteData],
-        fetched_at_ms: i64,
-    ) -> Result<Outcome, SaveError> {
-        self.apply(ticket, || match path_beside(config) {
-            Some(path) => save(&path, symbols, quotes, fetched_at_ms).map(|()| Outcome::Applied),
-            None => Ok(Outcome::Skipped),
-        })
-        .unwrap_or(Ok(Outcome::Superseded))
-    }
-
-    /// Remove every cache name beside `config` that is safe now, with a new
-    /// ticket: after any request already running, and before every one
-    /// requested earlier that has not run yet. A name that could be the
-    /// settings file is left alone.
-    pub fn clear_beside(&self, config: &Path) -> std::io::Result<Outcome> {
-        self.apply(self.ticket(), || {
-            let names = safe_names_beside(config);
-            if names.is_empty() {
-                return Ok(Outcome::Skipped);
-            }
-            // Every safe name is attempted; the first failure is reported.
-            let failures: Vec<_> = names.iter().filter_map(|path| remove(path).err()).collect();
-            failures
-                .into_iter()
-                .next()
-                .map_or(Ok(Outcome::Applied), Err)
-        })
-        .unwrap_or(Ok(Outcome::Superseded))
     }
 
     /// The next ticket, in request order.
@@ -417,12 +340,21 @@ impl Writer {
             })
     }
 
-    /// [`remove`] unless a newer request already ran.
-    pub fn remove(&self, ticket: u64, path: &Path) -> std::io::Result<Outcome> {
-        self.apply(ticket, || remove(path))
+    /// [`remove`] now, with a new ticket: after any request already running,
+    /// and before every one requested earlier that has not run yet. Whatever
+    /// it does, the session counts the cache as cleared ([`cleared`](Self::cleared)).
+    pub fn clear(&self, path: &Path) -> std::io::Result<Outcome> {
+        self.state.cleared.store(true, Ordering::SeqCst);
+        self.apply(self.ticket(), || remove(path))
             .map_or(Ok(Outcome::Superseded), |removed| {
                 removed.map(|()| Outcome::Applied)
             })
+    }
+
+    /// Whether a clear was attempted this session, so the saved quotes are not
+    /// restored again until Buddy restarts.
+    pub fn cleared(&self) -> bool {
+        self.state.cleared.load(Ordering::SeqCst)
     }
 
     fn apply<T>(&self, ticket: u64, request: impl FnOnce() -> T) -> Option<T> {

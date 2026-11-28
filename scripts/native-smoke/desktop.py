@@ -75,32 +75,52 @@ def require_dashboard(text, version):
 
 # One fixture quote that a previous run's fetch would have cached. The symbol
 # is not listed anywhere, so even a fetch that escaped the closed proxy fails.
-FINANCE_FIXTURE = dict(symbol="HSBUDDY.FIXTURE", name="Qualification Quote", price=987.65)
+FINANCE_FIXTURE = dict(symbol="HSBUDDY.FIXTURE", name="Qualification Quote", price=987.65, change_percent=0.37)
 # Every HTTP(S) request of the relaunch goes to a closed loopback port.
 OFFLINE_PROXY = "http://127.0.0.1:9"
 PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
-# What the Finance card shows once a refresh failed with quotes on screen
-# (stale_notice in cards/finance.rs): the sign that the refresh finished.
+# What the collapsed Finance card shows once a refresh failed with quotes on
+# screen (stale_notice in cards/finance.rs): the sign that the refresh
+# finished. The expanded card shows only the provider's error, which differs
+# with how the request failed.
 STALE_NOTICE = "Showing the last successful quotes"
 
 
-def seed_finance_cache(config, now_ms=None):
-    """Show only the Finance card, for the fixture symbol, and leave a fresh
-    native quote cache beside the settings (finance-cache.json, Electron's
-    finance:cache document plus its watchlist), as a successful fetch in the
-    previous run would. Returns the cache path."""
+def seed_finance_cache(config, cache_dir, now_ms=None):
+    """Show only the Finance card, saved as collapsed, for the fixture symbol,
+    and leave a fresh native quote cache in `cache_dir` (finance-quotes.json,
+    Electron's finance:cache document plus its watchlist), as a successful
+    fetch in the previous run would. Returns the cache path."""
     settings = json.loads(config.read_text(encoding="utf-8-sig"))
     settings["ui"]["dashboardCards"].update({"finance": True, "command-center": False})
+    settings.setdefault("native", {}).setdefault("expandedCards", {})["finance"] = False
     settings.setdefault("finance", {})["watchlist"] = [FINANCE_FIXTURE["symbol"]]
     config.write_text(json.dumps(settings), encoding="utf-8")
     price = FINANCE_FIXTURE["price"]
     quote = dict(symbol=FINANCE_FIXTURE["symbol"], name=FINANCE_FIXTURE["name"], price=price,
-                 change=1.25, changePercent=0.13, previousClose=round(price - 1.25, 2), marketOpen=True)
-    cache = config.with_name("finance-cache.json")
+                 change=round(price * FINANCE_FIXTURE["change_percent"] / 100, 2),
+                 changePercent=FINANCE_FIXTURE["change_percent"],
+                 previousClose=round(price - 3.64, 2), marketOpen=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir / "finance-quotes.json"
     cache.write_text(json.dumps(dict(
         quotes=[quote], timestamp=int(time.time() * 1000) if now_ms is None else now_ms,
         version=3, symbols=[FINANCE_FIXTURE["symbol"]])), encoding="utf-8")
     return cache
+
+
+@contextmanager
+def isolated_cache(cache_dir):
+    """Point the launched app's cache directory (BUDDY_CACHE_DIR) at `cache_dir`."""
+    saved = os.environ.get("BUDDY_CACHE_DIR")
+    os.environ["BUDDY_CACHE_DIR"] = str(cache_dir)
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("BUDDY_CACHE_DIR", None)
+        else:
+            os.environ["BUDDY_CACHE_DIR"] = saved
 
 
 @contextmanager
@@ -123,15 +143,14 @@ def offline_network():
 
 
 def require_cached_finance(text, version):
-    """The Finance card shows the cached fixture quote, its name and price,
-    with the notice that the refresh failed and the cache is still shown."""
+    """The collapsed Finance card shows the cached fixture quote, its name and
+    change, with the notice that the refresh failed and the cache is shown."""
     normalized = re.sub(r"\s+", " ", text).lower()
     for marker in ("finance", "qualification", "last successful quotes"):
         if marker not in normalized:
             raise RuntimeError(f"Finance screenshot is missing {marker!r}")
-    # The system locale may group decimals with a comma.
-    if not re.search(r"(?<![\d.,])987[.,]65(?![\d])", text):
-        raise RuntimeError("Finance screenshot is missing the cached price 987.65")
+    if not re.search(r"(?<![\d.,])0[.,]37\s*%", text):
+        raise RuntimeError("Finance screenshot is missing the cached change 0.37%")
     require_version(normalized, version)
 
 
@@ -607,14 +626,15 @@ def unix(executable, directory, config, session, restored=False, ready_text=None
 
 
 def cached_finance(executable, directory, config, drive, version):
-    """Relaunch offline with a fresh seeded quote cache. The capture waits
-    until the card says the refresh failed and it still shows the cached
-    quote, so the refresh has finished; the cache must be as it was."""
-    cache = seed_finance_cache(config)
+    """Relaunch offline with a fresh seeded quote cache in an isolated cache
+    directory. The capture waits until the card says the refresh failed and
+    it still shows the cached quote, so the refresh has finished; the cache
+    must be as it was."""
+    cache = seed_finance_cache(config, directory / "cache")
     seeded = cache.read_bytes()
     finance = directory / "finance-cached"
     finance.mkdir()
-    with offline_network():
+    with offline_network(), isolated_cache(cache.parent):
         drive(executable, finance, config, restored=True, ready_text=STALE_NOTICE)
     capture = finance / "finance-cached-dark.png"
     (finance / "dashboard.png").replace(capture)
