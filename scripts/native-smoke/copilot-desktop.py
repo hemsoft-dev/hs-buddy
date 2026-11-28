@@ -329,7 +329,11 @@ def code_copy(driver, appearance):
         captures.append('code-copy-compact-light')
         reveal = [('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
             ('wait_text', 'Synthetic assistant'), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', name),
-            ('resize', 900, 650), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', captures[1])]
+            # Compact beside the Copilot sidebar, fine reveal steps moved the
+            # pane about 84 px in their whole wait on macos-15 (run
+            # 46099336758). The fenced block ends the answer, so a coarse step
+            # at the result pane leaves it and its Copy code control in view.
+            ('resize', 900, 650), ('wait_scroll_text', CODE_LINE, RESULT_PANE), ('capture', captures[1])]
     else:
         reveal = [('wait_scroll_up', 'Copy code', 'Saved to results'), ('capture', name)]
     scene = driver.drive(name, [

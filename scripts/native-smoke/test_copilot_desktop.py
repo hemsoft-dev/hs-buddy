@@ -104,6 +104,19 @@ class ReviewPublication(unittest.TestCase):
         self.assertEqual(driver.actions[publish - 1], ('wait_scroll_text', 'Publish to PR', copilot.RESULT_PANE))
         self.assertNotIn('reveal_text', [action[0] for action in driver.actions[resized:publish]])
 
+    def test_the_compact_code_capture_reaches_the_block_with_a_coarse_step(self):
+        class RecordingDriver:
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'):
+            copilot.code_copy(driver, 'light')
+        resized = driver.actions.index(('resize', 900, 650))
+        self.assertEqual(driver.actions[resized + 1], ('wait_scroll_text', copilot.CODE_LINE, copilot.RESULT_PANE))
+        self.assertEqual(driver.actions[resized + 2], ('capture', 'code-copy-compact-light'))
+
     def test_the_pane_anchor_takes_whichever_of_its_labels_is_in_view(self):
         def word(text, left, top):
             return dict(text=text, left=left, top=top, width=8 * len(text), height=14, line=str(top))
@@ -460,15 +473,16 @@ class CopilotQualificationTests(unittest.TestCase):
                 inspect = actions.index(('content', 'Inspect saved result'))
                 large, resize = actions.index(('capture', name)), actions.index(('resize', 900, 650))
                 compact = actions.index(('capture', 'code-copy-compact-light'))
-                reveals = [index for index, action in enumerate(actions)
-                    if action == ('reveal_text', copilot.CODE_LINE, 'Copy prompt')]
-                self.assertEqual(len(reveals), 2)
+                # The large capture reveals the line in fine steps; the compact
+                # one reaches the block's end with a coarse step at the pane.
+                fine = actions.index(('reveal_text', copilot.CODE_LINE, 'Copy prompt'))
+                coarse = actions.index(('wait_scroll_text', copilot.CODE_LINE, copilot.RESULT_PANE))
                 self.assertLess(saved, inspect)
-                self.assertLess(inspect, reveals[0])
-                self.assertLess(reveals[0], large)
+                self.assertLess(inspect, fine)
+                self.assertLess(fine, large)
                 self.assertLess(large, resize)
-                self.assertLess(resize, reveals[1])
-                self.assertLess(reveals[1], compact)
+                self.assertLess(resize, coarse)
+                self.assertLess(coarse, compact)
             else:
                 self.assertNotIn(('resize', 900, 650), actions)
                 reveal = actions.index(('wait_scroll_up', 'Copy code', 'Saved to results'))
