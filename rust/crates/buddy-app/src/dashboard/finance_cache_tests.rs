@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::*;
 use buddy_core::finance::cache::{self, SaveError};
-use gpui_kit::{AppContext as _, TestAppContext};
+use gpui_kit::TestAppContext;
 
 const MINUTE_MS: i64 = 60 * 1000;
 
