@@ -16,8 +16,8 @@ The remaining work is tracked per area in #988 to #995.
 
 ## Result
 
-Of 622 capabilities found in the Electron app, 372 are ported,
-187 are partly ported, 31 are missing natively, 5 are a
+Of 622 capabilities found in the Electron app, 370 are ported,
+189 are partly ported, 31 are missing natively, 5 are a
 placeholder natively and 27 do not apply to a native app.
 
 | Area | Capabilities | Missing | Placeholder | Partly ported | Ported | Not applicable |
@@ -28,9 +28,9 @@ placeholder natively and 27 do not apply to a native app.
 | [Copilot chat, assistant, results, usage and sessions](parity/copilot.md) | 74 | 8 | 0 | 28 | 35 | 3 |
 | [Todoist and Tempo](parity/planning.md) | 71 | 1 | 0 | 19 | 49 | 2 |
 | [Automation, Ralph and Crew](parity/automation.md) | 89 | 3 | 0 | 24 | 59 | 3 |
-| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 1 | 4 | 21 | 31 | 2 |
-| [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 3 | 0 | 27 | 64 | 7 |
-| **All areas** | **622** | **31** | **5** | **187** | **372** | **27** |
+| [Bookmarks, embedded browser, insights and remaining routes](parity/browser.md) | 59 | 1 | 4 | 22 | 30 | 2 |
+| [Configuration, data migration, integrations and telemetry](parity/data.md) | 101 | 3 | 0 | 28 | 63 | 7 |
+| **All areas** | **622** | **31** | **5** | **189** | **370** | **27** |
 
 The second acceptance criterion of #823 says no implemented workflow may be
 silently dropped. The Missing and Partly ported rows are the work that remains
