@@ -8,7 +8,7 @@ const PROMPT: &str = "Address the unresolved review comments on PR #7 in team/pr
 
 /// The sidebar assistant, never drawn, as a closed assistant is.
 fn assistant(cx: &mut gpui_kit::TestAppContext) -> (gpui_kit::AnyWindowHandle, Entity<ChatView>) {
-    let (handle, view) = cx.update(|cx| {
+    cx.update(|cx| {
         gpui_kit::init(cx);
         let mut config = buddy_core::config::AppConfig::default();
         config.copilot.gh_account = "synthetic-account".into();
@@ -27,8 +27,7 @@ fn assistant(cx: &mut gpui_kit::TestAppContext) -> (gpui_kit::AnyWindowHandle, E
             })
         })
         .unwrap()
-    });
-    (handle.into(), view)
+    })
 }
 
 fn injected(model: Option<&str>) -> AssistantPrompt {
