@@ -71,7 +71,65 @@ def require_dashboard(text, version):
     require_version(normalized, version)
 
 
-def inspect_screenshot(path, version, menu=False):
+# One fixture quote that a previous run's fetch would have cached. The symbol
+# is not listed anywhere, so even a fetch that escaped the closed proxy fails.
+FINANCE_FIXTURE = dict(symbol="HSBUDDY.FIXTURE", name="Qualification Quote", price=987.65)
+# Every HTTP(S) request of the relaunch goes to a closed loopback port.
+OFFLINE_PROXY = "http://127.0.0.1:9"
+PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+
+
+def seed_finance_cache(config, now_ms=None):
+    """Show only the Finance card, for the fixture symbol, and leave a fresh
+    native quote cache beside the settings (finance-cache.json, Electron's
+    finance:cache document plus its watchlist), as a successful fetch in the
+    previous run would. Returns the cache path."""
+    settings = json.loads(config.read_text(encoding="utf-8-sig"))
+    settings["ui"]["dashboardCards"].update({"finance": True, "command-center": False})
+    settings.setdefault("finance", {})["watchlist"] = [FINANCE_FIXTURE["symbol"]]
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    price = FINANCE_FIXTURE["price"]
+    quote = dict(symbol=FINANCE_FIXTURE["symbol"], name=FINANCE_FIXTURE["name"], price=price,
+                 change=1.25, changePercent=0.13, previousClose=round(price - 1.25, 2), marketOpen=True)
+    cache = config.with_name("finance-cache.json")
+    cache.write_text(json.dumps(dict(
+        quotes=[quote], timestamp=int(time.time() * 1000) if now_ms is None else now_ms,
+        version=3, symbols=[FINANCE_FIXTURE["symbol"]])), encoding="utf-8")
+    return cache
+
+
+@contextmanager
+def offline_network():
+    """Route the launched app's HTTP(S) through a closed loopback port, so its
+    quote refresh fails and only the cache can fill the Finance card."""
+    names = PROXY_VARIABLES + ("NO_PROXY", "no_proxy")
+    saved = {name: os.environ.get(name) for name in names}
+    for name in names:
+        os.environ.pop(name, None)
+    os.environ.update({name: OFFLINE_PROXY for name in PROXY_VARIABLES})
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def require_cached_finance(text, version):
+    """The Finance card shows the cached fixture quote: its name and price."""
+    normalized = re.sub(r"\s+", " ", text).lower()
+    for marker in ("finance", "qualification"):
+        if marker not in normalized:
+            raise RuntimeError(f"Finance screenshot is missing {marker!r}")
+    # The system locale may group decimals with a comma.
+    if not re.search(r"(?<![\d.,])987[.,]65(?![\d])", text):
+        raise RuntimeError("Finance screenshot is missing the cached price 987.65")
+    require_version(normalized, version)
+
+
+def inspect_screenshot(path, version, menu=False, require=None):
     attempts, failures = [], []
     # Sparse text can split a version number at 110% scale. Try bounded page
     # layouts on the SAME untouched PNG, requiring every marker in ONE result.
@@ -94,7 +152,7 @@ def inspect_screenshot(path, version, menu=False):
                 if not all(re.search(rf"\b{marker}\b", text, re.IGNORECASE) for marker in ("file", "exit")):
                     raise RuntimeError("Tab and Enter did not open the File menu")
             else:
-                require_dashboard(text, version)
+                (require or require_dashboard)(text, version)
         except RuntimeError as error:
             failures.append(error)
             continue
@@ -511,6 +569,23 @@ def unix(executable, directory, config, session, restored=False):
             finish_cleanup(stop_child, sys.exc_info()[1], "App shutdown")
 
 
+def cached_finance(executable, directory, config, drive, version):
+    """Relaunch offline with a fresh seeded quote cache: the card paints the
+    cached quote before any fetch can finish, and the failed refresh leaves
+    the cache as it was."""
+    cache = seed_finance_cache(config)
+    seeded = cache.read_bytes()
+    finance = directory / "finance-cached"
+    finance.mkdir()
+    with offline_network():
+        drive(executable, finance, config, restored=True)
+    capture = finance / "finance-cached-dark.png"
+    (finance / "dashboard.png").replace(capture)
+    inspect_screenshot(capture, version, require=require_cached_finance)
+    if cache.read_bytes() != seeded:
+        raise RuntimeError("A failed quote refresh rewrote the cached quotes")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, required=True)
@@ -579,6 +654,8 @@ def main():
             raise RuntimeError("Disconnected-display recovery did not persist a usable placement")
         if json.loads(config.read_text(encoding="utf-8-sig"))["packageQualificationSentinel"] != {"preserve": True}:
             raise RuntimeError("Unknown cross-app settings were lost")
+        if theme == "dark":
+            cached_finance(executable, directory, config, drive, args.version)
     (output / "qualification.json").write_text(json.dumps({
         "version": args.version, "session": args.session, "platform": platform.platform(),
         "architecture": platform.machine(), "binarySha256": hashlib.sha256(executable.read_bytes()).hexdigest(),

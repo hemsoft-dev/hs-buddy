@@ -20,7 +20,23 @@ pub(super) fn local_field_values(
     ]
 }
 
+/// The Advanced pane's status after Clear cached data.
+pub(super) fn cache_cleared_status(result: Result<(), String>) -> String {
+    match result {
+        Ok(()) => "Native cached data cleared. It reloads when the dashboard opens.".into(),
+        Err(error) => format!(
+            "Native cached data was cleared from memory, but not from disk. {error} They may show again if Buddy restarts within 15 minutes."
+        ),
+    }
+}
+
 impl SettingsView {
+    /// Show the outcome of Clear cached data (the app runs it on the views).
+    pub(crate) fn cache_cleared(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+        self.status = Some(cache_cleared_status(result));
+        cx.notify();
+    }
+
     pub(super) fn queue_saved_field(&mut self, id: &str, value: String) {
         self.field_baselines.insert(id.into(), value.clone());
         self.pending_fields.push((id.into(), value));
@@ -224,10 +240,29 @@ impl SettingsView {
                     Err(_) => "The configuration could not be read. Check the file and permissions.".into(),
                 }); cx.notify();
             })))
-            .child(div().child("Cached native dashboard data is held in memory. Clearing it leaves settings, credentials, and Convex records intact."))
-            .child(Button::new("clear-native-cache").label("Clear cached data").on_click(cx.listener(|this, _, _, cx| { cx.emit(SettingsEvent::ClearCache); this.status = Some("Native cached data cleared. It reloads when the dashboard opens.".into()); cx.notify(); })))
+            .child(div().child("Cached native dashboard data is held in memory, apart from the Finance quotes saved for the next launch. Clearing it leaves settings, credentials, and Convex records intact."))
+            .child(Button::new("clear-native-cache").label("Clear cached data").on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ClearCache))))
             .child(div().child("Reset local appearance, dashboard visibility, provider overrides, notifications, and the pollen key. Synced accounts, PR/Copilot preferences, and your saved weather city are retained."))
             .child(Button::new("reset-local-preferences").label(if self.confirm_reset { "Confirm reset local preferences" } else { "Reset local preferences" }).disabled(self.busy).on_click(cx.listener(|this, _, _, cx| this.reset_preferences(cx))))
             .children(self.confirm_reset.then(|| Button::new("cancel-local-reset").label("Cancel reset").on_click(cx.listener(|this, _, _, cx| { this.confirm_reset = false; cx.notify(); }))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_failed_cache_deletion_is_reported_not_called_cleared() {
+        assert_eq!(
+            super::cache_cleared_status(Ok(())),
+            "Native cached data cleared. It reloads when the dashboard opens."
+        );
+        let failed = super::cache_cleared_status(Err(
+            "The saved Finance quotes could not be deleted (permission denied).".into(),
+        ));
+        assert!(
+            failed.starts_with("Native cached data was cleared from memory, but not from disk.")
+        );
+        assert!(failed.contains("could not be deleted (permission denied)."));
+        assert!(!failed.contains("Native cached data cleared."));
     }
 }

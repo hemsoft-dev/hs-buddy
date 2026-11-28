@@ -57,9 +57,19 @@ fn default_quote_cache_path() -> Option<PathBuf> {
     if cfg!(test) {
         return None;
     }
-    finance::cache::path()
-        .inspect_err(|err| log::warn!("finance quotes will not be cached: {err}"))
-        .ok()
+    match finance::cache::path() {
+        Ok(Some(path)) => Some(path),
+        Ok(None) => {
+            log::warn!(
+                "finance quotes will not be cached: every cache name could be the settings file"
+            );
+            None
+        }
+        Err(err) => {
+            log::warn!("finance quotes will not be cached: {err}");
+            None
+        }
+    }
 }
 
 /// Card expansion saved by an earlier run (`native.expandedCards`); cards
@@ -211,6 +221,8 @@ pub struct DashboardView {
     quote_cache_path: Option<PathBuf>,
     /// The cache is read once, by the first quote load.
     quote_cache_checked: bool,
+    /// Orders the background saves and Clear Cache's removal.
+    quote_writer: finance::cache::Writer,
     /// Inputs the last loads used, so a Settings change (Reload or an
     /// external edit) refreshes only the cards whose inputs changed.
     loaded_watchlist: Vec<String>,
@@ -305,6 +317,7 @@ impl DashboardView {
             )),
             quote_cache_path: default_quote_cache_path(),
             quote_cache_checked: false,
+            quote_writer: Default::default(),
             loaded_watchlist: Vec::new(),
             loaded_github: GitHubConfig::default(),
             loaded_pollen_key: String::new(),
@@ -779,7 +792,7 @@ impl DashboardView {
         // `writeCache`, for complete batches only: every symbol of the list
         // still configured returned a quote.
         if batch.failed.is_empty() && current == requested {
-            self.save_quote_cache(requested, &batch.quotes);
+            self.save_quote_cache(requested, &batch.quotes, cx);
         }
         self.quotes.retain(|q| current.contains(&q.symbol));
         self.failed_symbols.retain(|s| current.contains(s));
@@ -820,14 +833,23 @@ impl DashboardView {
         }
     }
 
-    fn save_quote_cache(&self, symbols: &[String], quotes: &[QuoteData]) {
-        let Some(path) = &self.quote_cache_path else {
+    /// Write the cache on the background executor, so applying quotes never
+    /// waits for the disk. The ticket is taken now, in request order.
+    fn save_quote_cache(&self, symbols: &[String], quotes: &[QuoteData], cx: &App) {
+        let Some(path) = self.quote_cache_path.clone() else {
             return;
         };
-        let now = jiff::Timestamp::now().as_millisecond();
-        if let Err(err) = finance::cache::save(path, symbols, quotes, now) {
-            log::warn!("finance quotes were not cached: {err}");
-        }
+        let fetched_at = jiff::Timestamp::now().as_millisecond();
+        let writer = self.quote_writer.clone();
+        let ticket = writer.ticket();
+        let (symbols, quotes) = (symbols.to_vec(), quotes.to_vec());
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(err) = writer.save(ticket, &path, &symbols, &quotes, fetched_at) {
+                    log::warn!("finance quotes were not cached: {err}");
+                }
+            })
+            .detach();
     }
 
     fn load_copilot(&mut self, cx: &mut Context<Self>) {
@@ -1071,7 +1093,10 @@ impl DashboardView {
 
     /// Drop only this native view's cached provider results. Generation bumps
     /// prevent already-running requests from putting stale data back.
-    pub fn clear_cached_data(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// The saved Finance quotes are deleted too; an error says they could not
+    /// be, so a relaunch within 15 minutes could show them again.
+    pub fn clear_cached_data(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         self.active_prs.clear();
         self.weather_generation = self.weather_generation.wrapping_add(1);
         self.pollen_generation = self.pollen_generation.wrapping_add(1);
@@ -1087,17 +1112,26 @@ impl DashboardView {
         self.quotes.clear();
         self.failed_symbols.clear();
         self.finance_error = None;
-        if let Some(path) = &self.quote_cache_path
-            && let Err(err) = finance::cache::remove(path)
-        {
-            log::warn!("finance quote cache was not cleared: {err}");
-        }
+        // Serialized after any save already running; an earlier save that
+        // has not run yet is dropped.
+        let removed = match &self.quote_cache_path {
+            Some(path) => self
+                .quote_writer
+                .remove(self.quote_writer.ticket(), path)
+                .map(|_| ())
+                .map_err(|err| {
+                    log::warn!("finance quote cache was not cleared: {err}");
+                    format!("The saved Finance quotes could not be deleted ({err}).")
+                }),
+            None => Ok(()),
+        };
         self.command_center = CommandCenterSummary::default();
         self.copilot_errors.clear();
         self.copilot_period = None;
         self.weather_refresh = RefreshState::new(self.weather_refresh.interval_minutes);
         self.finance_refresh = RefreshState::new(self.finance_refresh.interval_minutes);
         cx.notify();
+        removed
     }
 
     pub fn refresh_copilot_usage(&mut self, cx: &mut Context<Self>) {
@@ -1593,7 +1627,7 @@ mod tests {
                     view.weather_error = Some("stale provider error".into());
                     view.loaded_pollen_key = "fixture-cached-secret".into();
                     view.copilot_period = Some((2026, 10));
-                    view.clear_cached_data(cx);
+                    assert!(view.clear_cached_data(cx).is_ok());
                     assert_eq!(view.weather_generation, 1);
                     assert_eq!(view.pollen_generation, 1);
                     assert_eq!(view.pollen_key_generation, 1);

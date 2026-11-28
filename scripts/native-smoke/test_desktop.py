@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from unittest.mock import patch
-from desktop import fixture, inspect_screenshot, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
+from desktop import FINANCE_FIXTURE, OFFLINE_PROXY, PROXY_VARIABLES, cached_finance, fixture, inspect_screenshot, offline_network, require_cached_finance, seed_finance_cache, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
 
 BODY = "Your Universal Productivity Companion Customize Command Center Configure Accounts"
 
@@ -263,6 +263,74 @@ class DashboardGate(unittest.TestCase):
 
     def test_body_and_current_version_pass(self):
         require_dashboard(f"{BODY} Version 0.1.2", "0.1.2")
+
+
+class CachedFinance(unittest.TestCase):
+    def test_the_seed_shows_only_finance_with_a_fresh_cache_for_its_watchlist(self):
+        with TemporaryDirectory() as temporary:
+            config = fixture(Path(temporary) / "dark", "dark")
+            cache = seed_finance_cache(config, now_ms=1_764_000_000_000)
+            settings = json.loads(config.read_text())
+            self.assertTrue(settings["ui"]["dashboardCards"]["finance"])
+            self.assertFalse(settings["ui"]["dashboardCards"]["command-center"])
+            self.assertEqual(settings["finance"]["watchlist"], [FINANCE_FIXTURE["symbol"]])
+            self.assertEqual(settings["packageQualificationSentinel"], {"preserve": True})
+            self.assertEqual(cache, config.with_name("finance-cache.json"))
+            document = json.loads(cache.read_text())
+            self.assertEqual(document["version"], 3)
+            self.assertEqual(document["timestamp"], 1_764_000_000_000)
+            self.assertEqual(document["symbols"], [FINANCE_FIXTURE["symbol"]])
+            [quote] = document["quotes"]
+            self.assertEqual(quote["symbol"], FINANCE_FIXTURE["symbol"])
+            self.assertEqual(quote["price"], 987.65)
+            self.assertEqual(set(quote), {"symbol", "name", "price", "change", "changePercent", "previousClose", "marketOpen"})
+
+    def test_the_relaunch_is_offline_and_the_environment_is_restored(self):
+        with patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example:8080", "NO_PROXY": "localhost"}, clear=False):
+            import os
+            with offline_network():
+                for name in PROXY_VARIABLES:
+                    self.assertEqual(os.environ[name], OFFLINE_PROXY)
+                self.assertNotIn("NO_PROXY", os.environ)
+            self.assertEqual(os.environ["HTTPS_PROXY"], "http://proxy.example:8080")
+            self.assertEqual(os.environ["NO_PROXY"], "localhost")
+            self.assertNotIn("ALL_PROXY", os.environ)
+
+    def test_the_capture_needs_the_cached_name_price_and_version(self):
+        require_cached_finance("Finance Qualification Quote OPEN 987.65 +1.25 (+0.13%) 0.1.2", "0.1.2")
+        require_cached_finance("Finance Qualification Quote 987,65 0.1.2", "0.1.2")
+        for text in (
+            "Finance Qualification Quote 0.1.2",
+            "Finance Qualification Quote 1987.65 0.1.2",
+            "Finance Qualification Quote 987.655 0.1.2",
+            "Finance 987.65 0.1.2",
+            "Qualification Quote 987.65 0.1.2",
+            "Finance Qualification Quote 987.65 0.1.1",
+        ):
+            with self.subTest(text=text), self.assertRaises(RuntimeError):
+                require_cached_finance(text, "0.1.2")
+
+    def test_a_refresh_that_rewrote_the_cache_fails_the_step(self):
+        def drive(executable, directory, config, restored=False):
+            self.assertTrue(restored)
+            import os
+            self.assertEqual(os.environ["HTTPS_PROXY"], OFFLINE_PROXY)
+            (directory / "dashboard.png").write_bytes(b"png")
+            if rewrite:
+                config.with_name("finance-cache.json").write_text("{}")
+        for rewrite in (False, True):
+            with self.subTest(rewrite=rewrite), TemporaryDirectory() as temporary:
+                directory = Path(temporary) / "dark"
+                config = fixture(directory, "dark")
+                with patch("desktop.inspect_screenshot") as inspect:
+                    if rewrite:
+                        with self.assertRaisesRegex(RuntimeError, "rewrote the cached quotes"):
+                            cached_finance("buddy", directory, config, drive, "0.1.2")
+                    else:
+                        cached_finance("buddy", directory, config, drive, "0.1.2")
+                capture = directory / "finance-cached" / "finance-cached-dark.png"
+                self.assertTrue(capture.exists())
+                inspect.assert_called_once_with(capture, "0.1.2", require=require_cached_finance)
 
 
 if __name__ == "__main__":

@@ -15,10 +15,18 @@
 //!   configured now. A missing, unreadable, oversized, corrupt or
 //!   other-version file, or one stamped in the future, is ignored and never
 //!   shown as current.
+//! - **Never the settings file**: [`path_beside`] picks a name that cannot be
+//!   the resolved `config.json` (an isolated `BUDDY_CONFIG_PATH` may itself be
+//!   named [`FILE_NAME`], or that name may link to it), or no cache at all. A
+//!   link created there later is replaced or removed itself, never followed.
+//! - **Ordered off the UI thread**: [`Writer`] serializes saves and removals
+//!   and drops one requested before a newer one that already ran.
 
 use std::fs::File;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +35,8 @@ use crate::config::{ConfigError, config_path, replace_with, strip_bom, write_pri
 
 /// The cache file, beside `config.json`.
 pub const FILE_NAME: &str = "finance-cache.json";
+/// The cache's name when [`FILE_NAME`] could be the settings file itself.
+pub const FALLBACK_FILE_NAME: &str = "finance-cache.buddy.json";
 /// `CACHE_VERSION`.
 pub const VERSION: u32 = 3;
 /// `CACHE_TTL_MS`: 15 minutes.
@@ -68,9 +78,33 @@ pub enum SaveError {
     Write(#[from] ConfigError),
 }
 
-/// [`FILE_NAME`] next to the resolved `config.json`.
-pub fn path() -> Result<PathBuf, ConfigError> {
-    Ok(config_path()?.with_file_name(FILE_NAME))
+/// The cache beside the resolved `config.json` ([`path_beside`]).
+pub fn path() -> Result<Option<PathBuf>, ConfigError> {
+    Ok(path_beside(&config_path()?))
+}
+
+/// [`FILE_NAME`] in the directory of `config`, or [`FALLBACK_FILE_NAME`] when
+/// that could be `config` itself; `None` when both could, so nothing is cached.
+pub fn path_beside(config: &Path) -> Option<PathBuf> {
+    [FILE_NAME, FALLBACK_FILE_NAME]
+        .into_iter()
+        .map(|name| config.with_file_name(name))
+        .find(|candidate| !may_be_same_file(candidate, config))
+}
+
+/// Whether `candidate`, a name in the directory of `config`, could be the same
+/// file: the same name ignoring ASCII case (Windows and macOS volumes usually
+/// ignore it), or the same file once both resolve (a link).
+fn may_be_same_file(candidate: &Path, config: &Path) -> bool {
+    let same_name = candidate
+        .file_name()
+        .zip(config.file_name())
+        .is_some_and(|(candidate, config)| candidate.eq_ignore_ascii_case(config));
+    same_name
+        || matches!(
+            (candidate.canonicalize(), config.canonicalize()),
+            (Ok(candidate), Ok(config)) if candidate == config
+        )
 }
 
 /// The cached quotes when the file at `path` holds a complete set for
@@ -162,4 +196,71 @@ fn is_complete(symbols: &[String], quotes: &[QuoteData]) -> bool {
                 .iter()
                 .all(|value| value.is_finite())
         })
+}
+
+/// Whether a [`Writer`] request ran or was dropped for a newer one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Applied,
+    Superseded,
+}
+
+/// Orders the cache's saves and removals when they run off the UI thread.
+/// Each takes a [`ticket`](Self::ticket) when it is requested and runs later
+/// with it. Runs are serialized, and one whose ticket is older than the newest
+/// that already ran is dropped, so a slow earlier save can neither replace a
+/// newer cache nor bring back a cleared one.
+#[derive(Clone, Default)]
+pub struct Writer {
+    state: Arc<WriterState>,
+}
+
+#[derive(Default)]
+struct WriterState {
+    issued: AtomicU64,
+    /// The newest ticket that ran; held while a request runs.
+    applied: Mutex<u64>,
+}
+
+impl Writer {
+    /// The next ticket, in request order.
+    pub fn ticket(&self) -> u64 {
+        self.state.issued.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// [`save`] unless a newer request already ran.
+    pub fn save(
+        &self,
+        ticket: u64,
+        path: &Path,
+        symbols: &[String],
+        quotes: &[QuoteData],
+        fetched_at_ms: i64,
+    ) -> Result<Outcome, SaveError> {
+        self.apply(ticket, || save(path, symbols, quotes, fetched_at_ms))
+            .map_or(Ok(Outcome::Superseded), |saved| {
+                saved.map(|()| Outcome::Applied)
+            })
+    }
+
+    /// [`remove`] unless a newer request already ran.
+    pub fn remove(&self, ticket: u64, path: &Path) -> std::io::Result<Outcome> {
+        self.apply(ticket, || remove(path))
+            .map_or(Ok(Outcome::Superseded), |removed| {
+                removed.map(|()| Outcome::Applied)
+            })
+    }
+
+    fn apply<T>(&self, ticket: u64, request: impl FnOnce() -> T) -> Option<T> {
+        let mut applied = self
+            .state
+            .applied
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if ticket <= *applied {
+            return None;
+        }
+        *applied = ticket;
+        Some(request())
+    }
 }

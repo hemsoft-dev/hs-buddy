@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use super::*;
-use buddy_core::finance::cache::{self, SaveError};
+use buddy_core::finance::cache::{self, Outcome, SaveError, Writer};
 use gpui_kit::TestAppContext;
 
 const MINUTE_MS: i64 = 60 * 1000;
@@ -334,6 +334,11 @@ fn fresh_cached_quotes_are_shown_before_the_first_fetch_completes(cx: &mut TestA
         shown(cx, &dashboard),
         vec![("^GSPC".into(), 6100.0), ("BTC-USD".into(), 98000.0)]
     );
+    // Applying the quotes did not wait for the disk: the write is queued on
+    // the background executor and the file still holds the cached prices.
+    let before = cache::load_fresh(&path, &requested, now_ms()).unwrap();
+    assert_eq!(before.quotes[0].price, 6000.5);
+    cx.run_until_parked();
     let saved = cache::load_fresh(&path, &requested, now_ms()).unwrap();
     assert_eq!(
         saved.quotes,
@@ -428,6 +433,7 @@ fn failures_never_replace_a_complete_cache(cx: &mut TestAppContext) {
     );
     assert_eq!(shown(cx, &dashboard).len(), 2);
     cx.update(|cx| assert_eq!(dashboard.read(cx).finance_error(), Some("HTTP 503")));
+    cx.run_until_parked();
     assert_eq!(std::fs::read(&path).unwrap(), good);
 
     // One symbol failed: shown as today, but the partial set is not cached.
@@ -441,6 +447,7 @@ fn failures_never_replace_a_complete_cache(cx: &mut TestAppContext) {
         },
     );
     assert_eq!(shown(cx, &dashboard), vec![("^GSPC".into(), 6100.0)]);
+    cx.run_until_parked();
     assert_eq!(std::fs::read(&path).unwrap(), good);
 
     // A complete batch for a watchlist that changed in flight is not the
@@ -460,6 +467,7 @@ fn failures_never_replace_a_complete_cache(cx: &mut TestAppContext) {
         },
     );
     assert_eq!(shown(cx, &dashboard), vec![("^GSPC".into(), 6200.0)]);
+    cx.run_until_parked();
     assert_eq!(std::fs::read(&path).unwrap(), good);
 }
 
@@ -469,6 +477,135 @@ fn clearing_the_cache_removes_the_quote_file(cx: &mut TestAppContext) {
     let path = cache_file(&directory);
     seed(&path, &["AAPL"], &[200.0], now_ms());
     let dashboard = dashboard(cx, &["AAPL"], &path);
-    cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
     assert!(!path.exists());
+}
+
+#[gpui_kit::test]
+fn a_cache_that_cannot_be_deleted_fails_the_clear(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    // A non-empty directory where the file belongs cannot be removed as one.
+    std::fs::create_dir(&path).unwrap();
+    std::fs::write(path.join("keep"), "x").unwrap();
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    let error = cleared.unwrap_err();
+    assert!(
+        error.starts_with("The saved Finance quotes could not be deleted ("),
+        "{error}"
+    );
+    // The in-memory data is still dropped.
+    assert!(shown(cx, &dashboard).is_empty());
+}
+
+#[gpui_kit::test]
+fn a_clear_drops_a_save_that_has_not_run_yet(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    cx.run_until_parked();
+    assert!(!path.exists());
+}
+
+#[gpui_kit::test]
+fn a_settings_file_named_like_the_cache_survives_saves_and_clears(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join(cache::FILE_NAME);
+    let settings =
+        r#"{"finance":{"watchlist":["AAPL"]},"github":{"accounts":[{"username":"keep"}]}}"#;
+    std::fs::write(&config, settings).unwrap();
+    let path = cache::path_beside(&config).unwrap();
+    assert_eq!(path, directory.path().join(cache::FALLBACK_FILE_NAME));
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+    assert!(cache::load_fresh(&path, &requested, now_ms()).is_some());
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+    assert!(!path.exists());
+}
+
+#[test]
+fn the_cache_is_never_the_settings_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let beside = |name: &str| cache::path_beside(&directory.path().join(name));
+    assert_eq!(
+        beside("config.json"),
+        Some(directory.path().join(cache::FILE_NAME))
+    );
+    for name in [cache::FILE_NAME, "Finance-Cache.JSON"] {
+        assert_eq!(
+            beside(name),
+            Some(directory.path().join(cache::FALLBACK_FILE_NAME)),
+            "{name}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        // The cache's name linking to the settings file is the same file.
+        let config = directory.path().join("config.json");
+        std::fs::write(&config, "{}").unwrap();
+        let link = directory.path().join(cache::FILE_NAME);
+        std::os::unix::fs::symlink(&config, &link).unwrap();
+        assert_eq!(
+            cache::path_beside(&config),
+            Some(directory.path().join(cache::FALLBACK_FILE_NAME))
+        );
+        // Settings named like the fallback, with the first name linked to
+        // them: no name is safe, so nothing is cached.
+        let fallback = directory.path().join(cache::FALLBACK_FILE_NAME);
+        std::fs::rename(&config, &fallback).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&fallback, &link).unwrap();
+        assert_eq!(cache::path_beside(&fallback), None);
+    }
+}
+
+#[test]
+fn an_older_write_never_replaces_a_newer_one() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["AAPL"]);
+    let writer = Writer::default();
+    let save = |ticket, price| writer.save(ticket, &path, &list, &[quote("AAPL", price)], now_ms());
+    let (older, newer) = (writer.ticket(), writer.ticket());
+    assert!(older < newer);
+    // The newer save finishes first; the older one, arriving late, is dropped.
+    assert_eq!(save(newer, 2.0).unwrap(), Outcome::Applied);
+    assert_eq!(save(older, 1.0).unwrap(), Outcome::Superseded);
+    let cached = cache::load_fresh(&path, &list, now_ms()).unwrap();
+    assert_eq!(cached.quotes[0].price, 2.0);
+    // A removal requested after a save that has not run yet wins.
+    let (pending, clear) = (writer.ticket(), writer.ticket());
+    assert_eq!(writer.remove(clear, &path).unwrap(), Outcome::Applied);
+    assert_eq!(save(pending, 3.0).unwrap(), Outcome::Superseded);
+    assert!(!path.exists());
+    // Clones share one order.
+    let later = writer.clone().ticket();
+    assert_eq!(save(later, 4.0).unwrap(), Outcome::Applied);
 }
