@@ -192,6 +192,12 @@ RECENT_REVIEW_MARKER = 'PR Review: Se|PR Review. Se'
 RECENT_REVIEW_ABSENT = ('Untitled',)
 # The opened result's first control, above everything it scrolls.
 RESULT_TOP = 'Refresh this result'
+# Any of these sits inside the opened result pane, whichever is in view after
+# it scrolls: wheel there, never at the driver's default point. Beside the
+# Copilot sidebar that point (600, 400) lies on the short results list, which
+# does not scroll (Ubuntu: rerun-dark in run 46007700214, review-dark's
+# 'Confirm publication' in run 46084940944).
+RESULT_PANE = 'Publish to PR|Copy answer|Refresh this result'
 CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
 UNCONFIRMED_ENDING = 'will not resend'
@@ -373,11 +379,11 @@ def review_pull_request(driver):
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('wait_text', 'Open PR on GitHub'), ('capture', 'review-result-dark'),
         ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
-        ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-dark'),
+        ('wait_scroll_text', 'Confirm publication', RESULT_PANE), ('capture', 'publish-confirmation-dark'),
         ('content', 'Cancel publication'), ('wait_scroll_up', 'Publish to PR'), ('content', 'Publish to PR'),
-        ('content', 'Confirm publication'), ('wait_scroll_text', 'Review comment published'),
+        ('content', 'Confirm publication'), ('wait_scroll_text', 'Review comment published', RESULT_PANE),
         ('capture', 'publish-acknowledged-dark'), ('wait_scroll_up', 'Refresh this result', 'Review comment published'), ('content', 'Refresh this result'),
-        ('wait_scroll_text', 'Review comment published'), ('capture', 'publish-retained-dark'),
+        ('wait_scroll_text', 'Review comment published', RESULT_PANE), ('capture', 'publish-retained-dark'),
     ], record=True)
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
     github.check_column(review / 'review-result-dark.png', 'Captured review',
@@ -398,15 +404,15 @@ def review_publication_unconfirmed(driver):
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('resize', 900, 650),
         ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
-        ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-compact-light'),
-        ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed'),
+        ('wait_scroll_text', 'Confirm publication', RESULT_PANE), ('capture', 'publish-confirmation-compact-light'),
+        ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed', RESULT_PANE),
         ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
         # The two-line status ends below a 650px window on Ubuntu; wait for its
         # last line so the capture holds the whole status, not its first line.
         # A wait matches within one OCR line, and the Mac font breaks the
         # status between "will" and "not resend it" (run 44786129019), so
         # wait for one word of that line. The check below joins lines.
-        ('wait_scroll_text', UNCONFIRMED_LAST_LINE_WORD), ('capture', 'publish-unconfirmed-retained-light'),
+        ('wait_scroll_text', UNCONFIRMED_LAST_LINE_WORD, RESULT_PANE), ('capture', 'publish-unconfirmed-retained-light'),
     ], record=True)
     github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', UNCONFIRMED_ENDING)
 

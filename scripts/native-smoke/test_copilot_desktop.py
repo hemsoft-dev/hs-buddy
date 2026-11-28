@@ -50,7 +50,7 @@ class ReviewPublication(unittest.TestCase):
         # The check needs the status's last words, so the wait before the
         # capture must scroll until its last line is visible, not just its first.
         required = check.call_args.args[1:]
-        kind, waited = driver.actions[capture - 1]
+        kind, waited = driver.actions[capture - 1][:2]
         self.assertEqual(kind, 'wait_scroll_text')
         # A wait matches inside one OCR line and the status wraps differently
         # per platform font: run 44786129019 broke it after "will" on both
@@ -63,6 +63,47 @@ class ReviewPublication(unittest.TestCase):
         self.assertEqual(status.split().count(waited), 1)
         self.assertIn(waited, status.split()[-2:])
         self.assertIn(waited, required[-1].split())
+
+    def test_every_publication_wait_wheels_inside_the_opened_result(self):
+        # Beside the Copilot sidebar the default wheel point is on the short
+        # results list (Ubuntu run 46084940944: 'Confirm publication' never
+        # came into view). Each downward wait after the result opens names a
+        # label inside the result pane to wheel at.
+        class RecordingDriver:
+            def __init__(self):
+                self.calls = []
+
+            def drive(self, name, actions, *, record=False):
+                self.calls.append((name, actions))
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'), patch.object(copilot.github, 'check_column'):
+            copilot.review_pull_request(driver)
+            copilot.review_publication_unconfirmed(driver)
+        for name, actions in driver.calls:
+            opened = actions.index(('content', 'Inspect saved result'))
+            for action in actions[opened:]:
+                if action[0] == 'wait_scroll_text':
+                    with self.subTest(scene=name, wait=action[1]):
+                        self.assertEqual(len(action), 3)
+                        self.assertIn(action[2], (copilot.RESULT_PANE, copilot.RESULT_TOP))
+
+    def test_the_pane_anchor_takes_whichever_of_its_labels_is_in_view(self):
+        def word(text, left, top):
+            return dict(text=text, left=left, top=top, width=8 * len(text), height=14, line=str(top))
+        ocr = copilot.settings.ocr
+        # Scrolled to the publication block: the header button has left the
+        # view, the action row and the publish button remain (wait-status.png
+        # of review-dark in run 46084940944).
+        scrolled = [word('Copy', 820, 596), word('answer', 860, 596), word('Publish', 853, 640),
+            word('to', 910, 640), word('PR...', 930, 640)]
+        self.assertEqual(ocr.locate_label(scrolled, copilot.RESULT_PANE)['top'], 640)
+        # After publishing only the action row may remain.
+        actions_only = [word('Copy', 820, 300), word('answer', 860, 300)]
+        self.assertEqual(ocr.locate_label(actions_only, copilot.RESULT_PANE)['top'], 300)
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label([word('Completed:', 363, 276)], copilot.RESULT_PANE)
 
     def test_the_mac_wrapped_status_is_found_by_its_word_and_not_by_its_phrase(self):
         # Vision lines from the failing macOS capture's layout: the status
