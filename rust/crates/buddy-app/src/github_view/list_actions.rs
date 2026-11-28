@@ -6,6 +6,8 @@ use super::*;
 use buddy_core::github::{ConfirmedWrite, PullRef, RequestTicket, WriteReceipt};
 
 #[cfg(test)]
+mod address_tests;
+#[cfg(test)]
 mod tests;
 
 /// Where a confirmation prepared from a PR list row came from. The write is
@@ -46,13 +48,12 @@ impl RowWrite {
     }
 }
 
-/// The entries of Electron's PR card menu that native has, in its order.
-/// Electron's "Address Unresolved Comments" sends a prompt to the assistant,
-/// which native cannot do yet, so it is left out.
+/// The entries of Electron's PR card menu, in its order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RowAction {
     AiReview,
     RequestCopilot,
+    AddressComments,
     Approve,
     CopyLink,
     Bookmark,
@@ -185,6 +186,19 @@ impl GitHubView {
                 enabled: writable,
                 action: RowAction::RequestCopilot,
             },
+            // Electron labels it with the unresolved count its list read and
+            // disables it at none. Native's list reads only the PR's thread
+            // count, so it is disabled when the PR has no threads at all and
+            // counts the unresolved ones when clicked.
+            MenuEntry {
+                label: if pull.threads == 0 {
+                    "No Unresolved Comments".into()
+                } else {
+                    "Address Unresolved Comments".into()
+                },
+                enabled: self.account.is_some() && pull.threads > 0 && self.addressing.is_none(),
+                action: RowAction::AddressComments,
+            },
             MenuEntry {
                 label: approve.into(),
                 enabled: approve_enabled,
@@ -236,6 +250,7 @@ impl GitHubView {
                     ));
                 }
             }
+            RowAction::AddressComments => self.address_comments(target, pull, cx),
             RowAction::RequestCopilot => self.prepare_listed(
                 WriteAction::RequestCopilot {
                     pull: pull.target.clone(),
@@ -260,6 +275,53 @@ impl GitHubView {
             }
             RowAction::Bookmark => self.bookmark(pull.target.repository.clone(), cx),
         }
+    }
+
+    /// Electron's Address Unresolved Comments: read the PR's unresolved
+    /// review threads as the list's account, then send the assistant
+    /// Electron's prompt with them and the premium model. A reply for a list
+    /// that no longer shows the PR, or shows another account, is dropped.
+    fn address_comments(&mut self, target: &RowTarget, pull: &ListedPull, cx: &mut Context<Self>) {
+        let client = self.clients.for_account(target.account.clone());
+        let pull = pull.target.clone();
+        // Electron reads `copilot.premiumModel` when the entry is clicked.
+        let model = Settings::global(cx).config.copilot.premium_model.clone();
+        let name = format!("{} #{}", pull.repository.full_name(), pull.number);
+        self.addressing = Some(target.clone());
+        self.status = Some(format!("Reading the unresolved review threads of {name}…"));
+        let rx = Runtime::global(cx).spawn(address_comments::read(client, pull.clone()));
+        let target = target.clone();
+        cx.spawn(async move |this, cx| {
+            let result = rx.await;
+            this.update(cx, |this, cx| {
+                this.addressing = None;
+                this.status = Some(if this.current_listed(&target).is_none() {
+                    "This pull request is no longer in the shown list.".into()
+                } else {
+                    match result {
+                        Ok(Ok(Some(unresolved))) => {
+                            let label = unresolved.label();
+                            cx.emit(GitHubEvent::SendAssistantPrompt(
+                                crate::copilot_view::chat::AssistantPrompt {
+                                    prompt: address_comments::prompt(&pull),
+                                    model: Some(model),
+                                    context: Some(unresolved.context),
+                                    context_label: Some(label.clone()),
+                                },
+                            ));
+                            format!("Sent to Copilot Assistant · {name} · {label}")
+                        }
+                        Ok(Ok(None)) => format!("{name} has no unresolved review comments."),
+                        Ok(Err(error)) => error.to_string(),
+                        Err(_) => "Reading the review threads stopped. Try again.".into(),
+                    }
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
     }
 
     /// Open the PR page's confirmation for a write from a list row.

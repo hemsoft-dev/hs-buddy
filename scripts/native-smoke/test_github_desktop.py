@@ -350,7 +350,8 @@ class InstalledEvidence(unittest.TestCase):
                 menu = check.call_args_list[0]
                 self.assertEqual(menu.args[0].name, f'pr-list-context-menu-{theme}.png')
                 self.assertEqual(menu.args[1:], (desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU))
-                self.assertEqual(menu.kwargs, dict(absent=('Address Unresolved',)))
+                self.assertEqual(menu.kwargs, {})
+                self.assertIn('Address Unresolved', desktop.LIST_MENU)
                 self.assertEqual(seen['record'], theme == 'dark')
                 if theme == 'dark':
                     # The row's own button, then the PR page's confirmation.
@@ -378,6 +379,69 @@ class InstalledEvidence(unittest.TestCase):
     def test_a_failed_list_drive_still_restores_the_configuration(self):
         failure = RuntimeError('menu did not open')
         _, check, raised, restored = self.run_list_actions('dark', failure=failure)
+        self.assertIs(raised, failure)
+        self.assertTrue(restored)
+        check.assert_not_called()
+
+    THREAD_READ = dict(method='POST', path='/graphql', account='fixture-one', query='query NativePullThreads', body=None)
+
+    def run_address_comments(self, requests=(), failure=None):
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            config = output / 'config.json'
+            original = json.dumps(dict(native=dict(activeSection='dashboard'), ui=dict(assistantOpen=False)))
+            config.write_text(original)
+            api = Mock(requests=[dict(self.THREAD_READ, account='fixture-two')])
+            seen = {}
+            def drive(name, actions, record):
+                seen.update(name=name, actions=actions, record=record,
+                    section=json.loads(config.read_text())['native']['activeSection'])
+                # The opened assistant saves ui.assistantOpen.
+                value = json.loads(config.read_text())
+                value['ui']['assistantOpen'] = True
+                config.write_text(json.dumps(value))
+                if failure:
+                    raise failure
+                api.requests.extend(requests)
+                return output / name
+            with patch.object(desktop, 'check') as check:
+                raised = None
+                try:
+                    desktop.qualify_address_comments(Mock(drive=drive), config, api)
+                except Exception as error:
+                    raised = error
+            restored = config.read_text() == original
+        return seen, check, raised, restored
+
+    def test_address_unresolved_comments_is_chosen_from_the_row_menu_and_shows_the_prompt(self):
+        seen, check, raised, restored = self.run_address_comments([self.THREAD_READ])
+        self.assertIsNone(raised)
+        self.assertTrue(restored, 'the opened assistant is closed again')
+        self.assertEqual(seen['section'], 'github')
+        self.assertTrue(seen['record'])
+        self.assertEqual(seen['actions'], [('sidebar', 'Needs Review'), ('wait_content', desktop.LIST_ROW),
+            ('content_menu', desktop.LIST_ROW), ('wait_text', 'Address Unresolved Comments'),
+            ('content', 'Address Unresolved Comments'), ('wait_text', 'Address the unresolved'),
+            ('sleep', 1), ('capture', 'address-comments-dark')])
+        check.assert_called_once()
+        self.assertEqual(check.call_args.args[0].name, 'address-comments-dark.png')
+        self.assertEqual(check.call_args.args[1:], ('Copilot Assistant', 'Address the unresolved'))
+
+    def test_address_unresolved_comments_must_read_threads_as_the_list_account_and_write_nothing(self):
+        write = dict(method='POST', path='/repos/fixture-org/native-demo/issues/8/comments', account='fixture-one',
+            query='', body=dict(body='x'))
+        # A read from before the scene, by another account, does not count.
+        for requests, message in (([], 'did not read'), ([dict(self.THREAD_READ, account='fixture-two')], 'did not read'),
+                ([self.THREAD_READ, write], 'wrote')):
+            with self.subTest(requests=requests):
+                _, _, raised, restored = self.run_address_comments(requests)
+                self.assertIsInstance(raised, RuntimeError)
+                self.assertIn(message, str(raised))
+                self.assertTrue(restored)
+
+    def test_a_failed_address_comments_drive_still_restores_the_configuration(self):
+        failure = RuntimeError('menu did not open')
+        _, check, raised, restored = self.run_address_comments(failure=failure)
         self.assertIs(raised, failure)
         self.assertTrue(restored)
         check.assert_not_called()
@@ -1001,33 +1065,37 @@ unbookmark native-demo
 """
 
 
+# That reading with the entry native now has, in Electron's place.
+MENU_READING = UBUNTU_MENU_READING.replace("request copilot review...\n",
+    "request copilot review...\naddress unresolved comments\n")
+
+
 class ListMenuReading(unittest.TestCase):
     def check(self, reading, *markers):
         with TemporaryDirectory() as root:
             path = Path(root) / "pr-list-context-menu-dark.png"
             with patch.object(desktop, "analysis_images", lambda image: iter([image])), \
                     patch.object(desktop.settings, "run", return_value=reading):
-                desktop.check(path, *markers, absent=desktop.LIST_MENU_ABSENT)
+                desktop.check(path, *markers)
 
-    def test_the_real_ubuntu_reading_of_the_open_menu_passes(self):
-        self.check(UBUNTU_MENU_READING, desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+    def test_the_ubuntu_reading_of_the_open_menu_passes(self):
+        self.check(MENU_READING, desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
 
     def test_the_whole_row_title_is_not_required_under_the_open_menu(self):
         with self.assertRaises(RuntimeError):
-            self.check(UBUNTU_MENU_READING, desktop.LIST_ROW, *desktop.LIST_MENU)
+            self.check(MENU_READING, desktop.LIST_ROW, *desktop.LIST_MENU)
 
     def test_an_alternative_counts_but_a_missing_entry_still_fails(self):
         self.check("request ai review copy link", "Request AI Review|Request al Review", "Copy Link")
         with self.assertRaises(RuntimeError):
-            self.check(UBUNTU_MENU_READING.replace("copy link", ""), desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+            self.check(MENU_READING.replace("copy link", ""), desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
         with self.assertRaises(RuntimeError):
-            self.check(UBUNTU_MENU_READING.replace("request al review", "request review"),
+            self.check(MENU_READING.replace("request al review", "request review"),
                 desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
 
-    def test_the_left_out_entry_must_stay_absent(self):
-        with self.assertRaisesRegex(RuntimeError, "remained visible"):
-            self.check(UBUNTU_MENU_READING + "address unresolved comments\n",
-                desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
+    def test_the_address_unresolved_comments_entry_is_required(self):
+        with self.assertRaises(RuntimeError):
+            self.check(UBUNTU_MENU_READING, desktop.LIST_ROW_UNDER_MENU, *desktop.LIST_MENU)
 
 if __name__ == "__main__":
     unittest.main()

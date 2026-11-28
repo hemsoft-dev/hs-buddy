@@ -221,7 +221,7 @@ fn a_row_approves_its_listed_head_only_after_the_confirmation(cx: &mut gpui_kit:
             Some(&RowWrite::Done("Commit approved"))
         );
         assert_eq!(
-            labels(&view.menu_entries(&pull))[2],
+            labels(&view.menu_entries(&pull))[3],
             ("Already Approved", false)
         );
         assert!(view.pending.is_none() && view.pending_list.is_none());
@@ -331,6 +331,7 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
                 vec![
                     ("Request AI Review…", true),
                     ("Request Copilot Review…", true),
+                    ("No Unresolved Comments", false),
                     ("Approve…", true),
                     ("Copy Link", true),
                     ("Bookmark private", false),
@@ -338,12 +339,12 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
             );
             view.bookmarks = Some(vec![bookmark("team", "other")]);
             assert_eq!(
-                labels(&view.menu_entries(&pull))[4],
+                labels(&view.menu_entries(&pull))[5],
                 ("Bookmark private", true)
             );
             view.bookmarks = Some(vec![bookmark("team", "private")]);
             assert_eq!(
-                labels(&view.menu_entries(&pull))[4],
+                labels(&view.menu_entries(&pull))[5],
                 ("Unbookmark private", true)
             );
 
@@ -352,7 +353,7 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
                 ..pull.clone()
             };
             assert_eq!(
-                labels(&view.menu_entries(&approved))[2],
+                labels(&view.menu_entries(&approved))[3],
                 ("Already Approved", false)
             );
             // As on the PR page, a merged or closed PR offers no review writes.
@@ -365,6 +366,7 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
                 vec![
                     ("Request AI Review…", true),
                     ("Request Copilot Review…", false),
+                    ("No Unresolved Comments", false),
                     ("Approve…", false),
                     ("Copy Link", true),
                     ("Unbookmark private", true),
@@ -375,7 +377,7 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
             assert_eq!(view.row_approve(&pull), Some(("Approve…", true)));
             view.view_mode = ViewMode::List;
             assert_eq!(view.row_approve(&pull), None);
-            assert_eq!(labels(&view.menu_entries(&pull))[2], ("Approve…", true));
+            assert_eq!(labels(&view.menu_entries(&pull))[3], ("Approve…", true));
             view.view_mode = ViewMode::Card;
             // A disabled entry does nothing even when reached directly.
             shown(view, vec![data::pull_row(summary("MERGED", false))]);
@@ -387,8 +389,8 @@ fn the_row_menu_has_electrons_entries_in_order_with_their_conditions(
             let entries = view.menu_entries(&pull);
             let busy = labels(&entries);
             assert_eq!(busy[1], ("Request Copilot Review…", false));
-            assert_eq!(busy[2], ("Approve…", false));
-            assert_eq!(busy[4], ("Unbookmark private", false));
+            assert_eq!(busy[3], ("Approve…", false));
+            assert_eq!(busy[5], ("Unbookmark private", false));
             view.write_busy = false;
         })
     });
@@ -546,7 +548,7 @@ fn row_writes_enabled(view: &mut GitHubView, cx: &mut Context<GitHubView>) -> bo
     let entries = view.menu_entries(&pull);
     let approve = view.approve_control(&pull).1;
     assert_eq!(entries[1].enabled, approve, "Copilot follows Approve");
-    assert_eq!(entries[2].enabled, approve, "the menu follows the button");
+    assert_eq!(entries[3].enabled, approve, "the menu follows the button");
     assert_eq!(view.row_locked(&pull).is_none(), approve);
     view.prepare_listed(WriteAction::RequestCopilot { pull: target() }, cx);
     let prepared = view.pending.take().is_some();
