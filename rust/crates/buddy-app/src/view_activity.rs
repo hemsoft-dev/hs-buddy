@@ -2,8 +2,9 @@
 //! them: Electron's `openTab` adds one for every call (`useAppSessionStats.ts`
 //! `trackViewOpen`), including the Dashboard tab it opens at launch. Here that
 //! is the Dashboard at window start and from the activity bar, the Bookmarks
-//! and Insights activity-bar entries, and a folder view opened from a
-//! terminal. Tab switches, Back and Forward, and restored tabs are not opens.
+//! activity-bar entry, the Insights sidebar's Productivity and Activity, and
+//! a folder view opened from a terminal. Tab switches, Back and Forward, and
+//! restored tabs are not opens.
 //!
 //! Without the global nothing is sent, so view tests never reach Convex.
 use std::rc::Rc;

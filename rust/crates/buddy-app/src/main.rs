@@ -14,6 +14,7 @@ mod crew_view;
 mod dashboard;
 mod explorer_view;
 mod github_view;
+mod insights_view;
 mod key_binding;
 mod logging;
 #[cfg(target_os = "macos")]

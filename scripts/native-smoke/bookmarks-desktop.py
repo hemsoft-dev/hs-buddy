@@ -1,5 +1,9 @@
 """Installed Bookmarks on disposable CI desktops: categorized list, editor, delete, failure.
 
+The scene also opens the Insights pages, which share this area's parity page:
+Electron's Insights sidebar lists Productivity and Activity, and each opens its
+own tab on the router's coming-soon page.
+
 Bookmarks live in the same disposable anonymous Convex deployment the Settings and
 GitHub qualifications use, seeded through the incumbent `bookmarks:create` function.
 Nothing is opened in a browser and no page title is fetched: the editor is driven by
@@ -153,6 +157,37 @@ def failure(driver, theme, compact):
     github.check(flow / f"{name}.png", "Unable to load bookmarks", "Convex", "Retry")
 
 
+COMING_SOON = "This feature is coming soon"
+
+
+def insights_actions(theme):
+    """Launch on Insights, then open each sidebar entry.
+
+    Scenes start a section from the saved `native.activeSection`; the activity
+    bar is icons only, with nothing for OCR to find. The launch opens the
+    Productivity tab; clicking its entry selects that same tab. The dark pass
+    then opens Activity in a second tab and steps between the two tabs, which
+    only finds a tab row label each page's tab carries."""
+    actions = [("wait_text", COMING_SOON), ("sidebar", "Productivity"), ("sleep", 1),
+        ("capture", f"insights-productivity-{theme}")]
+    if theme == "dark":
+        actions += [("sidebar", "Activity"), ("sleep", 1), ("capture", f"insights-activity-{theme}"),
+            ("workspace", "Productivity"), ("sleep", 1), ("workspace", "Activity"), ("sleep", 1),
+            ("wait_text", COMING_SOON)]
+    return actions
+
+
+def insights(driver, config, theme):
+    terminal.write_config(config, lambda value: value["native"].update(activeSection="insights"))
+    try:
+        flow = driver.drive(f"insights-{theme}", insights_actions(theme), record=theme == "dark")
+    finally:
+        terminal.write_config(config, lambda value: value["native"].update(activeSection="bookmarks"))
+    github.check(flow / f"insights-productivity-{theme}.png", "Productivity", "Activity", COMING_SOON)
+    if theme == "dark":
+        github.check(flow / f"insights-activity-{theme}.png", "Productivity", "Activity", COMING_SOON)
+
+
 def qualify(executable, output, session, version, backend):
     binary = github.installed_binary(executable, version)
     config = fixture(output, "dark")
@@ -162,16 +197,19 @@ def qualify(executable, output, session, version, backend):
     offline = settings.Driver(executable, output, session, types.SimpleNamespace(url=unreachable_url()), CHECKOUT)
     add_and_delete(driver, "dark", "Old dark link")
     failure(offline, "dark", compact=False)
+    insights(driver, config, "dark")
     light = json.loads(fixture(config.parent / "light-template", "light").read_text())
     terminal.write_config(config, lambda value: value["ui"].update(light["ui"]))
     add_and_delete(driver, "light", "Old light link")
     failure(offline, "light", compact=True)
+    insights(driver, config, "light")
     verify_backend(backend.query("bookmarks:list"), deleted={"Old dark link", "Old light link"})
     (output / "qualification.json").write_text(json.dumps(dict(result="passed", version=version, session=session,
         **binary, largeWindow=driver.large_size, desktopUi=True,
         dataSource="Installed app with an isolated anonymous Convex deployment seeded through bookmarks:create",
         checks=["categorized list and tree", "category filter", "add through the editor", "search",
-            "delete confirm", "unreachable backend failure and retry", "compact window", "light/dark"]),
+            "delete confirm", "unreachable backend failure and retry", "compact window",
+            "Insights Productivity and Activity tabs on the coming-soon page", "light/dark"]),
         indent=2), encoding="utf-8")
 
 

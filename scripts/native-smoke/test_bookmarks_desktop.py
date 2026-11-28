@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import socket
+import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.parse import urlparse
@@ -81,6 +83,55 @@ class BookmarksDesktopTests(unittest.TestCase):
         wrong[-1]["category"] = "Reading"
         with self.assertRaisesRegex(RuntimeError, "saved as"):
             desktop.verify_backend(wrong, deleted)
+
+    def test_insights_opens_each_entry_through_sidebar_and_tab_targets(self):
+        dark = desktop.insights_actions("dark")
+        clicks = [action[:2] for action in dark if action[0] in ("sidebar", "workspace", "content", "click")]
+        # Sidebar entries are sidebar-scoped and tab labels workspace-scoped;
+        # no plain view click reaches the content or the footer.
+        self.assertEqual(clicks, [("sidebar", "Productivity"), ("sidebar", "Activity"),
+            ("workspace", "Productivity"), ("workspace", "Activity")])
+        captures = [action[1] for action in dark if action[0] == "capture"]
+        self.assertEqual(captures, ["insights-productivity-dark", "insights-activity-dark"])
+        # Each capture follows the entry that opens its page.
+        for page in ("productivity", "activity"):
+            entry = dark.index(("sidebar", page.capitalize()))
+            self.assertLess(entry, dark.index(("capture", f"insights-{page}-dark")))
+        light = desktop.insights_actions("light")
+        self.assertEqual([action[1] for action in light if action[0] == "capture"], ["insights-productivity-light"])
+        self.assertNotIn(("sidebar", "Activity"), light)
+
+    def test_insights_restores_the_bookmarks_section_even_when_the_drive_fails(self):
+        with tempfile.TemporaryDirectory() as raw:
+            config = Path(raw) / "config.json"
+            config.write_text(json.dumps(dict(native=dict(activeSection="bookmarks"))))
+            seen = []
+
+            class Driver:
+                def drive(self, name, actions, record=False):
+                    seen.append((name, json.loads(config.read_text())["native"]["activeSection"], record))
+                    raise RuntimeError("drive failed")
+
+            with self.assertRaisesRegex(RuntimeError, "drive failed"):
+                desktop.insights(Driver(), config, "dark")
+            self.assertEqual(seen, [("insights-dark", "insights", True)])
+            self.assertEqual(json.loads(config.read_text())["native"]["activeSection"], "bookmarks")
+
+    def test_insights_checks_the_coming_soon_text_in_each_capture(self):
+        with tempfile.TemporaryDirectory() as raw:
+            config = Path(raw) / "config.json"
+            config.write_text(json.dumps(dict(native=dict(activeSection="bookmarks"))))
+
+            class Driver:
+                def drive(self, name, actions, record=False):
+                    return Path(raw) / name
+
+            with patch.object(desktop.github, "check") as check:
+                desktop.insights(Driver(), config, "dark")
+            self.assertEqual([call.args[0].name for call in check.call_args_list],
+                ["insights-productivity-dark.png", "insights-activity-dark.png"])
+            for call in check.call_args_list:
+                self.assertIn(desktop.COMING_SOON, call.args)
 
     def test_the_failure_url_is_a_closed_loopback_port(self):
         url = urlparse(desktop.unreachable_url())
