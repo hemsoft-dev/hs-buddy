@@ -1,0 +1,802 @@
+[
+{
+"text": "@@@",
+"left": 0,
+"top": 0,
+"width": 62,
+"height": 23,
+"line": "1/1/1"
+},
+{
+"text": "GQ",
+"left": 80,
+"top": 6,
+"width": 20,
+"height": 20,
+"line": "1/1/1"
+},
+{
+"text": "Bucy",
+"left": 110,
+"top": 11,
+"width": 34,
+"height": 12,
+"line": "1/1/1"
+},
+{
+"text": "Fie",
+"left": 160,
+"top": 11,
+"width": 18,
+"height": 9,
+"line": "1/1/1"
+},
+{
+"text": "Edt",
+"left": 190,
+"top": 11,
+"width": 20,
+"height": 9,
+"line": "1/1/1"
+},
+{
+"text": "View",
+"left": 220,
+"top": 11,
+"width": 26,
+"height": 9,
+"line": "1/1/1"
+},
+{
+"text": "Help",
+"left": 257,
+"top": 11,
+"width": 24,
+"height": 12,
+"line": "1/1/1"
+},
+{
+"text": "#8",
+"left": 1156,
+"top": 10,
+"width": 33,
+"height": 12,
+"line": "2/1/1"
+},
+{
+"text": "\u2018",
+"left": 53,
+"top": 48,
+"width": 2,
+"height": 5,
+"line": "3/1/1"
+},
+{
+"text": "Dashboard",
+"left": 77,
+"top": 44,
+"width": 57,
+"height": 9,
+"line": "4/1/1"
+},
+{
+"text": "x",
+"left": 144,
+"top": 46,
+"width": 6,
+"height": 7,
+"line": "4/1/1"
+},
+{
+"text": "85",
+"left": 18,
+"top": 57,
+"width": 14,
+"height": 8,
+"line": "5/1/1"
+},
+{
+"text": "og",
+"left": 18,
+"top": 51,
+"width": 14,
+"height": 8,
+"line": "6/1/1"
+},
+{
+"text": "copit",
+"left": 181,
+"top": 44,
+"width": 24,
+"height": 12,
+"line": "7/1/1"
+},
+{
+"text": "rompt",
+"left": 226,
+"top": 44,
+"width": 53,
+"height": 12,
+"line": "7/1/1"
+},
+{
+"text": ">",
+"left": 137,
+"top": 88,
+"width": 6,
+"height": 10,
+"line": "8/1/1"
+},
+{
+"text": "Recent",
+"left": 157,
+"top": 86,
+"width": 43,
+"height": 10,
+"line": "8/1/1"
+},
+{
+"text": "Results",
+"left": 205,
+"top": 86,
+"width": 46,
+"height": 10,
+"line": "8/1/1"
+},
+{
+"text": "Chat",
+"left": 363,
+"top": 93,
+"width": 30,
+"height": 11,
+"line": "9/1/1"
+},
+{
+"text": "Saved",
+"left": 423,
+"top": 93,
+"width": 39,
+"height": 11,
+"line": "10/1/1"
+},
+{
+"text": "results",
+"left": 467,
+"top": 93,
+"width": 41,
+"height": 11,
+"line": "10/1/1"
+},
+{
+"text": "Usage",
+"left": 539,
+"top": 93,
+"width": 39,
+"height": 14,
+"line": "11/1/1"
+},
+{
+"text": "Sessions",
+"left": 609,
+"top": 93,
+"width": 57,
+"height": 11,
+"line": "12/1/1"
+},
+{
+"text": "(7)",
+"left": 17,
+"top": 107,
+"width": 16,
+"height": 16,
+"line": "13/1/1"
+},
+{
+"text": "New",
+"left": 1062,
+"top": 137,
+"width": 27,
+"height": 11,
+"line": "14/1/1"
+},
+{
+"text": "conversation",
+"left": 1093,
+"top": 138,
+"width": 79,
+"height": 10,
+"line": "14/1/1"
+},
+{
+"text": "Conversation",
+"left": 352,
+"top": 136,
+"width": 105,
+"height": 13,
+"line": "15/1/1"
+},
+{
+"text": "GitHub",
+"left": 352,
+"top": 177,
+"width": 40,
+"height": 10,
+"line": "16/1/1"
+},
+{
+"text": "account",
+"left": 396,
+"top": 178,
+"width": 46,
+"height": 9,
+"line": "16/1/1"
+},
+{
+"text": "Model",
+"left": 585,
+"top": 177,
+"width": 34,
+"height": 10,
+"line": "17/1/1"
+},
+{
+"text": "Enter",
+"left": 364,
+"top": 208,
+"width": 32,
+"height": 10,
+"line": "18/1/1"
+},
+{
+"text": "a",
+"left": 401,
+"top": 210,
+"width": 7,
+"height": 8,
+"line": "18/1/1"
+},
+{
+"text": "GitHub",
+"left": 413,
+"top": 208,
+"width": 42,
+"height": 10,
+"line": "18/1/1"
+},
+{
+"text": "login",
+"left": 460,
+"top": 208,
+"width": 28,
+"height": 13,
+"line": "18/1/1"
+},
+{
+"text": "gpt-4.1",
+"left": 595,
+"top": 208,
+"width": 41,
+"height": 13,
+"line": "19/1/1"
+},
+{
+"text": "Load",
+"left": 364,
+"top": 250,
+"width": 29,
+"height": 11,
+"line": "20/1/1"
+},
+{
+"text": "available",
+"left": 398,
+"top": 250,
+"width": 55,
+"height": 11,
+"line": "20/1/1"
+},
+{
+"text": "models",
+"left": 458,
+"top": 250,
+"width": 44,
+"height": 11,
+"line": "20/1/1"
+},
+{
+"text": "\u2018Ask",
+"left": 352,
+"top": 291,
+"width": 21,
+"height": 9,
+"line": "21/1/1"
+},
+{
+"text": "a",
+"left": 378,
+"top": 293,
+"width": 6,
+"height": 7,
+"line": "21/1/1"
+},
+{
+"text": "question,",
+"left": 388,
+"top": 291,
+"width": 52,
+"height": 12,
+"line": "21/1/1"
+},
+{
+"text": "run",
+"left": 445,
+"top": 293,
+"width": 17,
+"height": 7,
+"line": "21/1/1"
+},
+{
+"text": "a",
+"left": 468,
+"top": 293,
+"width": 6,
+"height": 7,
+"line": "21/1/1"
+},
+{
+"text": "saved",
+"left": 478,
+"top": 291,
+"width": 34,
+"height": 9,
+"line": "21/1/1"
+},
+{
+"text": "prompt,",
+"left": 517,
+"top": 291,
+"width": 39,
+"height": 12,
+"line": "21/1/1"
+},
+{
+"text": "or",
+"left": 564,
+"top": 293,
+"width": 11,
+"height": 7,
+"line": "21/1/1"
+},
+{
+"text": "review",
+"left": 580,
+"top": 293,
+"width": 36,
+"height": 7,
+"line": "21/1/1"
+},
+{
+"text": "a",
+"left": 618,
+"top": 281,
+"width": 6,
+"height": 29,
+"line": "21/1/1"
+},
+{
+"text": "pull",
+"left": 632,
+"top": 291,
+"width": 18,
+"height": 12,
+"line": "21/1/1"
+},
+{
+"text": "request",
+"left": 656,
+"top": 291,
+"width": 42,
+"height": 11,
+"line": "21/1/1"
+},
+{
+"text": "from",
+"left": 702,
+"top": 290,
+"width": 25,
+"height": 10,
+"line": "21/1/1"
+},
+{
+"text": "GitHub.",
+"left": 732,
+"top": 290,
+"width": 39,
+"height": 10,
+"line": "21/1/1"
+},
+{
+"text": "2",
+"left": 20,
+"top": 396,
+"width": 10,
+"height": 7,
+"line": "22/1/1"
+},
+{
+"text": "a",
+"left": 18,
+"top": 404,
+"width": 14,
+"height": 6,
+"line": "23/1/1"
+},
+{
+"text": "Message",
+"left": 353,
+"top": 463,
+"width": 51,
+"height": 12,
+"line": "24/1/1"
+},
+{
+"text": "Ask",
+"left": 363,
+"top": 504,
+"width": 23,
+"height": 10,
+"line": "25/1/1"
+},
+{
+"text": "a",
+"left": 391,
+"top": 506,
+"width": 7,
+"height": 8,
+"line": "25/1/1"
+},
+{
+"text": "question",
+"left": 402,
+"top": 505,
+"width": 52,
+"height": 12,
+"line": "25/1/1"
+},
+{
+"text": "or",
+"left": 459,
+"top": 506,
+"width": 12,
+"height": 8,
+"line": "25/1/1"
+},
+{
+"text": "enter",
+"left": 475,
+"top": 504,
+"width": 32,
+"height": 10,
+"line": "25/1/1"
+},
+{
+"text": "a",
+"left": 511,
+"top": 506,
+"width": 7,
+"height": 8,
+"line": "25/1/1"
+},
+{
+"text": "prompt",
+"left": 523,
+"top": 505,
+"width": 43,
+"height": 12,
+"line": "25/1/1"
+},
+{
+"text": "Enter",
+"left": 353,
+"top": 546,
+"width": 30,
+"height": 9,
+"line": "26/1/1"
+},
+{
+"text": "sends",
+"left": 387,
+"top": 546,
+"width": 34,
+"height": 9,
+"line": "26/1/1"
+},
+{
+"text": "without",
+"left": 425,
+"top": 546,
+"width": 41,
+"height": 9,
+"line": "26/1/1"
+},
+{
+"text": "saving",
+"left": 470,
+"top": 548,
+"width": 37,
+"height": 10,
+"line": "26/1/1"
+},
+{
+"text": "-",
+"left": 511,
+"top": 535,
+"width": 3,
+"height": 30,
+"line": "26/1/1"
+},
+{
+"text": "Shift+Enter",
+"left": 519,
+"top": 545,
+"width": 64,
+"height": 10,
+"line": "26/1/1"
+},
+{
+"text": "adds",
+"left": 587,
+"top": 546,
+"width": 27,
+"height": 9,
+"line": "26/1/1"
+},
+{
+"text": "a",
+"left": 619,
+"top": 548,
+"width": 6,
+"height": 7,
+"line": "26/1/1"
+},
+{
+"text": "newline",
+"left": 630,
+"top": 546,
+"width": 43,
+"height": 9,
+"line": "26/1/1"
+},
+{
+"text": "Category",
+"left": 353,
+"top": 583,
+"width": 51,
+"height": 13,
+"line": "27/1/1"
+},
+{
+"text": "|",
+"left": 416,
+"top": 572,
+"width": 3,
+"height": 31,
+"line": "27/1/1"
+},
+{
+"text": "General",
+"left": 424,
+"top": 582,
+"width": 49,
+"height": 11,
+"line": "27/1/1"
+},
+{
+"text": "PR",
+"left": 505,
+"top": 582,
+"width": 18,
+"height": 11,
+"line": "28/1/1"
+},
+{
+"text": "Review",
+"left": 528,
+"top": 582,
+"width": 45,
+"height": 11,
+"line": "28/1/1"
+},
+{
+"text": "Code",
+"left": 604,
+"top": 582,
+"width": 33,
+"height": 11,
+"line": "28/1/1"
+},
+{
+"text": "Analysis.",
+"left": 640,
+"top": 582,
+"width": 53,
+"height": 14,
+"line": "28/1/1"
+},
+{
+"text": "Documentation",
+"left": 724,
+"top": 582,
+"width": 93,
+"height": 11,
+"line": "29/1/1"
+},
+{
+"text": "Recent",
+"left": 353,
+"top": 672,
+"width": 40,
+"height": 9,
+"line": "30/1/1"
+},
+{
+"text": "Refresh",
+"left": 413,
+"top": 670,
+"width": 47,
+"height": 11,
+"line": "31/1/1"
+},
+{
+"text": ")\u00a2",
+"left": 590,
+"top": 703,
+"width": 18,
+"height": 18,
+"line": "32/1/1"
+},
+{
+"text": "BUDDYCANCEL73429",
+"left": 614,
+"top": 706,
+"width": 143,
+"height": 11,
+"line": "32/1/1"
+},
+{
+"text": "RECENTROW",
+"left": 762,
+"top": 706,
+"width": 91,
+"height": 11,
+"line": "32/1/1"
+},
+{
+"text": "-",
+"left": 850,
+"top": 699,
+"width": 9,
+"height": 26,
+"line": "32/1/1"
+},
+{
+"text": "1",
+"left": 866,
+"top": 707,
+"width": 4,
+"height": 10,
+"line": "32/1/1"
+},
+{
+"text": "minute",
+"left": 877,
+"top": 707,
+"width": 41,
+"height": 10,
+"line": "32/1/1"
+},
+{
+"text": "ago",
+"left": 923,
+"top": 709,
+"width": 22,
+"height": 11,
+"line": "32/1/1"
+},
+{
+"text": "(M7",
+"left": 633,
+"top": 739,
+"width": 18,
+"height": 18,
+"line": "33/1/1"
+},
+{
+"text": "BUDDYSTREAM61527",
+"left": 657,
+"top": 742,
+"width": 145,
+"height": 11,
+"line": "33/1/1"
+},
+{
+"text": "-",
+"left": 807,
+"top": 747,
+"width": 2,
+"height": 2,
+"line": "33/1/1"
+},
+{
+"text": "3",
+"left": 814,
+"top": 743,
+"width": 7,
+"height": 10,
+"line": "33/1/1"
+},
+{
+"text": "minutes",
+"left": 826,
+"top": 743,
+"width": 48,
+"height": 10,
+"line": "33/1/1"
+},
+{
+"text": "ago",
+"left": 879,
+"top": 745,
+"width": 22,
+"height": 11,
+"line": "33/1/1"
+},
+{
+"text": "\u00a2",
+"left": 634,
+"top": 775,
+"width": 18,
+"height": 18,
+"line": "34/1/1"
+},
+{
+"text": "BUDDYCANCEL73429",
+"left": 658,
+"top": 778,
+"width": 143,
+"height": 11,
+"line": "34/1/1"
+},
+{
+"text": "-",
+"left": 806,
+"top": 783,
+"width": 2,
+"height": 2,
+"line": "34/1/1"
+},
+{
+"text": "5",
+"left": 814,
+"top": 779,
+"width": 7,
+"height": 10,
+"line": "34/1/1"
+},
+{
+"text": "minutes",
+"left": 826,
+"top": 779,
+"width": 48,
+"height": 10,
+"line": "34/1/1"
+},
+{
+"text": "ago",
+"left": 878,
+"top": 781,
+"width": 23,
+"height": 11,
+"line": "34/1/1"
+}
+]

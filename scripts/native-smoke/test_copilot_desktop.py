@@ -117,6 +117,27 @@ class ReviewPublication(unittest.TestCase):
         self.assertEqual(driver.actions[resized + 1], ('wait_scroll_text', copilot.CODE_LINE, copilot.RESULT_PANE))
         self.assertEqual(driver.actions[resized + 2], ('capture', 'code-copy-compact-light'))
 
+    def test_the_recent_row_is_scoped_by_the_refresh_row_not_the_menu(self):
+        class RecordingDriver:
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'):
+            copilot.rerun_turns(driver)
+        self.assertIn(('between', 'RECENTROW', 'Refresh'), driver.actions)
+        self.assertNotIn(('content', 'RECENTROW'), driver.actions)
+        # The real Intel sparse reading: the menu row is "Fie Edt View Help",
+        # so content scoping fails while the Refresh row still scopes it.
+        words = json.loads((Path(__file__).with_name('fixtures') / 'intel-rerun-dark-sparse-ocr.json')
+            .read_text(encoding='utf-8'))
+        ocr = copilot.settings.ocr
+        with self.assertRaisesRegex(RuntimeError, 'menu row is not visible'):
+            ocr.find_label(words, 'RECENTROW', False, False, content=True)
+        label = ocr.find_label(words, 'RECENTROW', False, False, between=('Refresh',))
+        self.assertEqual((label['left'], label['top']), (762, 706))
+
     def test_the_pane_anchor_takes_whichever_of_its_labels_is_in_view(self):
         def word(text, left, top):
             return dict(text=text, left=left, top=top, width=8 * len(text), height=14, line=str(top))

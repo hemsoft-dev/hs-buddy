@@ -280,7 +280,12 @@ def rerun_turns(driver):
     one streaming turn while that capture is armed, and the cancel marker never
     streams to completion, so the re-run ends by its own Cancel."""
     rerun = driver.drive('rerun-dark', [
-        ('wait_scroll_text', 'RECENTROW'), ('content', 'RECENTROW'),
+        # Scoped below the Recent list's Refresh button rather than by the
+        # native menu row: on the hosted Intel Mac Vision rejected this frame
+        # (invalidBounds) and sparse Tesseract read the menu as "Fie Edt View
+        # Help", so no content label could be scoped (run 46108218952, both
+        # attempts). The Refresh row stays readable in that reading.
+        ('wait_scroll_text', 'RECENTROW'), ('between', 'RECENTROW', 'Refresh'),
         ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
         ('content', 'Re-run this prompt'), ('wait_text', 'Re-running this prompt'), ('sleep', 3),
         ('content', 'Cancel re-run'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
