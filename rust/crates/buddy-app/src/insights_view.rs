@@ -12,7 +12,7 @@ use std::rc::Rc;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::{
     App, Context, Entity, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    Styled as _, TestSupportExt as _, Window, div,
+    StatefulInteractiveElement as _, Styled as _, TestSupportExt as _, Window, div,
 };
 
 use crate::app::Section;
@@ -198,20 +198,20 @@ mod tests {
     fn a_view_without_a_route_shows_the_catch_all_for_its_id(cx: &mut gpui_kit::TestAppContext) {
         use gpui_kit::AppContext as _;
         use gpui_kit::test::TestWindowExt as _;
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
+        });
         for (view_id, heading) in [
             ("automation-jobs", "Content"),
             ("insights-activity", "Activity"),
         ] {
-            let window: gpui_kit::AnyWindowHandle = cx
-                .update(|cx| {
-                    gpui_kit::init(cx);
-                    crate::theme::install(&buddy_core::config::AppConfig::default(), cx);
-                    gpui_kit::open_window(Default::default(), cx, |_, cx| {
-                        cx.new(|_| Unrouted(view_id))
-                    })
+            let (window, _) = cx.update(|cx| {
+                gpui_kit::open_window(Default::default(), cx, |_, cx| {
+                    cx.new(|_| Unrouted(view_id))
                 })
                 .unwrap()
-                .into();
+            });
             cx.update_window(window, |_, window, cx| {
                 window.render_frame(cx);
                 assert_eq!(window.find("coming-soon-heading").label(), Some(heading));

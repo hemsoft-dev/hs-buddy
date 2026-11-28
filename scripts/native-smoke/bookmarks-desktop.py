@@ -158,23 +158,63 @@ def failure(driver, theme, compact):
 
 
 COMING_SOON = "This feature is coming soon"
+PAGES = ("Productivity", "Activity")
 
 
 def insights_actions(theme):
-    """Launch on Insights, then open each sidebar entry.
+    """Launch on Insights, then open each page from its sidebar entry.
 
     Scenes start a section from the saved `native.activeSection`; the activity
     bar is icons only, with nothing for OCR to find. The launch opens the
-    Productivity tab; clicking its entry selects that same tab. The dark pass
-    then opens Activity in a second tab and steps between the two tabs, which
-    only finds a tab row label each page's tab carries."""
-    actions = [("wait_text", COMING_SOON), ("sidebar", "Productivity"), ("sleep", 1),
+    Productivity tab. Each click is content-scoped (below the tab row, above
+    the footer) and names the page that is not shown: the shown page's name
+    is also its heading, so only the other one is a single visible control.
+    Activity opens a second tab; Productivity then selects its open tab. The
+    dark pass also steps between both tabs by their labels in the tab row."""
+    actions = [("wait_text", COMING_SOON),
+        ("content", "Activity"), ("sleep", 1), ("wait_text", COMING_SOON), ("capture", f"insights-activity-{theme}"),
+        ("content", "Productivity"), ("sleep", 1), ("wait_text", COMING_SOON),
         ("capture", f"insights-productivity-{theme}")]
     if theme == "dark":
-        actions += [("sidebar", "Activity"), ("sleep", 1), ("capture", f"insights-activity-{theme}"),
-            ("workspace", "Productivity"), ("sleep", 1), ("workspace", "Activity"), ("sleep", 1),
+        actions += [("workspace", "Activity"), ("sleep", 1), ("workspace", "Productivity"), ("sleep", 1),
             ("wait_text", COMING_SOON)]
     return actions
+
+
+def content_heading(words):
+    """The content pane's heading: the words above the coming-soon text, in its column.
+
+    The sidebar lists both page names left of that column, and the tab row and
+    footer are outside the content scope, so neither can stand in for it."""
+    scoped = settings.ocr.content_words(words)
+    body = settings.ocr.find_label(scoped, COMING_SOON)
+    left = body["left"] - max(4, body["height"])
+    above = [word for word in scoped if word["left"] >= left and word["top"] + word["height"] <= body["top"]
+        and settings.ocr.normalize(word["text"])]
+    return " ".join(word["text"] for word in sorted(above, key=lambda word: (word["top"], word["left"])))
+
+
+def heading_is(words, page):
+    heading = settings.ocr.normalize(content_heading(words))
+    return heading == settings.ocr.normalize(page)
+
+
+def check_heading(path, page):
+    """One OCR layout shows `page`, and only `page`, as the content heading."""
+    failure = None
+    for image in github.analysis_images(path):
+        for mode in (11, 3, 6):
+            words = settings.ocr.recognize(image, mode)
+            image.with_suffix(f".heading-words-{mode}.json").write_text(json.dumps(words), encoding="utf-8")
+            try:
+                if heading_is(words, page):
+                    return
+                failure = RuntimeError(f"The content heading reads {content_heading(words)!r}")
+            except settings.ocr.AmbiguousLabel:
+                raise
+            except RuntimeError as error:
+                failure = error
+    raise RuntimeError(f"{path.name} does not show {page!r} as the content heading") from failure
 
 
 def insights(driver, config, theme):
@@ -183,9 +223,11 @@ def insights(driver, config, theme):
         flow = driver.drive(f"insights-{theme}", insights_actions(theme), record=theme == "dark")
     finally:
         terminal.write_config(config, lambda value: value["native"].update(activeSection="bookmarks"))
-    github.check(flow / f"insights-productivity-{theme}.png", "Productivity", "Activity", COMING_SOON)
-    if theme == "dark":
-        github.check(flow / f"insights-activity-{theme}.png", "Productivity", "Activity", COMING_SOON)
+    for page in PAGES:
+        capture = flow / f"insights-{page.casefold()}-{theme}.png"
+        # Both names are sidebar entries; the heading check names the page shown.
+        github.check(capture, *PAGES, COMING_SOON)
+        check_heading(capture, page)
 
 
 def qualify(executable, output, session, version, backend):
