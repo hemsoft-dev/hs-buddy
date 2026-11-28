@@ -556,7 +556,7 @@ fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
 /// Windows, usually briefly, so retry; if it keeps failing, `tmp` is removed
 /// and the error returned rather than rewriting `path` in place, which would
 /// expose a partial document to Electron's watcher.
-pub(crate) fn replace_with(tmp: &Path, path: &Path) -> std::io::Result<()> {
+fn replace_with(tmp: &Path, path: &Path) -> std::io::Result<()> {
     let mut attempts = 0;
     loop {
         match std::fs::rename(tmp, path) {

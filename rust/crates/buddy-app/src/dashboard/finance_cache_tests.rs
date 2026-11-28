@@ -222,8 +222,8 @@ fn the_write_is_atomic_and_a_failed_one_keeps_the_previous_cache() {
         assert_eq!(mode & 0o777, 0o600);
     }
     let good = std::fs::read(&path).unwrap();
-    // A failed rename (a non-empty directory where the cache belongs)
-    // removes the staging file it wrote and nothing else.
+    // A directory where the cache belongs is refused before the rename, and
+    // the staging file it wrote is removed, nothing else.
     let other = directory.path().join("other");
     std::fs::create_dir(&other).unwrap();
     let blocked = other.join(cache::FILE_NAME);
@@ -236,7 +236,7 @@ fn the_write_is_atomic_and_a_failed_one_keeps_the_previous_cache() {
             &[quote("AAPL", 1.0)],
             now_ms()
         ),
-        Err(SaveError::Write(_))
+        Err(SaveError::NotRegular)
     ));
     let mut left: Vec<_> = std::fs::read_dir(&other)
         .unwrap()
@@ -776,4 +776,107 @@ fn settings_with_the_cache_file_name_elsewhere_are_untouched(cx: &mut TestAppCon
     assert_eq!(cleared, Ok(()));
     assert!(!path.exists());
     assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+}
+
+/// The review's layout: the settings path reaches the cache's name through a
+/// link to the cache directory, and that name is itself a link to settings
+/// elsewhere. Nothing is cached, and neither a save nor a clear at that name
+/// touches the link or the settings.
+#[cfg(unix)]
+#[test]
+fn settings_reached_through_a_linked_cache_folder_are_never_cached_over() {
+    let directory = tempfile::tempdir().unwrap();
+    let cache_dir = directory.path().join("cache");
+    let outside = directory.path().join("profile");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let settings_file = outside.join("config.json");
+    let settings = r#"{"finance":{"watchlist":["AAPL"]}}"#;
+    std::fs::write(&settings_file, settings).unwrap();
+    let cache_name = cache_dir.join(cache::FILE_NAME);
+    std::os::unix::fs::symlink(&settings_file, &cache_name).unwrap();
+    let alias = directory.path().join("alias");
+    std::os::unix::fs::symlink(&cache_dir, &alias).unwrap();
+    let config = alias.join(cache::FILE_NAME);
+    assert_eq!(cache::path_in(&cache_dir, Some(&config)), None);
+    // Even a cache path chosen before the layout appeared never acts on it.
+    let list = symbols(&["AAPL"]);
+    let writer = Writer::shared(&cache_name);
+    let ticket = writer.ticket();
+    let saved = writer.save(ticket, &cache_name, &list, &[quote("AAPL", 1.0)], now_ms());
+    assert!(matches!(saved, Err(SaveError::NotRegular)));
+    assert!(writer.clear(&cache_name).is_err());
+    assert!(
+        std::fs::symlink_metadata(&cache_name)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(&cache_name).unwrap(), settings_file);
+    assert_eq!(std::fs::read_to_string(&settings_file).unwrap(), settings);
+}
+
+/// A link at the cache's name, to any file, is never replaced or removed.
+#[cfg(unix)]
+#[gpui_kit::test]
+fn a_link_at_the_cache_name_is_never_replaced_or_removed(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let target = directory.path().join("target.json");
+    let body = "not a cache";
+    std::fs::write(&target, body).unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    cx.run_until_parked();
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    let error = cleared.unwrap_err();
+    assert!(error.contains("not a regular file"), "{error}");
+    assert_eq!(std::fs::read_link(&path).unwrap(), target);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), body);
+    // Only the link and its target remain: the staging file was removed.
+    let mut names: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![cache::FILE_NAME.to_string(), "target.json".to_string()]
+    );
+}
+
+/// Settings outside the cache directory still cache, a cache directory that
+/// does not exist yet included; settings inside one that does not exist yet
+/// still turn caching off.
+#[test]
+fn settings_outside_the_cache_directory_still_cache() {
+    let directory = tempfile::tempdir().unwrap();
+    let cache_dir = directory.path().join("cache").join("Buddy");
+    let profile = directory.path().join("profile");
+    std::fs::create_dir_all(&profile).unwrap();
+    let config = profile.join("config.json");
+    std::fs::write(&config, "{}").unwrap();
+    let path = cache::path_in(&cache_dir, Some(&config)).unwrap();
+    assert_eq!(path, cache_dir.join(cache::FILE_NAME));
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_some());
+    let unborn = directory.path().join("later").join("Buddy");
+    assert_eq!(
+        cache::path_in(&unborn, Some(&unborn.join("config.json"))),
+        None
+    );
+    assert_eq!(
+        cache::path_in(&unborn, Some(&config)),
+        Some(unborn.join(cache::FILE_NAME))
+    );
 }

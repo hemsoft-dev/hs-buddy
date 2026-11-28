@@ -16,6 +16,11 @@
 //! - **Atomically**: through a new uniquely named staging file in the cache
 //!   directory, created exclusively, then a rename. It is owner-only on Unix;
 //!   on Windows the directory under `%LOCALAPPDATA%` is already per user.
+//! - **Never through a link**: a save or clear acts only when the cache's
+//!   name is missing or a regular file, checked before every rename attempt
+//!   and before the removal; a link, directory or FIFO there is left alone.
+//! - **Never with the settings inside**: when the settings file's resolved
+//!   folder is the cache directory or inside it, nothing is cached.
 //! - **Read** only while younger than [`TTL_MS`], for exactly the watchlist
 //!   configured now, and only from a regular file that is not a link (a FIFO
 //!   is never opened in a way that can block). A missing, unreadable,
@@ -36,7 +41,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use serde::{Deserialize, Serialize};
 
 use super::QuoteData;
-use crate::config::{ConfigError, config_path, replace_with, strip_bom};
+use crate::config::{ConfigError, config_path, strip_bom};
 
 /// The cache file in [`cache_dir`].
 pub const FILE_NAME: &str = "finance-quotes.json";
@@ -84,6 +89,8 @@ pub enum SaveError {
     Incomplete,
     #[error("the quote cache would exceed 256 KiB")]
     TooLarge,
+    #[error("the quote cache's name is not a regular file, so it was left alone")]
+    NotRegular,
     #[error(transparent)]
     Write(#[from] ConfigError),
 }
@@ -121,17 +128,49 @@ pub fn path() -> Option<PathBuf> {
 }
 
 /// [`FILE_NAME`] in `dir`, or `None` when the settings file `config` lies
-/// inside `dir`, so nothing is cached.
+/// inside `dir`, so nothing is cached. The folders are compared resolved: the
+/// settings file's folder (never its final name, which may be a link) against
+/// the cache directory, and the settings file itself where it exists.
 pub fn path_in(dir: &Path, config: Option<&Path>) -> Option<PathBuf> {
     let inside = config.is_some_and(|config| {
-        // Compared as given and, where they exist, resolved (a link).
-        let resolved = |path: &Path| path.canonicalize().ok();
-        let config_resolved = resolved(config)
-            .or_else(|| Some(resolved(config.parent()?)?.join(config.file_name()?)));
+        let dir_resolved = resolved(dir);
+        let folder = config.parent().map(resolved);
         config.starts_with(dir)
-            || matches!((config_resolved, resolved(dir)), (Some(config), Some(dir)) if config.starts_with(&dir))
+            || folder.is_some_and(|folder| folder.starts_with(&dir_resolved))
+            || config
+                .canonicalize()
+                .is_ok_and(|file| file.starts_with(&dir_resolved))
     });
     (!inside).then(|| dir.join(FILE_NAME))
+}
+
+/// `path` with its longest existing ancestor resolved (links followed) and
+/// the rest appended, so a folder that does not exist yet still compares.
+fn resolved(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut current = path;
+    loop {
+        if let Ok(real) = current.canonicalize() {
+            return rest.iter().rev().fold(real, |path, name| path.join(name));
+        }
+        match (current.parent(), current.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_os_string());
+                current = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// Whether a save or clear may act at `path`: nothing there, or a regular
+/// file. Never a link (whatever it points to), directory or FIFO.
+fn may_replace(path: &Path) -> std::io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(meta.file_type().is_file()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(err) => Err(err),
+    }
 }
 
 /// The file at `path` opened for reading, only when it is a regular file and
@@ -209,8 +248,30 @@ pub fn save(
         std::fs::create_dir_all(parent).map_err(write)?;
     }
     let tmp = create_staging(path, &body).map_err(write)?;
-    replace_with(&tmp, path).map_err(write)?;
-    Ok(())
+    // A reader on Windows can make the rename fail briefly; each attempt
+    // checks the destination again first.
+    let mut attempts = 0;
+    loop {
+        let renamed = match may_replace(path) {
+            Ok(true) => std::fs::rename(&tmp, path),
+            Ok(false) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(SaveError::NotRegular);
+            }
+            Err(err) => Err(err),
+        };
+        match renamed {
+            Ok(()) => return Ok(()),
+            Err(_) if attempts < 10 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(write(err).into());
+            }
+        }
+    }
 }
 
 /// A new staging file beside `path` holding `body`, owner-only on Unix. The
@@ -253,8 +314,15 @@ fn create_staging(path: &Path, body: &str) -> std::io::Result<PathBuf> {
     }
 }
 
-/// Delete the cache (Clear Cache). A missing file is already cleared.
+/// Delete the cache (Clear Cache). A missing file is already cleared; a name
+/// that is not a regular file (a link included) is left alone and reported.
+/// The removal unlinks the name itself and never follows a link.
 pub fn remove(path: &Path) -> std::io::Result<()> {
+    if !may_replace(path)? {
+        return Err(std::io::Error::other(
+            "it is not a regular file, so it was not removed",
+        ));
+    }
     match std::fs::remove_file(path) {
         Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
         _ => Ok(()),
