@@ -273,10 +273,25 @@ fn the_write_is_atomic_and_a_failed_one_keeps_the_previous_cache() {
 
 // ── Dashboard ────────────────────────────────────────────────────────────
 
+/// The settings file whose quote cache is `path` (`finance-cache.json`).
+fn settings_for(path: &Path) -> PathBuf {
+    path.with_file_name("config.json")
+}
+
 /// An inactive dashboard (no provider I/O) tracking `watchlist`, with its
 /// quote cache at `path`.
 fn dashboard(cx: &mut TestAppContext, watchlist: &[&str], path: &Path) -> Entity<DashboardView> {
-    let path = path.to_path_buf();
+    dashboard_beside(cx, watchlist, &settings_for(path))
+}
+
+/// An inactive dashboard placing its quote cache beside the settings at
+/// `config`.
+fn dashboard_beside(
+    cx: &mut TestAppContext,
+    watchlist: &[&str],
+    config: &Path,
+) -> Entity<DashboardView> {
+    let settings_path = config.to_path_buf();
     let watchlist = symbols(watchlist);
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -288,7 +303,7 @@ fn dashboard(cx: &mut TestAppContext, watchlist: &[&str], path: &Path) -> Entity
         gpui_kit::open_window(Default::default(), cx, |window, cx| {
             let entity = cx.new(|cx| {
                 let mut view = DashboardView::new(window, cx, false);
-                view.quote_cache_path = Some(path);
+                view.quote_cache_config = Some(settings_path);
                 view
             });
             dashboard = Some(entity.clone());
@@ -301,13 +316,13 @@ fn dashboard(cx: &mut TestAppContext, watchlist: &[&str], path: &Path) -> Entity
 
 /// Another dashboard window in the same app, sharing `path`.
 fn another_dashboard(cx: &mut TestAppContext, path: &Path) -> Entity<DashboardView> {
-    let path = path.to_path_buf();
+    let config = settings_for(path);
     cx.update(|cx| {
         let mut dashboard = None;
         gpui_kit::open_window(Default::default(), cx, |window, cx| {
             let entity = cx.new(|cx| {
                 let mut view = DashboardView::new(window, cx, false);
-                view.quote_cache_path = Some(path);
+                view.quote_cache_config = Some(config);
                 view
             });
             dashboard = Some(entity.clone());
@@ -583,7 +598,7 @@ fn a_settings_file_named_like_the_cache_survives_saves_and_clears(cx: &mut TestA
     std::fs::write(&config, settings).unwrap();
     let path = cache::path_beside(&config).unwrap();
     assert_eq!(path, directory.path().join(cache::FALLBACK_FILE_NAME));
-    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let dashboard = dashboard_beside(cx, &["AAPL"], &config);
     let requested = begin(cx, &dashboard);
     apply(
         cx,
@@ -692,9 +707,10 @@ fn every_writer_for_a_path_shares_one_order() {
     let directory = tempfile::tempdir().unwrap();
     let path = cache_file(&directory);
     let list = symbols(&["AAPL"]);
-    let (first, second) = (Writer::shared(&path), Writer::shared(&path));
+    let config = settings_for(&path);
+    let (first, second) = (Writer::shared(&config), Writer::shared(&config));
     let older = first.ticket();
-    assert_eq!(second.remove_next(&path).unwrap(), Outcome::Applied);
+    assert_eq!(second.clear_beside(&config).unwrap(), Outcome::Applied);
     assert_eq!(
         first
             .save(older, &path, &list, &[quote("AAPL", 1.0)], now_ms())
@@ -789,4 +805,122 @@ fn a_fifo_at_the_cache_name_is_ignored_without_blocking() {
     std::os::unix::fs::symlink(&real, &path).unwrap();
     assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_none());
     assert!(cache::load_fresh(&real, &symbols(&["AAPL"]), now_ms()).is_some());
+}
+
+/// Settings moved onto the cache's name while Buddy runs, with the configured
+/// path left as a link to them: the next save and clear pick the cache's name
+/// again and leave the settings alone.
+#[cfg(unix)]
+#[gpui_kit::test]
+fn settings_linked_onto_the_cache_after_start_are_never_saved_over_or_cleared(
+    cx: &mut TestAppContext,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    let settings = r#"{"finance":{"watchlist":["AAPL"]}}"#;
+    std::fs::write(&config, settings).unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    let dashboard = dashboard_beside(cx, &["AAPL"], &config);
+    let requested = begin(cx, &dashboard);
+    assert_eq!(shown(cx, &dashboard), vec![("AAPL".into(), 200.0)]);
+    // The settings take the cache's place; the configured path follows them.
+    std::fs::rename(&config, &path).unwrap();
+    std::os::unix::fs::symlink(&path, &config).unwrap();
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 210.0)],
+            failed: vec![],
+        },
+    );
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), settings);
+    let fallback = directory.path().join(cache::FALLBACK_FILE_NAME);
+    assert!(cache::load_fresh(&fallback, &requested, now_ms()).is_some());
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), settings);
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+    assert!(!fallback.exists());
+}
+
+/// The same with a hard link, which resolves to two different paths.
+#[cfg(unix)]
+#[test]
+fn a_hard_link_to_the_settings_is_never_the_cache() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.json");
+    std::fs::write(&config, "{}").unwrap();
+    let linked = directory.path().join(cache::FILE_NAME);
+    std::fs::hard_link(&config, &linked).unwrap();
+    assert_eq!(
+        cache::path_beside(&config),
+        Some(directory.path().join(cache::FALLBACK_FILE_NAME))
+    );
+    let writer = Writer::shared(&config);
+    let ticket = writer.ticket();
+    let list = symbols(&["AAPL"]);
+    let saved = writer.save_beside(ticket, &config, &list, &[quote("AAPL", 1.0)], now_ms());
+    assert_eq!(saved.unwrap(), Outcome::Applied);
+    assert_eq!(writer.clear_beside(&config).unwrap(), Outcome::Applied);
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), "{}");
+    assert_eq!(std::fs::read_to_string(&linked).unwrap(), "{}");
+}
+
+/// A settings path that resolves to the cache's name between start and save
+/// (another candidate file now found) is checked again too.
+#[gpui_kit::test]
+fn a_settings_path_resolved_onto_the_cache_later_is_left_alone(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    let settings = r#"{"finance":{"watchlist":["AAPL"]}}"#;
+    std::fs::write(&path, settings).unwrap();
+    let moved = path.clone();
+    cx.update(|cx| dashboard.update(cx, |view, _| view.quote_cache_config = Some(moved)));
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 210.0)],
+            failed: vec![],
+        },
+    );
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), settings);
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), settings);
+}
+
+/// A clear that fails before the dashboard first loads still keeps the old
+/// quotes off the card for the rest of the session.
+#[cfg(unix)]
+#[gpui_kit::test]
+fn a_failed_clear_before_the_first_load_keeps_the_quotes_hidden(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    // A read-only folder: the cache still reads but cannot be removed.
+    let mode = |mode| {
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    mode(0o500);
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    let removable = cleared.is_ok();
+    begin(cx, &dashboard);
+    mode(0o700);
+    // Where permissions are ignored (root) the clear succeeds instead.
+    if !removable {
+        assert!(path.exists());
+        assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_some());
+    }
+    assert!(shown(cx, &dashboard).is_empty());
 }

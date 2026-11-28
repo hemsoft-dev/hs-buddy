@@ -6,9 +6,11 @@ Screenshots contain real OS window pixels; OCR must find dashboard content.
 """
 
 import argparse
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -77,6 +79,9 @@ FINANCE_FIXTURE = dict(symbol="HSBUDDY.FIXTURE", name="Qualification Quote", pri
 # Every HTTP(S) request of the relaunch goes to a closed loopback port.
 OFFLINE_PROXY = "http://127.0.0.1:9"
 PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+# What the Finance card shows once a refresh failed with quotes on screen
+# (stale_notice in cards/finance.rs): the sign that the refresh finished.
+STALE_NOTICE = "Showing the last successful quotes"
 
 
 def seed_finance_cache(config, now_ms=None):
@@ -118,9 +123,10 @@ def offline_network():
 
 
 def require_cached_finance(text, version):
-    """The Finance card shows the cached fixture quote: its name and price."""
+    """The Finance card shows the cached fixture quote, its name and price,
+    with the notice that the refresh failed and the cache is still shown."""
     normalized = re.sub(r"\s+", " ", text).lower()
-    for marker in ("finance", "qualification"):
+    for marker in ("finance", "qualification", "last successful quotes"):
         if marker not in normalized:
             raise RuntimeError(f"Finance screenshot is missing {marker!r}")
     # The system locale may group decimals with a comma.
@@ -258,8 +264,37 @@ def fixture(directory, theme):
     return config
 
 
-def windows(executable, directory, config, restored=False):
-    actions = ["geometry", f"capture:{directory / 'dashboard.png'}"]
+def load_ocr():
+    """settings-ocr.py, the locator the settings scene's waits use."""
+    spec = importlib.util.spec_from_file_location("settings_ocr", HERE / "settings-ocr.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def wait_for_text(window, directory, text, timeout=30, locate=None):
+    """Read the owned window until OCR finds `text` (settings-desktop's
+    wait_visible). It gives up only after a frame captured at or after the
+    deadline, so the whole wait is observed."""
+    locate = locate or load_ocr().locate_image
+    image = directory / "wait-status.png"
+    deadline = time.monotonic() + timeout
+    while True:
+        started = time.monotonic()
+        window.screenshot(image)
+        try:
+            locate(image, text)
+            return
+        except RuntimeError as failure:
+            if started >= deadline:
+                raise RuntimeError(f"The owned window did not show {text!r}") from failure
+        time.sleep(0.2)
+
+
+def windows(executable, directory, config, restored=False, ready_text=None):
+    # A restored launch may wait for a status before its capture.
+    wait = [f"waittext64:{base64.b64encode(ready_text.encode()).decode()}"] if ready_text else []
+    actions = ["geometry", *wait, f"capture:{directory / 'dashboard.png'}"]
     if not restored:
         actions += [
             "record-start:" + str(directory / "frames"),
@@ -519,7 +554,7 @@ def wayland_keyboard(session, directory):
             finish_cleanup(stop_keyboard, sys.exc_info()[1], "Seat keyboard shutdown")
 
 
-def unix(executable, directory, config, session, restored=False):
+def unix(executable, directory, config, session, restored=False, ready_text=None):
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("Unix input automation requires an ephemeral GitHub Actions desktop")
     env = dict(os.environ, BUDDY_CONFIG_PATH=str(config),
@@ -548,6 +583,8 @@ def unix(executable, directory, config, session, restored=False):
             else:
                 raise RuntimeError(f"Owned Buddy window did not appear: {last_error}") from last_error
             time.sleep(4)
+            if ready_text:
+                wait_for_text(window, directory, ready_text)
             window.screenshot(directory / "dashboard.png")
             if not restored:
                 with recording(window, directory / "frames"):
@@ -570,15 +607,15 @@ def unix(executable, directory, config, session, restored=False):
 
 
 def cached_finance(executable, directory, config, drive, version):
-    """Relaunch offline with a fresh seeded quote cache: the card paints the
-    cached quote before any fetch can finish, and the failed refresh leaves
-    the cache as it was."""
+    """Relaunch offline with a fresh seeded quote cache. The capture waits
+    until the card says the refresh failed and it still shows the cached
+    quote, so the refresh has finished; the cache must be as it was."""
     cache = seed_finance_cache(config)
     seeded = cache.read_bytes()
     finance = directory / "finance-cached"
     finance.mkdir()
     with offline_network():
-        drive(executable, finance, config, restored=True)
+        drive(executable, finance, config, restored=True, ready_text=STALE_NOTICE)
     capture = finance / "finance-cached-dark.png"
     (finance / "dashboard.png").replace(capture)
     inspect_screenshot(capture, version, require=require_cached_finance)
@@ -607,7 +644,8 @@ def main():
         if "not found" in libraries:
             raise RuntimeError("Installed executable has missing runtime libraries")
     drive = windows if args.session == "windows" else (
-        lambda exe, directory, config, restored=False: unix(exe, directory, config, args.session, restored))
+        lambda exe, directory, config, restored=False, ready_text=None: unix(
+            exe, directory, config, args.session, restored, ready_text))
     for theme in ("dark", "light"):
         directory = output / theme
         config = fixture(directory, theme)

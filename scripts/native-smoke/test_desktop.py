@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from unittest.mock import patch
-from desktop import FINANCE_FIXTURE, OFFLINE_PROXY, PROXY_VARIABLES, cached_finance, fixture, inspect_screenshot, offline_network, require_cached_finance, seed_finance_cache, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
+from desktop import FINANCE_FIXTURE, OFFLINE_PROXY, PROXY_VARIABLES, STALE_NOTICE, cached_finance, wait_for_text, windows, fixture, inspect_screenshot, offline_network, require_cached_finance, seed_finance_cache, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
 
 BODY = "Your Universal Productivity Companion Customize Command Center Configure Accounts"
 
@@ -304,22 +304,27 @@ class CachedFinance(unittest.TestCase):
             self.assertEqual({name: os.environ.get(name) for name in touched}, before)
 
     def test_the_capture_needs_the_cached_name_price_and_version(self):
-        require_cached_finance("Finance Qualification Quote OPEN 987.65 +1.25 (+0.13%) 0.1.2", "0.1.2")
-        require_cached_finance("Finance Qualification Quote 987,65 0.1.2", "0.1.2")
+        notice = "Showing the last successful quotes. Fetch failed"
+        require_cached_finance(f"Finance Qualification Quote OPEN 987.65 +1.25 (+0.13%) {notice} 0.1.2", "0.1.2")
+        require_cached_finance(f"Finance Qualification Quote 987,65 {notice} 0.1.2", "0.1.2")
         for text in (
-            "Finance Qualification Quote 0.1.2",
-            "Finance Qualification Quote 1987.65 0.1.2",
-            "Finance Qualification Quote 987.655 0.1.2",
-            "Finance 987.65 0.1.2",
-            "Qualification Quote 987.65 0.1.2",
-            "Finance Qualification Quote 987.65 0.1.1",
+            f"Finance Qualification Quote {notice} 0.1.2",
+            f"Finance Qualification Quote 1987.65 {notice} 0.1.2",
+            f"Finance Qualification Quote 987.655 {notice} 0.1.2",
+            f"Finance 987.65 {notice} 0.1.2",
+            f"Qualification Quote 987.65 {notice} 0.1.2",
+            f"Finance Qualification Quote 987.65 {notice} 0.1.1",
+            # The refresh has not finished yet.
+            "Finance Qualification Quote 987.65 0.1.2",
         ):
             with self.subTest(text=text), self.assertRaises(RuntimeError):
                 require_cached_finance(text, "0.1.2")
 
     def test_a_refresh_that_rewrote_the_cache_fails_the_step(self):
-        def drive(executable, directory, config, restored=False):
+        def drive(executable, directory, config, restored=False, ready_text=None):
             self.assertTrue(restored)
+            # The capture waits for the failed refresh's notice.
+            self.assertEqual(ready_text, STALE_NOTICE)
             import os
             self.assertEqual(os.environ["HTTPS_PROXY"], OFFLINE_PROXY)
             (directory / "dashboard.png").write_bytes(b"png")
@@ -338,6 +343,41 @@ class CachedFinance(unittest.TestCase):
                 capture = directory / "finance-cached" / "finance-cached-dark.png"
                 self.assertTrue(capture.exists())
                 inspect.assert_called_once_with(capture, "0.1.2", require=require_cached_finance)
+
+
+    def test_windows_waits_for_the_notice_before_its_capture(self):
+        with TemporaryDirectory() as temporary, patch("desktop.run") as launched:
+            directory = Path(temporary)
+            windows("buddy.exe", directory, directory / "config.json", restored=True, ready_text=STALE_NOTICE)
+            arguments = [str(value) for value in launched.call_args.args]
+            actions = arguments[arguments.index("-Actions") + 1].split(",")
+            self.assertEqual(actions[0], "geometry")
+            self.assertTrue(actions[1].startswith("waittext64:"))
+            import base64
+            self.assertEqual(base64.b64decode(actions[1].split(":", 1)[1]).decode(), STALE_NOTICE)
+            self.assertEqual(actions[2:], [f"capture:{directory / 'dashboard.png'}", "ctrlkey:81"])
+            windows("buddy.exe", directory, directory / "config.json", restored=True)
+            arguments = [str(value) for value in launched.call_args.args]
+            self.assertFalse(any(action.startswith("waittext64:")
+                for action in arguments[arguments.index("-Actions") + 1].split(",")))
+
+    def test_the_unix_wait_reads_until_the_text_is_found_and_fails_after_the_deadline(self):
+        class Window:
+            shots = 0
+            def screenshot(self, path):
+                Window.shots += 1
+        seen = []
+        def locate(image, text):
+            seen.append(text)
+            if len(seen) < 3:
+                raise RuntimeError("not yet")
+        with TemporaryDirectory() as temporary, patch("desktop.time.sleep"):
+            wait_for_text(Window(), Path(temporary), STALE_NOTICE, locate=locate)
+            self.assertEqual((Window.shots, seen), (3, [STALE_NOTICE] * 3))
+            def never(image, text):
+                raise RuntimeError("absent")
+            with self.assertRaisesRegex(RuntimeError, "did not show"):
+                wait_for_text(Window(), Path(temporary), STALE_NOTICE, timeout=0, locate=never)
 
 
 if __name__ == "__main__":

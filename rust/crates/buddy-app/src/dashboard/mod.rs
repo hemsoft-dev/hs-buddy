@@ -51,27 +51,6 @@ pub enum DashboardEvent {
     Navigate(ViewTarget),
 }
 
-/// The profile's quote cache. Unit tests opt in with their own file so a
-/// test never reads or clears the developer's cache.
-fn default_quote_cache_path() -> Option<PathBuf> {
-    if cfg!(test) {
-        return None;
-    }
-    match finance::cache::path() {
-        Ok(Some(path)) => Some(path),
-        Ok(None) => {
-            log::warn!(
-                "finance quotes will not be cached: every cache name could be the settings file"
-            );
-            None
-        }
-        Err(err) => {
-            log::warn!("finance quotes will not be cached: {err}");
-            None
-        }
-    }
-}
-
 /// Card expansion saved by an earlier run (`native.expandedCards`); cards
 /// without an entry start expanded.
 fn initial_expansion(saved: &BTreeMap<String, bool>) -> HashMap<CardId, bool> {
@@ -216,10 +195,12 @@ pub struct DashboardView {
     started: bool,
     finance_error: Option<String>,
     finance_refresh: RefreshState,
-    /// `finance-cache.json`: the last complete quotes, shown on start while
-    /// fresh (`finance:cache`). `None` when no profile directory is known.
-    quote_cache_path: Option<PathBuf>,
-    /// The cache is read once, by the first quote load.
+    /// The settings file a unit test places its quote cache beside. `None`
+    /// is the resolved `config.json`, looked up again for every read, save
+    /// and clear (a test without one never touches the developer's cache).
+    quote_cache_config: Option<PathBuf>,
+    /// The cache is read at most once, by the first quote load, and never
+    /// after a clear was attempted this session.
     quote_cache_checked: bool,
     /// Inputs the last loads used, so a Settings change (Reload or an
     /// external edit) refreshes only the cards whose inputs changed.
@@ -313,7 +294,7 @@ impl DashboardView {
                 CardId::Finance,
                 FINANCE_DEFAULT_INTERVAL_MINUTES,
             )),
-            quote_cache_path: default_quote_cache_path(),
+            quote_cache_config: None,
             quote_cache_checked: false,
             loaded_watchlist: Vec::new(),
             loaded_github: GitHubConfig::default(),
@@ -764,14 +745,14 @@ impl DashboardView {
     /// Show the cached quotes (`readCache`) when they are a complete set for
     /// `watchlist` younger than 15 minutes; "Updated" reports their age.
     fn restore_cached_quotes(&mut self, watchlist: &[String]) {
-        let Some(path) = &self.quote_cache_path else {
+        let Some(config) = self.cache_settings_path() else {
             return;
         };
         if !self.quotes.is_empty() {
             return;
         }
         let now = jiff::Timestamp::now().as_millisecond();
-        let Some(cached) = finance::cache::load_fresh(path, watchlist, now) else {
+        let Some(cached) = finance::cache::load_fresh_beside(&config, watchlist, now) else {
             return;
         };
         let age = Duration::from_millis(now.saturating_sub(cached.fetched_at_ms).unsigned_abs());
@@ -832,22 +813,38 @@ impl DashboardView {
 
     /// Write the cache on the background executor, so applying quotes never
     /// waits for the disk. The ticket is taken now, in request order.
+    /// The cache's name is picked again when the write runs.
     fn save_quote_cache(&self, symbols: &[String], quotes: &[QuoteData], cx: &App) {
-        let Some(path) = self.quote_cache_path.clone() else {
+        let Some(config) = self.cache_settings_path() else {
             return;
         };
         let fetched_at = jiff::Timestamp::now().as_millisecond();
-        // One writer per path for the process, shared with every dashboard.
-        let writer = finance::cache::Writer::shared(&path);
+        // One writer per settings path for the process, shared with every
+        // dashboard.
+        let writer = finance::cache::Writer::shared(&config);
         let ticket = writer.ticket();
         let (symbols, quotes) = (symbols.to_vec(), quotes.to_vec());
         cx.background_executor()
             .spawn(async move {
-                if let Err(err) = writer.save(ticket, &path, &symbols, &quotes, fetched_at) {
-                    log::warn!("finance quotes were not cached: {err}");
+                match writer.save_beside(ticket, &config, &symbols, &quotes, fetched_at) {
+                    Ok(finance::cache::Outcome::Skipped) => log::warn!(
+                        "finance quotes were not cached: every cache name could be the settings file"
+                    ),
+                    Ok(_) => {}
+                    Err(err) => log::warn!("finance quotes were not cached: {err}"),
                 }
             })
             .detach();
+    }
+
+    /// The settings file the quote cache goes beside, resolved now.
+    fn cache_settings_path(&self) -> Option<PathBuf> {
+        if self.quote_cache_config.is_some() || cfg!(test) {
+            return self.quote_cache_config.clone();
+        }
+        buddy_core::config::config_path()
+            .inspect_err(|err| log::warn!("finance quotes are not cached: {err}"))
+            .ok()
     }
 
     fn load_copilot(&mut self, cx: &mut Context<Self>) {
@@ -1110,11 +1107,14 @@ impl DashboardView {
         self.quotes.clear();
         self.failed_symbols.clear();
         self.finance_error = None;
+        // Whatever the removal does, this session no longer restores the
+        // saved quotes, even if the dashboard has not loaded them yet.
+        self.quote_cache_checked = true;
         // Serialized after any save already running; an earlier save that
-        // has not run yet is dropped.
-        let removed = match &self.quote_cache_path {
-            Some(path) => finance::cache::Writer::shared(path)
-                .remove_next(path)
+        // has not run yet is dropped. The names are checked again now.
+        let removed = match self.cache_settings_path() {
+            Some(config) => finance::cache::Writer::shared(&config)
+                .clear_beside(&config)
                 .map(|_| ())
                 .map_err(|err| {
                     log::warn!("finance quote cache was not cleared: {err}");

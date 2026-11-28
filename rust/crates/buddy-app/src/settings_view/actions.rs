@@ -25,7 +25,7 @@ pub(super) fn cache_cleared_status(result: Result<(), String>) -> String {
     match result {
         Ok(()) => "Native cached data cleared. It reloads when the dashboard opens.".into(),
         Err(error) => format!(
-            "Native cached data was cleared from memory, but not from disk. {error} They may show again if Buddy restarts within 15 minutes."
+            "Native cached data was cleared from memory, but not from disk. {error} They are not shown again this session, but may be if Buddy restarts within 15 minutes."
         ),
     }
 }

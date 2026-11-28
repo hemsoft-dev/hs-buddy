@@ -26,9 +26,16 @@
 //!   never touches another writer's staging file.
 //! - **Only a regular file is read**: a link, directory or FIFO at the cache's
 //!   name is ignored without being opened for reading in a way that can block.
+//! - **Decided at each use**: the dashboard resolves the settings path and
+//!   picks the cache name again for every read, save and clear, the save and
+//!   clear inside the writer's lock just before touching the disk
+//!   ([`Writer::save_beside`], [`Writer::clear_beside`], [`load_fresh_beside`]),
+//!   so settings moved or linked onto a cache name while Buddy runs are
+//!   skipped, never replaced or deleted.
 //! - **Ordered off the UI thread**: [`Writer::shared`] gives every dashboard
-//!   of the process the same writer for a path, which serializes saves and
-//!   removals and drops one requested before a newer one that already ran.
+//!   of the process the same writer for a settings path, which serializes
+//!   saves and removals and drops one requested before a newer one that
+//!   already ran.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -101,18 +108,30 @@ pub fn path() -> Result<Option<PathBuf>, ConfigError> {
 /// or when the settings file is named like a cache staging file, so nothing
 /// is cached.
 pub fn path_beside(config: &Path) -> Option<PathBuf> {
+    safe_names_beside(config).into_iter().next()
+}
+
+/// Every cache name beside `config` that cannot be one of the settings
+/// writer's files right now, in order of preference.
+fn safe_names_beside(config: &Path) -> Vec<PathBuf> {
     let staging_like = config.file_name().is_some_and(|name| {
         name.to_string_lossy()
             .to_ascii_lowercase()
             .starts_with(STAGING_PREFIX)
     });
     if staging_like {
-        return None;
+        return Vec::new();
     }
     [FILE_NAME, FALLBACK_FILE_NAME]
         .into_iter()
         .map(|name| config.with_file_name(name))
-        .find(|candidate| !may_collide(candidate, config))
+        .filter(|candidate| !may_collide(candidate, config))
+        .collect()
+}
+
+/// [`load_fresh`] from the cache [`path_beside`] picks for `config` now.
+pub fn load_fresh_beside(config: &Path, symbols: &[String], now_ms: i64) -> Option<CachedQuotes> {
+    load_fresh(&path_beside(config)?, symbols, now_ms)
 }
 
 /// Whether `candidate`, a name in the directory of `config`, could be a file
@@ -135,6 +154,22 @@ fn may_collide(candidate: &Path, config: &Path) -> bool {
             (candidate.canonicalize(), config.canonicalize()),
             (Ok(candidate), Ok(config)) if candidate == config
         )
+        || same_inode(candidate, config)
+}
+
+/// Whether both paths name one existing file (a hard link) on Unix.
+#[cfg(unix)]
+fn same_inode(candidate: &Path, config: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    matches!(
+        (std::fs::metadata(candidate), std::fs::metadata(config)),
+        (Ok(candidate), Ok(config)) if (candidate.dev(), candidate.ino()) == (config.dev(), config.ino())
+    )
+}
+
+#[cfg(not(unix))]
+fn same_inode(_: &Path, _: &Path) -> bool {
+    false
 }
 
 /// The file at `path` opened for reading, only when it is a regular file and
@@ -286,6 +321,8 @@ fn is_complete(symbols: &[String], quotes: &[QuoteData]) -> bool {
 pub enum Outcome {
     Applied,
     Superseded,
+    /// No cache name beside the settings was safe when the request ran.
+    Skipped,
 }
 
 /// Orders the cache's saves and removals when they run off the UI thread.
@@ -305,19 +342,59 @@ struct WriterState {
     applied: Mutex<u64>,
 }
 
-/// One writer per cache path for the whole process.
+/// One writer per settings path for the whole process.
 static SHARED: LazyLock<Mutex<HashMap<PathBuf, Writer>>> = LazyLock::new(Default::default);
 
 impl Writer {
-    /// The process's writer for `path`, so every dashboard (a macOS window
-    /// reopened after the last one closed included) shares one order.
-    pub fn shared(path: &Path) -> Self {
+    /// The process's writer for the cache beside `config`, so every dashboard
+    /// (a macOS window reopened after the last one closed included) shares one
+    /// order. Keyed by the settings path, not a cache name, which is picked
+    /// again for every request.
+    pub fn shared(config: &Path) -> Self {
         SHARED
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .entry(path.to_path_buf())
+            .entry(config.to_path_buf())
             .or_default()
             .clone()
+    }
+
+    /// [`save`] to the cache [`path_beside`] picks for `config` when the
+    /// request runs, unless a newer request already ran; skipped when no
+    /// name is safe then.
+    pub fn save_beside(
+        &self,
+        ticket: u64,
+        config: &Path,
+        symbols: &[String],
+        quotes: &[QuoteData],
+        fetched_at_ms: i64,
+    ) -> Result<Outcome, SaveError> {
+        self.apply(ticket, || match path_beside(config) {
+            Some(path) => save(&path, symbols, quotes, fetched_at_ms).map(|()| Outcome::Applied),
+            None => Ok(Outcome::Skipped),
+        })
+        .unwrap_or(Ok(Outcome::Superseded))
+    }
+
+    /// Remove every cache name beside `config` that is safe now, with a new
+    /// ticket: after any request already running, and before every one
+    /// requested earlier that has not run yet. A name that could be the
+    /// settings file is left alone.
+    pub fn clear_beside(&self, config: &Path) -> std::io::Result<Outcome> {
+        self.apply(self.ticket(), || {
+            let names = safe_names_beside(config);
+            if names.is_empty() {
+                return Ok(Outcome::Skipped);
+            }
+            // Every safe name is attempted; the first failure is reported.
+            let failures: Vec<_> = names.iter().filter_map(|path| remove(path).err()).collect();
+            failures
+                .into_iter()
+                .next()
+                .map_or(Ok(Outcome::Applied), Err)
+        })
+        .unwrap_or(Ok(Outcome::Superseded))
     }
 
     /// The next ticket, in request order.
@@ -338,12 +415,6 @@ impl Writer {
             .map_or(Ok(Outcome::Superseded), |saved| {
                 saved.map(|()| Outcome::Applied)
             })
-    }
-
-    /// [`remove`] now, with a new ticket: after any request already running,
-    /// and before every one requested earlier that has not run yet.
-    pub fn remove_next(&self, path: &Path) -> std::io::Result<Outcome> {
-        self.remove(self.ticket(), path)
     }
 
     /// [`remove`] unless a newer request already ran.
