@@ -1,11 +1,15 @@
 //! Market quotes for the Finance card (`useFinance.ts`, `financeCalc.ts`,
 //! `financeHandlers.ts`).
 
-use serde::Deserialize;
+pub mod cache;
+
+use serde::{Deserialize, Serialize};
 
 use crate::http::{describe_error, encode_component};
 
-#[derive(Debug, Clone, PartialEq)]
+/// Serialized with Electron's `QuoteData` field names (`changePercent`, …).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuoteData {
     pub symbol: String,
     pub name: String,

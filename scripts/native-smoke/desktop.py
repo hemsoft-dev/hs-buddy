@@ -6,9 +6,11 @@ Screenshots contain real OS window pixels; OCR must find dashboard content.
 """
 
 import argparse
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -71,7 +73,88 @@ def require_dashboard(text, version):
     require_version(normalized, version)
 
 
-def inspect_screenshot(path, version, menu=False):
+# One fixture quote that a previous run's fetch would have cached. The symbol
+# is not listed anywhere, so even a fetch that escaped the closed proxy fails.
+FINANCE_FIXTURE = dict(symbol="HSBUDDY.FIXTURE", name="Qualification Quote", price=987.65, change_percent=0.37)
+# Every HTTP(S) request of the relaunch goes to a closed loopback port.
+OFFLINE_PROXY = "http://127.0.0.1:9"
+PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+# What the collapsed Finance card shows once a refresh failed with quotes on
+# screen (stale_notice in cards/finance.rs): the sign that the refresh
+# finished. The expanded card shows only the provider's error, which differs
+# with how the request failed.
+STALE_NOTICE = "Showing the last successful quotes"
+
+
+def seed_finance_cache(config, cache_dir, now_ms=None):
+    """Show only the Finance card, saved as collapsed, for the fixture symbol,
+    and leave a fresh native quote cache in `cache_dir` (finance-quotes.json,
+    Electron's finance:cache document plus its watchlist), as a successful
+    fetch in the previous run would. Returns the cache path."""
+    settings = json.loads(config.read_text(encoding="utf-8-sig"))
+    settings["ui"]["dashboardCards"].update({"finance": True, "command-center": False})
+    settings.setdefault("native", {}).setdefault("expandedCards", {})["finance"] = False
+    settings.setdefault("finance", {})["watchlist"] = [FINANCE_FIXTURE["symbol"]]
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    price = FINANCE_FIXTURE["price"]
+    quote = dict(symbol=FINANCE_FIXTURE["symbol"], name=FINANCE_FIXTURE["name"], price=price,
+                 change=round(price * FINANCE_FIXTURE["change_percent"] / 100, 2),
+                 changePercent=FINANCE_FIXTURE["change_percent"],
+                 previousClose=round(price - 3.64, 2), marketOpen=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = cache_dir / "finance-quotes.json"
+    cache.write_text(json.dumps(dict(
+        quotes=[quote], timestamp=int(time.time() * 1000) if now_ms is None else now_ms,
+        version=3, symbols=[FINANCE_FIXTURE["symbol"]])), encoding="utf-8")
+    return cache
+
+
+@contextmanager
+def isolated_cache(cache_dir):
+    """Point the launched app's cache directory (BUDDY_CACHE_DIR) at `cache_dir`."""
+    saved = os.environ.get("BUDDY_CACHE_DIR")
+    os.environ["BUDDY_CACHE_DIR"] = str(cache_dir)
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("BUDDY_CACHE_DIR", None)
+        else:
+            os.environ["BUDDY_CACHE_DIR"] = saved
+
+
+@contextmanager
+def offline_network():
+    """Route the launched app's HTTP(S) through a closed loopback port, so its
+    quote refresh fails and only the cache can fill the Finance card."""
+    names = PROXY_VARIABLES + ("NO_PROXY", "no_proxy")
+    saved = {name: os.environ.get(name) for name in names}
+    for name in names:
+        os.environ.pop(name, None)
+    os.environ.update({name: OFFLINE_PROXY for name in PROXY_VARIABLES})
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def require_cached_finance(text, version):
+    """The collapsed Finance card shows the cached fixture quote, its name and
+    change, with the notice that the refresh failed and the cache is shown."""
+    normalized = re.sub(r"\s+", " ", text).lower()
+    for marker in ("finance", "qualification", "last successful quotes"):
+        if marker not in normalized:
+            raise RuntimeError(f"Finance screenshot is missing {marker!r}")
+    if not re.search(r"(?<![\d.,])0[.,]37\s*%", text):
+        raise RuntimeError("Finance screenshot is missing the cached change 0.37%")
+    require_version(normalized, version)
+
+
+def inspect_screenshot(path, version, menu=False, require=None):
     attempts, failures = [], []
     # Sparse text can split a version number at 110% scale. Try bounded page
     # layouts on the SAME untouched PNG, requiring every marker in ONE result.
@@ -94,7 +177,7 @@ def inspect_screenshot(path, version, menu=False):
                 if not all(re.search(rf"\b{marker}\b", text, re.IGNORECASE) for marker in ("file", "exit")):
                     raise RuntimeError("Tab and Enter did not open the File menu")
             else:
-                require_dashboard(text, version)
+                (require or require_dashboard)(text, version)
         except RuntimeError as error:
             failures.append(error)
             continue
@@ -200,8 +283,37 @@ def fixture(directory, theme):
     return config
 
 
-def windows(executable, directory, config, restored=False):
-    actions = ["geometry", f"capture:{directory / 'dashboard.png'}"]
+def load_ocr():
+    """settings-ocr.py, the locator the settings scene's waits use."""
+    spec = importlib.util.spec_from_file_location("settings_ocr", HERE / "settings-ocr.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def wait_for_text(window, directory, text, timeout=30, locate=None):
+    """Read the owned window until OCR finds `text` (settings-desktop's
+    wait_visible). It gives up only after a frame captured at or after the
+    deadline, so the whole wait is observed."""
+    locate = locate or load_ocr().locate_image
+    image = directory / "wait-status.png"
+    deadline = time.monotonic() + timeout
+    while True:
+        started = time.monotonic()
+        window.screenshot(image)
+        try:
+            locate(image, text)
+            return
+        except RuntimeError as failure:
+            if started >= deadline:
+                raise RuntimeError(f"The owned window did not show {text!r}") from failure
+        time.sleep(0.2)
+
+
+def windows(executable, directory, config, restored=False, ready_text=None):
+    # A restored launch may wait for a status before its capture.
+    wait = [f"waittext64:{base64.b64encode(ready_text.encode()).decode()}"] if ready_text else []
+    actions = ["geometry", *wait, f"capture:{directory / 'dashboard.png'}"]
     if not restored:
         actions += [
             "record-start:" + str(directory / "frames"),
@@ -461,7 +573,7 @@ def wayland_keyboard(session, directory):
             finish_cleanup(stop_keyboard, sys.exc_info()[1], "Seat keyboard shutdown")
 
 
-def unix(executable, directory, config, session, restored=False):
+def unix(executable, directory, config, session, restored=False, ready_text=None):
     if os.environ.get("GITHUB_ACTIONS") != "true":
         raise RuntimeError("Unix input automation requires an ephemeral GitHub Actions desktop")
     env = dict(os.environ, BUDDY_CONFIG_PATH=str(config),
@@ -490,6 +602,8 @@ def unix(executable, directory, config, session, restored=False):
             else:
                 raise RuntimeError(f"Owned Buddy window did not appear: {last_error}") from last_error
             time.sleep(4)
+            if ready_text:
+                wait_for_text(window, directory, ready_text)
             window.screenshot(directory / "dashboard.png")
             if not restored:
                 with recording(window, directory / "frames"):
@@ -509,6 +623,24 @@ def unix(executable, directory, config, session, restored=False):
                     process.kill()
                     process.wait(timeout=10)
             finish_cleanup(stop_child, sys.exc_info()[1], "App shutdown")
+
+
+def cached_finance(executable, directory, config, drive, version):
+    """Relaunch offline with a fresh seeded quote cache in an isolated cache
+    directory. The capture waits until the card says the refresh failed and
+    it still shows the cached quote, so the refresh has finished; the cache
+    must be as it was."""
+    cache = seed_finance_cache(config, directory / "cache")
+    seeded = cache.read_bytes()
+    finance = directory / "finance-cached"
+    finance.mkdir()
+    with offline_network(), isolated_cache(cache.parent):
+        drive(executable, finance, config, restored=True, ready_text=STALE_NOTICE)
+    capture = finance / "finance-cached-dark.png"
+    (finance / "dashboard.png").replace(capture)
+    inspect_screenshot(capture, version, require=require_cached_finance)
+    if cache.read_bytes() != seeded:
+        raise RuntimeError("A failed quote refresh rewrote the cached quotes")
 
 
 def main():
@@ -532,7 +664,8 @@ def main():
         if "not found" in libraries:
             raise RuntimeError("Installed executable has missing runtime libraries")
     drive = windows if args.session == "windows" else (
-        lambda exe, directory, config, restored=False: unix(exe, directory, config, args.session, restored))
+        lambda exe, directory, config, restored=False, ready_text=None: unix(
+            exe, directory, config, args.session, restored, ready_text))
     for theme in ("dark", "light"):
         directory = output / theme
         config = fixture(directory, theme)
@@ -579,6 +712,8 @@ def main():
             raise RuntimeError("Disconnected-display recovery did not persist a usable placement")
         if json.loads(config.read_text(encoding="utf-8-sig"))["packageQualificationSentinel"] != {"preserve": True}:
             raise RuntimeError("Unknown cross-app settings were lost")
+        if theme == "dark":
+            cached_finance(executable, directory, config, drive, args.version)
     (output / "qualification.json").write_text(json.dumps({
         "version": args.version, "session": args.session, "platform": platform.platform(),
         "architecture": platform.machine(), "binarySha256": hashlib.sha256(executable.read_bytes()).hexdigest(),

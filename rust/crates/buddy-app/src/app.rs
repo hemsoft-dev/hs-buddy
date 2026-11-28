@@ -797,11 +797,13 @@ impl BuddyApp {
                 .update(cx, |view, cx| view.open(&event.url, &event.title, cx));
         })
         .detach();
-        cx.subscribe(&settings_view, |this, _, event, cx| match event {
+        cx.subscribe(&settings_view, |this, settings, event, cx| match event {
             SettingsEvent::ClearCache => {
-                this.dashboard
+                let cleared = this
+                    .dashboard
                     .update(cx, |dashboard, cx| dashboard.clear_cached_data(cx));
                 this.github_view.update(cx, |view, cx| view.clear_cache(cx));
+                settings.update(cx, |view, cx| view.cache_cleared(cleared, cx));
             }
         })
         .detach();

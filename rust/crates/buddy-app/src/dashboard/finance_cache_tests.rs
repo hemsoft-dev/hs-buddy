@@ -1,0 +1,882 @@
+//! The Finance quote cache across restarts (`finance:cache` in
+//! `useFinance.ts`): `buddy_core::finance::cache` and the dashboard's use of it.
+
+use std::path::Path;
+
+use super::*;
+use buddy_core::finance::cache::{self, Outcome, SaveError, Writer};
+use gpui_kit::TestAppContext;
+
+const MINUTE_MS: i64 = 60 * 1000;
+
+fn quote(symbol: &str, price: f64) -> QuoteData {
+    QuoteData {
+        symbol: symbol.into(),
+        name: symbol.into(),
+        price,
+        change: 1.25,
+        change_percent: 0.5,
+        previous_close: price - 1.25,
+        market_open: true,
+    }
+}
+
+fn symbols(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
+
+fn now_ms() -> i64 {
+    jiff::Timestamp::now().as_millisecond()
+}
+
+fn cache_file(directory: &tempfile::TempDir) -> PathBuf {
+    directory.path().join(cache::FILE_NAME)
+}
+
+fn seed(path: &Path, list: &[&str], prices: &[f64], fetched_at_ms: i64) {
+    let quotes: Vec<_> = list.iter().zip(prices).map(|(s, p)| quote(s, *p)).collect();
+    cache::save(path, &symbols(list), &quotes, fetched_at_ms).unwrap();
+}
+
+/// `valid` (a cache document) after `edit`.
+fn edited(valid: &str, edit: impl FnOnce(&mut serde_json::Value)) -> String {
+    let mut body: serde_json::Value = serde_json::from_str(valid).unwrap();
+    edit(&mut body);
+    body.to_string()
+}
+
+#[test]
+fn a_complete_set_is_read_back_only_within_fifteen_minutes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["^GSPC", "BTC-USD"]);
+    let now = now_ms();
+    seed(
+        &path,
+        &["^GSPC", "BTC-USD"],
+        &[6000.5, 97000.25],
+        now - 3 * MINUTE_MS,
+    );
+    let cached = cache::load_fresh(&path, &list, now).unwrap();
+    assert_eq!(cached.fetched_at_ms, now - 3 * MINUTE_MS);
+    assert_eq!(
+        cached.quotes,
+        vec![quote("^GSPC", 6000.5), quote("BTC-USD", 97000.25)]
+    );
+
+    // `Date.now() - timestamp < CACHE_TTL_MS`.
+    seed(
+        &path,
+        &["^GSPC", "BTC-USD"],
+        &[1.0, 2.0],
+        now - cache::TTL_MS + 1,
+    );
+    assert!(cache::load_fresh(&path, &list, now).is_some());
+    seed(
+        &path,
+        &["^GSPC", "BTC-USD"],
+        &[1.0, 2.0],
+        now - cache::TTL_MS,
+    );
+    assert!(cache::load_fresh(&path, &list, now).is_none());
+    // A stamp ahead of the clock could otherwise pass as fresh indefinitely.
+    seed(&path, &["^GSPC", "BTC-USD"], &[1.0, 2.0], now + MINUTE_MS);
+    assert!(cache::load_fresh(&path, &list, now).is_none());
+}
+
+#[test]
+fn the_file_keeps_electrons_cache_document_and_its_watchlist() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], 1_764_000_000_000);
+    let body: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "quotes": [{
+                "symbol": "AAPL", "name": "AAPL", "price": 200.0, "change": 1.25,
+                "changePercent": 0.5, "previousClose": 198.75, "marketOpen": true,
+            }],
+            "timestamp": 1_764_000_000_000_i64,
+            "version": 3,
+            "symbols": ["AAPL"],
+        })
+    );
+}
+
+#[test]
+fn a_cache_for_another_watchlist_or_version_is_ignored() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let now = now_ms();
+    seed(&path, &["^GSPC", "BTC-USD"], &[1.0, 2.0], now - MINUTE_MS);
+    for list in [
+        symbols(&["^GSPC"]),
+        symbols(&["^GSPC", "BTC-USD", "AAPL"]),
+        symbols(&["BTC-USD", "^GSPC"]),
+        Vec::new(),
+    ] {
+        assert!(cache::load_fresh(&path, &list, now).is_none(), "{list:?}");
+    }
+    let mut body: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    body["version"] = 2.into();
+    std::fs::write(&path, body.to_string()).unwrap();
+    assert!(cache::load_fresh(&path, &symbols(&["^GSPC", "BTC-USD"]), now).is_none());
+}
+
+#[test]
+fn corrupt_unreadable_or_oversized_files_are_ignored() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["AAPL"]);
+    let now = now_ms();
+    assert!(cache::load_fresh(&path, &list, now).is_none(), "missing");
+    seed(&path, &["AAPL"], &[200.0], now - MINUTE_MS);
+    let valid = std::fs::read_to_string(&path).unwrap();
+
+    let truncated = valid[..valid.len() / 2].to_string();
+    let null_price = edited(&valid, |body| {
+        body["quotes"][0]["price"] = serde_json::Value::Null
+    });
+    let quote_for_other_symbol = edited(&valid, |body| body["quotes"][0]["symbol"] = "MSFT".into());
+    let no_quotes = edited(&valid, |body| body["quotes"] = serde_json::json!([]));
+    let no_stamp = edited(&valid, |body| {
+        body.as_object_mut().unwrap().remove("timestamp");
+    });
+    let oversized = format!("{valid}{}", " ".repeat(cache::MAX_BYTES as usize));
+    for (label, body) in [
+        ("empty", ""),
+        ("garbage", "not json"),
+        ("truncated", truncated.as_str()),
+        ("null price", null_price.as_str()),
+        ("other symbol", quote_for_other_symbol.as_str()),
+        ("no quotes", no_quotes.as_str()),
+        ("no timestamp", no_stamp.as_str()),
+        ("oversized", oversized.as_str()),
+    ] {
+        std::fs::write(&path, body).unwrap();
+        assert!(cache::load_fresh(&path, &list, now).is_none(), "{label}");
+    }
+    std::fs::write(&path, b"\xff\xfe\x00").unwrap();
+    assert!(cache::load_fresh(&path, &list, now).is_none(), "not UTF-8");
+
+    // A byte order mark from a hand edit is tolerated, as for config.json.
+    std::fs::write(&path, format!("\u{feff}{valid}")).unwrap();
+    assert!(cache::load_fresh(&path, &list, now).is_some());
+
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    assert!(cache::load_fresh(&path, &list, now).is_none(), "directory");
+}
+
+#[test]
+fn only_one_complete_set_is_ever_written() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["^GSPC", "BTC-USD"]);
+    seed(&path, &["^GSPC", "BTC-USD"], &[1.0, 2.0], now_ms());
+    let good = std::fs::read(&path).unwrap();
+    let nan = QuoteData {
+        price: f64::NAN,
+        ..quote("BTC-USD", 2.0)
+    };
+    for quotes in [
+        vec![quote("^GSPC", 9.0)],
+        vec![quote("BTC-USD", 9.0), quote("^GSPC", 9.0)],
+        vec![quote("^GSPC", 9.0), nan],
+        vec![],
+    ] {
+        assert!(matches!(
+            cache::save(&path, &list, &quotes, now_ms()),
+            Err(SaveError::Incomplete)
+        ));
+    }
+    assert!(matches!(
+        cache::save(&path, &[], &[], now_ms()),
+        Err(SaveError::Incomplete)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), good);
+}
+
+#[test]
+fn the_write_is_atomic_and_a_failed_one_keeps_the_previous_cache() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    let names = || {
+        let mut names: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    };
+    // Written through a staging file that the rename consumes.
+    assert_eq!(names(), vec![cache::FILE_NAME.to_string()]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    let good = std::fs::read(&path).unwrap();
+    // A directory where the cache belongs is refused before the rename, and
+    // the staging file it wrote is removed, nothing else.
+    let other = directory.path().join("other");
+    std::fs::create_dir(&other).unwrap();
+    let blocked = other.join(cache::FILE_NAME);
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::write(blocked.join("keep"), "x").unwrap();
+    assert!(matches!(
+        cache::save(
+            &blocked,
+            &symbols(&["AAPL"]),
+            &[quote("AAPL", 1.0)],
+            now_ms()
+        ),
+        Err(SaveError::NotRegular)
+    ));
+    let mut left: Vec<_> = std::fs::read_dir(&other)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    left.sort();
+    assert_eq!(left, vec![cache::FILE_NAME.to_string()]);
+    assert_eq!(std::fs::read(&path).unwrap(), good);
+    #[cfg(unix)]
+    {
+        // A failed staging write keeps the previous cache.
+        use std::os::unix::fs::PermissionsExt as _;
+        let locked = |mode| {
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(mode))
+                .unwrap()
+        };
+        locked(0o500);
+        // Skipped where the user ignores permissions (root).
+        if std::fs::write(directory.path().join("probe"), "x").is_err() {
+            assert!(matches!(
+                cache::save(&path, &symbols(&["AAPL"]), &[quote("AAPL", 1.0)], now_ms()),
+                Err(SaveError::Write(_))
+            ));
+            assert_eq!(std::fs::read(&path).unwrap(), good);
+        }
+        locked(0o700);
+        let _ = std::fs::remove_file(directory.path().join("probe"));
+    }
+
+    cache::remove(&path).unwrap();
+    assert!(!path.exists());
+    cache::remove(&path).unwrap();
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────
+
+/// An inactive dashboard (no provider I/O) tracking `watchlist`, with its
+/// quote cache at `path`.
+fn dashboard(cx: &mut TestAppContext, watchlist: &[&str], path: &Path) -> Entity<DashboardView> {
+    let path = path.to_path_buf();
+    let watchlist = symbols(watchlist);
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let mut config = buddy_core::config::AppConfig::default();
+        config.finance.watchlist = watchlist;
+        crate::theme::install(&config, cx);
+        cx.set_global(Settings::new(config));
+        open_dashboard(cx, path)
+    })
+}
+
+/// Another dashboard window in the same app (a macOS window reopened after
+/// the last one closed), with its quote cache at `path`.
+fn another_dashboard(cx: &mut TestAppContext, path: &Path) -> Entity<DashboardView> {
+    let path = path.to_path_buf();
+    cx.update(|cx| open_dashboard(cx, path))
+}
+
+fn open_dashboard(cx: &mut App, path: PathBuf) -> Entity<DashboardView> {
+    let mut dashboard = None;
+    gpui_kit::open_window(Default::default(), cx, |window, cx| {
+        let entity = cx.new(|cx| {
+            let mut view = DashboardView::new(window, cx, false);
+            view.quote_cache_path = Some(path);
+            view
+        });
+        dashboard = Some(entity.clone());
+        entity
+    })
+    .expect("open dashboard test window");
+    dashboard.unwrap()
+}
+
+fn begin(cx: &mut TestAppContext, dashboard: &Entity<DashboardView>) -> Vec<String> {
+    cx.update(|cx| dashboard.update(cx, |view, cx| view.begin_finance_load(cx)))
+        .expect("a watchlist to fetch")
+        .1
+}
+
+fn apply(
+    cx: &mut TestAppContext,
+    dashboard: &Entity<DashboardView>,
+    requested: &[String],
+    batch: QuoteBatch,
+) {
+    cx.update(|cx| {
+        dashboard.update(cx, |view, cx| {
+            view.apply_finance_batch(requested, batch, cx)
+        })
+    });
+}
+
+fn shown(cx: &mut TestAppContext, dashboard: &Entity<DashboardView>) -> Vec<(String, f64)> {
+    cx.update(|cx| {
+        dashboard
+            .read(cx)
+            .quotes()
+            .iter()
+            .map(|q| (q.symbol.clone(), q.price))
+            .collect()
+    })
+}
+
+#[gpui_kit::test]
+fn fresh_cached_quotes_are_shown_before_the_first_fetch_completes(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(
+        &path,
+        &["^GSPC", "BTC-USD"],
+        &[6000.5, 97000.25],
+        now_ms() - 3 * MINUTE_MS,
+    );
+    let dashboard = dashboard(cx, &["^GSPC", " btc-usd "], &path);
+    assert!(shown(cx, &dashboard).is_empty());
+
+    let requested = begin(cx, &dashboard);
+    assert_eq!(requested, symbols(&["^GSPC", "BTC-USD"]));
+    assert_eq!(
+        shown(cx, &dashboard),
+        vec![("^GSPC".into(), 6000.5), ("BTC-USD".into(), 97000.25)]
+    );
+    cx.update(|cx| {
+        let refresh = dashboard.read(cx).finance_refresh();
+        // The refresh still runs, as on every launch.
+        assert!(refresh.loading);
+        assert_eq!(refresh.last_refreshed_label().as_deref(), Some("3m ago"));
+    });
+
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("^GSPC", 6100.0), quote("BTC-USD", 98000.0)],
+            failed: vec![],
+        },
+    );
+    assert_eq!(
+        shown(cx, &dashboard),
+        vec![("^GSPC".into(), 6100.0), ("BTC-USD".into(), 98000.0)]
+    );
+    // Applying the quotes did not wait for the disk: the write is queued on
+    // the background executor and the file still holds the cached prices.
+    let before = cache::load_fresh(&path, &requested, now_ms()).unwrap();
+    assert_eq!(before.quotes[0].price, 6000.5);
+    cx.run_until_parked();
+    let saved = cache::load_fresh(&path, &requested, now_ms()).unwrap();
+    assert_eq!(
+        saved.quotes,
+        vec![quote("^GSPC", 6100.0), quote("BTC-USD", 98000.0)]
+    );
+    assert!(now_ms() - saved.fetched_at_ms < MINUTE_MS);
+}
+
+#[gpui_kit::test]
+fn the_cache_is_read_only_by_the_first_load(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    begin(cx, &dashboard);
+    assert!(shown(cx, &dashboard).is_empty());
+    // A cache appearing later (another instance) is not painted mid-session.
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    begin(cx, &dashboard);
+    assert!(shown(cx, &dashboard).is_empty());
+}
+
+#[gpui_kit::test]
+fn a_stale_cache_is_never_shown(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], now_ms() - 16 * MINUTE_MS);
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    begin(cx, &dashboard);
+    assert!(shown(cx, &dashboard).is_empty());
+    cx.update(|cx| {
+        assert!(
+            dashboard
+                .read(cx)
+                .finance_refresh()
+                .last_refreshed
+                .is_none()
+        )
+    });
+}
+
+#[gpui_kit::test]
+fn a_corrupt_cache_is_never_shown(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    std::fs::write(&path, "{\"quotes\":[{\"symbol\":\"AAPL\"").unwrap();
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    begin(cx, &dashboard);
+    assert!(shown(cx, &dashboard).is_empty());
+}
+
+#[gpui_kit::test]
+fn a_changed_watchlist_invalidates_the_cache(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(
+        &path,
+        &["^GSPC", "BTC-USD"],
+        &[1.0, 2.0],
+        now_ms() - MINUTE_MS,
+    );
+    let dashboard = dashboard(cx, &["^GSPC", "BTC-USD", "AAPL"], &path);
+    begin(cx, &dashboard);
+    assert!(shown(cx, &dashboard).is_empty());
+}
+
+#[gpui_kit::test]
+fn failures_never_replace_a_complete_cache(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(
+        &path,
+        &["^GSPC", "BTC-USD"],
+        &[6000.5, 97000.25],
+        now_ms() - MINUTE_MS,
+    );
+    let good = std::fs::read(&path).unwrap();
+    let dashboard = dashboard(cx, &["^GSPC", "BTC-USD"], &path);
+    let requested = begin(cx, &dashboard);
+
+    // Every symbol failed: the cached quotes stay on screen with the error.
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![],
+            failed: vec![
+                ("^GSPC".into(), "HTTP 503".into()),
+                ("BTC-USD".into(), "HTTP 503".into()),
+            ],
+        },
+    );
+    assert_eq!(shown(cx, &dashboard).len(), 2);
+    cx.update(|cx| assert_eq!(dashboard.read(cx).finance_error(), Some("HTTP 503")));
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(&path).unwrap(), good);
+
+    // One symbol failed: shown as today, but the partial set is not cached.
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("^GSPC", 6100.0)],
+            failed: vec![("BTC-USD".into(), "HTTP 503".into())],
+        },
+    );
+    assert_eq!(shown(cx, &dashboard), vec![("^GSPC".into(), 6100.0)]);
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(&path).unwrap(), good);
+
+    // A complete batch for a watchlist that changed in flight is not the
+    // current set either.
+    cx.update(|cx| {
+        let mut config = Settings::global(cx).config.clone();
+        config.finance.watchlist = symbols(&["^GSPC"]);
+        Settings::replace(cx, config);
+    });
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("^GSPC", 6200.0), quote("BTC-USD", 99000.0)],
+            failed: vec![],
+        },
+    );
+    assert_eq!(shown(cx, &dashboard), vec![("^GSPC".into(), 6200.0)]);
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(&path).unwrap(), good);
+}
+
+#[gpui_kit::test]
+fn clearing_the_cache_removes_the_quote_file(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    assert!(!path.exists());
+}
+
+#[gpui_kit::test]
+fn a_cache_that_cannot_be_deleted_fails_the_clear(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    // A non-empty directory where the file belongs cannot be removed as one.
+    std::fs::create_dir(&path).unwrap();
+    std::fs::write(path.join("keep"), "x").unwrap();
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    let error = cleared.unwrap_err();
+    assert!(
+        error.starts_with("The saved Finance quotes could not be deleted ("),
+        "{error}"
+    );
+    // The in-memory data is still dropped.
+    assert!(shown(cx, &dashboard).is_empty());
+}
+
+#[gpui_kit::test]
+fn a_clear_drops_a_save_that_has_not_run_yet(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    cx.run_until_parked();
+    assert!(!path.exists());
+}
+
+#[test]
+fn an_older_write_never_replaces_a_newer_one() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["AAPL"]);
+    let writer = Writer::default();
+    let save = |ticket, price| writer.save(ticket, &path, &list, &[quote("AAPL", price)], now_ms());
+    let (older, newer) = (writer.ticket(), writer.ticket());
+    assert!(older < newer);
+    // The newer save finishes first; the older one, arriving late, is dropped.
+    assert_eq!(save(newer, 2.0).unwrap(), Outcome::Applied);
+    assert_eq!(save(older, 1.0).unwrap(), Outcome::Superseded);
+    let cached = cache::load_fresh(&path, &list, now_ms()).unwrap();
+    assert_eq!(cached.quotes[0].price, 2.0);
+    // A removal requested after a save that has not run yet wins.
+    let pending = writer.ticket();
+    assert_eq!(writer.clear(&path).unwrap(), Outcome::Applied);
+    assert_eq!(save(pending, 3.0).unwrap(), Outcome::Superseded);
+    assert!(!path.exists());
+    // Clones share one order.
+    let later = writer.clone().ticket();
+    assert_eq!(save(later, 4.0).unwrap(), Outcome::Applied);
+}
+
+#[gpui_kit::test]
+fn a_clear_in_a_reopened_dashboard_drops_a_closed_ones_pending_save(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let closing = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &closing);
+    apply(
+        cx,
+        &closing,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    // macOS reopens a new dashboard after the last window closed; the first
+    // one's save has not run yet when the new one clears the cache.
+    let reopened = another_dashboard(cx, &path);
+    let cleared = cx.update(|cx| reopened.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    cx.run_until_parked();
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_at_the_cache_name_is_ignored_without_blocking() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let made = std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let (done, finished) = std::sync::mpsc::channel();
+    let fifo = path.clone();
+    std::thread::spawn(move || {
+        let _ = done.send(cache::load_fresh(&fifo, &symbols(&["AAPL"]), now_ms()));
+    });
+    let loaded = finished
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("reading a FIFO must not block");
+    assert!(loaded.is_none());
+    // A link to a valid cache is not followed either.
+    let real = directory.path().join("real.json");
+    seed(&real, &["AAPL"], &[200.0], now_ms());
+    std::fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink(&real, &path).unwrap();
+    assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_none());
+    assert!(cache::load_fresh(&real, &symbols(&["AAPL"]), now_ms()).is_some());
+}
+
+#[test]
+fn every_writer_for_a_path_shares_one_order_and_one_cleared_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["AAPL"]);
+    let (first, second) = (Writer::shared(&path), Writer::shared(&path));
+    assert!(!first.cleared());
+    let older = first.ticket();
+    assert_eq!(second.clear(&path).unwrap(), Outcome::Applied);
+    assert!(first.cleared());
+    let saved = first.save(older, &path, &list, &[quote("AAPL", 1.0)], now_ms());
+    assert_eq!(saved.unwrap(), Outcome::Superseded);
+    assert!(!path.exists());
+    // Another cache keeps its own order and state.
+    let elsewhere = directory.path().join("elsewhere.json");
+    let other = Writer::shared(&elsewhere);
+    assert!(!other.cleared());
+    let ticket = other.ticket();
+    let saved = other.save(ticket, &elsewhere, &list, &[quote("AAPL", 2.0)], now_ms());
+    assert_eq!(saved.unwrap(), Outcome::Applied);
+}
+
+/// A clear in one dashboard keeps the saved quotes off every dashboard for
+/// the rest of the session, a window reopened later included, even when the
+/// file is still there (its deletion failed, or a save had already finished).
+#[gpui_kit::test]
+fn a_clear_keeps_the_quotes_hidden_in_a_reopened_dashboard(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let first = dashboard(cx, &["AAPL"], &path);
+    let cleared = cx.update(|cx| first.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    // A fresh cache readable after the clear.
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    let reopened = another_dashboard(cx, &path);
+    begin(cx, &reopened);
+    assert!(shown(cx, &reopened).is_empty());
+    assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_some());
+}
+
+/// The same after a clear whose deletion failed, before any dashboard loaded.
+#[cfg(unix)]
+#[gpui_kit::test]
+fn a_failed_clear_keeps_the_quotes_hidden_in_every_dashboard(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    let first = dashboard(cx, &["AAPL"], &path);
+    // A read-only folder: the cache still reads but cannot be removed.
+    let mode = |mode| {
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    mode(0o500);
+    let cleared = cx.update(|cx| first.update(cx, |view, cx| view.clear_cached_data(cx)));
+    mode(0o700);
+    // Where permissions are ignored (root) the clear succeeds instead.
+    if cleared.is_err() {
+        assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_some());
+    }
+    begin(cx, &first);
+    assert!(shown(cx, &first).is_empty());
+    let reopened = another_dashboard(cx, &path);
+    begin(cx, &reopened);
+    assert!(shown(cx, &reopened).is_empty());
+}
+
+#[test]
+fn the_cache_directory_never_holds_the_settings() {
+    let directory = tempfile::tempdir().unwrap();
+    let cache_dir = directory.path().join("cache");
+    let settings_dir = directory.path().join("settings");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    std::fs::create_dir_all(&settings_dir).unwrap();
+    let outside = settings_dir.join("config.json");
+    assert_eq!(
+        cache::path_in(&cache_dir, Some(&outside)),
+        Some(cache_dir.join(cache::FILE_NAME))
+    );
+    assert_eq!(
+        cache::path_in(&cache_dir, None),
+        Some(cache_dir.join(cache::FILE_NAME))
+    );
+    // Settings inside the cache directory, by any name, turn caching off.
+    for name in ["config.json", cache::FILE_NAME] {
+        assert_eq!(
+            cache::path_in(&cache_dir, Some(&cache_dir.join(name))),
+            None,
+            "{name}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        // Also when a link leads there.
+        let link = directory.path().join("linked-settings");
+        std::os::unix::fs::symlink(&cache_dir, &link).unwrap();
+        assert_eq!(
+            cache::path_in(&cache_dir, Some(&link.join("config.json"))),
+            None
+        );
+    }
+}
+
+/// Settings and a cache with the same file name in different directories:
+/// a save and a clear leave the settings byte-identical.
+#[gpui_kit::test]
+fn settings_with_the_cache_file_name_elsewhere_are_untouched(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let settings_dir = directory.path().join("profile");
+    let cache_dir = directory.path().join("cache");
+    std::fs::create_dir_all(&settings_dir).unwrap();
+    let config = settings_dir.join(cache::FILE_NAME);
+    let settings = r#"{"finance":{"watchlist":["AAPL"]}}"#;
+    std::fs::write(&config, settings).unwrap();
+    let path = cache::path_in(&cache_dir, Some(&config)).unwrap();
+    assert_eq!(path, cache_dir.join(cache::FILE_NAME));
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    cx.run_until_parked();
+    assert!(cache::load_fresh(&path, &requested, now_ms()).is_some());
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    assert!(!path.exists());
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+}
+
+/// The review's layout: the settings path reaches the cache's name through a
+/// link to the cache directory, and that name is itself a link to settings
+/// elsewhere. Nothing is cached, and neither a save nor a clear at that name
+/// touches the link or the settings.
+#[cfg(unix)]
+#[test]
+fn settings_reached_through_a_linked_cache_folder_are_never_cached_over() {
+    let directory = tempfile::tempdir().unwrap();
+    let cache_dir = directory.path().join("cache");
+    let outside = directory.path().join("profile");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let settings_file = outside.join("config.json");
+    let settings = r#"{"finance":{"watchlist":["AAPL"]}}"#;
+    std::fs::write(&settings_file, settings).unwrap();
+    let cache_name = cache_dir.join(cache::FILE_NAME);
+    std::os::unix::fs::symlink(&settings_file, &cache_name).unwrap();
+    let alias = directory.path().join("alias");
+    std::os::unix::fs::symlink(&cache_dir, &alias).unwrap();
+    let config = alias.join(cache::FILE_NAME);
+    assert_eq!(cache::path_in(&cache_dir, Some(&config)), None);
+    // Even a cache path chosen before the layout appeared never acts on it.
+    let list = symbols(&["AAPL"]);
+    let writer = Writer::shared(&cache_name);
+    let ticket = writer.ticket();
+    let saved = writer.save(ticket, &cache_name, &list, &[quote("AAPL", 1.0)], now_ms());
+    assert!(matches!(saved, Err(SaveError::NotRegular)));
+    assert!(writer.clear(&cache_name).is_err());
+    assert!(
+        std::fs::symlink_metadata(&cache_name)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(&cache_name).unwrap(), settings_file);
+    assert_eq!(std::fs::read_to_string(&settings_file).unwrap(), settings);
+}
+
+/// A link at the cache's name, to any file, is never replaced or removed.
+#[cfg(unix)]
+#[gpui_kit::test]
+fn a_link_at_the_cache_name_is_never_replaced_or_removed(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let target = directory.path().join("target.json");
+    let body = "not a cache";
+    std::fs::write(&target, body).unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    let dashboard = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &dashboard);
+    apply(
+        cx,
+        &dashboard,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    cx.run_until_parked();
+    let cleared = cx.update(|cx| dashboard.update(cx, |view, cx| view.clear_cached_data(cx)));
+    let error = cleared.unwrap_err();
+    assert!(error.contains("not a regular file"), "{error}");
+    assert_eq!(std::fs::read_link(&path).unwrap(), target);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), body);
+    // Only the link and its target remain: the staging file was removed.
+    let mut names: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![cache::FILE_NAME.to_string(), "target.json".to_string()]
+    );
+}
+
+/// Settings outside the cache directory still cache, a cache directory that
+/// does not exist yet included; settings inside one that does not exist yet
+/// still turn caching off.
+#[test]
+fn settings_outside_the_cache_directory_still_cache() {
+    let directory = tempfile::tempdir().unwrap();
+    let cache_dir = directory.path().join("cache").join("Buddy");
+    let profile = directory.path().join("profile");
+    std::fs::create_dir_all(&profile).unwrap();
+    let config = profile.join("config.json");
+    std::fs::write(&config, "{}").unwrap();
+    let path = cache::path_in(&cache_dir, Some(&config)).unwrap();
+    assert_eq!(path, cache_dir.join(cache::FILE_NAME));
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_some());
+    let unborn = directory.path().join("later").join("Buddy");
+    assert_eq!(
+        cache::path_in(&unborn, Some(&unborn.join("config.json"))),
+        None
+    );
+    assert_eq!(
+        cache::path_in(&unborn, Some(&config)),
+        Some(unborn.join(cache::FILE_NAME))
+    );
+}

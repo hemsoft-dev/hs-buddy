@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from unittest.mock import patch
-from desktop import fixture, inspect_screenshot, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
+from desktop import FINANCE_FIXTURE, OFFLINE_PROXY, PROXY_VARIABLES, STALE_NOTICE, cached_finance, wait_for_text, windows, fixture, inspect_screenshot, offline_network, require_cached_finance, seed_finance_cache, owned_wayland_node, recording, require_dashboard, require_dpi_sequence, require_size, run, wayland_keyboard
 
 BODY = "Your Universal Productivity Companion Customize Command Center Configure Accounts"
 
@@ -263,6 +263,129 @@ class DashboardGate(unittest.TestCase):
 
     def test_body_and_current_version_pass(self):
         require_dashboard(f"{BODY} Version 0.1.2", "0.1.2")
+
+
+class CachedFinance(unittest.TestCase):
+    def test_the_seed_shows_only_finance_with_a_fresh_cache_for_its_watchlist(self):
+        with TemporaryDirectory() as temporary:
+            config = fixture(Path(temporary) / "dark", "dark")
+            cache_dir = Path(temporary) / "dark" / "cache"
+            cache = seed_finance_cache(config, cache_dir, now_ms=1_764_000_000_000)
+            settings = json.loads(config.read_text())
+            self.assertTrue(settings["ui"]["dashboardCards"]["finance"])
+            # Collapsed, so the failed refresh shows its fixed notice.
+            self.assertFalse(settings["native"]["expandedCards"]["finance"])
+            self.assertFalse(settings["ui"]["dashboardCards"]["command-center"])
+            self.assertEqual(settings["finance"]["watchlist"], [FINANCE_FIXTURE["symbol"]])
+            self.assertEqual(settings["packageQualificationSentinel"], {"preserve": True})
+            self.assertEqual(cache, cache_dir / "finance-quotes.json")
+            document = json.loads(cache.read_text())
+            self.assertEqual(document["version"], 3)
+            self.assertEqual(document["timestamp"], 1_764_000_000_000)
+            self.assertEqual(document["symbols"], [FINANCE_FIXTURE["symbol"]])
+            [quote] = document["quotes"]
+            self.assertEqual(quote["symbol"], FINANCE_FIXTURE["symbol"])
+            self.assertEqual((quote["price"], quote["changePercent"]), (987.65, 0.37))
+            self.assertEqual(set(quote), {"symbol", "name", "price", "change", "changePercent", "previousClose", "marketOpen"})
+
+    def test_the_relaunch_is_offline_and_the_environment_is_restored(self):
+        import os
+        touched = PROXY_VARIABLES + ("NO_PROXY", "no_proxy")
+        # Whatever the host has is replaced for the test: one variable set,
+        # one exclusion set, every other proxy variable absent.
+        with patch.dict("os.environ", {}, clear=False):
+            for name in touched:
+                os.environ.pop(name, None)
+            os.environ["HTTPS_PROXY"] = "http://proxy.example:8080"
+            os.environ["NO_PROXY"] = "localhost"
+            before = {name: os.environ.get(name) for name in touched}
+            with offline_network():
+                for name in PROXY_VARIABLES:
+                    self.assertEqual(os.environ[name], OFFLINE_PROXY)
+                self.assertNotIn("NO_PROXY", os.environ)
+                self.assertNotIn("no_proxy", os.environ)
+            self.assertEqual({name: os.environ.get(name) for name in touched}, before)
+
+    def test_the_capture_needs_the_cached_name_change_notice_and_version(self):
+        notice = "Showing the last successful quotes. Could not connect"
+        require_cached_finance(f"Markets Finance 1 symbol tracked Qualification Quote ▲ 0.37% {notice} 0.1.2", "0.1.2")
+        require_cached_finance(f"Finance Qualification Quote 0,37 % {notice} 0.1.2", "0.1.2")
+        for text in (
+            f"Finance Qualification Quote {notice} 0.1.2",
+            f"Finance Qualification Quote 10.37% {notice} 0.1.2",
+            f"Finance 0.37% {notice} 0.1.2",
+            f"Qualification Quote 0.37% {notice} 0.1.2",
+            f"Finance Qualification Quote 0.37% {notice} 0.1.1",
+            # The refresh has not finished yet.
+            "Finance Qualification Quote 0.37% 0.1.2",
+        ):
+            with self.subTest(text=text), self.assertRaises(RuntimeError):
+                require_cached_finance(text, "0.1.2")
+
+    def test_a_refresh_that_rewrote_the_cache_fails_the_step(self):
+        def drive(executable, directory, config, restored=False, ready_text=None):
+            self.assertTrue(restored)
+            # The capture waits for the failed refresh's notice.
+            self.assertEqual(ready_text, STALE_NOTICE)
+            import os
+            self.assertEqual(os.environ["HTTPS_PROXY"], OFFLINE_PROXY)
+            # The app's cache directory is the seeded one.
+            cache = Path(os.environ["BUDDY_CACHE_DIR"]) / "finance-quotes.json"
+            self.assertEqual(cache, config.parent / "cache" / "finance-quotes.json")
+            self.assertTrue(cache.exists())
+            (directory / "dashboard.png").write_bytes(b"png")
+            if rewrite:
+                cache.write_text("{}")
+        for rewrite in (False, True):
+            with self.subTest(rewrite=rewrite), TemporaryDirectory() as temporary:
+                directory = Path(temporary) / "dark"
+                config = fixture(directory, "dark")
+                with patch("desktop.inspect_screenshot") as inspect:
+                    if rewrite:
+                        with self.assertRaisesRegex(RuntimeError, "rewrote the cached quotes"):
+                            cached_finance("buddy", directory, config, drive, "0.1.2")
+                    else:
+                        cached_finance("buddy", directory, config, drive, "0.1.2")
+                capture = directory / "finance-cached" / "finance-cached-dark.png"
+                self.assertTrue(capture.exists())
+                inspect.assert_called_once_with(capture, "0.1.2", require=require_cached_finance)
+                import os
+                self.assertNotEqual(os.environ.get("BUDDY_CACHE_DIR"), str(directory / "cache"))
+
+
+    def test_windows_waits_for_the_notice_before_its_capture(self):
+        with TemporaryDirectory() as temporary, patch("desktop.run") as launched:
+            directory = Path(temporary)
+            windows("buddy.exe", directory, directory / "config.json", restored=True, ready_text=STALE_NOTICE)
+            arguments = [str(value) for value in launched.call_args.args]
+            actions = arguments[arguments.index("-Actions") + 1].split(",")
+            self.assertEqual(actions[0], "geometry")
+            self.assertTrue(actions[1].startswith("waittext64:"))
+            import base64
+            self.assertEqual(base64.b64decode(actions[1].split(":", 1)[1]).decode(), STALE_NOTICE)
+            self.assertEqual(actions[2:], [f"capture:{directory / 'dashboard.png'}", "ctrlkey:81"])
+            windows("buddy.exe", directory, directory / "config.json", restored=True)
+            arguments = [str(value) for value in launched.call_args.args]
+            self.assertFalse(any(action.startswith("waittext64:")
+                for action in arguments[arguments.index("-Actions") + 1].split(",")))
+
+    def test_the_unix_wait_reads_until_the_text_is_found_and_fails_after_the_deadline(self):
+        class Window:
+            shots = 0
+            def screenshot(self, path):
+                Window.shots += 1
+        seen = []
+        def locate(image, text):
+            seen.append(text)
+            if len(seen) < 3:
+                raise RuntimeError("not yet")
+        with TemporaryDirectory() as temporary, patch("desktop.time.sleep"):
+            wait_for_text(Window(), Path(temporary), STALE_NOTICE, locate=locate)
+            self.assertEqual((Window.shots, seen), (3, [STALE_NOTICE] * 3))
+            def never(image, text):
+                raise RuntimeError("absent")
+            with self.assertRaisesRegex(RuntimeError, "did not show"):
+                wait_for_text(Window(), Path(temporary), STALE_NOTICE, timeout=0, locate=never)
 
 
 if __name__ == "__main__":
