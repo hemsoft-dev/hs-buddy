@@ -8,6 +8,7 @@ pub mod primitives;
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use std::collections::BTreeMap;
@@ -16,7 +17,7 @@ use buddy_core::config::{GitHubConfig, WeatherLocation};
 use buddy_core::convex_data::{self, ConvexSource, ConvexUpdate, OutageLog};
 use buddy_core::copilot_usage::{self, CommandCenterSummary};
 use buddy_core::dashboard::{CardId, DASHBOARD_CARDS, INTERVAL_OPTIONS};
-use buddy_core::finance::{self, QuoteData};
+use buddy_core::finance::{self, QuoteBatch, QuoteData};
 use buddy_core::pollen::{self, PollenData, PollenError};
 use buddy_core::stats::{BuddyStats, WorkspacePulse};
 use buddy_core::weather::{self, WeatherData};
@@ -48,6 +49,17 @@ const CONVEX_STARTUP_GRACE: Duration = Duration::from_secs(20);
 
 pub enum DashboardEvent {
     Navigate(ViewTarget),
+}
+
+/// The profile's quote cache. Unit tests opt in with their own file so a
+/// test never reads or clears the developer's cache.
+fn default_quote_cache_path() -> Option<PathBuf> {
+    if cfg!(test) {
+        return None;
+    }
+    finance::cache::path()
+        .inspect_err(|err| log::warn!("finance quotes will not be cached: {err}"))
+        .ok()
 }
 
 /// Card expansion saved by an earlier run (`native.expandedCards`); cards
@@ -194,6 +206,11 @@ pub struct DashboardView {
     started: bool,
     finance_error: Option<String>,
     finance_refresh: RefreshState,
+    /// `finance-cache.json`: the last complete quotes, shown on start while
+    /// fresh (`finance:cache`). `None` when no profile directory is known.
+    quote_cache_path: Option<PathBuf>,
+    /// The cache is read once, by the first quote load.
+    quote_cache_checked: bool,
     /// Inputs the last loads used, so a Settings change (Reload or an
     /// external edit) refreshes only the cards whose inputs changed.
     loaded_watchlist: Vec<String>,
@@ -286,6 +303,8 @@ impl DashboardView {
                 CardId::Finance,
                 FINANCE_DEFAULT_INTERVAL_MINUTES,
             )),
+            quote_cache_path: default_quote_cache_path(),
+            quote_cache_checked: false,
             loaded_watchlist: Vec::new(),
             loaded_github: GitHubConfig::default(),
             loaded_pollen_key: String::new(),
@@ -691,6 +710,26 @@ impl DashboardView {
     }
 
     fn load_finance(&mut self, cx: &mut Context<Self>) {
+        let Some((generation, watchlist)) = self.begin_finance_load(cx) else {
+            return;
+        };
+        let http = self.http.clone();
+        let requested = watchlist.clone();
+        self.run(
+            cx,
+            async move { finance::fetch_quote_batch(&http, &watchlist).await },
+            move |this, batch, cx| {
+                if generation == this.finance_generation {
+                    this.apply_finance_batch(&requested, batch, cx);
+                }
+            },
+        );
+    }
+
+    /// Everything a quote load does before its request: the generation and
+    /// normalized watchlist to fetch, or `None` when there is nothing to fetch.
+    /// The first load shows the cached quotes while they are fresh.
+    fn begin_finance_load(&mut self, cx: &mut Context<Self>) -> Option<(u64, Vec<String>)> {
         // Normalized and deduplicated: one request and one row per symbol.
         let watchlist = self.watchlist(cx);
         self.loaded_watchlist = watchlist.clone();
@@ -702,63 +741,93 @@ impl DashboardView {
             self.failed_symbols.clear();
             self.finance_error = None;
             self.finance_refresh.mark_refreshed();
-            return;
+            return None;
+        }
+        if !std::mem::replace(&mut self.quote_cache_checked, true) {
+            self.restore_cached_quotes(&watchlist);
         }
         self.finance_refresh.loading = true;
-        let http = self.http.clone();
         self.finance_generation += 1;
-        let generation = self.finance_generation;
-        self.run(
-            cx,
-            async move { finance::fetch_quote_batch(&http, &watchlist).await },
-            move |this, batch, cx| {
-                if generation != this.finance_generation {
-                    return;
-                }
-                // Reconcile against the live watchlist: a symbol removed while
-                // this request was in flight must not come back, and quotes
-                // kept from before must not outlive their symbols.
-                let current = this.watchlist(cx);
-                this.quotes.retain(|q| current.contains(&q.symbol));
-                this.failed_symbols.retain(|s| current.contains(s));
-                let all_failed = batch.quotes.is_empty() && !batch.failed.is_empty();
-                let first_error = batch.failed.first().map(|(_, err)| err.clone());
-                if all_failed && !this.quotes.is_empty() {
-                    // An outage is not a verdict on any symbol: keep the last
-                    // quotes on screen. Every symbol without one did fail just
-                    // now, so list those (a newly added ticker included) with
-                    // their remove buttons.
-                    this.failed_symbols = batch
-                        .failed
-                        .into_iter()
-                        .map(|(symbol, _)| symbol)
-                        .filter(|symbol| {
-                            current.contains(symbol)
-                                && !this.quotes.iter().any(|q| &q.symbol == symbol)
-                        })
-                        .collect();
-                    this.finance_error = first_error;
-                    this.finance_refresh.mark_failed();
-                    return;
-                }
-                let mut quotes = batch.quotes;
-                quotes.retain(|q| current.contains(&q.symbol));
-                this.quotes = quotes;
-                this.failed_symbols = batch
-                    .failed
-                    .into_iter()
-                    .map(|(symbol, _)| symbol)
-                    .filter(|symbol| current.contains(symbol))
-                    .collect();
-                if all_failed {
-                    this.finance_error = first_error;
-                    this.finance_refresh.mark_failed();
-                } else {
-                    this.finance_error = None;
-                    this.finance_refresh.mark_refreshed();
-                }
-            },
-        );
+        Some((self.finance_generation, watchlist))
+    }
+
+    /// Show the cached quotes (`readCache`) when they are a complete set for
+    /// `watchlist` younger than 15 minutes; "Updated" reports their age.
+    fn restore_cached_quotes(&mut self, watchlist: &[String]) {
+        let Some(path) = &self.quote_cache_path else {
+            return;
+        };
+        if !self.quotes.is_empty() {
+            return;
+        }
+        let now = jiff::Timestamp::now().as_millisecond();
+        let Some(cached) = finance::cache::load_fresh(path, watchlist, now) else {
+            return;
+        };
+        let age = Duration::from_millis(now.saturating_sub(cached.fetched_at_ms).unsigned_abs());
+        self.quotes = cached.quotes;
+        self.finance_refresh.last_refreshed = Instant::now().checked_sub(age);
+    }
+
+    /// Apply the outcome of a quote request for `requested` (the current
+    /// generation's watchlist).
+    fn apply_finance_batch(&mut self, requested: &[String], batch: QuoteBatch, cx: &App) {
+        // Reconcile against the live watchlist: a symbol removed while
+        // this request was in flight must not come back, and quotes
+        // kept from before must not outlive their symbols.
+        let current = self.watchlist(cx);
+        // `writeCache`, for complete batches only: every symbol of the list
+        // still configured returned a quote.
+        if batch.failed.is_empty() && current == requested {
+            self.save_quote_cache(requested, &batch.quotes);
+        }
+        self.quotes.retain(|q| current.contains(&q.symbol));
+        self.failed_symbols.retain(|s| current.contains(s));
+        let all_failed = batch.quotes.is_empty() && !batch.failed.is_empty();
+        let first_error = batch.failed.first().map(|(_, err)| err.clone());
+        if all_failed && !self.quotes.is_empty() {
+            // An outage is not a verdict on any symbol: keep the last
+            // quotes on screen. Every symbol without one did fail just
+            // now, so list those (a newly added ticker included) with
+            // their remove buttons.
+            self.failed_symbols = batch
+                .failed
+                .into_iter()
+                .map(|(symbol, _)| symbol)
+                .filter(|symbol| {
+                    current.contains(symbol) && !self.quotes.iter().any(|q| &q.symbol == symbol)
+                })
+                .collect();
+            self.finance_error = first_error;
+            self.finance_refresh.mark_failed();
+            return;
+        }
+        let mut quotes = batch.quotes;
+        quotes.retain(|q| current.contains(&q.symbol));
+        self.quotes = quotes;
+        self.failed_symbols = batch
+            .failed
+            .into_iter()
+            .map(|(symbol, _)| symbol)
+            .filter(|symbol| current.contains(symbol))
+            .collect();
+        if all_failed {
+            self.finance_error = first_error;
+            self.finance_refresh.mark_failed();
+        } else {
+            self.finance_error = None;
+            self.finance_refresh.mark_refreshed();
+        }
+    }
+
+    fn save_quote_cache(&self, symbols: &[String], quotes: &[QuoteData]) {
+        let Some(path) = &self.quote_cache_path else {
+            return;
+        };
+        let now = jiff::Timestamp::now().as_millisecond();
+        if let Err(err) = finance::cache::save(path, symbols, quotes, now) {
+            log::warn!("finance quotes were not cached: {err}");
+        }
     }
 
     fn load_copilot(&mut self, cx: &mut Context<Self>) {
@@ -1018,6 +1087,11 @@ impl DashboardView {
         self.quotes.clear();
         self.failed_symbols.clear();
         self.finance_error = None;
+        if let Some(path) = &self.quote_cache_path
+            && let Err(err) = finance::cache::remove(path)
+        {
+            log::warn!("finance quote cache was not cleared: {err}");
+        }
         self.command_center = CommandCenterSummary::default();
         self.copilot_errors.clear();
         self.copilot_period = None;
@@ -1426,6 +1500,9 @@ impl GridLayout {
         }
     }
 }
+
+#[cfg(test)]
+mod finance_cache_tests;
 
 #[cfg(test)]
 mod tests {

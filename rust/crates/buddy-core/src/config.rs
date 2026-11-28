@@ -533,7 +533,7 @@ impl FileStamp {
 }
 
 /// Create `path` holding `body`, readable only by its owner on Unix.
-fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     // A temp file left by an interrupted save of a process with the same id
     // would keep its old mode; no live process can own this name.
@@ -556,7 +556,7 @@ fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
 /// Windows, usually briefly, so retry; if it keeps failing, `tmp` is removed
 /// and the error returned rather than rewriting `path` in place, which would
 /// expose a partial document to Electron's watcher.
-fn replace_with(tmp: &Path, path: &Path) -> std::io::Result<()> {
+pub(crate) fn replace_with(tmp: &Path, path: &Path) -> std::io::Result<()> {
     let mut attempts = 0;
     loop {
         match std::fs::rename(tmp, path) {
