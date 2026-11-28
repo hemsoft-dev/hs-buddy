@@ -222,15 +222,49 @@ fn the_write_is_atomic_and_a_failed_one_keeps_the_previous_cache() {
         assert_eq!(mode & 0o777, 0o600);
     }
     let good = std::fs::read(&path).unwrap();
-    // A directory at the staging path makes the private write fail.
-    let staging = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    std::fs::create_dir(&staging).unwrap();
+    // A failed rename (a non-empty directory where the cache belongs)
+    // removes the staging file it wrote and nothing else.
+    let other = directory.path().join("other");
+    std::fs::create_dir(&other).unwrap();
+    let blocked = other.join(cache::FILE_NAME);
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::write(blocked.join("keep"), "x").unwrap();
     assert!(matches!(
-        cache::save(&path, &symbols(&["AAPL"]), &[quote("AAPL", 1.0)], now_ms()),
+        cache::save(
+            &blocked,
+            &symbols(&["AAPL"]),
+            &[quote("AAPL", 1.0)],
+            now_ms()
+        ),
         Err(SaveError::Write(_))
     ));
+    let mut left: Vec<_> = std::fs::read_dir(&other)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    left.sort();
+    assert_eq!(left, vec![cache::FILE_NAME.to_string()]);
     assert_eq!(std::fs::read(&path).unwrap(), good);
-    std::fs::remove_dir(&staging).unwrap();
+    #[cfg(unix)]
+    {
+        // A failed staging write keeps the previous cache.
+        use std::os::unix::fs::PermissionsExt as _;
+        let locked = |mode| {
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(mode))
+                .unwrap()
+        };
+        locked(0o500);
+        // Skipped where the user ignores permissions (root).
+        if std::fs::write(directory.path().join("probe"), "x").is_err() {
+            assert!(matches!(
+                cache::save(&path, &symbols(&["AAPL"]), &[quote("AAPL", 1.0)], now_ms()),
+                Err(SaveError::Write(_))
+            ));
+            assert_eq!(std::fs::read(&path).unwrap(), good);
+        }
+        locked(0o700);
+        let _ = std::fs::remove_file(directory.path().join("probe"));
+    }
 
     cache::remove(&path).unwrap();
     assert!(!path.exists());
@@ -261,6 +295,25 @@ fn dashboard(cx: &mut TestAppContext, watchlist: &[&str], path: &Path) -> Entity
             entity
         })
         .expect("open dashboard test window");
+        dashboard.unwrap()
+    })
+}
+
+/// Another dashboard window in the same app, sharing `path`.
+fn another_dashboard(cx: &mut TestAppContext, path: &Path) -> Entity<DashboardView> {
+    let path = path.to_path_buf();
+    cx.update(|cx| {
+        let mut dashboard = None;
+        gpui_kit::open_window(Default::default(), cx, |window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = DashboardView::new(window, cx, false);
+                view.quote_cache_path = Some(path);
+                view
+            });
+            dashboard = Some(entity.clone());
+            entity
+        })
+        .expect("open another dashboard test window");
         dashboard.unwrap()
     })
 }
@@ -608,4 +661,132 @@ fn an_older_write_never_replaces_a_newer_one() {
     // Clones share one order.
     let later = writer.clone().ticket();
     assert_eq!(save(later, 4.0).unwrap(), Outcome::Applied);
+}
+
+#[gpui_kit::test]
+fn a_clear_in_a_reopened_dashboard_drops_a_closed_ones_pending_save(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let closing = dashboard(cx, &["AAPL"], &path);
+    let requested = begin(cx, &closing);
+    apply(
+        cx,
+        &closing,
+        &requested,
+        QuoteBatch {
+            quotes: vec![quote("AAPL", 200.0)],
+            failed: vec![],
+        },
+    );
+    // macOS reopens a new dashboard after the last window closed; the first
+    // one's save has not run yet when the new one clears the cache.
+    let reopened = another_dashboard(cx, &path);
+    let cleared = cx.update(|cx| reopened.update(cx, |view, cx| view.clear_cached_data(cx)));
+    assert_eq!(cleared, Ok(()));
+    cx.run_until_parked();
+    assert!(!path.exists());
+}
+
+#[test]
+fn every_writer_for_a_path_shares_one_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let list = symbols(&["AAPL"]);
+    let (first, second) = (Writer::shared(&path), Writer::shared(&path));
+    let older = first.ticket();
+    assert_eq!(second.remove_next(&path).unwrap(), Outcome::Applied);
+    assert_eq!(
+        first
+            .save(older, &path, &list, &[quote("AAPL", 1.0)], now_ms())
+            .unwrap(),
+        Outcome::Superseded
+    );
+    assert!(!path.exists());
+    // Another path keeps its own order.
+    let elsewhere = directory.path().join("elsewhere.json");
+    let ticket = Writer::shared(&elsewhere).ticket();
+    assert_eq!(
+        Writer::shared(&elsewhere)
+            .save(ticket, &elsewhere, &list, &[quote("AAPL", 2.0)], now_ms())
+            .unwrap(),
+        Outcome::Applied
+    );
+}
+
+#[test]
+fn settings_named_finance_cache_keep_their_staging_file_and_their_bytes() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("finance-cache");
+    let path = cache::path_beside(&config).unwrap();
+    assert_eq!(path, directory.path().join(cache::FILE_NAME));
+    // The settings writer's staging file, mid-save, when a quote save runs.
+    let staging = config.with_extension(format!("json.{}.tmp", std::process::id()));
+    let settings = r#"{"finance":{"watchlist":["AAPL"]}}"#;
+    std::fs::write(&staging, settings).unwrap();
+    seed(&path, &["AAPL"], &[200.0], now_ms());
+    assert_eq!(std::fs::read_to_string(&staging).unwrap(), settings);
+    std::fs::rename(&staging, &config).unwrap();
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), settings);
+    assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_some());
+
+    // Concurrent settings and quote saves all succeed, each into its own file.
+    let config_thread = config.clone();
+    let settings_saves = std::thread::spawn(move || {
+        for index in 0..40 {
+            let (mut loaded, stamp) =
+                buddy_core::config::AppConfig::load_with_stamp_from(&config_thread).unwrap();
+            loaded.finance.watchlist = vec![format!("S{index}")];
+            assert!(loaded.save_if_unchanged_at(&config_thread, &stamp).unwrap());
+        }
+    });
+    for index in 0..40 {
+        seed(&path, &["AAPL"], &[f64::from(index)], now_ms());
+    }
+    settings_saves.join().unwrap();
+    let (saved, _) = buddy_core::config::AppConfig::load_with_stamp_from(&config).unwrap();
+    assert_eq!(saved.finance.watchlist, vec!["S39".to_string()]);
+    let cached = cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).unwrap();
+    assert_eq!(cached.quotes[0].price, 39.0);
+}
+
+#[test]
+fn names_the_settings_writer_uses_are_never_the_cache() {
+    let directory = tempfile::tempdir().unwrap();
+    let beside = |name: &str| cache::path_beside(&directory.path().join(name));
+    // finance-cache.json is the staging-free name for these settings too.
+    assert_eq!(
+        beside("finance-cache"),
+        Some(directory.path().join(cache::FILE_NAME))
+    );
+    // Settings named like a cache staging file are never written beside.
+    assert_eq!(beside(".finance-cache-staging.1.n0.tmp"), None);
+    assert_eq!(beside(".FINANCE-CACHE-STAGING.json"), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_at_the_cache_name_is_ignored_without_blocking() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = cache_file(&directory);
+    let made = std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let (done, finished) = std::sync::mpsc::channel();
+    let fifo = path.clone();
+    std::thread::spawn(move || {
+        let _ = done.send(cache::load_fresh(&fifo, &symbols(&["AAPL"]), now_ms()));
+    });
+    let loaded = finished
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("reading a FIFO must not block");
+    assert!(loaded.is_none());
+    // A link to a valid cache is not followed either.
+    let real = directory.path().join("real.json");
+    seed(&real, &["AAPL"], &[200.0], now_ms());
+    std::fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink(&real, &path).unwrap();
+    assert!(cache::load_fresh(&path, &symbols(&["AAPL"]), now_ms()).is_none());
+    assert!(cache::load_fresh(&real, &symbols(&["AAPL"]), now_ms()).is_some());
 }

@@ -221,8 +221,6 @@ pub struct DashboardView {
     quote_cache_path: Option<PathBuf>,
     /// The cache is read once, by the first quote load.
     quote_cache_checked: bool,
-    /// Orders the background saves and Clear Cache's removal.
-    quote_writer: finance::cache::Writer,
     /// Inputs the last loads used, so a Settings change (Reload or an
     /// external edit) refreshes only the cards whose inputs changed.
     loaded_watchlist: Vec<String>,
@@ -317,7 +315,6 @@ impl DashboardView {
             )),
             quote_cache_path: default_quote_cache_path(),
             quote_cache_checked: false,
-            quote_writer: Default::default(),
             loaded_watchlist: Vec::new(),
             loaded_github: GitHubConfig::default(),
             loaded_pollen_key: String::new(),
@@ -840,7 +837,8 @@ impl DashboardView {
             return;
         };
         let fetched_at = jiff::Timestamp::now().as_millisecond();
-        let writer = self.quote_writer.clone();
+        // One writer per path for the process, shared with every dashboard.
+        let writer = finance::cache::Writer::shared(&path);
         let ticket = writer.ticket();
         let (symbols, quotes) = (symbols.to_vec(), quotes.to_vec());
         cx.background_executor()
@@ -1115,9 +1113,8 @@ impl DashboardView {
         // Serialized after any save already running; an earlier save that
         // has not run yet is dropped.
         let removed = match &self.quote_cache_path {
-            Some(path) => self
-                .quote_writer
-                .remove(self.quote_writer.ticket(), path)
+            Some(path) => finance::cache::Writer::shared(path)
+                .remove_next(path)
                 .map(|_| ())
                 .map_err(|err| {
                     log::warn!("finance quote cache was not cleared: {err}");

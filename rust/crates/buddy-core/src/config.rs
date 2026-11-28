@@ -533,7 +533,7 @@ impl FileStamp {
 }
 
 /// Create `path` holding `body`, readable only by its owner on Unix.
-pub(crate) fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
+fn write_private(path: &std::path::Path, body: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     // A temp file left by an interrupted save of a process with the same id
     // would keep its old mode; no live process can own this name.

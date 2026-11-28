@@ -286,15 +286,22 @@ class CachedFinance(unittest.TestCase):
             self.assertEqual(set(quote), {"symbol", "name", "price", "change", "changePercent", "previousClose", "marketOpen"})
 
     def test_the_relaunch_is_offline_and_the_environment_is_restored(self):
-        with patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example:8080", "NO_PROXY": "localhost"}, clear=False):
-            import os
+        import os
+        touched = PROXY_VARIABLES + ("NO_PROXY", "no_proxy")
+        # Whatever the host has is replaced for the test: one variable set,
+        # one exclusion set, every other proxy variable absent.
+        with patch.dict("os.environ", {}, clear=False):
+            for name in touched:
+                os.environ.pop(name, None)
+            os.environ["HTTPS_PROXY"] = "http://proxy.example:8080"
+            os.environ["NO_PROXY"] = "localhost"
+            before = {name: os.environ.get(name) for name in touched}
             with offline_network():
                 for name in PROXY_VARIABLES:
                     self.assertEqual(os.environ[name], OFFLINE_PROXY)
                 self.assertNotIn("NO_PROXY", os.environ)
-            self.assertEqual(os.environ["HTTPS_PROXY"], "http://proxy.example:8080")
-            self.assertEqual(os.environ["NO_PROXY"], "localhost")
-            self.assertNotIn("ALL_PROXY", os.environ)
+                self.assertNotIn("no_proxy", os.environ)
+            self.assertEqual({name: os.environ.get(name) for name in touched}, before)
 
     def test_the_capture_needs_the_cached_name_price_and_version(self):
         require_cached_finance("Finance Qualification Quote OPEN 987.65 +1.25 (+0.13%) 0.1.2", "0.1.2")
