@@ -330,19 +330,55 @@ LIST_ROW = "#8 Paginated fixture follow-up"
 # The open menu covers the end of the row title (run 45812387690 on Ubuntu read
 # "#8 paginated fixture follow: un"), so its capture checks only the start.
 LIST_ROW_UNDER_MENU = "#8 Paginated"
-# Electron's menu entries native has, in Electron's order. The navigation
-# pass bookmarked native-demo, so the repository entry offers to remove it.
-# Tesseract read "AI" as "al" in every layout of that capture.
-LIST_MENU = ("Request AI Review|Request al Review", "Request Copilot Review", "Approve", "Copy Link",
-    "Unbookmark native-demo")
-# Electron's entry native leaves out: it sends a prompt to the assistant.
-LIST_MENU_ABSENT = ("Address Unresolved",)
+# Electron's menu entries, in Electron's order. The navigation pass
+# bookmarked native-demo, so the repository entry offers to remove it.
+# Tesseract read "AI" as "al" in every layout of that capture. The fixture's
+# #8 lists one review thread, so Address Unresolved Comments is offered.
+LIST_MENU = ("Request AI Review|Request al Review", "Request Copilot Review", "Address Unresolved",
+    "Approve", "Copy Link", "Unbookmark native-demo")
+ADDRESS_ENTRY = "Address Unresolved Comments"
+# The first words of Electron's buildAddressCommentsPrompt (assistantPrompts.ts:8),
+# which the menu entry sends to the assistant.
+ADDRESS_PROMPT = "Address the unresolved"
 
 
 def list_menu_actions(theme):
     return [("sidebar", "Needs Review"), ("wait_content", LIST_ROW),
         ("content_menu", LIST_ROW), ("wait_text", "Copy Link"),
         ("capture", f"pr-list-context-menu-{theme}"), ("key", "Escape"), ("sleep", 1)]
+
+
+def address_comments_actions():
+    """Right-click #8, choose Address Unresolved Comments, and wait for the
+    opened assistant to show Electron's prompt. The scene has no Copilot
+    account, so the turn does not start and the prompt stays in the box."""
+    return [("sidebar", "Needs Review"), ("wait_content", LIST_ROW),
+        ("content_menu", LIST_ROW), ("wait_text", ADDRESS_ENTRY), ("content", ADDRESS_ENTRY),
+        ("wait_text", ADDRESS_PROMPT), ("sleep", 1), ("capture", "address-comments-dark")]
+
+
+def require_address_reads(requests):
+    """The entry reads review threads as the listed account and writes
+    nothing. The fixture records a GraphQL read by its operation name only."""
+    reads = [request for request in requests if "NativePullThreads" in request.get("query", "")]
+    if not reads or any(request["account"] != "fixture-one" for request in reads):
+        raise RuntimeError("Address Unresolved Comments did not read the review threads as the listed account")
+    if any(request["method"] != "GET" and request["path"] != "/graphql" for request in requests):
+        raise RuntimeError("Address Unresolved Comments wrote to GitHub")
+
+
+def qualify_address_comments(driver, config, api):
+    """Send #8's unresolved comments to the assistant from the row menu. The
+    configuration, which the opened assistant changes, is restored."""
+    saved = config.read_text(encoding="utf-8-sig")
+    start = len(api.requests)
+    try:
+        reset_section(config)
+        directory = driver.drive("address-comments-dark", address_comments_actions(), record=True)
+        check(directory / "address-comments-dark.png", "Copilot Assistant", ADDRESS_PROMPT)
+        require_address_reads(api.requests[start:])
+    finally:
+        config.write_text(saved, encoding="utf-8")
 
 
 def require_list_approval(requests):
@@ -370,8 +406,7 @@ def qualify_list_actions(driver, config, api, theme="dark"):
                 ("content", "Confirm action"), ("wait_content", "Commit approved"),
                 ("capture", "pr-list-approve-dark")]
         directory = driver.drive(f"pr-list-actions-{theme}", actions, record=theme == "dark")
-        check(directory / f"pr-list-context-menu-{theme}.png", LIST_ROW_UNDER_MENU, *LIST_MENU,
-            absent=LIST_MENU_ABSENT)
+        check(directory / f"pr-list-context-menu-{theme}.png", LIST_ROW_UNDER_MENU, *LIST_MENU)
         if theme == "dark":
             require_list_approval(api.requests[start:])
             check(directory / "pr-list-approve-dark.png", LIST_ROW, "Approved", "Commit approved")
@@ -495,6 +530,7 @@ def qualify(executable, output, session, version, backend, api):
         raise RuntimeError("The installed favorite action was not persisted")
     qualify_workbench(driver, config, backend)
     qualify_list_actions(driver, config, api)
+    qualify_address_comments(driver, config, api)
 
     # StatusBar.tsx: the assistant indicator and brand in the centre, and the
     # background sync item for the configured accounts' PR lists.
@@ -550,6 +586,7 @@ def qualify(executable, output, session, version, backend, api):
         dataSource="Synthetic loopback GitHub API with fake credentials and an isolated anonymous Convex deployment",
         checks=["four PR modes", "PR-list activity and restart persistence", "filter and card/list persistence", "all PR detail tabs", "confirmed scoped fixture comment", "monitored synthetic review completion with sound enabled; no speaker-output claim",
             "PR list row menu (dark and light)", "confirmed approval from a PR list row",
+            "Address Unresolved Comments sent to the assistant",
             "repository/commit/issue navigation", "profile/calendar/teams", "organization rate-limit gauge", "personal-namespace current workbench", "status bar assistant, brand and PR sync items",
             "sidebar width from ui.paneSizes", "divider drag saved to ui.paneSizes", "ui.zoomLevel 125 root zoom", "Convex bookmark and favorite",
             "GitHub view and repository-list activity", "bookmarked-only repository filter",

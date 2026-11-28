@@ -202,6 +202,8 @@ fn the_recent_list_shows_newest_results_with_status_and_time_and_opens_the_click
                 partial: false,
                 unconfirmed: false,
                 text: "Synthetic question".into(),
+                context: None,
+                note: None,
             });
             cx.notify();
         })

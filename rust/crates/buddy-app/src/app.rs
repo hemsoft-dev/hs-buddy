@@ -332,6 +332,26 @@ impl BuddyApp {
         });
         cx.refresh_windows();
     }
+    /// Electron's `assistant:send-prompt`: another view's prompt, sent by
+    /// the assistant with the sender's model. Electron's event reaches only
+    /// an open assistant; native opens it first, so the prompt is never lost.
+    pub(crate) fn send_assistant_prompt(
+        &mut self,
+        prompt: crate::copilot_view::chat::AssistantPrompt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !Settings::global(cx).config.ui.assistant_open {
+            Self::toggle_assistant(cx);
+        }
+        // The assistant reads this shell for its context as it sends, so it
+        // sends once this update has finished.
+        let assistant = self.assistant.clone();
+        window.defer(cx, move |window, cx| {
+            assistant.update(cx, |view, cx| view.inject(prompt, window, cx));
+        });
+        cx.notify();
+    }
     pub(crate) fn toggle_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let open = !Settings::global(cx).config.ui.terminal_open;
         if Settings::update(cx, |config| config.ui.terminal_open = open) {
@@ -757,6 +777,9 @@ impl BuddyApp {
                     this.copilot_view.update(cx, |view, cx| {
                         view.prepare_review(client.clone(), pull.clone(), cx)
                     });
+                }
+                crate::github_view::GitHubEvent::SendAssistantPrompt(prompt) => {
+                    this.send_assistant_prompt(prompt.clone(), window, cx);
                 }
                 crate::github_view::GitHubEvent::StartRalph(handoff) => {
                     this.set_section(Some(Section::Ralph), cx);
@@ -1751,6 +1774,57 @@ mod tests {
                     .all(|(a, b)| (a - b).abs() <= 1.0),
             "{saved:?} != {expected:?}"
         );
+    }
+
+    /// Electron's `assistant:send-prompt` reaches the assistant, which native
+    /// opens first. No account is known here, so the turn cannot start: the
+    /// prompt and its model wait in the assistant, as after any refused send.
+    #[gpui_kit::test]
+    fn a_sent_prompt_opens_the_assistant_with_the_prompt_and_its_model(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        if status_click_child(
+            "app::tests::a_sent_prompt_opens_the_assistant_with_the_prompt_and_its_model",
+        ) {
+            return;
+        }
+        let mut config = buddy_core::config::AppConfig::default();
+        config.native.active_section = Some("github".into());
+        config.save().unwrap();
+        let (window, shell) = test_shell(cx, config, Default::default(), Some(Section::GitHub));
+        let mut visual = gpui_kit::VisualTestContext::from_window(window, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let prompt = crate::copilot_view::chat::AssistantPrompt {
+            prompt: "Address the unresolved review comments on PR #7".into(),
+            model: Some("claude-opus-4.6".into()),
+            context: Some("Thread context".into()),
+            context_label: Some("1 unresolved review thread".into()),
+        };
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.send_assistant_prompt(prompt, window, cx)
+            })
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|_, cx| {
+            assert!(Settings::global(cx).config.ui.assistant_open);
+            assert!(
+                buddy_core::config::AppConfig::load()
+                    .unwrap()
+                    .ui
+                    .assistant_open
+            );
+            let assistant = shell.read(cx).assistant.read(cx);
+            assert_eq!(
+                assistant.injected_state(cx),
+                (
+                    "Address the unresolved review comments on PR #7".into(),
+                    Some(Some("claude-opus-4.6".into()))
+                )
+            );
+        });
+        assert!(element_bounds(&mut visual, "assistant-panel").size.width > gpui_kit::px(0.0));
     }
 
     #[gpui_kit::test]

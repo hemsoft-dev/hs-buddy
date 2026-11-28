@@ -88,6 +88,8 @@ pub struct ListedPull {
     pub head_sha: String,
     pub open: bool,
     pub i_approved: bool,
+    /// The PR's review threads, resolved or not, as the list read them.
+    pub threads: u64,
 }
 impl Row {
     pub fn text(title: impl Into<String>, detail: impl Into<String>) -> Self {
@@ -159,6 +161,7 @@ pub(super) fn pull_row(pull: PullSummary) -> Row {
         head_sha: pull.head_sha,
         open: pull.state == "OPEN",
         i_approved: pull.i_approved,
+        threads: pull.thread_count,
     });
     row.route = Some(Route::Pull(pull.target, PullTab::Conversation));
     row

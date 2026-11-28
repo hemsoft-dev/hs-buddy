@@ -27,6 +27,11 @@ struct Message {
     partial: bool,
     unconfirmed: bool,
     text: String,
+    /// Read by the model after `text` on every later turn, never shown: the
+    /// review threads an injected prompt carries (see [`inject`]).
+    context: Option<String>,
+    /// A muted line under the turn, such as which model and context it used.
+    note: Option<String>,
 }
 impl Message {
     fn label(&self) -> &'static str {
@@ -75,7 +80,13 @@ pub(crate) struct ChatView {
     recent: Recent,
     /// Electron's premium usage badge beside the account field.
     badge: Badge,
+    /// A prompt another view sent that has not started a turn yet.
+    injected: Option<inject::Pending>,
 }
+
+#[path = "chat_inject.rs"]
+mod inject;
+pub(crate) use inject::AssistantPrompt;
 
 /// The assistant helper and its private state directory.
 pub(super) fn assistant_paths() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
@@ -100,6 +111,8 @@ impl ChatView {
                     partial,
                     unconfirmed,
                     text: previous.output,
+                    context: None,
+                    note: None,
                 });
             }
         }
@@ -154,6 +167,7 @@ impl ChatView {
             category: Category::General,
             recent: Recent::default(),
             badge: Badge::default(),
+            injected: None,
         }
     }
     pub fn set_default_account(&mut self, account: Option<String>, cx: &mut Context<Self>) {
@@ -362,6 +376,10 @@ impl ChatView {
                 "\nAssistant: "
             });
             full.push_str(&message.text);
+            if let Some(context) = &message.context {
+                full.push_str("\n\n");
+                full.push_str(context);
+            }
         }
         full.push_str("\nUser: ");
         full.push_str(text);
@@ -420,7 +438,18 @@ impl ChatView {
         }
         self.refresh_sidebar_context(cx);
         self.retain_answer(false);
-        let full = self.conversation_prompt(&text);
+        // An injected prompt's model and context apply to the turn it starts.
+        let (injected_model, injected_context) = self
+            .injected
+            .as_ref()
+            .filter(|_| !saved)
+            .map(|injected| (injected.model.clone(), injected.context.clone()))
+            .unwrap_or_default();
+        let mut full = self.conversation_prompt(&text);
+        if let Some(context) = injected_context {
+            full.push_str("\n\n");
+            full.push_str(&context);
+        }
         if full.len() > 256 * 1024 {
             self.error = Some(
                 "This conversation is too large for another turn. Start a new conversation.".into(),
@@ -434,7 +463,7 @@ impl ChatView {
                 .as_ref()
                 .map(|review| review.snapshot.account.clone())
                 .unwrap_or_else(|| self.account.read(cx).value().trim().into()),
-            model: self.model.read(cx).value().trim().into(),
+            model: injected_model.unwrap_or_else(|| self.model.read(cx).value().trim().into()),
             review: self
                 .review
                 .as_ref()
@@ -476,6 +505,7 @@ impl ChatView {
         }
         let mut updates = run.subscribe();
         self.run = Some(run);
+        let injected = if saved { None } else { self.injected.take() };
         self.messages.push(Message {
             user: true,
             partial: false,
@@ -485,6 +515,8 @@ impl ChatView {
             } else {
                 text
             },
+            note: injected.as_ref().map(inject::Pending::note),
+            context: injected.and_then(|injected| injected.context),
         });
         self.error = None;
         self.notice = None;
@@ -543,6 +575,7 @@ impl ChatView {
         self.run = None;
         self.review = None;
         self.apply_review = false;
+        self.injected = None;
         self.messages.clear();
         self.error = None;
         self.notice = None;
@@ -646,6 +679,40 @@ impl ChatView {
         cx.notify();
     }
 }
+impl ChatView {
+    /// The account and model a new conversation starts from, applied when it
+    /// is first drawn or, for an injected prompt, before it is sent.
+    fn apply_defaults(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.populate {
+            return;
+        }
+        if self.reset_account || self.account.read(cx).value().is_empty() {
+            // Electron's prompt box starts from Settings > Copilot SDK's
+            // account, and falls back to the active gh login when unset.
+            let configured = Settings::global(cx).config.copilot.gh_account.trim();
+            let account = if configured.is_empty() {
+                self.default_account.clone()
+            } else {
+                Some(configured.to_string())
+            };
+            // A new conversation with nothing to fall back to (the active
+            // login is still unknown) starts empty rather than keeping the
+            // previous account; a later login lookup then fills it.
+            if let Some(account) = account.or_else(|| self.reset_account.then(String::new)) {
+                self.account
+                    .update(cx, |state, cx| state.set_value(account, window, cx));
+            }
+        }
+        if self.model.read(cx).value().is_empty() {
+            let model = Settings::global(cx).config.copilot.model.clone();
+            self.model
+                .update(cx, |state, cx| state.set_value(model, window, cx));
+        }
+        self.populate = false;
+        self.reset_account = false;
+    }
+}
+
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.apply_review {
@@ -656,32 +723,7 @@ impl Render for ChatView {
             }
             self.apply_review = false;
         }
-        if self.populate {
-            if self.reset_account || self.account.read(cx).value().is_empty() {
-                // Electron's prompt box starts from Settings > Copilot SDK's
-                // account, and falls back to the active gh login when unset.
-                let configured = Settings::global(cx).config.copilot.gh_account.trim();
-                let account = if configured.is_empty() {
-                    self.default_account.clone()
-                } else {
-                    Some(configured.to_string())
-                };
-                // A new conversation with nothing to fall back to (the active
-                // login is still unknown) starts empty rather than keeping the
-                // previous account; a later login lookup then fills it.
-                if let Some(account) = account.or_else(|| self.reset_account.then(String::new)) {
-                    self.account
-                        .update(cx, |state, cx| state.set_value(account, window, cx));
-                }
-            }
-            if self.model.read(cx).value().is_empty() {
-                let model = Settings::global(cx).config.copilot.model.clone();
-                self.model
-                    .update(cx, |state, cx| state.set_value(model, window, cx));
-            }
-            self.populate = false;
-            self.reset_account = false;
-        }
+        self.apply_defaults(window, cx);
         self.sync_badge(false, cx);
         let theme = cx.theme();
         let muted = theme.muted_foreground;
@@ -790,7 +832,13 @@ impl Render for ChatView {
                     .child(markdown::response(
                         ("copilot-message", index),
                         message.text.clone(),
-                    )),
+                    ))
+                    .children(
+                        message
+                            .note
+                            .clone()
+                            .map(|note| div().text_sm().text_color(muted).child(note)),
+                    ),
             );
         }
         if let Some(state) = &snapshot {
@@ -984,6 +1032,11 @@ impl Render for ChatView {
             } else {
                 "Enter sends without saving · Shift+Enter adds a newline"
             }))
+            .children(
+                self.injected
+                    .as_ref()
+                    .map(|injected| div().text_sm().text_color(muted).child(injected.note())),
+            )
             .children(self.sidebar_context.is_none().then(|| {
                 self.category_picker(busy || self.models_loading || self.review_loading, cx)
             }))
@@ -1349,6 +1402,8 @@ mod sidebar_tests {
                     partial: false,
                     unconfirmed: false,
                     text: "Previous question".into(),
+                    context: None,
+                    note: None,
                 });
                 view.set_sidebar_context(
                     crate::assistant_context::AssistantContext {

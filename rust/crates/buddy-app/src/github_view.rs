@@ -1,4 +1,5 @@
 //! Native GitHub workspace. Reads cancel on navigation; writes retain their receipt.
+mod address_comments;
 mod controls;
 mod data;
 mod list_actions;
@@ -104,6 +105,9 @@ fn visible_rows(rows: &[data::Row], query: &str, filter: RepositoryFilter) -> Ve
 
 pub enum GitHubEvent {
     PrepareAssistantReview(github::GitHubClient, github::PullRef),
+    /// Open the assistant and send it a prompt, as Electron's
+    /// `assistant:send-prompt` event does.
+    SendAssistantPrompt(crate::copilot_view::chat::AssistantPrompt),
     /// Open the Ralph form for a pull request or issue, as Electron's handoffs do.
     StartRalph(crate::ralph_view::Handoff),
 }
@@ -174,6 +178,9 @@ pub struct GitHubView {
     pending_list: Option<list_actions::ListOrigin>,
     /// The latest write started from each PR list row, per account and PR.
     row_writes: BTreeMap<String, list_actions::RowWrite>,
+    /// The row whose unresolved review threads are being read for the
+    /// assistant, from its menu's Address Unresolved Comments.
+    addressing: Option<list_actions::RowTarget>,
     write_busy: bool,
     must_reload: bool,
     view_mode: ViewMode,
@@ -287,6 +294,7 @@ impl GitHubView {
             pending: None,
             pending_list: None,
             row_writes: BTreeMap::new(),
+            addressing: None,
             write_busy: false,
             must_reload: false,
             view_mode: ViewMode::Card,
