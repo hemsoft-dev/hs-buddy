@@ -204,3 +204,39 @@ fn a_pr_review_row_keeps_its_link_and_an_unusable_link_hides_only_the_action() {
     let older = parse_results(&bytes(&wire(vec![row()]))).unwrap();
     assert!(older.rows[0].pull_request_url().is_none());
 }
+
+#[test]
+fn a_pr_review_row_keeps_its_title_and_other_categories_have_none() {
+    let rows = [
+        (json!("pr-review"), json!("Fix the synthetic build")),
+        (json!("pr-review"), json!(42)),
+        (json!("pr-review"), Value::Null),
+        (json!("general"), json!("Not a review")),
+    ];
+    let page = parse_results(&bytes(&wire(
+        rows.iter()
+            .enumerate()
+            .map(|(index, (category, title))| {
+                let mut value = row();
+                value["_id"] = json!(format!("result-{index}"));
+                value["categoryLabel"] = category.clone();
+                value["prTitle"] = title.clone();
+                value
+            })
+            .collect(),
+    )))
+    .unwrap();
+    assert_eq!(page.skipped, 0);
+    assert_eq!(
+        page.rows
+            .iter()
+            .map(ResultSummary::review_title)
+            .collect::<Vec<_>>(),
+        [Some("Fix the synthetic build"), Some(""), Some(""), None]
+    );
+    // Deployments from before the title was summarized omit the field.
+    let mut older = row();
+    older["categoryLabel"] = json!("pr-review");
+    let older = parse_results(&bytes(&wire(vec![older]))).unwrap();
+    assert_eq!(older.rows[0].review_title(), Some(""));
+}

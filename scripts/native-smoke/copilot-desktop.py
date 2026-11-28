@@ -39,6 +39,10 @@ class CopilotGitHubBackend(github.GitHubBackend):
             if route == '/copilot-fixture/codex-usage':
                 now = int(time.time())
                 return 200, dict(plan_type='synthetic', rate_limit=dict(primary_window=dict(used_percent=25, reset_at=now + 9000, limit_window_seconds=18000), secondary_window=dict(used_percent=14, reset_at=now + 302400, limit_window_seconds=604800))), {}
+            if route == '/copilot_internal/user':
+                # The premium usage badge's quota: 126 of 300 used.
+                return 200, {'quota_reset_date_utc': '2099-01-01T00:00:00Z', 'quota_snapshots': {'premium_interactions': dict(
+                    entitlement=USAGE_ENTITLEMENT, remaining=USAGE_REMAINING, overage_count=0, percent_remaining=58)}}, {}
             if route.endswith('/copilot/billing'):
                 return 200, {'seat_breakdown': {'total': 1}}, {}
             if route.endswith('/settings/billing/usage'):
@@ -171,11 +175,34 @@ def assert_private_content_not_logged(output):
             raise RuntimeError('Private synthetic assistant/session data appeared in app diagnostics')
 
 
+USAGE_ENTITLEMENT, USAGE_REMAINING = 300, 174
+# The badge reads "42% · 174/300"; only the figures are matched.
+USAGE_BADGE = f'{USAGE_REMAINING}/{USAGE_ENTITLEMENT}'
+# The sidebar row of the review-dark result, "PR Review: <title>". The sidebar
+# cuts the title to its width, as Electron's does: the 1044 px Windows window
+# shows "PR Review: Se..." (run 46007700214), so only the prefix is matched.
+# Chat's "PR Review" category button is a complete label and would win over
+# this row, so the scene opens the section from a pane without it.
+RECENT_REVIEW_LABEL = 'PR Review'
+# The colon tells the row from Saved results' "PR reviews" filter. Windows OCR
+# reads it as a full stop. The title's first letters, "Se", are on the row at
+# every width the scenes use, so a row that lost its title ("PR Review:
+# Untitled") fails the check.
+RECENT_REVIEW_MARKER = 'PR Review: Se|PR Review. Se'
+RECENT_REVIEW_ABSENT = ('Untitled',)
+# The opened result's first control, above everything it scrolls.
+RESULT_TOP = 'Refresh this result'
+# Any of these sits inside the opened result pane, whichever is in view after
+# it scrolls: wheel there, never at the driver's default point. Beside the
+# Copilot sidebar that point (600, 400) lies on the short results list, which
+# does not scroll (Ubuntu: rerun-dark in run 46007700214, review-dark's
+# 'Confirm publication' in run 46084940944).
+RESULT_PANE = 'Publish to PR|Copy answer|Refresh this result'
 CODE_MARKER = 'BUDDYCODE48213'
 CODE_LINE = 'copy only this'
 UNCONFIRMED_ENDING = 'will not resend'
 UNCONFIRMED_LAST_LINE_WORD = 'resend'
-STARTUP_SCENES = ('chat-dark', 'rerun-dark', 'code-copy-dark', 'review-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
+STARTUP_SCENES = ('chat-dark', 'rerun-dark', 'code-copy-dark', 'review-dark', 'recent-results-dark', 'session-workspaces-dark', 'review-unconfirmed-light', 'usage-light', 'code-copy-light', 'codex-auth-error-light', 'sessions-light')
 
 
 def assert_startup_logs_clean(output):
@@ -253,12 +280,22 @@ def rerun_turns(driver):
     one streaming turn while that capture is armed, and the cancel marker never
     streams to completion, so the re-run ends by its own Cancel."""
     rerun = driver.drive('rerun-dark', [
-        ('wait_scroll_text', 'RECENTROW'), ('content', 'RECENTROW'),
+        # Scoped below the Recent list's Refresh button rather than by the
+        # native menu row: on the hosted Intel Mac Vision rejected this frame
+        # (invalidBounds) and sparse Tesseract read the menu as "Fie Edt View
+        # Help", so no content label could be scoped (run 46108218952, both
+        # attempts). The Refresh row stays readable in that reading.
+        ('wait_scroll_text', 'RECENTROW'), ('between', 'RECENTROW', 'Refresh'),
         ('wait_text', 'Re-run this prompt'), ('capture', 'recent-opened-dark'),
         ('content', 'Re-run this prompt'), ('wait_text', 'Re-running this prompt'), ('sleep', 3),
         ('content', 'Cancel re-run'), ('wait_scroll_text', 'Re-run saved as a new result'), ('capture', 'rerun-saved-dark'),
         # The saved answer sits below the failure notice and its actions.
-        ('content', 'Open re-run result'), ('wait_scroll_text', 'Partial synthetic answer'), ('capture', 'rerun-opened-dark'),
+        # Wheel over the opened result, measured by its top button: beside
+        # the Copilot sidebar the default point (600, 400) of a 1200 px
+        # window is on the short results list, which does not scroll
+        # (Ubuntu, run 46007700214).
+        ('content', 'Open re-run result'), ('wait_scroll_text', 'Partial synthetic answer', RESULT_TOP),
+        ('capture', 'rerun-opened-dark'),
     ], record=True)
     github.check(rerun / 'recent-opened-dark.png', 'RECENTROW', 'Re-run this prompt')
     github.check(rerun / 'rerun-saved-dark.png', 'Re-run cancelled', 'Re-run saved as a new result', 'Open re-run result')
@@ -288,6 +325,8 @@ def code_copy(driver, appearance):
     # installed app. Headless GPUI tests prove the copied text.
     name = 'code-copy-' + appearance
     captures = [name]
+    # Electron's premium usage badge beside the account field.
+    badge = 'copilot-usage-badge-' + appearance
     if appearance == 'light':
         # At 900x650 the chat pane is shorter than one wheel step, so use the
         # saved result's taller pane. Revealing the code line keeps the control
@@ -295,17 +334,48 @@ def code_copy(driver, appearance):
         captures.append('code-copy-compact-light')
         reveal = [('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
             ('wait_text', 'Synthetic assistant'), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', name),
-            ('resize', 900, 650), ('reveal_text', CODE_LINE, 'Copy prompt'), ('capture', captures[1])]
+            # Compact beside the Copilot sidebar, fine reveal steps moved the
+            # pane about 84 px in their whole wait on macos-15 (run
+            # 46099336758). The fenced block ends the answer, so a coarse step
+            # at the result pane leaves it and its Copy code control in view.
+            ('resize', 900, 650), ('wait_scroll_text', CODE_LINE, RESULT_PANE), ('capture', captures[1])]
     else:
         reveal = [('wait_scroll_up', 'Copy code', 'Saved to results'), ('capture', name)]
     scene = driver.drive(name, [
-        ('input', 'GitHub account', 'synthetic-account'), ('content', 'Load available models'),
+        ('input', 'GitHub account', 'synthetic-account'),
+        *([('wait_text', USAGE_BADGE), ('capture', badge)] if appearance == 'light' else []),
+        ('content', 'Load available models'),
         ('wait_models', 'Synthetic offline model'), ('content', 'Synthetic offline model'),
         ('input', 'Message', 'BUDDYSTREAM61527 ' + CODE_MARKER), ('content', 'Run and save'),
         ('wait_scroll_text', 'Saved to results'), *reveal, ('content', 'Copy code'),
     ], record=appearance == 'dark')
+    if appearance == 'light':
+        github.check(scene / (badge + '.png'), 'GitHub account', USAGE_BADGE)
     for capture in captures:
         github.check(scene / (capture + '.png'), 'Copy code', CODE_LINE)
+
+
+def recent_results(driver):
+    """The premium usage badge beside the account, then the sidebar's Recent
+    Results section: open it, find the review-dark result and open it."""
+    scene = driver.drive('recent-results-dark', [
+        ('input', 'GitHub account', 'synthetic-account'), ('wait_text', USAGE_BADGE),
+        ('capture', 'copilot-usage-badge-dark'),
+        # Sessions has no "PR Review" label, so the sidebar row is the only
+        # one. A row still opens its result in Saved results from any pane.
+        ('content', 'Sessions'),
+        # Electron's section starts collapsed. Wait for the row before
+        # clicking it: the list is read again when the section opens.
+        ('content', 'Recent Results'), ('wait_text', RECENT_REVIEW_LABEL), ('sleep', 1),
+        ('capture', 'copilot-recent-results-dark'),
+        ('content', RECENT_REVIEW_LABEL), ('wait_text', 'Captured review'),
+        ('capture', 'copilot-recent-result-opened-dark'),
+    ], record=True)
+    github.check(scene / 'copilot-usage-badge-dark.png', 'GitHub account', USAGE_BADGE)
+    github.check(scene / 'copilot-recent-results-dark.png', 'Recent Results', RECENT_REVIEW_MARKER,
+        absent=RECENT_REVIEW_ABSENT)
+    github.check(scene / 'copilot-recent-result-opened-dark.png', RECENT_REVIEW_MARKER, 'Captured review',
+        absent=RECENT_REVIEW_ABSENT)
 
 
 def review_pull_request(driver):
@@ -318,11 +388,11 @@ def review_pull_request(driver):
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('wait_text', 'Open PR on GitHub'), ('capture', 'review-result-dark'),
         ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
-        ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-dark'),
+        ('wait_scroll_text', 'Confirm publication', RESULT_PANE), ('capture', 'publish-confirmation-dark'),
         ('content', 'Cancel publication'), ('wait_scroll_up', 'Publish to PR'), ('content', 'Publish to PR'),
-        ('content', 'Confirm publication'), ('wait_scroll_text', 'Review comment published'),
+        ('content', 'Confirm publication'), ('wait_scroll_text', 'Review comment published', RESULT_PANE),
         ('capture', 'publish-acknowledged-dark'), ('wait_scroll_up', 'Refresh this result', 'Review comment published'), ('content', 'Refresh this result'),
-        ('wait_scroll_text', 'Review comment published'), ('capture', 'publish-retained-dark'),
+        ('wait_scroll_text', 'Review comment published', RESULT_PANE), ('capture', 'publish-retained-dark'),
     ], record=True)
     github.check(review / 'review-context-dark.png', 'synthetic-account', 'Run and save')
     github.check_column(review / 'review-result-dark.png', 'Captured review',
@@ -342,16 +412,21 @@ def review_publication_unconfirmed(driver):
         ('content', 'Run and save'), ('wait_scroll_text', 'Saved to results'),
         ('reveal_text', 'Inspect saved result', 'Saved to results'), ('content', 'Inspect saved result'),
         ('wait_text', 'Captured review'), ('resize', 900, 650),
-        ('reveal_text', 'Publish to PR', 'Captured review'), ('content', 'Publish to PR'),
-        ('wait_scroll_text', 'Confirm publication'), ('capture', 'publish-confirmation-compact-light'),
-        ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed'),
+        # In the compact pane beside the Copilot sidebar the saved answer
+        # wraps far longer than before. Fine reveal steps moved it about 190
+        # px in their whole wait and left the button at the bottom edge
+        # (Ubuntu, run 46091172351). The button ends the result, so a coarse
+        # step at the pane reaches it.
+        ('wait_scroll_text', 'Publish to PR', RESULT_PANE), ('content', 'Publish to PR'),
+        ('wait_scroll_text', 'Confirm publication', RESULT_PANE), ('capture', 'publish-confirmation-compact-light'),
+        ('content', 'Confirm publication'), ('wait_scroll_text', 'Publication unconfirmed', RESULT_PANE),
         ('capture', 'publish-unconfirmed-compact-light'), ('wait_scroll_up', 'Refresh this result', 'Publication unconfirmed'), ('content', 'Refresh this result'),
         # The two-line status ends below a 650px window on Ubuntu; wait for its
         # last line so the capture holds the whole status, not its first line.
         # A wait matches within one OCR line, and the Mac font breaks the
         # status between "will" and "not resend it" (run 44786129019), so
         # wait for one word of that line. The check below joins lines.
-        ('wait_scroll_text', UNCONFIRMED_LAST_LINE_WORD), ('capture', 'publish-unconfirmed-retained-light'),
+        ('wait_scroll_text', UNCONFIRMED_LAST_LINE_WORD, RESULT_PANE), ('capture', 'publish-unconfirmed-retained-light'),
     ], record=True)
     github.check(review / 'publish-unconfirmed-retained-light.png', 'Publication unconfirmed', UNCONFIRMED_ENDING)
 
@@ -432,6 +507,7 @@ def qualify(executable, output, session, version, backend, api):
             write_section(config, 'github')
             review_pull_request(driver)
             write_section(config, 'copilot')
+            recent_results(driver)
             session_workspaces.qualify_dark(driver, user_directory, github.check)
             light = json.loads(fixture(output / 'light-template', 'light').read_text())['ui']
             write_section(config, 'github', light)

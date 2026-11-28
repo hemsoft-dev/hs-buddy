@@ -2,6 +2,7 @@ import { convexTest } from 'convex-test'
 import { makeFunctionReference, type ApiFromModules, type FunctionReturnType } from 'convex/server'
 import { expect, test } from 'vitest'
 import schema from '../schema'
+import type { Id } from '../_generated/dataModel'
 import type * as nativeModule from '../copilotNative'
 
 const modules = import.meta.glob('../**/*.*s')
@@ -226,6 +227,105 @@ test('status and category filters use only their matching records', async () => 
   const category = await t.query(byCategory, { category: 'pr-review', paginationOpts: first })
   expect(running.page.map(row => row.promptPreview)).toEqual(['running'])
   expect(category.page.map(row => row.promptPreview)).toEqual(['failed'])
+})
+
+test('only pr-review summaries carry their reviewed PR title, as a preview', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async ctx => {
+    for (const [index, row] of [
+      { category: 'pr-review', metadata: { prTitle: 'Fix 界', privateToken: 'must-not-appear' } },
+      { category: 'general', metadata: { prTitle: 'Not a review' } },
+      { category: 'pr-review', metadata: { prTitle: 42 } },
+      { category: 'pr-review', metadata: { prTitle: 'a\nb' + 'c'.repeat(300) } },
+      { category: 'pr-review', metadata: null },
+      { category: 'pr-review' },
+    ].entries()) {
+      await ctx.db.insert('copilotResults', {
+        prompt: `row ${index}`,
+        status: 'completed',
+        createdAt: 10 - index,
+        ...row,
+      })
+    }
+  })
+  const result = await t.query(list, { paginationOpts: { numItems: 25, cursor: null } })
+  expect(result.page.map(row => row.prTitle)).toEqual([
+    'Fix 界',
+    undefined,
+    undefined,
+    'a b' + 'c'.repeat(197) + '…',
+    undefined,
+    undefined,
+  ])
+  expect(JSON.stringify(result)).not.toContain('must-not-appear')
+})
+
+test('a review saved before metadata.prTitle takes its title from the linked review run', async () => {
+  const t = convexTest(schema, modules)
+  await t.run(async ctx => {
+    const run = (resultId: Id<'copilotResults'>, prTitle: string) =>
+      ctx.db.insert('prReviewRuns', {
+        owner: 'acme',
+        repo: 'repo',
+        prNumber: 7,
+        prUrl: 'https://github.com/acme/repo/pull/7',
+        prTitle,
+        status: 'completed',
+        resultId,
+        prompt: 'review',
+        createdAt: 1,
+        updatedAt: 1,
+      })
+    // Inserted oldest first, so every index lists them newest first.
+    const general = await ctx.db.insert('copilotResults', {
+      prompt: 'general',
+      status: 'completed',
+      category: 'general',
+      createdAt: 1,
+    })
+    await run(general, 'Not a review')
+    await ctx.db.insert('copilotResults', {
+      prompt: 'unlinked',
+      status: 'completed',
+      category: 'pr-review',
+      createdAt: 2,
+    })
+    const legacy = await ctx.db.insert('copilotResults', {
+      prompt: 'legacy',
+      status: 'completed',
+      category: 'pr-review',
+      metadata: { prUrl: 'https://github.com/acme/repo/pull/7' },
+      createdAt: 3,
+    })
+    await run(legacy, 'Legacy\ntitle')
+    const stored = await ctx.db.insert('copilotResults', {
+      prompt: 'stored',
+      status: 'completed',
+      category: 'pr-review',
+      metadata: { prTitle: 'Stored title' },
+      createdAt: 4,
+    })
+    await run(stored, 'Run title must not win')
+  })
+  const titles = (page: { prTitle?: string }[]) => page.map(row => row.prTitle)
+  const paging = { paginationOpts: { numItems: 25, cursor: null } }
+  expect(titles((await t.query(list, paging)).page)).toEqual([
+    'Stored title',
+    'Legacy title',
+    undefined,
+    undefined,
+  ])
+  expect(titles((await t.query(byStatus, { ...paging, status: 'completed' })).page)).toEqual([
+    'Stored title',
+    'Legacy title',
+    undefined,
+    undefined,
+  ])
+  expect(titles((await t.query(byCategory, { ...paging, category: 'pr-review' })).page)).toEqual([
+    'Stored title',
+    'Legacy title',
+    undefined,
+  ])
 })
 
 test('only pr-review summaries carry their reviewed PR link', async () => {

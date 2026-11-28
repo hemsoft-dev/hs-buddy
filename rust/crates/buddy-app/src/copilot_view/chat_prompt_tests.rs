@@ -170,8 +170,9 @@ fn the_recent_list_shows_newest_results_with_status_and_time_and_opens_the_click
     cx.update(|cx| {
         let opened = opened.clone();
         cx.subscribe(&view, move |_, event: &ChatEvent, _| {
-            let ChatEvent::OpenResult(id) = event;
-            opened.borrow_mut().push(id.clone());
+            if let ChatEvent::OpenResult(id) = event {
+                opened.borrow_mut().push(id.clone());
+            }
         })
         .detach();
         view.update(cx, |view, cx| {
@@ -226,9 +227,18 @@ fn the_prompt_header_shows_the_active_count_only_while_prompts_are_active(
     )));
     assert_eq!(recent.badge().as_deref(), Some("3 active"));
     assert!(!recent.unavailable);
-    // A failed count read keeps the last count and says the list is stale.
+    // A failed count read leaves the fresh rows fresh; only the count is
+    // unknown, so it is not shown.
     recent.apply(Some(recent::fetched(Vec::new(), None)));
-    assert_eq!(recent.badge().as_deref(), Some("3 active"));
+    assert_eq!(recent.badge(), None);
+    assert!(!recent.unavailable);
+    // A failed rows read says the list is stale, and a count read with it
+    // still shows.
+    recent.apply(Some(recent::failed_rows(Some(ActiveCounts {
+        pending: 2,
+        running: 0,
+    }))));
+    assert_eq!(recent.badge().as_deref(), Some("2 active"));
     assert!(recent.unavailable);
     recent.apply(Some(recent::fetched(
         Vec::new(),

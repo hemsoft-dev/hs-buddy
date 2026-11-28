@@ -3,7 +3,7 @@
 //! saved result, so a stored record can't be rewritten by the client.
 use super::*;
 use crate::settings::Settings;
-use buddy_core::copilot_assistant::{self, Progress, RunHandle, RunOptions, SaveState};
+use buddy_core::copilot_assistant::{self, Activity, Progress, RunHandle, RunOptions, SaveState};
 use buddy_core::copilot_backend::RecordOptions;
 use buddy_core::copilot_runs::{Context as RunContext, Failure, Phase};
 
@@ -146,10 +146,19 @@ impl ResultsView {
         let generation = self.rerun.generation;
         Runtime::global(cx).spawn_detached(future);
         cx.spawn(async move |this, cx| {
+            // As a saved Chat run does, the re-run refreshes Recent when its
+            // record is created and again whenever it or a storage retry
+            // finishes, even if the watch channel merged that retry's updates.
+            let mut seen = Activity::STARTED;
             while updates.changed().await.is_ok() {
                 if this
                     .update(cx, |this, cx| {
                         if this.rerun.generation == generation {
+                            let now = this.rerun.run.as_ref().map(RunHandle::activity);
+                            if let Some(now) = now.filter(|now| *now != seen) {
+                                seen = now;
+                                cx.emit(ResultsEvent::Changed);
+                            }
                             cx.notify();
                         }
                     })

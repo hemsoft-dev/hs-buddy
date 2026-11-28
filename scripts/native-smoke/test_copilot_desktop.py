@@ -50,7 +50,7 @@ class ReviewPublication(unittest.TestCase):
         # The check needs the status's last words, so the wait before the
         # capture must scroll until its last line is visible, not just its first.
         required = check.call_args.args[1:]
-        kind, waited = driver.actions[capture - 1]
+        kind, waited = driver.actions[capture - 1][:2]
         self.assertEqual(kind, 'wait_scroll_text')
         # A wait matches inside one OCR line and the status wraps differently
         # per platform font: run 44786129019 broke it after "will" on both
@@ -63,6 +63,96 @@ class ReviewPublication(unittest.TestCase):
         self.assertEqual(status.split().count(waited), 1)
         self.assertIn(waited, status.split()[-2:])
         self.assertIn(waited, required[-1].split())
+
+    def test_every_publication_wait_wheels_inside_the_opened_result(self):
+        # Beside the Copilot sidebar the default wheel point is on the short
+        # results list (Ubuntu run 46084940944: 'Confirm publication' never
+        # came into view). Each downward wait after the result opens names a
+        # label inside the result pane to wheel at.
+        class RecordingDriver:
+            def __init__(self):
+                self.calls = []
+
+            def drive(self, name, actions, *, record=False):
+                self.calls.append((name, actions))
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'), patch.object(copilot.github, 'check_column'):
+            copilot.review_pull_request(driver)
+            copilot.review_publication_unconfirmed(driver)
+        for name, actions in driver.calls:
+            opened = actions.index(('content', 'Inspect saved result'))
+            for action in actions[opened:]:
+                if action[0] == 'wait_scroll_text':
+                    with self.subTest(scene=name, wait=action[1]):
+                        self.assertEqual(len(action), 3)
+                        self.assertIn(action[2], (copilot.RESULT_PANE, copilot.RESULT_TOP))
+
+    def test_the_compact_pass_reaches_publish_with_a_coarse_step_at_the_pane(self):
+        class RecordingDriver:
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'):
+            copilot.review_publication_unconfirmed(driver)
+        resized = driver.actions.index(('resize', 900, 650))
+        publish = driver.actions.index(('content', 'Publish to PR'))
+        self.assertGreater(publish, resized)
+        self.assertEqual(driver.actions[publish - 1], ('wait_scroll_text', 'Publish to PR', copilot.RESULT_PANE))
+        self.assertNotIn('reveal_text', [action[0] for action in driver.actions[resized:publish]])
+
+    def test_the_compact_code_capture_reaches_the_block_with_a_coarse_step(self):
+        class RecordingDriver:
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'):
+            copilot.code_copy(driver, 'light')
+        resized = driver.actions.index(('resize', 900, 650))
+        self.assertEqual(driver.actions[resized + 1], ('wait_scroll_text', copilot.CODE_LINE, copilot.RESULT_PANE))
+        self.assertEqual(driver.actions[resized + 2], ('capture', 'code-copy-compact-light'))
+
+    def test_the_recent_row_is_scoped_by_the_refresh_row_not_the_menu(self):
+        class RecordingDriver:
+            def drive(self, name, actions, *, record=False):
+                self.actions = actions
+                return Path('synthetic-recording')
+
+        driver = RecordingDriver()
+        with patch.object(copilot.github, 'check'):
+            copilot.rerun_turns(driver)
+        self.assertIn(('between', 'RECENTROW', 'Refresh'), driver.actions)
+        self.assertNotIn(('content', 'RECENTROW'), driver.actions)
+        # The real Intel sparse reading: the menu row is "Fie Edt View Help",
+        # so content scoping fails while the Refresh row still scopes it.
+        words = json.loads((Path(__file__).with_name('fixtures') / 'intel-rerun-dark-sparse-ocr.json')
+            .read_text(encoding='utf-8'))
+        ocr = copilot.settings.ocr
+        with self.assertRaisesRegex(RuntimeError, 'menu row is not visible'):
+            ocr.find_label(words, 'RECENTROW', False, False, content=True)
+        label = ocr.find_label(words, 'RECENTROW', False, False, between=('Refresh',))
+        self.assertEqual((label['left'], label['top']), (762, 706))
+
+    def test_the_pane_anchor_takes_whichever_of_its_labels_is_in_view(self):
+        def word(text, left, top):
+            return dict(text=text, left=left, top=top, width=8 * len(text), height=14, line=str(top))
+        ocr = copilot.settings.ocr
+        # Scrolled to the publication block: the header button has left the
+        # view, the action row and the publish button remain (wait-status.png
+        # of review-dark in run 46084940944).
+        scrolled = [word('Copy', 820, 596), word('answer', 860, 596), word('Publish', 853, 640),
+            word('to', 910, 640), word('PR...', 930, 640)]
+        self.assertEqual(ocr.locate_label(scrolled, copilot.RESULT_PANE)['top'], 640)
+        # After publishing only the action row may remain.
+        actions_only = [word('Copy', 820, 300), word('answer', 860, 300)]
+        self.assertEqual(ocr.locate_label(actions_only, copilot.RESULT_PANE)['top'], 300)
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label([word('Completed:', 363, 276)], copilot.RESULT_PANE)
 
     def test_the_mac_wrapped_status_is_found_by_its_word_and_not_by_its_phrase(self):
         # Vision lines from the failing macOS capture's layout: the status
@@ -390,21 +480,30 @@ class CopilotQualificationTests(unittest.TestCase):
             saved = actions.index(('wait_scroll_text', 'Saved to results'))
             click = actions.index(('content', 'Copy code'))
             self.assertEqual(click, len(actions) - 1)
+            account = actions.index(('input', 'GitHub account', 'synthetic-account'))
+            badge = ('capture', 'copilot-usage-badge-light')
+            if name.endswith('light'):
+                # The badge is captured once its quota has arrived.
+                self.assertEqual(actions[account + 1:account + 3],
+                    [('wait_text', copilot.USAGE_BADGE), badge])
+            else:
+                self.assertNotIn(badge, actions)
             if name.endswith('light'):
                 # The compact chat pane is too short, so both captures use the
                 # saved result and reveal the code line before each capture.
                 inspect = actions.index(('content', 'Inspect saved result'))
                 large, resize = actions.index(('capture', name)), actions.index(('resize', 900, 650))
                 compact = actions.index(('capture', 'code-copy-compact-light'))
-                reveals = [index for index, action in enumerate(actions)
-                    if action == ('reveal_text', copilot.CODE_LINE, 'Copy prompt')]
-                self.assertEqual(len(reveals), 2)
+                # The large capture reveals the line in fine steps; the compact
+                # one reaches the block's end with a coarse step at the pane.
+                fine = actions.index(('reveal_text', copilot.CODE_LINE, 'Copy prompt'))
+                coarse = actions.index(('wait_scroll_text', copilot.CODE_LINE, copilot.RESULT_PANE))
                 self.assertLess(saved, inspect)
-                self.assertLess(inspect, reveals[0])
-                self.assertLess(reveals[0], large)
+                self.assertLess(inspect, fine)
+                self.assertLess(fine, large)
                 self.assertLess(large, resize)
-                self.assertLess(resize, reveals[1])
-                self.assertLess(reveals[1], compact)
+                self.assertLess(resize, coarse)
+                self.assertLess(coarse, compact)
             else:
                 self.assertNotIn(('resize', 900, 650), actions)
                 reveal = actions.index(('wait_scroll_up', 'Copy code', 'Saved to results'))
@@ -412,9 +511,180 @@ class CopilotQualificationTests(unittest.TestCase):
                 self.assertLess(reveal, actions.index(('capture', name)))
         self.assertEqual([(call.args[0].name, *call.args[1:]) for call in screenshots.call_args_list], [
             ('code-copy-dark.png', 'Copy code', copilot.CODE_LINE),
+            ('copilot-usage-badge-light.png', 'GitHub account', '174/300'),
             ('code-copy-light.png', 'Copy code', copilot.CODE_LINE),
             ('code-copy-compact-light.png', 'Copy code', copilot.CODE_LINE),
         ])
+
+    def test_recent_results_waits_for_the_badge_and_the_row_before_each_click(self):
+        class Driver:
+            def __init__(self):
+                self.runs = []
+
+            def drive(self, name, actions, record=False):
+                self.runs.append((name, actions, record))
+                return Path('unused-' + name)
+
+        driver = Driver()
+        with patch.object(copilot.github, 'check') as screenshots:
+            copilot.recent_results(driver)
+        [(name, actions, record)] = driver.runs
+        self.assertEqual((name, record), ('recent-results-dark', True))
+        self.assertIn(name, copilot.STARTUP_SCENES)
+        self.assertEqual(copilot.RECENT_REVIEW_LABEL, 'PR Review')
+        order = [
+            ('input', 'GitHub account', 'synthetic-account'),
+            ('wait_text', '174/300'),
+            ('capture', 'copilot-usage-badge-dark'),
+            # Chat's category button would win over the row; Sessions has none.
+            ('content', 'Sessions'),
+            ('content', 'Recent Results'),
+            ('wait_text', copilot.RECENT_REVIEW_LABEL),
+            ('capture', 'copilot-recent-results-dark'),
+            ('content', copilot.RECENT_REVIEW_LABEL),
+            ('wait_text', 'Captured review'),
+            ('capture', 'copilot-recent-result-opened-dark'),
+        ]
+        positions = [actions.index(action) for action in order]
+        self.assertEqual(positions, sorted(positions))
+        # The row is clicked only after the list has settled.
+        self.assertIn(('sleep', 1), actions[positions[5]:positions[7]])
+        # Nothing returns to Chat before the row is clicked.
+        self.assertNotIn(('content', 'Chat'), actions)
+        self.assertEqual([(call.args[0].name, *call.args[1:], call.kwargs) for call in screenshots.call_args_list], [
+            ('copilot-usage-badge-dark.png', 'GitHub account', '174/300', {}),
+            ('copilot-recent-results-dark.png', 'Recent Results', 'PR Review: Se|PR Review. Se',
+                dict(absent=('Untitled',))),
+            ('copilot-recent-result-opened-dark.png', 'PR Review: Se|PR Review. Se', 'Captured review',
+                dict(absent=('Untitled',))),
+        ])
+
+    # Tesseract (mode 11) of the opened re-run result in Ubuntu run
+    # 46007700214, 1200x820: the results list, the detail's first lines and
+    # the failure notice above the clipped answer.
+    UBUNTU_OPENED_RERUN = [
+        dict(text='Failed:', left=364, top=270, width=43, height=11, line='26/1/1'),
+        dict(text='BUDDYCANCEL73429', left=414, top=271, width=147, height=10, line='26/1/1'),
+        dict(text='R...', left=567, top=271, width=18, height=10, line='26/1/1'),
+        dict(text='Refresh', left=843, top=270, width=51, height=11, line='27/1/1'),
+        dict(text='this', left=899, top=270, width=26, height=11, line='27/1/1'),
+        dict(text='result', left=930, top=270, width=39, height=11, line='27/1/1'),
+        dict(text='Completed:', left=363, top=306, width=80, height=14, line='28/1/1'),
+        dict(text='BUDDYSTREAM61527', left=449, top=307, width=150, height=10, line='28/1/1'),
+        dict(text='Answer', left=628, top=313, width=67, height=13, line='29/1/1'),
+        dict(text='using', left=701, top=312, width=47, height=18, line='29/1/1'),
+        dict(text='Completed:', left=363, top=378, width=80, height=14, line='33/1/1'),
+        dict(text='BUDDYSTREAM61527', left=449, top=379, width=150, height=10, line='33/1/1'),
+        dict(text='User:', left=629, top=400, width=44, height=13, line='35/1/1'),
+        dict(text='BUDDYCANCEL73429', left=682, top=400, width=190, height=13, line='35/1/1'),
+        dict(text='RECENTROW', left=879, top=400, width=116, height=13, line='35/1/1'),
+        dict(text='This', left=628, top=697, width=26, height=11, line='46/1/1'),
+        dict(text='saved', left=659, top=697, width=38, height=11, line='46/1/1'),
+        dict(text='run', left=702, top=701, width=20, height=7, line='46/1/1'),
+        dict(text='failed.', left=728, top=697, width=35, height=11, line='46/1/1'),
+        dict(text='Any', left=772, top=699, width=24, height=12, line='46/1/1'),
+        dict(text='captured', left=801, top=697, width=57, height=14, line='46/1/1'),
+        dict(text='partial', left=864, top=697, width=40, height=14, line='46/1/1'),
+        dict(text='answer', left=909, top=701, width=47, height=7, line='46/1/1'),
+        dict(text='appears', left=961, top=701, width=51, height=10, line='46/1/1'),
+        dict(text='below.', left=1017, top=697, width=40, height=11, line='46/1/1'),
+    ]
+
+    def test_the_opened_rerun_answer_is_scrolled_over_the_result_not_the_list(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                self.actions = actions
+                return Path('unused-' + name)
+
+        driver = Driver()
+        with patch.object(copilot.github, 'check'):
+            copilot.rerun_turns(driver)
+        opened = driver.actions.index(('content', 'Open re-run result'))
+        self.assertEqual(driver.actions[opened + 1],
+            ('wait_scroll_text', 'Partial synthetic answer', copilot.RESULT_TOP))
+        ocr = copilot.settings.ocr
+        words = self.UBUNTU_OPENED_RERUN
+        # The answer is below the window; only the notice's "partial answer" shows.
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(words, 'Partial synthetic answer')
+        detail_left = min(word['left'] for word in words if word['line'] in ('29/1/1', '35/1/1', '46/1/1'))
+        list_right = max(word['left'] + word['width'] for word in words if word['text'] in ('Completed:', 'BUDDYSTREAM61527'))
+        # The anchorless wheel at x=600 is over the list column, left of the result.
+        self.assertTrue(list_right <= 600 < detail_left)
+        # The anchor is on this frame once, inside the result.
+        top = ocr.locate_label(words, copilot.RESULT_TOP)
+        self.assertGreater(top['left'] + top['width'] / 2, detail_left)
+
+    # Windows OCR (win32 engine) of the failing frame in run 46007700214,
+    # 1044x788: the expanded sidebar's first row, and Chat's category row.
+    WINDOWS_SIDEBAR_ROW = [
+        dict(text='PR', left=95, top=124, width=15, height=10, line='12'),
+        dict(text='Review.', left=115, top=124, width=45, height=10, line='12'),
+        dict(text='Se...', left=165, top=124, width=24, height=10, line='12'),
+        dict(text='1', left=201, top=124, width=4, height=10, line='19'),
+        dict(text='minute', left=212, top=124, width=43, height=10, line='19'),
+        dict(text='ago', left=259, top=127, width=23, height=10, line='19'),
+    ]
+    # Windows OCR reads each category button as its own line.
+    WINDOWS_CHAT_CATEGORIES = [
+        dict(text='PR', left=467, top=585, width=15, height=10, line='40'),
+        dict(text='Review', left=487, top=585, width=43, height=10, line='40'),
+    ]
+
+    def test_the_cut_windows_row_is_found_by_its_prefix_only_away_from_chat(self):
+        ocr = copilot.settings.ocr
+        sidebar, chat = self.WINDOWS_SIDEBAR_ROW, self.WINDOWS_CHAT_CATEGORIES
+        # The row reads "PR Review: Se...", so the full title never appears.
+        with self.assertRaises(RuntimeError):
+            ocr.locate_label(sidebar + chat, 'PR Review: Second')
+        # Beside Chat the prefix resolves to the complete category button,
+        # which would select a category instead of opening the result.
+        self.assertEqual(ocr.locate_label(sidebar + chat, copilot.RECENT_REVIEW_LABEL)['top'], 585)
+        # In Sessions the row is the only "PR Review".
+        row = ocr.locate_label(sidebar, copilot.RECENT_REVIEW_LABEL)
+        self.assertEqual((row['left'], row['top']), (95, 124))
+
+    def test_the_review_row_marker_reads_the_row_and_not_the_results_filter(self):
+        has_marker = copilot.github.has_marker
+        self.assertTrue(has_marker('PR Review: Se... 1 minute ago', copilot.RECENT_REVIEW_MARKER))
+        self.assertTrue(has_marker('PR Review. Se...', copilot.RECENT_REVIEW_MARKER))
+        self.assertTrue(has_marker('PR Review: Second private navigation review', copilot.RECENT_REVIEW_MARKER))
+        self.assertFalse(has_marker('All Pending Running Completed Failed PR reviews', copilot.RECENT_REVIEW_MARKER))
+        self.assertFalse(has_marker('Category General PR Review Code Analysis', copilot.RECENT_REVIEW_MARKER))
+
+    def check_text(self, text, *markers):
+        def recognize(*args, **kwargs):
+            return '' if args[0] == 'ffmpeg' else text
+        with TemporaryDirectory() as temporary, patch.object(copilot.github.settings, 'run', side_effect=recognize):
+            copilot.github.check(Path(temporary) / 'copilot-recent-results-dark.png', *markers,
+                absent=copilot.RECENT_REVIEW_ABSENT)
+
+    def test_an_untitled_review_row_fails_the_recent_results_captures(self):
+        # PR #1028 round 4: the row read as "PR Review: Untitled" when
+        # prTitle was lost, and the bare prefix still passed.
+        row = ' '.join(word['text'] for word in self.WINDOWS_SIDEBAR_ROW)
+        self.assertEqual(row, 'PR Review. Se... 1 minute ago')
+        self.check_text('Recent Results ' + row, 'Recent Results', copilot.RECENT_REVIEW_MARKER)
+        self.check_text('Recent Results PR Review: Second private navigation review 1 minute ago',
+            'Recent Results', copilot.RECENT_REVIEW_MARKER)
+        self.check_text('PR Review: Second private Captured review: owner/repo #7',
+            copilot.RECENT_REVIEW_MARKER, 'Captured review')
+        for untitled in ('PR Review: Untitled 1 minute ago', 'PR Review. Untitled 1 minute ago'):
+            with self.subTest(untitled), self.assertRaises(RuntimeError):
+                self.check_text('Recent Results ' + untitled, 'Recent Results', copilot.RECENT_REVIEW_MARKER)
+        # A titled row beside an untitled one still fails: the title is lost somewhere.
+        with self.assertRaises(RuntimeError):
+            self.check_text('Recent Results ' + row + ' PR Review: Untitled just now',
+                'Recent Results', copilot.RECENT_REVIEW_MARKER)
+
+    def test_a_failed_recent_results_check_stops_the_scene(self):
+        class Driver:
+            def drive(self, name, actions, record=False):
+                return Path('unused-' + name)
+
+        with patch.object(copilot.github, 'check', side_effect=RuntimeError('missing')):
+            with self.assertRaises(RuntimeError):
+                copilot.recent_results(Driver())
 
     def test_fresh_review_selects_the_offline_model_before_dispatch(self):
         # The actual failed Mac capture starts a fresh review app with this
@@ -501,6 +771,8 @@ class CopilotQualificationTests(unittest.TestCase):
             self.assertEqual(usage['usageItems'][0]['date'], '2026-10-02')
             self.assertEqual(usage['usageItems'][0]['quantity'], 1200)
             self.assertEqual(self.request(api, '/orgs/fixture-org/copilot/billing')['seat_breakdown']['total'], 1)
+            premium = self.request(api, '/copilot_internal/user')['quota_snapshots']['premium_interactions']
+            self.assertEqual((premium['remaining'], premium['entitlement']), (174, 300))
             self.assertEqual(self.request(api, '/organizations/fixture-org/settings/billing/budgets?page=1')['budgets'], [])
             first = self.request(api, '/enterprises/fixture-enterprise/settings/billing/budgets?page=1')
             second = self.request(api, '/enterprises/fixture-enterprise/settings/billing/budgets?page=2')

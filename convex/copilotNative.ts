@@ -1,7 +1,7 @@
 import { paginationOptsValidator, type PaginationOptions } from 'convex/server'
 import { v } from 'convex/values'
 import type { Doc } from './_generated/dataModel'
-import { query } from './_generated/server'
+import { query, type QueryCtx } from './_generated/server'
 import { copilotResultStatusValidator } from './lib/domain'
 
 // Lists return display summaries; callers fetch existing full records on demand.
@@ -46,6 +46,15 @@ function reviewedPullRequestUrl(row: Doc<'copilotResults'>): string | undefined 
   return typeof url === 'string' && url.length <= 2048 ? url : undefined
 }
 
+// Electron's sidebar labels a pr-review result with metadata.prTitle.
+function reviewedPullRequestTitle(row: Doc<'copilotResults'>): string | undefined {
+  if (row.category !== 'pr-review') return
+  const metadata: unknown = row.metadata
+  if (typeof metadata !== 'object' || metadata === null || !('prTitle' in metadata)) return
+  const title = metadata.prTitle
+  return typeof title === 'string' ? preview(title) : undefined
+}
+
 function resultSummary(row: Doc<'copilotResults'>) {
   return {
     _id: row._id,
@@ -58,7 +67,25 @@ function resultSummary(row: Doc<'copilotResults'>) {
     duration: row.duration,
     hasOutput: row.result !== undefined,
     prUrl: reviewedPullRequestUrl(row),
+    prTitle: reviewedPullRequestTitle(row),
   }
+}
+
+// Native reviews saved before metadata.prTitle kept their title only in the
+// linked prReviewRuns row. One indexed read per such row, so a page of at most
+// 25 summaries reads at most 25 more rows.
+async function summarize(ctx: QueryCtx, row: Doc<'copilotResults'>) {
+  const summary = resultSummary(row)
+  if (row.category !== 'pr-review' || summary.prTitle !== undefined) return summary
+  const run = await ctx.db
+    .query('prReviewRuns')
+    .withIndex('by_result', q => q.eq('resultId', row._id))
+    .first()
+  return run === null ? summary : { ...summary, prTitle: preview(run.prTitle) }
+}
+
+function summaries(ctx: QueryCtx, rows: Doc<'copilotResults'>[]) {
+  return Promise.all(rows.map(row => summarize(ctx, row)))
 }
 
 function capturedHead(value: string | undefined) {
@@ -97,7 +124,7 @@ export const listResults = query({
       .withIndex('by_created')
       .order('desc')
       .paginate(pageOptions(args.paginationOpts))
-    return { ...result, page: result.page.map(resultSummary) }
+    return { ...result, page: await summaries(ctx, result.page) }
   },
 })
 
@@ -109,7 +136,7 @@ export const listResultsByStatus = query({
       .withIndex('by_status', q => q.eq('status', args.status))
       .order('desc')
       .paginate(pageOptions(args.paginationOpts))
-    return { ...result, page: result.page.map(resultSummary) }
+    return { ...result, page: await summaries(ctx, result.page) }
   },
 })
 
@@ -121,7 +148,7 @@ export const listResultsByCategory = query({
       .withIndex('by_category', q => q.eq('category', args.category))
       .order('desc')
       .paginate(pageOptions(args.paginationOpts))
-    return { ...result, page: result.page.map(resultSummary) }
+    return { ...result, page: await summaries(ctx, result.page) }
   },
 })
 

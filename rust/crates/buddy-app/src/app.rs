@@ -1049,6 +1049,11 @@ impl BuddyApp {
             Selectable as _,
             button::{Button, ButtonVariants as _},
         };
+        if self.active_section == Some(Section::Copilot) {
+            // Electron's Copilot sidebar: its own sections, not a link list.
+            return (!self.folder_open)
+                .then(|| self.copilot_view.update(cx, |view, cx| view.sidebar(cx)));
+        }
         let links = match self.active_section {
             Some(Section::GitHub) => self
                 .github_view

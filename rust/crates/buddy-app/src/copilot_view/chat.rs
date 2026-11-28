@@ -1,10 +1,11 @@
 //! Copilot's native workspace. User execution and backend refresh are explicit.
 use super::markdown;
+use super::premium_badge::{self, Badge, QuotaCache};
 use super::recent::{self, Recent};
 use gpui_kit::EventEmitter;
 use gpui_kit::StatefulInteractiveElement as _;
 
-use buddy_core::copilot_assistant::{self, Progress, RunHandle, RunOptions, SaveState};
+use buddy_core::copilot_assistant::{self, Activity, Progress, RunHandle, RunOptions, SaveState};
 use buddy_core::copilot_backend::{CopilotBackend, RecordOptions};
 use buddy_core::copilot_results::Category;
 use buddy_core::copilot_runs::{Context as RunContext, Phase};
@@ -40,6 +41,9 @@ impl Message {
 }
 pub(super) enum ChatEvent {
     OpenResult(String),
+    /// The Recent rows changed (a read finished or a gone result was
+    /// dropped); the Copilot sidebar lists the same rows.
+    RecentChanged,
 }
 impl EventEmitter<ChatEvent> for ChatView {}
 pub(crate) struct ChatView {
@@ -69,6 +73,8 @@ pub(crate) struct ChatView {
     /// Electron's prompt-box category, stored on a saved result.
     category: Category,
     recent: Recent,
+    /// Electron's premium usage badge beside the account field.
+    badge: Badge,
 }
 
 /// The assistant helper and its private state directory.
@@ -147,6 +153,7 @@ impl ChatView {
             apply_review: false,
             category: Category::General,
             recent: Recent::default(),
+            badge: Badge::default(),
         }
     }
     pub fn set_default_account(&mut self, account: Option<String>, cx: &mut Context<Self>) {
@@ -157,11 +164,112 @@ impl ChatView {
     pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if active {
             self.refresh_recent(cx);
+            // Electron's badge checks its cache again when it is shown.
+            self.sync_badge(true, cx);
         }
         cx.notify();
     }
 
-    /// Reads the 10 newest results and the active count again. A request made
+    pub(super) fn recent(&self) -> &Recent {
+        &self.recent
+    }
+
+    /// Drops a result that is known to be gone from both Recent lists.
+    pub(super) fn forget_recent(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.recent.forget(id) {
+            cx.emit(ChatEvent::RecentChanged);
+            cx.notify();
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn recent_mut(&mut self) -> &mut Recent {
+        &mut self.recent
+    }
+
+    /// Follows the account field: a configured account shows its quota from
+    /// the five-minute cache, or reads it; anything else hides the badge.
+    /// `recheck` reads again once the cached quota is older than five minutes.
+    pub(super) fn sync_badge(&mut self, recheck: bool, cx: &mut Context<Self>) {
+        if self.sidebar_context.is_some() {
+            return;
+        }
+        let typed = self.account.read(cx).value().to_string();
+        let account = premium_badge::configured(&typed, cx);
+        let login = account
+            .as_ref()
+            .map(|account| account.username.clone())
+            .unwrap_or_default();
+        let same = login == self.badge.login;
+        if same && (!recheck || self.badge.state == premium_badge::State::Loading) {
+            return;
+        }
+        self.badge.login = login.clone();
+        self.badge.generation += 1;
+        let Some(account) = account else {
+            self.badge.state = premium_badge::State::Hidden;
+            cx.notify();
+            return;
+        };
+        let now = std::time::Instant::now();
+        if let Some(quota) = cx
+            .try_global::<QuotaCache>()
+            .and_then(|cache| cache.fresh(&login, now))
+        {
+            self.badge.state = premium_badge::State::Shown(quota);
+            cx.notify();
+            return;
+        }
+        self.badge.state = premium_badge::State::Loading;
+        cx.notify();
+        if !cx.has_global::<Runtime>() {
+            return;
+        }
+        let generation = self.badge.generation;
+        let rx = Runtime::global(cx).spawn((self.badge.fetch)(account));
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.ok();
+            this.update(cx, |this, cx| {
+                this.badge_fetched(generation, result, std::time::Instant::now(), cx)
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The quota the badge shows; Electron renders nothing in every other state.
+    pub(super) fn shown_quota(&self) -> Option<premium_badge::Quota> {
+        match self.badge.state {
+            premium_badge::State::Shown(quota) if self.sidebar_context.is_none() => Some(quota),
+            _ => None,
+        }
+    }
+
+    /// A late answer for an earlier account is dropped, as Electron's is.
+    pub(super) fn badge_fetched(
+        &mut self,
+        generation: u64,
+        result: Option<Result<buddy_core::copilot_usage::PremiumQuota, String>>,
+        now: std::time::Instant,
+        cx: &mut Context<Self>,
+    ) {
+        if generation != self.badge.generation {
+            return;
+        }
+        self.badge.state = match result {
+            Some(Ok(premium)) => {
+                let quota = premium_badge::Quota::from_premium(&premium);
+                cx.default_global::<QuotaCache>()
+                    .store(&self.badge.login, quota, now);
+                premium_badge::State::Shown(quota)
+            }
+            _ => premium_badge::State::Failed,
+        };
+        cx.notify();
+    }
+
+    /// Reads the 15 newest results (the sidebar's; the prompt box lists ten)
+    /// and the active count again. A request made
     /// while one is loading runs once that finishes.
     pub(super) fn refresh_recent(&mut self, cx: &mut Context<Self>) {
         if self.sidebar_context.is_some() || !cx.has_global::<Runtime>() {
@@ -175,21 +283,31 @@ impl ChatView {
             self.recent.unavailable = true;
             return;
         };
-        self.recent.loading = true;
-        self.recent.stale = false;
+        let generation = self.recent.begin();
         let rx = Runtime::global(cx).spawn(recent::fetch(backend));
         cx.spawn(async move |this, cx| {
             let fetched = rx.await.ok();
-            this.update(cx, |this, cx| {
-                this.recent.apply(fetched);
-                if this.recent.stale {
-                    this.refresh_recent(cx);
-                }
-                cx.notify();
-            })
-            .ok();
+            this.update(cx, |this, cx| this.recent_arrived(generation, fetched, cx))
+                .ok();
         })
         .detach();
+        cx.notify();
+    }
+
+    /// The reply of the Recent read started at `generation`. An outdated
+    /// reply is dropped and the lists are read again, as is a list that was
+    /// asked for while this read loaded.
+    pub(super) fn recent_arrived(
+        &mut self,
+        generation: u64,
+        fetched: Option<recent::Fetched>,
+        cx: &mut Context<Self>,
+    ) {
+        let applied = self.recent.finish(generation, fetched);
+        if !applied || self.recent.stale {
+            self.refresh_recent(cx);
+        }
+        cx.emit(ChatEvent::RecentChanged);
         cx.notify();
     }
 
@@ -381,7 +499,7 @@ impl ChatView {
         cx.spawn(async move |this, cx| {
             // A saved run refreshes Recent and the badge when its record is
             // created and again when it finishes.
-            let mut seen = (false, true);
+            let mut seen = Activity::STARTED;
             while updates.changed().await.is_ok() {
                 if this
                     .update(cx, |this, cx| {
@@ -390,7 +508,7 @@ impl ChatView {
                                 this.conversation_scroll.scroll_to_bottom();
                             }
                             let now = saved
-                                .then(|| this.run.as_ref().map(RunHandle::record_and_busy))
+                                .then(|| this.run.as_ref().map(RunHandle::activity))
                                 .flatten();
                             if let Some(now) = now.filter(|now| *now != seen) {
                                 seen = now;
@@ -564,6 +682,7 @@ impl Render for ChatView {
             self.populate = false;
             self.reset_account = false;
         }
+        self.sync_badge(false, cx);
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let border = theme.border;
@@ -821,6 +940,11 @@ impl Render for ChatView {
                                     || !self.messages.is_empty(),
                             )),
                     )
+                    .children(self.shown_quota().map(|quota| {
+                        v_flex()
+                            .justify_end()
+                            .child(premium_badge::render(quota, cx))
+                    }))
                     .child(
                         v_flex()
                             .gap_1()
@@ -980,7 +1104,7 @@ impl ChatView {
             .max_h(zpx(108.0))
             .overflow_y_scroll();
         let now = recent::now_ms();
-        for (index, row) in self.recent.rows.iter().enumerate() {
+        for (index, row) in self.recent.prompt_rows().enumerate() {
             let id = row.id.clone();
             list = list.child(
                 Button::new(("copilot-recent-row", index))
@@ -1384,6 +1508,9 @@ mod account_tests {
     }
 }
 
+#[cfg(test)]
+#[path = "premium_badge_tests.rs"]
+mod premium_badge_tests;
 #[cfg(test)]
 #[path = "chat_prompt_tests.rs"]
 mod prompt_tests;

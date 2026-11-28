@@ -207,6 +207,7 @@ async function recordFields(ctx: MutationCtx, args: BeginArgs) {
       repo: review.repo,
       prNumber: review.prNumber,
       prUrl: pullRequestUrl(review),
+      prTitle: review.title,
       ghAccount: args.account,
       reviewedHeadSha: review.head,
     },
